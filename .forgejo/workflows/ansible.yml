@@ -29,11 +29,21 @@ jobs:
     steps:
       - name: 📦 Checkout code
         run: |
+          # Initialize git if not exists
+          if [ ! -d /opt/superdeploy/.git ]; then
+            cd /opt/superdeploy
+            git init
+            git remote add origin http://34.56.43.99:3001/cradexco/superdeploy-app.git
+            git config user.email "runner@superdeploy.local"
+            git config user.name "Superdeploy Runner"
+          fi
+          
+          # Fetch and checkout
           cd /opt/superdeploy
-          git fetch origin
-          git checkout ${{ github.ref_name }}
-          git pull origin ${{ github.ref_name }}
-          echo "✅ Code checked out: $(git rev-parse --short HEAD)"
+          git fetch origin ${{ github.ref_name }} || true
+          git checkout ${{ github.ref_name }} || git checkout -b ${{ github.ref_name }} origin/${{ github.ref_name }}
+          git pull origin ${{ github.ref_name }} || true
+          echo "✅ Code checked out: $(git rev-parse --short HEAD 2>/dev/null || echo 'initial')"
 
       - name: 🔧 Setup Ansible
         run: |
