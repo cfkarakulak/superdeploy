@@ -20,7 +20,12 @@ jobs:
     
     steps:
       - name: 📦 Checkout code
-        uses: actions/checkout@v4
+        run: |
+          cd /opt/superdeploy
+          git fetch origin
+          git checkout ${{ github.ref_name }}
+          git pull origin ${{ github.ref_name }}
+          echo "✅ Code checked out: $(git rev-parse --short HEAD)"
 
       - name: 🔐 Generate .env from Forgejo Secrets
         run: |
@@ -56,7 +61,7 @@ jobs:
           scp -o StrictHostKeyChecking=no /tmp/proxy.env ${{ env.PROXY_USER }}@${{ env.PROXY_HOST }}:${{ env.COMPOSE_DIR }}/.env
           
           # Copy compose files
-          scp -o StrictHostKeyChecking=no -r deploy/compose/vm3-proxy/* ${{ env.PROXY_USER }}@${{ env.PROXY_HOST }}:${{ env.COMPOSE_DIR }}/
+          scp -o StrictHostKeyChecking=no -r /opt/superdeploy/deploy/compose/vm3-proxy/* ${{ env.PROXY_USER }}@${{ env.PROXY_HOST }}:${{ env.COMPOSE_DIR }}/
           
           echo "✅ Files copied to PROXY VM"
 

@@ -18,7 +18,12 @@ jobs:
     
     steps:
       - name: 📦 Checkout code
-        uses: actions/checkout@v4
+        run: |
+          cd /opt/superdeploy
+          git fetch origin
+          git checkout ${{ github.ref_name }}
+          git pull origin ${{ github.ref_name }}
+          echo "✅ Code checked out: $(git rev-parse --short HEAD)"
 
       - name: 🔐 Generate .env from Forgejo Secrets
         run: |
@@ -80,7 +85,7 @@ jobs:
       - name: 📁 Copy files to deployment directory
         run: |
           sudo cp /tmp/core.env ${{ env.COMPOSE_DIR }}/.env
-          sudo cp -r deploy/compose/vm1-core/* ${{ env.COMPOSE_DIR }}/
+          sudo cp -r /opt/superdeploy/deploy/compose/vm1-core/* ${{ env.COMPOSE_DIR }}/
           sudo chown -R superdeploy:superdeploy ${{ env.COMPOSE_DIR }}
           echo "✅ Files copied to ${{ env.COMPOSE_DIR }}"
 

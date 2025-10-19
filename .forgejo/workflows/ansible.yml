@@ -28,7 +28,12 @@ jobs:
     
     steps:
       - name: 📦 Checkout code
-        uses: actions/checkout@v4
+        run: |
+          cd /opt/superdeploy
+          git fetch origin
+          git checkout ${{ github.ref_name }}
+          git pull origin ${{ github.ref_name }}
+          echo "✅ Code checked out: $(git rev-parse --short HEAD)"
 
       - name: 🔧 Setup Ansible
         run: |
@@ -41,7 +46,7 @@ jobs:
 
       - name: 📝 Generate Ansible inventory
         run: |
-          cd ansible
+          cd /opt/superdeploy/ansible
           
           # Use current IPs from Forgejo variables (NO FALLBACKS!)
           cat > inventories/dev.ini << EOF
@@ -68,7 +73,7 @@ jobs:
 
       - name: 🚀 Run Ansible playbook
         run: |
-          cd ansible
+          cd /opt/superdeploy/ansible
           
           TARGET="${{ github.event.inputs.target || 'all' }}"
           
@@ -82,7 +87,7 @@ jobs:
 
       - name: ✅ Verify deployment
         run: |
-          cd ansible
+          cd /opt/superdeploy/ansible
           
           echo "╔══════════════════════════════════════════════════════════════╗"
           echo "║  📊 Deployment Verification                                  ║"
