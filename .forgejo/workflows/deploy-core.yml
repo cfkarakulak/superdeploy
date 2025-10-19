@@ -3,7 +3,7 @@ name: 🚀 Deploy CORE VM
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - 'deploy/compose/vm1-core/**'
       - '.forgejo/workflows/deploy-core.yml'

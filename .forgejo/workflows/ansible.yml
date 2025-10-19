@@ -3,7 +3,7 @@ name: ⚙️ Ansible Configuration
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - 'ansible/**'
   workflow_dispatch:

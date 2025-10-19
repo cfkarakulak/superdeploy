@@ -3,7 +3,7 @@ name: 🔍 Deploy SCRAPE VM
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - 'deploy/compose/vm2-scrape/**'
       - '.forgejo/workflows/deploy-scrape.yml'
