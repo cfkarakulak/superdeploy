@@ -17,7 +17,7 @@
 
 ---
 
-## 🖥️ Virtual Machines
+## 🖥️ Virtual Machinesd
 
 ### VM-1: CORE (Edge + Backend)
 ```
