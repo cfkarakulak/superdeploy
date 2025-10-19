@@ -1,0 +1,33 @@
+networks:
+  superdeploy:
+    driver: bridge
+
+services:
+  # Simple worker placeholder
+  worker:
+    image: python:3.11-slim
+    container_name: superdeploy-worker
+    restart: unless-stopped
+    command: >
+      bash -c "pip install requests && python -c 'import time; print(\"Worker ready\"); 
+      while True: time.sleep(60)'"
+    environment:
+      - CORE_API_HOST=${CORE_API_HOST}
+      - CORE_API_PORT=${CORE_API_PORT:-8000}
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+    networks:
+      - superdeploy
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

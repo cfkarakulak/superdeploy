@@ -1,0 +1,67 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+*.auto.tfvars
+crash.log
+
+# Ansible
+*.retry
+group_vars/
+host_vars/
+ansible/inventories/*.ini
+!ansible/inventories/*.example
+
+# Environment files (keep .env files in git for this project)
+.env.local
+.env.production
+*.local
+
+# Secrets
+terraform-key.json
+*_key.json
+*.pem
+*.key
+id_rsa*
+!id_rsa.pub
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+

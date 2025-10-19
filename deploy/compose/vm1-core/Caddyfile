@@ -1,0 +1,54 @@
+# Caddy configuration for SuperDeploy
+
+# Global options
+{
+	# Auto HTTPS off for IP-based setup
+	auto_https off
+}
+
+# Listen on all interfaces
+:80 {
+	
+	# Dashboard (root)
+	handle / {
+		reverse_proxy dashboard:3000
+	}
+	
+	handle /dashboard* {
+		reverse_proxy dashboard:3000
+	}
+	
+	# API endpoints
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	
+	# Proxy registry (internal admin tool)
+	handle /proxy-registry/* {
+		uri strip_prefix /proxy-registry
+		reverse_proxy proxy_registry:8080
+	}
+	
+	# Health check endpoint
+	handle /health {
+		respond "OK - SuperDeploy Core" 200
+	}
+	
+	# Logging
+	log {
+		output stdout
+		format console
+	}
+	
+	# Headers
+	header {
+		# Security headers
+		X-Frame-Options "SAMEORIGIN"
+		X-Content-Type-Options "nosniff"
+		X-XSS-Protection "1; mode=block"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		
+		# Remove server header
+		-Server
+	}
+}
