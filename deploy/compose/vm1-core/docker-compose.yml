@@ -26,7 +26,7 @@ services:
     networks:
       - superdeploy
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -131,8 +131,8 @@ services:
       - DATABASE_URL=${PROXY_REGISTRY_DB_URL}
       - PORT=${PROXY_REGISTRY_PORT}
       - ENVIRONMENT=${ENVIRONMENT}
-      - BASIC_AUTH_USER=${PROXY_REGISTRY_USER:-admin}
-      - BASIC_AUTH_PASS=${PROXY_REGISTRY_PASS:-changeme}
+      - BASIC_AUTH_USER=${PROXY_REGISTRY_USER}
+      - BASIC_AUTH_PASS=${PROXY_REGISTRY_PASS}
     networks:
       - superdeploy
     depends_on:

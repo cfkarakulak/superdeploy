@@ -60,19 +60,19 @@ jobs:
           DASHBOARD_PROXY_REGISTRY_URL=http://proxy_registry:8080
           
           # Caddy Configuration
-          CADDY_DOMAIN=${{ vars.CADDY_DOMAIN || '34.56.43.99' }}
-          CADDY_EMAIL=${{ vars.CADDY_EMAIL || 'admin@superdeploy.local' }}
+          CADDY_DOMAIN=${{ vars.CADDY_DOMAIN }}
+          CADDY_EMAIL=${{ vars.CADDY_EMAIL }}
           
           # Network Configuration
-          CORE_EXTERNAL_IP=${{ vars.CORE_EXTERNAL_IP || '34.56.43.99' }}
-          CORE_INTERNAL_IP=${{ vars.CORE_INTERNAL_IP || '10.0.0.5' }}
-          SCRAPE_INTERNAL_IP=${{ vars.SCRAPE_INTERNAL_IP || '10.0.0.7' }}
-          PROXY_INTERNAL_IP=${{ vars.PROXY_INTERNAL_IP || '10.0.0.6' }}
+          CORE_EXTERNAL_IP=${{ vars.CORE_EXTERNAL_IP }}
+          CORE_INTERNAL_IP=${{ vars.CORE_INTERNAL_IP }}
+          SCRAPE_INTERNAL_IP=${{ vars.SCRAPE_INTERNAL_IP }}
+          PROXY_INTERNAL_IP=${{ vars.PROXY_INTERNAL_IP }}
           
           # Monitoring
-          LOG_LEVEL=info
-          ENABLE_METRICS=true
-          SENTRY_DSN=${{ secrets.SENTRY_DSN || '' }}
+          LOG_LEVEL=${{ vars.LOG_LEVEL }}
+          ENABLE_METRICS=${{ vars.ENABLE_METRICS }}
+          SENTRY_DSN=${{ secrets.SENTRY_DSN }}
           EOF
           
           echo "✅ .env file generated from secrets"

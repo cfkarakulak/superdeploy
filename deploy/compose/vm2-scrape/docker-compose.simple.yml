@@ -13,9 +13,9 @@ services:
       while True: time.sleep(60)'"
     environment:
       - CORE_API_HOST=${CORE_API_HOST}
-      - CORE_API_PORT=${CORE_API_PORT:-8000}
+      - CORE_API_PORT=${CORE_API_PORT}
       - RABBITMQ_HOST=${RABBITMQ_HOST}
-      - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
     networks:
       - superdeploy
     deploy:
