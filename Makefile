@@ -125,12 +125,14 @@ ansible-deploy: ## Deploy with Ansible
 
 git-push: ## Push code to Forgejo
 	@echo "$(GREEN)📤 Pushing code to Forgejo...$(NC)"
-	@if [ -z "$$(git remote | grep forgejo)" ]; then \
-		CORE_EXT=$$(grep "^CORE_EXTERNAL_IP=" .env | cut -d= -f2) && \
-		ADMIN_USER=$$(grep "^FORGEJO_ADMIN_USER=" .env | cut -d= -f2) && \
-		ADMIN_PASS=$$(grep "^FORGEJO_ADMIN_PASSWORD=" .env | cut -d= -f2) && \
-		ENCODED_PASS=$$(echo -n "$$ADMIN_PASS" | jq -sRr @uri) && \
+	@CORE_EXT=$$(grep "^CORE_EXTERNAL_IP=" .env | cut -d= -f2) && \
+	ADMIN_USER=$$(grep "^FORGEJO_ADMIN_USER=" .env | cut -d= -f2) && \
+	ADMIN_PASS=$$(grep "^FORGEJO_ADMIN_PASSWORD=" .env | cut -d= -f2) && \
+	ENCODED_PASS=$$(printf '%s' "$$ADMIN_PASS" | jq -sRr @uri) && \
+	if [ -z "$$(git remote | grep forgejo)" ]; then \
 		git remote add forgejo "http://$$ADMIN_USER:$$ENCODED_PASS@$$CORE_EXT:3001/cradexco/superdeploy-app.git"; \
+	else \
+		git remote set-url forgejo "http://$$ADMIN_USER:$$ENCODED_PASS@$$CORE_EXT:3001/cradexco/superdeploy-app.git"; \
 	fi && \
 	git add .env && \
 	git commit -m "config: automated deployment setup" || true && \
