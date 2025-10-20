@@ -85,7 +85,7 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
-    image: superdeploy/api:1.0.0  # Pinned version (not 'latest')
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG:-cheapa}/api:${API_IMAGE_TAG:-latest}
     container_name: superdeploy-api
     restart: unless-stopped
     environment:
@@ -136,7 +136,7 @@ services:
     build:
       context: ./proxy-registry
       dockerfile: Dockerfile
-    image: superdeploy/proxy-registry:1.0.0  # Pinned version
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG:-cheapa}/proxy-registry:${PROXY_REGISTRY_IMAGE_TAG:-latest}
     container_name: superdeploy-proxy-registry
     restart: unless-stopped
     environment:
@@ -182,7 +182,7 @@ services:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
-    image: superdeploy/dashboard:1.0.0
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG:-cheapa}/dashboard:${DASHBOARD_IMAGE_TAG:-latest}
     container_name: superdeploy-dashboard
     restart: always
     networks:
