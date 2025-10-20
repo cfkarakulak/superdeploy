@@ -294,15 +294,19 @@ jobs:
           
           # Send email via mailx
           if command -v mail &> /dev/null; then
-            SUBJECT="[${STATUS}] SuperDeploy - ${{ env.ENVIRONMENT }} - ${{ env.SERVICES }}"
+            ENV_NAME="${{ env.ENVIRONMENT }}"
+            SERVICES_LIST="${{ env.SERVICES }}"
             ALERT_EMAIL="${{ secrets.ALERT_EMAIL }}"
-            cat <<'EMAIL_END' | mail -s "$SUBJECT" "$ALERT_EMAIL"
+            FORGEJO_ORG="${{ secrets.FORGEJO_ORG }}"
+            SUBJECT="[${STATUS}] SuperDeploy - ${ENV_NAME} - ${SERVICES_LIST}"
+            TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            cat <<EMAIL_END | mail -s "$SUBJECT" "$ALERT_EMAIL"
 SuperDeploy Deployment Notification
 
 Status = ${STATUS}
-Environment = ${{ env.ENVIRONMENT }}
-Services = ${{ env.SERVICES }}
-Timestamp = $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Environment = ${ENV_NAME}
+Services = ${SERVICES_LIST}
+Timestamp = ${TIMESTAMP}
 
 Deployed Images =
   API = ${API_TAG}
@@ -314,7 +318,7 @@ Access URLs =
   API = http://${EXTERNAL_IP}:8000
   Forgejo = http://${EXTERNAL_IP}:3001
 
-Logs = http://${EXTERNAL_IP}:3001/${{ secrets.FORGEJO_ORG }}/superdeploy-app/actions
+Logs = http://${EXTERNAL_IP}:3001/${FORGEJO_ORG}/superdeploy-app/actions
 EMAIL_END
             echo "📧 Email sent to $ALERT_EMAIL"
           else

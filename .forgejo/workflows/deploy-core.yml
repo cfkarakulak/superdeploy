@@ -165,12 +165,14 @@ jobs:
           # Send email via sendmail/mailx (requires mail config on VM)
           if command -v mail &> /dev/null; then
             ALERT_EMAIL="${{ secrets.ALERT_EMAIL }}"
-            cat <<'EMAIL_END' | mail -s "[${STATUS}] SuperDeploy - Core Services Deployed" "$ALERT_EMAIL"
+            FORGEJO_ORG="${{ secrets.FORGEJO_ORG }}"
+            REPO_NAME="${{ secrets.REPO_SUPERDEPLOY }}"
+            cat <<EMAIL_END | mail -s "[${STATUS}] SuperDeploy - Core Services Deployed" "$ALERT_EMAIL"
 SuperDeploy Deployment Notification
 
 Status = ${STATUS}
 Timestamp = ${DEPLOY_TIMESTAMP}
-Repository = ${{ secrets.REPO_SUPERDEPLOY }}
+Repository = ${REPO_NAME}
 Branch = master
 
 Deployed Images =
@@ -183,7 +185,7 @@ Access URLs =
   API = http://${EXTERNAL_IP}:8000
   Forgejo = http://${EXTERNAL_IP}:3001
 
-Logs = http://${EXTERNAL_IP}:3001/${{ secrets.FORGEJO_ORG }}/superdeploy-app/actions
+Logs = http://${EXTERNAL_IP}:3001/${FORGEJO_ORG}/superdeploy-app/actions
 EMAIL_END
             echo "📧 Email sent to $ALERT_EMAIL"
           else
