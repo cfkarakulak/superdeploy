@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: superdeploy-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-superdeploy_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: superdeploy-rabbitmq
+    restart: unless-stopped
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-superdeploy}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD:-SuperSecure123Pass}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  api:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/api:${API_IMAGE_TAG:-latest}
+    container_name: superdeploy-api
+    restart: unless-stopped
+    env_file:
+      - /opt/app-repos/api/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - app-network
+    ports:
+      - "8000:8000"
+
+  dashboard:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/dashboard:${DASHBOARD_IMAGE_TAG:-latest}
+    container_name: superdeploy-dashboard
+    restart: unless-stopped
+    env_file:
+      - /opt/app-repos/dashboard/.env
+    depends_on:
+      - api
+    networks:
+      - app-network
+    ports:
+      - "80:3000"
+
+  services:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/services:${SERVICES_IMAGE_TAG:-latest}
+    container_name: superdeploy-services
+    restart: unless-stopped
+    env_file:
+      - /opt/app-repos/services/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
