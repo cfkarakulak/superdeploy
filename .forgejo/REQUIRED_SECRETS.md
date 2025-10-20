@@ -128,3 +128,4 @@ This is **by design** - fail-fast ensures you catch configuration issues immedia
 5. Keep external IPs up to date if VMs are recreated
 6. Use firewall rules to restrict access between VMs
 
+s
