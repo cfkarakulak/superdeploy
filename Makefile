@@ -126,29 +126,35 @@ ansible-deploy: ## Deploy with Ansible
 git-push: ## Push code to Forgejo
 	@echo "$(GREEN)📤 Pushing code to Forgejo...$(NC)"
 	@CORE_EXT=$$(grep "^CORE_EXTERNAL_IP=" .env | cut -d= -f2) && \
+	FORGEJO_ORG=$$(grep "^FORGEJO_ORG=" .env | cut -d= -f2) && \
+	REPO_SUPERDEPLOY=$$(grep "^REPO_SUPERDEPLOY=" .env | cut -d= -f2) && \
 	ADMIN_USER=$$(grep "^FORGEJO_ADMIN_USER=" .env | cut -d= -f2) && \
 	ADMIN_PASS=$$(grep "^FORGEJO_ADMIN_PASSWORD=" .env | cut -d= -f2) && \
 	ENCODED_PASS=$$(printf '%s' "$$ADMIN_PASS" | jq -sRr @uri) && \
 	if [ -z "$$(git remote | grep forgejo)" ]; then \
-		git remote add forgejo "http://$$ADMIN_USER:$$ENCODED_PASS@$$CORE_EXT:3001/cradexco/superdeploy-app.git"; \
+		git remote add forgejo "http://$$ADMIN_USER:$$ENCODED_PASS@$$CORE_EXT:3001/$$FORGEJO_ORG/$$REPO_SUPERDEPLOY.git"; \
 	else \
-		git remote set-url forgejo "http://$$ADMIN_USER:$$ENCODED_PASS@$$CORE_EXT:3001/cradexco/superdeploy-app.git"; \
+		git remote set-url forgejo "http://$$ADMIN_USER:$$ENCODED_PASS@$$CORE_EXT:3001/$$FORGEJO_ORG/$$REPO_SUPERDEPLOY.git"; \
 	fi && \
 	git add .env && \
 	git commit -m "config: automated deployment setup" || true && \
 	git push -u forgejo master
-	@echo "$(GREEN)✅ superdeploy-app pushed!$(NC)"
+	@echo "$(GREEN)✅ $$REPO_SUPERDEPLOY pushed!$(NC)"
 	@echo ""
 	@echo "$(GREEN)📤 Pushing service repositories...$(NC)"
 	@CORE_EXT=$$(grep "^CORE_EXTERNAL_IP=" .env | cut -d= -f2) && \
+	FORGEJO_ORG=$$(grep "^FORGEJO_ORG=" .env | cut -d= -f2) && \
+	REPO_API=$$(grep "^REPO_API=" .env | cut -d= -f2) && \
+	REPO_STOREFRONT=$$(grep "^REPO_STOREFRONT=" .env | cut -d= -f2) && \
+	REPO_SERVICES=$$(grep "^REPO_SERVICES=" .env | cut -d= -f2) && \
 	ADMIN_USER=$$(grep "^FORGEJO_ADMIN_USER=" .env | cut -d= -f2) && \
 	ADMIN_PASS=$$(grep "^FORGEJO_ADMIN_PASSWORD=" .env | cut -d= -f2) && \
 	ENCODED_PASS=$$(printf '%s' "$$ADMIN_PASS" | jq -sRr @uri) && \
-	for SERVICE in cheapa-api cheapa-storefront cheapa-services; do \
-		echo "  📦 Pushing $$SERVICE..." && \
-		cd ../$$SERVICE 2>/dev/null && \
+	for REPO in $$REPO_API $$REPO_STOREFRONT $$REPO_SERVICES; do \
+		echo "  📦 Pushing $$REPO..." && \
+		cd ../$$REPO 2>/dev/null && \
 		git remote remove origin 2>/dev/null || true && \
-		git remote add origin "http://$$ADMIN_USER:$$ENCODED_PASS@$$CORE_EXT:3001/cradexco/$$SERVICE.git" && \
+		git remote add origin "http://$$ADMIN_USER:$$ENCODED_PASS@$$CORE_EXT:3001/$$FORGEJO_ORG/$$REPO.git" && \
 		git push -u origin master 2>&1 | grep -v "Password" || true && \
 		cd - > /dev/null || true; \
 	done
