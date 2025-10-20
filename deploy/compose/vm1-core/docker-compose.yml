@@ -80,12 +80,10 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # API Service (FastAPI example)
+  # API Service (from cheapa-api repo)
   api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
     image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG:-cheapa}/api:${API_IMAGE_TAG:-latest}
+    pull_policy: always
     container_name: superdeploy-api
     restart: unless-stopped
     environment:
@@ -131,12 +129,10 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Proxy Registry Service
+  # Proxy Registry Service (from cheapa-services repo)
   proxy_registry:
-    build:
-      context: ./proxy-registry
-      dockerfile: Dockerfile
     image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG:-cheapa}/proxy-registry:${PROXY_REGISTRY_IMAGE_TAG:-latest}
+    pull_policy: always
     container_name: superdeploy-proxy-registry
     restart: unless-stopped
     environment:
@@ -177,12 +173,10 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Dashboard (Static Frontend)
+  # Dashboard (from cheapa-storefront repo)
   dashboard:
-    build:
-      context: ./dashboard
-      dockerfile: Dockerfile
     image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG:-cheapa}/dashboard:${DASHBOARD_IMAGE_TAG:-latest}
+    pull_policy: always
     container_name: superdeploy-dashboard
     restart: always
     networks:
