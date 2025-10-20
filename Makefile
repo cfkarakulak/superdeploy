@@ -5,8 +5,8 @@
 # =============================================================================
 
 # Load .env if exists
-ifneq (,$(wildcard ./superdeploy/.env))
-    include superdeploy/.env
+ifneq (,$(wildcard ./.env))
+    include .env
     export
 endif
 
@@ -17,9 +17,8 @@ YELLOW=\033[1;33m
 BLUE=\033[0;34m
 NC=\033[0m # No Color
 
-# Directories
-INFRA_DIR=superdeploy-infra
-APP_DIR=superdeploy
+# Directories (relative paths - Makefile is in superdeploy/)
+INFRA_DIR=../superdeploy-infra
 ANSIBLE_DIR=$(INFRA_DIR)/ansible
 
 help: ## Show this help
@@ -37,31 +36,31 @@ help: ## Show this help
 
 init: ## Initialize (copy ENV.example to .env)
 	@echo "$(GREEN)📋 Initializing SuperDeploy...$(NC)"
-	@if [ ! -f $(APP_DIR)/.env ]; then \
-		cp $(APP_DIR)/ENV.example $(APP_DIR)/.env; \
-		echo "$(GREEN)✅ Created $(APP_DIR)/.env$(NC)"; \
-		echo "$(YELLOW)⚠️  Edit $(APP_DIR)/.env and fill:$(NC)"; \
+	@if [ ! -f .env ]; then \
+		cp ENV.example .env; \
+		echo "$(GREEN)✅ Created .env$(NC)"; \
+		echo "$(YELLOW)⚠️  Edit .env and fill:$(NC)"; \
 		echo "  - GCP_PROJECT_ID"; \
 		echo "  - All passwords (CHANGE_ME_*)"; \
 		echo "$(YELLOW)💡 Generate passwords: openssl rand -base64 32$(NC)"; \
 	else \
-		echo "$(YELLOW)⚠️  $(APP_DIR)/.env already exists!$(NC)"; \
+		echo "$(YELLOW)⚠️  .env already exists!$(NC)"; \
 	fi
 
 check-env: ## Check if .env exists and is configured
-	@if [ ! -f $(APP_DIR)/.env ]; then \
-		echo "$(RED)❌ ERROR: $(APP_DIR)/.env not found!$(NC)"; \
+	@if [ ! -f .env ]; then \
+		echo "$(RED)❌ ERROR: .env not found!$(NC)"; \
 		echo "$(YELLOW)Run: make init$(NC)"; \
 		exit 1; \
 	fi
-	@if grep -q "CHANGE_ME" $(APP_DIR)/.env; then \
+	@if grep -q "CHANGE_ME" .env; then \
 		echo "$(RED)❌ ERROR: Found unconfigured values in .env!$(NC)"; \
-		echo "$(YELLOW)Edit $(APP_DIR)/.env and replace all CHANGE_ME_* values$(NC)"; \
+		echo "$(YELLOW)Edit .env and replace all CHANGE_ME_* values$(NC)"; \
 		exit 1; \
 	fi
-	@if grep -q "GCP_PROJECT_ID=your-gcp-project" $(APP_DIR)/.env; then \
+	@if grep -q "GCP_PROJECT_ID=your-gcp-project" .env; then \
 		echo "$(RED)❌ ERROR: GCP_PROJECT_ID not configured!$(NC)"; \
-		echo "$(YELLOW)Edit $(APP_DIR)/.env and set your GCP project ID$(NC)"; \
+		echo "$(YELLOW)Edit .env and set your GCP project ID$(NC)"; \
 		exit 1; \
 	fi
 	@echo "$(GREEN)✅ .env configuration looks good!$(NC)"
@@ -84,7 +83,7 @@ update-ips: ## Extract IPs from Terraform and update .env
 		SCRAPE_INT=$$(terraform output -json vm_scrape_internal_ips | jq -r '.[0]') && \
 		PROXY_EXT=$$(terraform output -json vm_proxy_external_ips | jq -r '.[0]') && \
 		PROXY_INT=$$(terraform output -json vm_proxy_internal_ips | jq -r '.[0]') && \
-		cd ../$(APP_DIR) && \
+		cd - > /dev/null && \
 		sed -i.bak "s|^CORE_EXTERNAL_IP=.*|CORE_EXTERNAL_IP=$$CORE_EXT|" .env && \
 		sed -i.bak "s|^CORE_INTERNAL_IP=.*|CORE_INTERNAL_IP=$$CORE_INT|" .env && \
 		sed -i.bak "s|^SCRAPE_EXTERNAL_IP=.*|SCRAPE_EXTERNAL_IP=$$SCRAPE_EXT|" .env && \
@@ -124,17 +123,16 @@ ansible-deploy: ## Deploy with Ansible
 
 git-push: ## Push code to Forgejo
 	@echo "$(GREEN)📤 Pushing code to Forgejo...$(NC)"
-	@cd $(APP_DIR) && \
-		if [ -z "$$(git remote | grep forgejo)" ]; then \
-			CORE_EXT=$$(grep "^CORE_EXTERNAL_IP=" .env | cut -d= -f2) && \
-			ADMIN_USER=$$(grep "^FORGEJO_ADMIN_USER=" .env | cut -d= -f2) && \
-			ADMIN_PASS=$$(grep "^FORGEJO_ADMIN_PASSWORD=" .env | cut -d= -f2) && \
-			ENCODED_PASS=$$(echo -n "$$ADMIN_PASS" | jq -sRr @uri) && \
-			git remote add forgejo "http://$$ADMIN_USER:$$ENCODED_PASS@$$CORE_EXT:3001/cradexco/superdeploy-app.git"; \
-		fi && \
-		git add .env && \
-		git commit -m "config: automated deployment setup" || true && \
-		git push -u forgejo master
+	@if [ -z "$$(git remote | grep forgejo)" ]; then \
+		CORE_EXT=$$(grep "^CORE_EXTERNAL_IP=" .env | cut -d= -f2) && \
+		ADMIN_USER=$$(grep "^FORGEJO_ADMIN_USER=" .env | cut -d= -f2) && \
+		ADMIN_PASS=$$(grep "^FORGEJO_ADMIN_PASSWORD=" .env | cut -d= -f2) && \
+		ENCODED_PASS=$$(echo -n "$$ADMIN_PASS" | jq -sRr @uri) && \
+		git remote add forgejo "http://$$ADMIN_USER:$$ENCODED_PASS@$$CORE_EXT:3001/cradexco/superdeploy-app.git"; \
+	fi && \
+	git add .env && \
+	git commit -m "config: automated deployment setup" || true && \
+	git push -u forgejo master
 	@echo "$(GREEN)✅ Code pushed to Forgejo!$(NC)"
 
 deploy: check-env terraform-apply update-ips clean-ssh wait-vms ansible-deploy git-push ## 🚀 Full deployment (single command!)
@@ -143,8 +141,7 @@ deploy: check-env terraform-apply update-ips clean-ssh wait-vms ansible-deploy g
 	@echo "$(GREEN)║                  🎉 DEPLOYMENT COMPLETE! 🎉                              ║$(NC)"
 	@echo "$(GREEN)╚══════════════════════════════════════════════════════════════════════════╝$(NC)"
 	@echo ""
-	@cd $(APP_DIR) && \
-		CORE_EXT=$$(grep "^CORE_EXTERNAL_IP=" .env | cut -d= -f2) && \
+	@CORE_EXT=$$(grep "^CORE_EXTERNAL_IP=" .env | cut -d= -f2) && \
 		echo "$(BLUE)📍 Access Points:$(NC)" && \
 		echo "  $(YELLOW)Forgejo:$(NC)  http://$$CORE_EXT:3001" && \
 		echo "  $(YELLOW)Actions:$(NC)  http://$$CORE_EXT:3001/cradexco/superdeploy-app/actions" && \
@@ -161,8 +158,7 @@ deploy: check-env terraform-apply update-ips clean-ssh wait-vms ansible-deploy g
 
 test: ## Test all services
 	@echo "$(GREEN)🧪 Testing services...$(NC)"
-	@cd $(APP_DIR) && \
-		CORE_EXT=$$(grep "^CORE_EXTERNAL_IP=" .env | cut -d= -f2) && \
+	@CORE_EXT=$$(grep "^CORE_EXTERNAL_IP=" .env | cut -d= -f2) && \
 		echo "$(BLUE)Testing API...$(NC)" && \
 		curl -sf http://$$CORE_EXT:8000/health && echo " $(GREEN)✅$(NC)" || echo " $(RED)❌$(NC)" && \
 		echo "$(BLUE)Testing Proxy Registry...$(NC)" && \
@@ -179,6 +175,6 @@ destroy: ## Destroy all infrastructure
 
 clean: ## Clean generated files
 	@echo "$(GREEN)🧹 Cleaning generated files...$(NC)"
-	@rm -f $(APP_DIR)/.env.bak
+	@rm -f .env.bak
 	@echo "$(GREEN)✅ Cleaned!$(NC)"
 
