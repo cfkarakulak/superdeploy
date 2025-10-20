@@ -146,11 +146,20 @@ ansible-deploy: check-env ## Deploy with Ansible
 # GIT PUSH
 # =============================================================================
 
-git-push: check-env ## Push code to Forgejo
+git-push: check-env ## Push code to GitHub & Forgejo
+	@echo "$(GREEN)📤 Pushing to GitHub...$(NC)"
+	@set -a && source $(ENV_FILE) && set +a && \
+		if [ -n "$$GITHUB_TOKEN" ] && [ "$$GITHUB_TOKEN" != "your-github-token" ]; then \
+			git remote remove github 2>/dev/null || true && \
+			git remote add github "https://$$GITHUB_TOKEN@github.com/cfkarakulak/superdeploy.git" && \
+			git push -u github master 2>&1 | grep -v "$$GITHUB_TOKEN" && \
+			echo "$(GREEN)✅ Pushed to GitHub!$(NC)"; \
+		else \
+			echo "$(YELLOW)⚠️  GITHUB_TOKEN not set, skipping GitHub push$(NC)"; \
+		fi
 	@echo "$(GREEN)📤 Pushing to Forgejo...$(NC)"
 	@set -a && source $(ENV_FILE) && set +a && \
 		ENCODED_PASS=$$(printf '%s' "$$FORGEJO_ADMIN_PASSWORD" | jq -sRr @uri) && \
-		echo "  📦 Pushing superdeploy-app..." && \
 		git remote remove forgejo 2>/dev/null || true && \
 		git remote add forgejo "http://$$FORGEJO_ADMIN_USER:$$ENCODED_PASS@$$CORE_EXTERNAL_IP:3001/$$FORGEJO_ORG/$$REPO_SUPERDEPLOY.git" && \
 		git push -u forgejo master 2>&1 | grep -v "Password" || true
@@ -160,7 +169,7 @@ git-push: check-env ## Push code to Forgejo
 # FULL DEPLOYMENT
 # =============================================================================
 
-deploy: check-env terraform-init terraform-apply update-ips generate-inventory clean-ssh wait-vms ansible-deploy ## Full deployment (git-push skipped for debug)
+deploy: check-env terraform-init terraform-apply update-ips generate-inventory clean-ssh wait-vms ansible-deploy git-push ## Full E2E deployment
 	@echo ""
 	@echo "$(GREEN)╔════════════════════════════════════════════════════════╗$(NC)"
 	@echo "$(GREEN)║  🎉 DEPLOYMENT COMPLETE! 🎉                           ║$(NC)"

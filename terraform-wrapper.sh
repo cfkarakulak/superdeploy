@@ -88,9 +88,15 @@ echo "✅ Generated envs/dev/gcp.auto.tfvars from .env"
 
 # Run terraform command with tfvars file (only for plan/apply, not for output)
 if [[ "$1" == "init" ]]; then
-    # Init with backend config
-    BUCKET="superdeploy-tfstate-${GCP_PROJECT_ID}"
-    terraform "$@" -backend-config="bucket=${BUCKET}" "${@:2}"
+    # Init - conditionally pass backend config only if USE_REMOTE_STATE=true
+    if [ "${USE_REMOTE_STATE:-false}" == "true" ]; then
+        echo "🪣 Using GCS backend"
+        BUCKET="superdeploy-tfstate-${GCP_PROJECT_ID}"
+        terraform "$@" -backend-config="bucket=${BUCKET}"
+    else
+        echo "💾 Using local backend (debug mode)"
+        terraform "$@"
+    fi
 elif [[ "$1" == "output" ]]; then
     terraform "$@"
 else
