@@ -29,17 +29,53 @@ jobs:
           git reset --hard origin/master
           echo "✅ Superdeploy code updated"
 
-      - name: 📝 Setup app .env files
+      - name: 📝 Setup app .env files from Forgejo Secrets
         run: |
           mkdir -p /opt/app-repos/{api,dashboard,services}
           
-          # Copy env templates from superdeploy repo
-          echo "Copying .env templates..."
-          cp /opt/superdeploy/app-env-templates/api.env /opt/app-repos/api/.env
-          cp /opt/superdeploy/app-env-templates/dashboard.env /opt/app-repos/dashboard/.env
-          cp /opt/superdeploy/app-env-templates/services.env /opt/app-repos/services/.env
+          echo "Generating .env files from Forgejo Secrets..."
           
-          echo "✅ App .env files created from templates"
+          # API .env
+          cat > /opt/app-repos/api/.env <<EOF
+          # Database
+          DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}
+          
+          # RabbitMQ
+          RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASSWORD }}@rabbitmq:5672/
+          
+          # API Config
+          API_SECRET_KEY=${{ secrets.API_SECRET_KEY }}
+          ENVIRONMENT=production
+          
+          # Optional
+          SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+          
+          # Proxy Registry
+          PROXY_REGISTRY_URL=http://proxy-registry:8001
+          PROXY_REGISTRY_API_KEY=${{ secrets.PROXY_REGISTRY_API_KEY }}
+          EOF
+          
+          # Dashboard .env
+          cat > /opt/app-repos/dashboard/.env <<EOF
+          PUBLIC_URL=${{ secrets.PUBLIC_URL }}
+          API_BASE_URL=${{ secrets.API_BASE_URL }}
+          ENVIRONMENT=production
+          EOF
+          
+          # Services .env
+          cat > /opt/app-repos/services/.env <<EOF
+          # Database
+          DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}
+          
+          # RabbitMQ
+          RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASSWORD }}@rabbitmq:5672/
+          
+          # Config
+          ENVIRONMENT=production
+          SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+          EOF
+          
+          echo "✅ App .env files generated from Forgejo Secrets"
 
       - name: 🐳 Prepare docker-compose.yml
         run: |
@@ -58,10 +94,20 @@ jobs:
           source /opt/superdeploy/.env
           set +a
           
-          # Set image tags
-          export API_IMAGE_TAG="${{ github.event.inputs.api_image_tag }}"
-          export DASHBOARD_IMAGE_TAG="${{ github.event.inputs.dashboard_image_tag }}"
-          export SERVICES_IMAGE_TAG="${{ github.event.inputs.services_image_tag }}"
+          # Set image tags (use 'latest' if not specified)
+          export API_IMAGE_TAG="${{ github.event.inputs.api_image_tag || 'latest' }}"
+          export DASHBOARD_IMAGE_TAG="${{ github.event.inputs.dashboard_image_tag || 'latest' }}"
+          export SERVICES_IMAGE_TAG="${{ github.event.inputs.services_image_tag || 'latest' }}"
+          
+          # Ensure DOCKER_REGISTRY is set
+          export DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
+          
+          # Set DB/Queue credentials from Forgejo Secrets
+          export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
+          export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
+          export POSTGRES_DB="${{ secrets.POSTGRES_DB }}"
+          export RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
+          export RABBITMQ_PASSWORD="${{ secrets.RABBITMQ_PASSWORD }}"
           
           echo "Pulling images..."
           docker compose pull

@@ -24,8 +24,8 @@ services:
     container_name: superdeploy-rabbitmq
     restart: unless-stopped
     environment:
-      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-superdeploy}
-      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD:-SuperSecure123Pass}
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
@@ -37,7 +37,7 @@ services:
       retries: 5
 
   api:
-    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/api:${API_IMAGE_TAG:-latest}
+    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/api:${API_IMAGE_TAG}
     container_name: superdeploy-api
     restart: unless-stopped
     env_file:
@@ -53,7 +53,7 @@ services:
       - "8000:8000"
 
   dashboard:
-    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/dashboard:${DASHBOARD_IMAGE_TAG:-latest}
+    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/dashboard:${DASHBOARD_IMAGE_TAG}
     container_name: superdeploy-dashboard
     restart: unless-stopped
     env_file:
@@ -66,7 +66,7 @@ services:
       - "80:3000"
 
   services:
-    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/services:${SERVICES_IMAGE_TAG:-latest}
+    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/services:${SERVICES_IMAGE_TAG}
     container_name: superdeploy-services
     restart: unless-stopped
     env_file:

@@ -5,8 +5,8 @@
 
 set -e
 
-# Load .env from superdeploy directory
-ENV_FILE="../superdeploy/.env"
+# Load .env from current directory
+ENV_FILE=".env"
 
 if [ ! -f "$ENV_FILE" ]; then
     echo "❌ ERROR: $ENV_FILE not found!"
@@ -86,6 +86,10 @@ EOF
 
 echo "✅ Generated envs/dev/gcp.auto.tfvars from .env"
 
-# Run terraform command
-terraform "$@"
+# Run terraform command with tfvars file (only for plan/apply, not for output)
+if [[ "$1" == "output" ]]; then
+    terraform "$@"
+else
+    terraform "$@" -var-file=envs/dev/gcp.auto.tfvars
+fi
 

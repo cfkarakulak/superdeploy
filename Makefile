@@ -64,19 +64,18 @@ terraform-apply: terraform-init ## Create GCP VMs
 update-ips: check-env ## Extract and update VM IPs in .env
 	@echo "$(GREEN)📍 Extracting VM IPs...$(NC)"
 	@set -a && source $(ENV_FILE) && set +a && \
-		CORE_EXT=$$($(TERRAFORM_WRAPPER) output -raw vm_core_public_ips | tr -d '[]"' | tr -d ' ') && \
-		CORE_INT=$$($(TERRAFORM_WRAPPER) output -raw vm_core_internal_ips | tr -d '[]"' | tr -d ' ') && \
-		SCRAPE_EXT=$$($(TERRAFORM_WRAPPER) output -raw vm_scrape_public_ips | tr -d '[]"' | tr -d ' ') && \
-		SCRAPE_INT=$$($(TERRAFORM_WRAPPER) output -raw vm_scrape_internal_ips | tr -d '[]"' | tr -d ' ') && \
-		PROXY_EXT=$$($(TERRAFORM_WRAPPER) output -raw vm_proxy_public_ips | tr -d '[]"' | tr -d ' ') && \
-		PROXY_INT=$$($(TERRAFORM_WRAPPER) output -raw vm_proxy_internal_ips | tr -d '[]"' | tr -d ' ') && \
-		sed -i.bak "s/^CORE_EXTERNAL_IP=.*/CORE_EXTERNAL_IP=$$CORE_EXT/" $(ENV_FILE) && \
-		sed -i.bak "s/^CORE_INTERNAL_IP=.*/CORE_INTERNAL_IP=$$CORE_INT/" $(ENV_FILE) && \
-		sed -i.bak "s/^SCRAPE_EXTERNAL_IP=.*/SCRAPE_EXTERNAL_IP=$$SCRAPE_EXT/" $(ENV_FILE) && \
-		sed -i.bak "s/^SCRAPE_INTERNAL_IP=.*/SCRAPE_INTERNAL_IP=$$SCRAPE_INT/" $(ENV_FILE) && \
-		sed -i.bak "s/^PROXY_EXTERNAL_IP=.*/PROXY_EXTERNAL_IP=$$PROXY_EXT/" $(ENV_FILE) && \
-		sed -i.bak "s/^PROXY_INTERNAL_IP=.*/PROXY_INTERNAL_IP=$$PROXY_INT/" $(ENV_FILE) && \
-		rm -f $(ENV_FILE).bak
+		CORE_EXT=$$(terraform output -json vm_core_public_ips | jq -r '.[0]') && \
+		CORE_INT=$$(terraform output -json vm_core_internal_ips | jq -r '.[0]') && \
+		SCRAPE_EXT=$$(terraform output -json vm_scrape_public_ips | jq -r '.[0]') && \
+		SCRAPE_INT=$$(terraform output -json vm_scrape_internal_ips | jq -r '.[0]') && \
+		PROXY_EXT=$$(terraform output -json vm_proxy_public_ips | jq -r '.[0]') && \
+		PROXY_INT=$$(terraform output -json vm_proxy_internal_ips | jq -r '.[0]') && \
+		sed -i '' "s|^CORE_EXTERNAL_IP=.*|CORE_EXTERNAL_IP=$$CORE_EXT|" $(ENV_FILE) && \
+		sed -i '' "s|^CORE_INTERNAL_IP=.*|CORE_INTERNAL_IP=$$CORE_INT|" $(ENV_FILE) && \
+		sed -i '' "s|^SCRAPE_EXTERNAL_IP=.*|SCRAPE_EXTERNAL_IP=$$SCRAPE_EXT|" $(ENV_FILE) && \
+		sed -i '' "s|^SCRAPE_INTERNAL_IP=.*|SCRAPE_INTERNAL_IP=$$SCRAPE_INT|" $(ENV_FILE) && \
+		sed -i '' "s|^PROXY_EXTERNAL_IP=.*|PROXY_EXTERNAL_IP=$$PROXY_EXT|" $(ENV_FILE) && \
+		sed -i '' "s|^PROXY_INTERNAL_IP=.*|PROXY_INTERNAL_IP=$$PROXY_INT|" $(ENV_FILE)
 	@set -a && source $(ENV_FILE) && set +a && \
 		echo "$(GREEN)✅ Updated $(ENV_FILE) with new IPs:$(NC)" && \
 		echo "  $(BLUE)CORE:$(NC)    $$CORE_EXTERNAL_IP ($$CORE_INTERNAL_IP)" && \
@@ -85,9 +84,8 @@ update-ips: check-env ## Extract and update VM IPs in .env
 
 generate-inventory: check-env ## Generate Ansible inventory
 	@set -a && source $(ENV_FILE) && set +a && \
-		cat > $(ANSIBLE_DIR)/inventories/dev.ini << EOF && \
-[core]\nvm-core-1 ansible_host=$$CORE_EXTERNAL_IP ansible_user=$$SSH_USER\n\n[scrape]\nvm-scrape-1 ansible_host=$$SCRAPE_EXTERNAL_IP ansible_user=$$SSH_USER\n\n[proxy]\nvm-proxy-1 ansible_host=$$PROXY_EXTERNAL_IP ansible_user=$$SSH_USER\nEOF
-	echo "$(GREEN)✅ Ansible inventory generated$(NC)"
+		printf "[core]\nvm-core-1 ansible_host=$$CORE_EXTERNAL_IP ansible_user=$$SSH_USER\n\n[scrape]\nvm-scrape-1 ansible_host=$$SCRAPE_EXTERNAL_IP ansible_user=$$SSH_USER\n\n[proxy]\nvm-proxy-1 ansible_host=$$PROXY_EXTERNAL_IP ansible_user=$$SSH_USER\n" > $(ANSIBLE_DIR)/inventories/dev.ini
+	@echo "$(GREEN)✅ Ansible inventory generated$(NC)"
 
 clean-ssh: check-env ## Clean SSH known_hosts
 	@echo "$(GREEN)🔐 Cleaning SSH known_hosts...$(NC)"
@@ -160,6 +158,23 @@ deploy: check-env terraform-apply update-ips generate-inventory clean-ssh wait-v
 		echo "$(BLUE)👤 Login:$(NC)   $$FORGEJO_ADMIN_USER / $$FORGEJO_ADMIN_PASSWORD" && \
 		echo "" && \
 		echo "$(YELLOW)Next: Push your app repos to GitHub to trigger builds!$(NC)"
+
+forgejo-pat-create: check-env ## Create Forgejo Personal Access Token
+	@echo "$(GREEN)🔑 Creating Forgejo PAT...$(NC)"
+	@set -a && source $(ENV_FILE) && set +a && \
+		PAT=$$(curl -sS -X POST "http://$$CORE_EXTERNAL_IP:3001/api/v1/users/$$FORGEJO_ADMIN_USER/tokens" \
+			-u "$$FORGEJO_ADMIN_USER:$$FORGEJO_ADMIN_PASSWORD" \
+			-H "Content-Type: application/json" \
+			-d '{"name":"github-actions-'$$(date +%s)'","scopes":["write:repository","write:activitypub"]}' \
+			| jq -r '.sha1') && \
+		if [ -n "$$PAT" ] && [ "$$PAT" != "null" ]; then \
+			sed -i '' "s/^FORGEJO_PAT=.*/FORGEJO_PAT=$$PAT/" $(ENV_FILE) && \
+			echo "$(GREEN)✅ PAT created: $$PAT$(NC)" && \
+			echo "$(YELLOW)💡 Now add this to GitHub secrets for each repo$(NC)"; \
+		else \
+			echo "$(RED)❌ Failed to create PAT$(NC)"; \
+			exit 1; \
+		fi
 
 # =============================================================================
 # CLEANUP
