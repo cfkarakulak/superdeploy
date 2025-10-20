@@ -6,7 +6,6 @@ on:
       - master
     paths:
       - 'deploy/compose/vm3-proxy/**'
-      - '.forgejo/workflows/deploy-proxy.yml'
   workflow_dispatch:
 
 env:

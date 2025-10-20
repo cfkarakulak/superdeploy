@@ -6,7 +6,6 @@ on:
       - master
     paths:
       - 'deploy/compose/vm1-core/**'
-      - '.forgejo/workflows/deploy-core.yml'
   workflow_dispatch:
 
 env:
