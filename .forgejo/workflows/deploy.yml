@@ -294,32 +294,29 @@ jobs:
           
           # Send email via mailx
           if command -v mail &> /dev/null; then
-            cat <<EOF | mail -s "[$STATUS] SuperDeploy - ${{ env.ENVIRONMENT }} - ${{ env.SERVICES }}" cradexco@gmail.com
+            SUBJECT="[${STATUS}] SuperDeploy - ${{ env.ENVIRONMENT }} - ${{ env.SERVICES }}"
+            ALERT_EMAIL="${{ secrets.ALERT_EMAIL }}"
+            cat <<'EMAIL_END' | mail -s "$SUBJECT" "$ALERT_EMAIL"
 SuperDeploy Deployment Notification
-═══════════════════════════════════════════════════════════════
 
-Status: $STATUS
-Environment: ${{ env.ENVIRONMENT }}
-Services: ${{ env.SERVICES }}
-Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-Repository: superdeploy-app
-Branch: master
+Status = ${STATUS}
+Environment = ${{ env.ENVIRONMENT }}
+Services = ${{ env.SERVICES }}
+Timestamp = $(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-Deployed Images:
-  - API:       $API_TAG
-  - Dashboard: $DASHBOARD_TAG
-  - Services:  $SERVICES_TAG
+Deployed Images =
+  API = ${API_TAG}
+  Dashboard = ${DASHBOARD_TAG}
+  Services = ${SERVICES_TAG}
 
-Services:
-  - Dashboard: http://$EXTERNAL_IP
-  - API:       http://$EXTERNAL_IP:8000
-  - Forgejo:   http://$EXTERNAL_IP:3001
+Access URLs =
+  Dashboard = http://${EXTERNAL_IP}
+  API = http://${EXTERNAL_IP}:8000
+  Forgejo = http://${EXTERNAL_IP}:3001
 
-Logs: http://$EXTERNAL_IP:3001/cradexco/superdeploy-app/actions
-
-═══════════════════════════════════════════════════════════════
-EOF
-            echo "📧 Email sent to cradexco@gmail.com"
+Logs = http://${EXTERNAL_IP}:3001/${{ secrets.FORGEJO_ORG }}/superdeploy-app/actions
+EMAIL_END
+            echo "📧 Email sent to $ALERT_EMAIL"
           else
             echo "⚠️  'mail' command not found."
           fi

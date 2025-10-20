@@ -164,30 +164,28 @@ jobs:
           
           # Send email via sendmail/mailx (requires mail config on VM)
           if command -v mail &> /dev/null; then
-            cat <<EOF | mail -s "[$STATUS] SuperDeploy - Core Services Deployed" cradexco@gmail.com
+            ALERT_EMAIL="${{ secrets.ALERT_EMAIL }}"
+            cat <<'EMAIL_END' | mail -s "[${STATUS}] SuperDeploy - Core Services Deployed" "$ALERT_EMAIL"
 SuperDeploy Deployment Notification
-═══════════════════════════════════════════════════════════════
 
-Status: $STATUS
-Timestamp: $DEPLOY_TIMESTAMP
-Repository: superdeploy-app
-Branch: master
+Status = ${STATUS}
+Timestamp = ${DEPLOY_TIMESTAMP}
+Repository = ${{ secrets.REPO_SUPERDEPLOY }}
+Branch = master
 
-Deployed Images:
-  - API:       $API_TAG
-  - Dashboard: $DASHBOARD_TAG
-  - Services:  $SERVICES_TAG
+Deployed Images =
+  API = ${API_TAG}
+  Dashboard = ${DASHBOARD_TAG}
+  Services = ${SERVICES_TAG}
 
-Services:
-  - Dashboard: http://$EXTERNAL_IP
-  - API:       http://$EXTERNAL_IP:8000
-  - Forgejo:   http://$EXTERNAL_IP:3001
+Access URLs =
+  Dashboard = http://${EXTERNAL_IP}
+  API = http://${EXTERNAL_IP}:8000
+  Forgejo = http://${EXTERNAL_IP}:3001
 
-Logs: http://$EXTERNAL_IP:3001/cradexco/superdeploy-app/actions
-
-═══════════════════════════════════════════════════════════════
-EOF
-            echo "📧 Email sent to cradexco@gmail.com"
+Logs = http://${EXTERNAL_IP}:3001/${{ secrets.FORGEJO_ORG }}/superdeploy-app/actions
+EMAIL_END
+            echo "📧 Email sent to $ALERT_EMAIL"
           else
             echo "⚠️  'mail' command not found. Install mailutils for email notifications."
             echo "   sudo apt install mailutils"
