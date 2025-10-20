@@ -55,7 +55,6 @@ services:
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS}
-      - RABBITMQ_VM_MEMORY_HIGH_WATERMARK=0.7
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
