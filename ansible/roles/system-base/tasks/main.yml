@@ -76,6 +76,24 @@
         state: present
         update_cache: yes
 
+    - name: Configure Docker daemon (log rotation)
+      copy:
+        content: |
+          {
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "10m",
+              "max-file": "3"
+            },
+            "storage-driver": "overlay2",
+            "userland-proxy": false
+          }
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart Docker
+
     - name: Start and enable Docker service
       systemd:
         name: docker
