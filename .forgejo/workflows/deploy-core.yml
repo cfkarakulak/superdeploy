@@ -1,130 +1,112 @@
-name: 🚀 Deploy CORE VM
+name: Deploy CORE Services
 
 on:
-  push:
-    branches:
-      - master
-    paths:
-      - 'deploy/compose/vm1-core/**'
   workflow_dispatch:
+    inputs:
+      api_image_tag:
+        description: 'API image tag'
+        required: false
+        default: 'latest'
+      dashboard_image_tag:
+        description: 'Dashboard image tag'
+        required: false
+        default: 'latest'
 
 env:
-  COMPOSE_DIR: /opt/superdeploy/compose
-  REPO_URL: http://${{ vars.CORE_EXTERNAL_IP }}:3001/cradexco/superdeploy-app.git
-  WORKING_DIR: /opt/superdeploy
+  COMPOSE_FILE: projects/cheapa/compose/docker-compose.yml
+  ENV_FILE: projects/cheapa/.env
 
 jobs:
-  deploy:
-    runs-on: self-hosted
-    
+  deploy-core:
+    runs-on: ubuntu-latest
     steps:
       - name: 📦 Checkout code
         run: |
-          cd ${{ env.WORKING_DIR }}
-          
-          # Configure git defaults
-          git config --global init.defaultBranch master
-          git config --global user.email "runner@superdeploy.local"
-          git config --global user.name "Superdeploy Runner"
-          
-          # Initialize git if not exists
-          if [ ! -d .git ]; then
-            git init -b master
-            git remote add origin ${{ env.REPO_URL }}
-          fi
-          
-          # Fetch and checkout
-          git fetch origin master || true
-          git checkout master || git checkout -b master
-          git reset --hard origin/master || true
-          git pull origin master || true
-          
-          echo "✅ Code checked out: $(git rev-parse --short HEAD 2>/dev/null || echo 'initial')"
+          git config --global --add safe.directory /opt/superdeploy
+          cd /opt/superdeploy
+          git fetch origin
+          git reset --hard origin/master
+          echo "✅ Code updated"
 
-      - name: 🔐 Prepare .env file
+      - name: 🔐 Load environment
         run: |
-          # Check if .env exists in repo
-          if [ ! -f ${{ env.WORKING_DIR }}/.env ]; then
-            echo "❌ ERROR: .env file not found!"
-            echo "Please copy ENV.example to .env and configure it"
+          cd /opt/superdeploy
+          if [ ! -f "${{ env.ENV_FILE }}" ]; then
+            echo "❌ ERROR: ${{ env.ENV_FILE }} not found!"
             exit 1
           fi
-          
-          # Copy .env from repo to compose directory
-          cp ${{ env.WORKING_DIR }}/.env /tmp/core.env
-          
-          echo "✅ .env file loaded from repository"
+          set -a
+          source ${{ env.ENV_FILE }}
+          set +a
+          echo "✅ Environment loaded"
 
-      - name: 📁 Copy files to deployment directory
+      - name: 🏷️ Update image tags
         run: |
-          cp /tmp/core.env ${{ env.COMPOSE_DIR }}/.env
-          cp -r ${{ env.WORKING_DIR }}/deploy/compose/vm1-core/* ${{ env.COMPOSE_DIR }}/
-          echo "✅ Files copied to ${{ env.COMPOSE_DIR }}"
+          cd /opt/superdeploy
+          
+          # Update API tag if provided
+          if [ "${{ github.event.inputs.api_image_tag }}" != "latest" ]; then
+            echo "Updating API image tag to: ${{ github.event.inputs.api_image_tag }}"
+            sed -i "s/^API_IMAGE_TAG=.*/API_IMAGE_TAG=${{ github.event.inputs.api_image_tag }}/" ${{ env.ENV_FILE }}
+          fi
+          
+          # Update Dashboard tag if provided
+          if [ "${{ github.event.inputs.dashboard_image_tag }}" != "latest" ]; then
+            echo "Updating Dashboard image tag to: ${{ github.event.inputs.dashboard_image_tag }}"
+            sed -i "s/^DASHBOARD_IMAGE_TAG=.*/DASHBOARD_IMAGE_TAG=${{ github.event.inputs.dashboard_image_tag }}/" ${{ env.ENV_FILE }}
+          fi
+          
+          echo "✅ Image tags updated"
 
       - name: 🐳 Pull latest images
         run: |
-          cd ${{ env.COMPOSE_DIR }}
-          docker compose pull 2>&1 || echo "⚠️  No pre-built images, will build locally"
+          cd /opt/superdeploy
+          docker compose -f ${{ env.COMPOSE_FILE }} --env-file ${{ env.ENV_FILE }} pull
+          echo "✅ Images pulled"
 
-      - name: 🔨 Build and deploy services
+      - name: 🚀 Deploy services
         run: |
-          cd ${{ env.COMPOSE_DIR }}
-          docker compose up -d --build
+          cd /opt/superdeploy
+          docker compose -f ${{ env.COMPOSE_FILE }} --env-file ${{ env.ENV_FILE }} up -d
           echo "✅ Services deployed"
 
-      - name: ⏳ Wait for services to be healthy
+      - name: ⏳ Wait for health checks
         run: |
-          echo "⏳ Waiting 30s for services..."
+          echo "Waiting 30 seconds for services to be healthy..."
           sleep 30
-          
-          # Check API health
-          for i in {1..10}; do
-            if curl -f http://localhost:8000/health 2>/dev/null; then
-              echo "✅ API is healthy"
-              break
-            fi
-            echo "⏳ Waiting for API... ($i/10)"
-            sleep 5
-          done
-          
-          # Check Proxy Registry health
-          for i in {1..10}; do
-            if curl -f http://localhost:8080/health 2>/dev/null; then
-              echo "✅ Proxy Registry is healthy"
-              break
-            fi
-            echo "⏳ Waiting for Proxy Registry... ($i/10)"
-            sleep 5
-          done
 
-      - name: 📊 Show deployment status
+      - name: 🔍 Verify deployment
         run: |
-          cd ${{ env.COMPOSE_DIR }}
-          echo "=== Container Status ==="
-          docker compose ps
-          echo ""
-          echo "=== Recent Logs ==="
-          docker compose logs --tail=20
+          cd /opt/superdeploy
+          docker compose -f ${{ env.COMPOSE_FILE }} ps
+          
+          # Check if all services are running
+          FAILED=$(docker compose -f ${{ env.COMPOSE_FILE }} ps --filter "status=exited" -q | wc -l)
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Some services failed to start!"
+            docker compose -f ${{ env.COMPOSE_FILE }} ps
+            exit 1
+          fi
+          
+          echo "✅ All services running"
 
       - name: 🧹 Cleanup old images
         run: |
+          echo "Cleaning up unused images..."
           docker image prune -f
           echo "✅ Cleanup complete"
 
-      - name: 🎉 Deployment Summary
+      - name: 📊 Deployment summary
         run: |
-          echo "╔══════════════════════════════════════════════════════════════╗"
-          echo "║  ✅ CORE VM Deployment Successful                            ║"
-          echo "╚══════════════════════════════════════════════════════════════╝"
+          echo "╔════════════════════════════════════════════════════════╗"
+          echo "║         🎉 DEPLOYMENT COMPLETE! 🎉                    ║"
+          echo "╚════════════════════════════════════════════════════════╝"
           echo ""
-          echo "🌐 Service URLs:"
-          echo "  • Dashboard:      http://34.56.43.99/"
-          echo "  • API:            http://34.56.43.99:8000"
-          echo "  • API Health:     http://34.56.43.99:8000/health"
-          echo "  • Proxy Registry: http://34.56.43.99:8080"
-          echo "  • RabbitMQ UI:    http://34.56.43.99:15672"
+          echo "📦 Services deployed:"
+          echo "  - API:        ${{ github.event.inputs.api_image_tag }}"
+          echo "  - Dashboard:  ${{ github.event.inputs.dashboard_image_tag }}"
           echo ""
-          echo "📝 Commit: ${{ github.sha }}"
-          echo "👤 Author: ${{ github.actor }}"
-          echo "⏰ Time: $(date)"
+          echo "🔗 Access:"
+          echo "  - API:       http://\$CORE_EXTERNAL_IP:8000"
+          echo "  - Dashboard: http://\$CORE_EXTERNAL_IP:8001"
 
