@@ -1,29 +1,5 @@
-terraform {
-  required_version = ">= 1.5.0"
-  
-  required_providers {
-    google = {
-      source  = "hashicorp/google"
-      version = "~> 5.0"
-    }
-    # AWS provider - for future multi-cloud support
-    # aws = {
-    #   source  = "hashicorp/aws"
-    #   version = "~> 5.0"
-    # }
-  }
-
-  # Local backend for now - migrate to GCS later
-  backend "local" {
-    path = "terraform.tfstate"
-  }
-
-  # Future: GCS backend for production
-  # backend "gcs" {
-  #   bucket  = "superdeploy-terraform-state"
-  #   prefix  = "terraform/state"
-  # }
-}
+# Terraform configuration moved to backend.tf
+# Providers config only here
 
 provider "google" {
   project = var.project_id

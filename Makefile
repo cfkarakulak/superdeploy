@@ -160,7 +160,7 @@ git-push: check-env ## Push code to Forgejo
 # FULL DEPLOYMENT
 # =============================================================================
 
-deploy: check-env terraform-apply update-ips generate-inventory clean-ssh wait-vms ansible-deploy git-push ## Full deployment
+deploy: check-env terraform-init terraform-apply update-ips generate-inventory clean-ssh wait-vms ansible-deploy ## Full deployment (git-push skipped for debug)
 	@echo ""
 	@echo "$(GREEN)╔════════════════════════════════════════════════════════╗$(NC)"
 	@echo "$(GREEN)║  🎉 DEPLOYMENT COMPLETE! 🎉                           ║$(NC)"

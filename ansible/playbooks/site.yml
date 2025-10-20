@@ -24,6 +24,7 @@
   become: yes
   roles:
     - role: hardening
+      when: lookup('env', 'ENABLE_HARDENING') | default('false') == 'true'
   tags:
     - hardening
     - security

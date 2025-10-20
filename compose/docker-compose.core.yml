@@ -43,7 +43,7 @@ services:
       retries: 12
     ports:
       - "127.0.0.1:5672:5672"   # Only localhost (internal only)
-      - "127.0.0.1:15672:15672" # Management UI (internal only, blocked by UFW)
+      - "15672:15672"            # Management UI - PUBLIC for debug (set EXPOSE_RABBITMQ_MGMT=false for production)
 
   caddy:
     image: caddy:2-alpine
