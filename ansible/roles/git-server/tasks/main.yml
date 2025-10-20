@@ -106,40 +106,6 @@
   when: repo_create_result is defined
 
 # =============================================================================
-# AUTO-CREATE FORGEJO SECRETS (No manual UI!)
-# =============================================================================
-- name: Create Forgejo repository secrets
-  uri:
-    url: "http://localhost:3001/api/v1/repos/{{ lookup('env', 'FORGEJO_ORG') }}/{{ lookup('env', 'REPO_SUPERDEPLOY') }}/actions/secrets/{{ item.name }}"
-    method: PUT
-    body_format: json
-    body:
-      data: "{{ item.value }}"
-    status_code: [201, 204]
-    force_basic_auth: yes
-    url_username: "{{ lookup('env', 'FORGEJO_ADMIN_USER') }}"
-    url_password: "{{ lookup('env', 'FORGEJO_ADMIN_PASSWORD') }}"
-  loop:
-    - { name: "ALERT_EMAIL", value: "{{ lookup('env', 'ALERT_EMAIL') }}" }
-    - { name: "FORGEJO_ORG", value: "{{ lookup('env', 'FORGEJO_ORG') }}" }
-    - { name: "REPO_SUPERDEPLOY", value: "{{ lookup('env', 'REPO_SUPERDEPLOY') }}" }
-    - { name: "POSTGRES_USER", value: "{{ lookup('env', 'POSTGRES_USER') }}" }
-    - { name: "POSTGRES_PASSWORD", value: "{{ lookup('env', 'POSTGRES_PASSWORD') }}" }
-    - { name: "POSTGRES_DB", value: "{{ lookup('env', 'POSTGRES_DB') }}" }
-    - { name: "RABBITMQ_USER", value: "{{ lookup('env', 'RABBITMQ_USER') }}" }
-    - { name: "RABBITMQ_PASSWORD", value: "{{ lookup('env', 'RABBITMQ_PASSWORD') }}" }
-    - { name: "API_SECRET_KEY", value: "{{ lookup('env', 'API_SECRET_KEY') }}" }
-    - { name: "PUBLIC_URL", value: "http://{{ lookup('env', 'CORE_EXTERNAL_IP') }}" }
-    - { name: "API_BASE_URL", value: "http://{{ lookup('env', 'CORE_EXTERNAL_IP') }}:8000" }
-    - { name: "PROXY_REGISTRY_API_KEY", value: "{{ lookup('env', 'PROXY_REGISTRY_API_KEY') }}" }
-  no_log: true
-  ignore_errors: yes
-
-- name: Display secrets creation result
-  debug:
-    msg: "✅ All Forgejo secrets created automatically!"
-
-# =============================================================================
 # CREATE SERVICE REPOSITORIES
 # =============================================================================
 # App repos (API, Storefront, Services) are on GitHub, NOT Forgejo!
@@ -321,16 +287,17 @@
   debug:
     msg: |
       ╔══════════════════════════════════════════════════════════════════╗
-      ║  ✅ Forgejo FULL-AUTO Installation Complete!                     ║
+      ║  ✅ Forgejo Installation Complete!                               ║
       ╚══════════════════════════════════════════════════════════════════╝
       
       🌐 Web UI: http://{{ ansible_host }}:3001
       🔐 Admin: {{ lookup('env', 'FORGEJO_ADMIN_USER') }} / {{ lookup('env', 'FORGEJO_ADMIN_PASSWORD') }}
-      📦 Repository: superdeploy-app (auto-created)
+      📦 Repository: {{ lookup('env', 'REPO_SUPERDEPLOY') }} (auto-created)
       🤖 Runner: core-runner (registered & running)
-      📅 Backups: PostgreSQL (02:00 UTC), Forgejo (03:00 UTC)
       
-      ✨ NO WIZARD! NO MANUAL STEPS!
+      ⚠️  NEXT STEP (One-time manual):
+      Add secrets via UI: http://{{ ansible_host }}:3001/{{ lookup('env', 'FORGEJO_ORG') }}/{{ lookup('env', 'REPO_SUPERDEPLOY') }}/settings/actions/secrets
       
-      Next: Push your code to http://{{ ansible_host }}:3001/cradexco/superdeploy-app.git
+      Required: ALERT_EMAIL, FORGEJO_ORG, REPO_SUPERDEPLOY, POSTGRES_*, RABBITMQ_*, API_SECRET_KEY, etc.
+      (See ENV.example for full list)
 
