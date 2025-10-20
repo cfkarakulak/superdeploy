@@ -137,7 +137,22 @@ git-push: ## Push code to Forgejo
 	git add .env && \
 	git commit -m "config: automated deployment setup" || true && \
 	git push -u forgejo master
-	@echo "$(GREEN)✅ Code pushed to Forgejo!$(NC)"
+	@echo "$(GREEN)✅ superdeploy-app pushed!$(NC)"
+	@echo ""
+	@echo "$(GREEN)📤 Pushing service repositories...$(NC)"
+	@CORE_EXT=$$(grep "^CORE_EXTERNAL_IP=" .env | cut -d= -f2) && \
+	ADMIN_USER=$$(grep "^FORGEJO_ADMIN_USER=" .env | cut -d= -f2) && \
+	ADMIN_PASS=$$(grep "^FORGEJO_ADMIN_PASSWORD=" .env | cut -d= -f2) && \
+	ENCODED_PASS=$$(printf '%s' "$$ADMIN_PASS" | jq -sRr @uri) && \
+	for SERVICE in cheapa-api cheapa-storefront cheapa-services; do \
+		echo "  📦 Pushing $$SERVICE..." && \
+		cd ../$$SERVICE 2>/dev/null && \
+		git remote remove origin 2>/dev/null || true && \
+		git remote add origin "http://$$ADMIN_USER:$$ENCODED_PASS@$$CORE_EXT:3001/cradexco/$$SERVICE.git" && \
+		git push -u origin master 2>&1 | grep -v "Password" || true && \
+		cd - > /dev/null || true; \
+	done
+	@echo "$(GREEN)✅ All repositories pushed to Forgejo!$(NC)"
 
 deploy: check-env terraform-apply update-ips clean-ssh wait-vms ansible-deploy git-push ## 🚀 Full deployment (single command!)
 	@echo ""
