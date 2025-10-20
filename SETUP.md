@@ -1,269 +1,232 @@
-# SuperDeploy - Zero-Hardcoded Setup Guide
+# 🚀 SuperDeploy - Sıfırdan Kurulum
 
-## 🎯 Philosophy
+## ⚡ TL;DR (5 Dakika)
 
-**EVERYTHING is configured via `.env` file. NO hardcoded IPs, passwords, or configuration.**
-
-When VMs restart and IPs change, you only need to:
-1. Update `.env` file
-2. Push to git
-3. Done!
-
----
-
-## 🚀 Quick Start (From Scratch)
-
-### 1. Clone Repository
 ```bash
-git clone http://YOUR_FORGEJO_IP:3001/cradexco/superdeploy-app.git
-cd superdeploy-app
-```
+# 1. Terraform ile VM'leri oluştur
+cd superdeploy-infra
+terraform apply -var-file=envs/dev/gcp.auto.tfvars -auto-approve
 
-### 2. Configure Environment
-```bash
-# Copy example to .env
-cp ENV.example .env
+# 2. IP'leri al ve .env'i güncelle
+terraform output
+cd ../superdeploy
+nano .env  # Internal IP'leri güncelle
 
-# Edit .env with your actual values
-nano .env
+# 3. SSH known_hosts temizle
+ssh-keygen -R 34.56.43.99
+ssh-keygen -R 34.67.236.167
+ssh-keygen -R 34.173.11.246
 
-# CRITICAL: Update these when VMs restart!
-# - CORE_EXTERNAL_IP
-# - CORE_INTERNAL_IP  
-# - SCRAPE_EXTERNAL_IP
-# - SCRAPE_INTERNAL_IP
-# - PROXY_EXTERNAL_IP
-# - PROXY_INTERNAL_IP
-```
+# 4. VM'lerin hazır olmasını bekle (90 saniye)
+sleep 90
 
-### 3. Configure Forgejo (One-time)
-```bash
-# Go to Forgejo
-open http://YOUR_FORGEJO_IP:3001
+# 5. Ansible ile tam otomatik deployment
+cd ../superdeploy-infra/ansible
+ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,git-server
 
-# Register runner (one-time setup)
-# Already done if you see "self-hosted" runner active
-```
-
-### 4. Deploy!
-```bash
-# Commit .env (yes, we commit it for this project)
+# 6. Kodu push et
+cd ../../superdeploy
 git add .env
-git commit -m "config: update environment"
-git push
+git commit -m "config: initial deployment"
+git remote add forgejo http://cradexco:Admin123%21ChangeME@34.56.43.99:3001/cradexco/superdeploy-app.git
+git push -u forgejo master
 
-# Workflows automatically trigger:
-# - deploy-core.yml   → Deploys to CORE VM
-# - deploy-scrape.yml → Deploys to SCRAPE VM  
-# - deploy-proxy.yml  → Deploys to PROXY VM
+# 7. Done! 🎉
+open http://34.56.43.99:3001/cradexco/superdeploy-app/actions
 ```
 
 ---
 
-## 📋 What Gets Deployed
+## 📋 Detaylı Adımlar
 
-### CORE VM (10.0.0.5 / 34.56.43.99)
-- **PostgreSQL** - Database
-- **RabbitMQ** - Message Queue
-- **API** - FastAPI Backend
-- **Proxy Registry** - Proxy Management
-- **Dashboard** - Web UI
-- **Caddy** - Reverse Proxy
-- **Forgejo** - Git Server + Actions Runner
+### 1️⃣ Ön Gereksinimler
 
-### SCRAPE VM (10.0.0.7 / 34.67.236.167)
-- **Scrape Workers** - Scraping jobs
-- **Playwright** - Browser automation
+```bash
+# GCP hesabı ve gcloud CLI
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
 
-### PROXY VM (10.0.0.6 / 34.173.11.246)
-- **Dante SOCKS5** - Proxy server
-- **Tinyproxy HTTP** - HTTP proxy
-- **IP Monitor** - IP change detection
+# SSH key oluştur (yoksa)
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/cfk_gcp
+```
+
+### 2️⃣ Terraform ile VM'leri Oluştur
+
+```bash
+cd superdeploy-infra
+
+# GCP project ID'yi güncelle
+nano envs/dev/gcp.auto.tfvars  # project_id = "YOUR_PROJECT"
+
+# VM'leri oluştur
+terraform init
+terraform apply -var-file=envs/dev/gcp.auto.tfvars -auto-approve
+```
+
+**Output'tan IP'leri not al:**
+```
+vm_core_internal_ips = ["10.0.0.X"]
+vm_scrape_internal_ips = ["10.0.0.Y"]
+vm_proxy_internal_ips = ["10.0.0.Z"]
+```
+
+### 3️⃣ .env Dosyasını Güncelle
+
+```bash
+cd ../superdeploy
+nano .env
+```
+
+**Güncelle:**
+```env
+CORE_INTERNAL_IP=10.0.0.X    # Terraform output'tan
+SCRAPE_INTERNAL_IP=10.0.0.Y
+PROXY_INTERNAL_IP=10.0.0.Z
+```
+
+### 4️⃣ SSH Known Hosts Temizle
+
+```bash
+ssh-keygen -R 34.56.43.99
+ssh-keygen -R 34.67.236.167
+ssh-keygen -R 34.173.11.246
+```
+
+### 5️⃣ VM Hazırlığını Bekle
+
+```bash
+# VM'lerin startup script'i çalışıyor
+sleep 90
+```
+
+### 6️⃣ Ansible ile Tam Otomatik Deployment
+
+```bash
+cd ../superdeploy-infra/ansible
+ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,git-server
+```
+
+**Bu adım:**
+- ✅ Docker kurar
+- ✅ Firewall yapılandırır
+- ✅ Forgejo kurar (NO WIZARD!)
+- ✅ Admin user oluşturur: `cradexco` / `Admin123!ChangeME`
+- ✅ Repository oluşturur: `superdeploy-app`
+- ✅ Runner register eder ve başlatır
+
+### 7️⃣ Kodu Forgejo'ya Push Et
+
+```bash
+cd ../../superdeploy
+
+# .env'i commit et
+git add .env
+git commit -m "config: initial deployment"
+
+# Forgejo'ya push
+git remote add forgejo http://cradexco:Admin123%21ChangeME@34.56.43.99:3001/cradexco/superdeploy-app.git
+git push -u forgejo master
+```
+
+### 8️⃣ Workflow'ları İzle
+
+```bash
+# Browser'da aç
+open http://34.56.43.99:3001/cradexco/superdeploy-app/actions
+```
+
+**Workflow'lar otomatik başlar:**
+- 🚀 Deploy CORE VM
+- 🔍 Deploy SCRAPE VM
+- 🌐 Deploy PROXY VM
 
 ---
 
-## 🔧 Common Tasks
+## ✅ Test
 
-### Update Configuration (e.g., After VM Restart)
 ```bash
-# 1. Get new IPs
-gcloud compute instances list
+# 2-3 dakika sonra servisler hazır:
 
-# 2. Update .env
-nano .env
-# Update CORE_EXTERNAL_IP, CORE_INTERNAL_IP, etc.
+# API
+curl http://34.56.43.99:8000/health
 
-# 3. Push changes
+# Proxy Registry
+curl http://34.56.43.99:8080/health
+
+# Dashboard
+open http://34.56.43.99:8001
+
+# RabbitMQ Management
+open http://34.56.43.99:15672
+```
+
+---
+
+## 🔄 VM Restart Sonrası
+
+```bash
+# 1. Yeni IP'leri al
+cd superdeploy-infra
+terraform output
+
+# 2. .env'i güncelle
+cd ../superdeploy
+nano .env  # Internal IP'leri güncelle
+
+# 3. Push et
 git add .env
 git commit -m "config: update IPs after restart"
 git push
 
-# 4. Workflows auto-deploy everywhere!
-```
-
-### Manual Deployment
-```bash
-# Trigger workflows manually in Forgejo UI:
-# http://YOUR_IP:3001/cradexco/superdeploy-app/actions
-
-# Or trigger specific VM:
-cd superdeploy-app
-echo "# trigger" >> deploy/compose/vm1-core/TEST.txt
-git commit -am "trigger: manual deploy"
-git push
-```
-
-### Check Deployment Status
-```bash
-# Core VM
-ssh superdeploy@${CORE_EXTERNAL_IP}
-docker compose -f /opt/superdeploy/compose/docker-compose.yml ps
-
-# Scrape VM
-ssh superdeploy@${SCRAPE_EXTERNAL_IP}
-docker compose -f /opt/superdeploy/compose/docker-compose.yml ps
-
-# Proxy VM
-ssh superdeploy@${PROXY_EXTERNAL_IP}
-docker compose -f /opt/superdeploy/compose/docker-compose.yml ps
-```
-
-### View Logs
-```bash
-# On any VM
-docker compose logs -f [service_name]
-
-# Examples:
-docker compose logs -f api
-docker compose logs -f postgres
-docker compose logs -f rabbitmq
+# 4. Otomatik deploy! ✨
 ```
 
 ---
 
-## 🔐 Security Notes
+## 🎯 Özet
 
-### .env File Handling
-- ✅ **Development**: `.env` is committed to git for convenience
-- ⚠️ **Production**: Use secrets management or encrypted files
-- 🔒 **Never** share `.env` publicly
-
-### Passwords in .env
-All sensitive values are in `.env`:
-- `POSTGRES_PASSWORD`
-- `RABBITMQ_DEFAULT_PASS`
-- `API_SECRET_KEY`
-- `PROXY_PASSWORD`
-- etc.
-
-**Change all default passwords before production use!**
+| Adım | Süre | Komut |
+|------|------|-------|
+| Terraform | 30s | `terraform apply -auto-approve` |
+| Bekle | 90s | `sleep 90` |
+| Ansible | 3-4m | `ansible-playbook ... --tags system-base,git-server` |
+| Push | 10s | `git push forgejo master` |
+| **TOPLAM** | **~6 dakika** | **4 komut** |
 
 ---
 
-## 🛠️ Troubleshooting
+## 📚 Kaynaklar
 
-### Workflow Stuck in "Waiting"
+- **Forgejo UI**: http://34.56.43.99:3001
+- **Admin**: cradexco / Admin123!ChangeME
+- **Workflow'lar**: http://34.56.43.99:3001/cradexco/superdeploy-app/actions
+- **API Docs**: http://34.56.43.99:8000/docs
+
+---
+
+## 🆘 Sorun Giderme
+
+### Ansible "dpkg lock" Hatası
 ```bash
-# Check runner status
-ssh superdeploy@${CORE_EXTERNAL_IP}
-systemctl status forgejo-runner
+# 30 saniye daha bekle ve tekrar dene
+sleep 30
+ansible-playbook ...
+```
 
-# Restart runner if needed
+### Runner Çalışmıyor
+```bash
+ssh superdeploy@34.56.43.99
+sudo systemctl status forgejo-runner
 sudo systemctl restart forgejo-runner
 ```
 
-### Services Not Starting
+### Workflow Başlamıyor
 ```bash
-# Check .env is loaded
-docker compose config
-
-# Check logs
-docker compose logs
-```
-
-### IP Changed But Services Can't Connect
-```bash
-# 1. Update .env in repository
-# 2. Push changes
-# 3. Workflows will redeploy with new IPs automatically
-```
-
-### RabbitMQ Unhealthy
-```bash
-# Check logs
-docker logs superdeploy-rabbitmq
-
-# Restart
-docker compose restart rabbitmq
+# Runner loglarını kontrol et
+ssh superdeploy@34.56.43.99
+sudo journalctl -u forgejo-runner -f
 ```
 
 ---
 
-## 📚 Architecture
-
-### Single Source of Truth: `.env`
-```
-.env  →  Forgejo Workflows  →  Docker Compose  →  Services
-```
-
-### No Hardcoded Values
-- ❌ No IPs in code
-- ❌ No passwords in compose files
-- ❌ No configuration in workflows
-- ✅ Everything from `.env`
-
-### VM Restart Flow
-```
-1. VMs restart → IPs change
-2. Update .env → Push to git
-3. Workflows run → Services redeploy
-4. Done!
-```
-
----
-
-## 🎓 Best Practices
-
-1. **Always update .env first** before manual changes
-2. **Test locally** with `docker compose config` before pushing
-3. **Monitor workflows** at http://YOUR_IP:3001/cradexco/superdeploy-app/actions
-4. **Keep backups** of working `.env` configurations
-5. **Document changes** in git commit messages
-
----
-
-## 📞 Support
-
-### Check Workflow Logs
-http://YOUR_IP:3001/cradexco/superdeploy-app/actions
-
-### Check Service Health
-```bash
-curl http://${CORE_EXTERNAL_IP}:8000/health        # API
-curl http://${CORE_EXTERNAL_IP}:8080/health        # Proxy Registry
-curl http://${CORE_EXTERNAL_IP}/                   # Dashboard
-```
-
-### Full System Check
-```bash
-# Run on CORE VM
-cd /opt/superdeploy/compose
-docker compose ps
-docker compose logs --tail=50
-```
-
----
-
-## 🎉 Success Criteria
-
-You know it's working when:
-- ✅ All workflows show green checkmarks
-- ✅ `docker compose ps` shows all services "healthy"
-- ✅ API responds: `curl http://localhost:8000/health`
-- ✅ Dashboard loads in browser
-- ✅ No hardcoded IPs anywhere!
-
----
-
-**Made with ❤️ for zero-configuration deployments**
-
+**🎉 Hepsi bu kadar! 6 dakikada tam sistem!**
