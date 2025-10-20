@@ -1,232 +1,276 @@
 # 🚀 SuperDeploy - Sıfırdan Kurulum
 
-## ⚡ TL;DR (5 Dakika)
+## ⚡ 2 Komut, 6 Dakika, Tam Sistem!
 
 ```bash
-# 1. Terraform ile VM'leri oluştur
-cd superdeploy-infra
-terraform apply -var-file=envs/dev/gcp.auto.tfvars -auto-approve
+# 1. .env'i hazırla
+make init
+nano superdeploy/.env  # GCP_PROJECT_ID + şifreleri doldur
 
-# 2. IP'leri al ve .env'i güncelle
-terraform output
-cd ../superdeploy
-nano .env  # Internal IP'leri güncelle
+# 2. Deploy!
+make deploy
 
-# 3. SSH known_hosts temizle
-ssh-keygen -R 34.56.43.99
-ssh-keygen -R 34.67.236.167
-ssh-keygen -R 34.173.11.246
-
-# 4. VM'lerin hazır olmasını bekle (90 saniye)
-sleep 90
-
-# 5. Ansible ile tam otomatik deployment
-cd ../superdeploy-infra/ansible
-ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,git-server
-
-# 6. Kodu push et
-cd ../../superdeploy
-git add .env
-git commit -m "config: initial deployment"
-git remote add forgejo http://cradexco:Admin123%21ChangeME@34.56.43.99:3001/cradexco/superdeploy-app.git
-git push -u forgejo master
-
-# 7. Done! 🎉
-open http://34.56.43.99:3001/cradexco/superdeploy-app/actions
+# 🎉 DONE!
 ```
 
 ---
 
-## 📋 Detaylı Adımlar
+## 📋 Detaylı Kurulum
 
-### 1️⃣ Ön Gereksinimler
+### Ön Gereksinimler
 
 ```bash
-# GCP hesabı ve gcloud CLI
+# GCP CLI
 gcloud auth login
 gcloud config set project YOUR_PROJECT_ID
 
-# SSH key oluştur (yoksa)
+# SSH Key
 ssh-keygen -t rsa -b 4096 -f ~/.ssh/cfk_gcp
+
+# Dependencies
+brew install terraform ansible jq  # macOS
 ```
 
-### 2️⃣ Terraform ile VM'leri Oluştur
+### 1️⃣ .env Oluştur
 
 ```bash
-cd superdeploy-infra
-
-# GCP project ID'yi güncelle
-nano envs/dev/gcp.auto.tfvars  # project_id = "YOUR_PROJECT"
-
-# VM'leri oluştur
-terraform init
-terraform apply -var-file=envs/dev/gcp.auto.tfvars -auto-approve
+make init
 ```
 
-**Output'tan IP'leri not al:**
-```
-vm_core_internal_ips = ["10.0.0.X"]
-vm_scrape_internal_ips = ["10.0.0.Y"]
-vm_proxy_internal_ips = ["10.0.0.Z"]
-```
+Bu komut `superdeploy/ENV.example`'ı `superdeploy/.env`'e kopyalar.
 
-### 3️⃣ .env Dosyasını Güncelle
+### 2️⃣ .env'i Doldur
 
 ```bash
-cd ../superdeploy
-nano .env
+nano superdeploy/.env
 ```
 
-**Güncelle:**
+**SADECE BUNLARI DOLDUR:**
+
 ```env
-CORE_INTERNAL_IP=10.0.0.X    # Terraform output'tan
-SCRAPE_INTERNAL_IP=10.0.0.Y
-PROXY_INTERNAL_IP=10.0.0.Z
+# GCP Project (ZORUNLU)
+GCP_PROJECT_ID=your-gcp-project-id-here  # gcloud projects list
+
+# Passwords (ZORUNLU - openssl rand -base64 32)
+POSTGRES_PASSWORD=CHANGE_ME_RANDOM_32_CHARS
+RABBITMQ_DEFAULT_PASS=CHANGE_ME_RANDOM_32_CHARS
+API_SECRET_KEY=CHANGE_ME_RANDOM_64_CHARS
+PROXY_REGISTRY_PASS=CHANGE_ME_RANDOM_32_CHARS
+PROXY_REGISTRY_API_KEY=CHANGE_ME_RANDOM_64_CHARS
+PROXY_PASSWORD=CHANGE_ME_RANDOM_32_CHARS
+SECRET_KEY=CHANGE_ME_RANDOM_64_CHARS
+JWT_SECRET=CHANGE_ME_RANDOM_64_CHARS
+FORGEJO_ADMIN_PASSWORD=CHANGE_ME_RANDOM_32_CHARS
+FORGEJO_DB_PASSWORD=CHANGE_ME_RANDOM_32_CHARS
+
+# SSH Key Path (değiştir eğer farklıysa)
+SSH_KEY_PATH=~/.ssh/cfk_gcp
 ```
 
-### 4️⃣ SSH Known Hosts Temizle
+**💡 Şifre Oluştur:**
 
 ```bash
-ssh-keygen -R 34.56.43.99
-ssh-keygen -R 34.67.236.167
-ssh-keygen -R 34.173.11.246
+# Terminal'de çalıştır:
+openssl rand -base64 32  # 32 karakter
+openssl rand -base64 64  # 64 karakter
 ```
 
-### 5️⃣ VM Hazırlığını Bekle
+### 3️⃣ Deploy!
 
 ```bash
-# VM'lerin startup script'i çalışıyor
-sleep 90
+make deploy
 ```
 
-### 6️⃣ Ansible ile Tam Otomatik Deployment
+**Bu tek komut şunları yapar:**
 
-```bash
-cd ../superdeploy-infra/ansible
-ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,git-server
-```
+1. ✅ .env'i kontrol eder
+2. ✅ Terraform ile 3 VM oluşturur (CORE, SCRAPE, PROXY)
+3. ✅ IP'leri otomatik çeker ve .env'e yazar
+4. ✅ SSH known_hosts temizler
+5. ✅ VM'lerin hazır olmasını bekler (90s)
+6. ✅ Ansible ile full-auto deployment:
+   - Docker kurar
+   - Firewall yapılandırır
+   - Forgejo kurar (NO WIZARD!)
+   - Admin user oluşturur
+   - Repository oluşturur
+   - Runner register eder
+7. ✅ Kodu Forgejo'ya pushar
+8. ✅ Workflow'lar otomatik başlar
 
-**Bu adım:**
-- ✅ Docker kurar
-- ✅ Firewall yapılandırır
-- ✅ Forgejo kurar (NO WIZARD!)
-- ✅ Admin user oluşturur: `cradexco` / `Admin123!ChangeME`
-- ✅ Repository oluşturur: `superdeploy-app`
-- ✅ Runner register eder ve başlatır
-
-### 7️⃣ Kodu Forgejo'ya Push Et
-
-```bash
-cd ../../superdeploy
-
-# .env'i commit et
-git add .env
-git commit -m "config: initial deployment"
-
-# Forgejo'ya push
-git remote add forgejo http://cradexco:Admin123%21ChangeME@34.56.43.99:3001/cradexco/superdeploy-app.git
-git push -u forgejo master
-```
-
-### 8️⃣ Workflow'ları İzle
-
-```bash
-# Browser'da aç
-open http://34.56.43.99:3001/cradexco/superdeploy-app/actions
-```
-
-**Workflow'lar otomatik başlar:**
-- 🚀 Deploy CORE VM
-- 🔍 Deploy SCRAPE VM
-- 🌐 Deploy PROXY VM
+**Süre: ~6 dakika**
 
 ---
 
-## ✅ Test
+## 🎯 Access Points
+
+Deployment bittikten sonra:
 
 ```bash
-# 2-3 dakika sonra servisler hazır:
+# Forgejo UI
+http://CORE_EXTERNAL_IP:3001
 
-# API
-curl http://34.56.43.99:8000/health
+# Workflows
+http://CORE_EXTERNAL_IP:3001/cradexco/superdeploy-app/actions
 
-# Proxy Registry
-curl http://34.56.43.99:8080/health
-
-# Dashboard
-open http://34.56.43.99:8001
-
-# RabbitMQ Management
-open http://34.56.43.99:15672
+# Services (2-3 dakika sonra hazır)
+curl http://CORE_EXTERNAL_IP:8000/health    # API
+curl http://CORE_EXTERNAL_IP:8080/health    # Proxy Registry
+open http://CORE_EXTERNAL_IP:8001           # Dashboard
+open http://CORE_EXTERNAL_IP:15672          # RabbitMQ
 ```
+
+**Credentials:**
+- Admin: `cradexco` / `<FORGEJO_ADMIN_PASSWORD from .env>`
 
 ---
 
 ## 🔄 VM Restart Sonrası
 
+VM'ler restart olursa sadece IP'leri güncelle:
+
 ```bash
-# 1. Yeni IP'leri al
-cd superdeploy-infra
-terraform output
+# 1. Yeni IP'leri al ve .env'i güncelle
+make update-ips
 
-# 2. .env'i güncelle
-cd ../superdeploy
-nano .env  # Internal IP'leri güncelle
-
-# 3. Push et
+# 2. Push et
+cd superdeploy
 git add .env
 git commit -m "config: update IPs after restart"
 git push
 
-# 4. Otomatik deploy! ✨
+# 3. Otomatik deploy! ✨
+```
+
+---
+
+## 🧪 Test
+
+```bash
+make test
+```
+
+Tüm servisleri test eder (API, Proxy Registry, Dashboard).
+
+---
+
+## 📚 Makefile Komutları
+
+```bash
+make help          # Tüm komutları listele
+make init          # .env oluştur
+make check-env     # .env'i kontrol et
+make deploy        # Tam deployment (tek komut!)
+make update-ips    # Terraform'dan IP'leri çek
+make ansible-deploy # Sadece Ansible deploy
+make git-push      # Kodu Forgejo'ya push et
+make test          # Servisleri test et
+make destroy       # Tüm infrastructure'ı yok et
+make clean         # Temp dosyaları temizle
+```
+
+---
+
+## 🆘 Sorun Giderme
+
+### .env hatası
+
+```bash
+# Eksik değer var mı?
+make check-env
+
+# Yeniden başlat
+make init
+nano superdeploy/.env
+```
+
+### Terraform hatası
+
+```bash
+# GCP credentials kontrol
+gcloud auth list
+gcloud config list
+
+# SSH key kontrol
+ls -la ~/.ssh/cfk_gcp*
+```
+
+### Ansible "dpkg lock" hatası
+
+```bash
+# 30 saniye bekle ve tekrar dene
+sleep 30
+make ansible-deploy
+```
+
+### Runner çalışmıyor
+
+```bash
+# SSH ile gir
+ssh superdeploy@CORE_EXTERNAL_IP
+
+# Status kontrol
+sudo systemctl status forgejo-runner
+
+# Restart
+sudo systemctl restart forgejo-runner
+
+# Logs
+sudo journalctl -u forgejo-runner -f
+```
+
+### Workflow başlamıyor
+
+```bash
+# Browser'da kontrol et
+open http://CORE_EXTERNAL_IP:3001/cradexco/superdeploy-app/actions
+
+# Manuel tetikle
+cd superdeploy
+git commit --allow-empty -m "trigger: manual workflow"
+git push
+```
+
+---
+
+## 🎨 Workflow
+
+```
+.env hazırla → make deploy → kahve iç → sistem hazır!
+     ↓              ↓
+  2 dakika      6 dakika
+```
+
+---
+
+## 📁 Dosya Yapısı
+
+```
+.
+├── Makefile                    # ⭐ Ana komutlar
+├── superdeploy/
+│   ├── ENV.example            # Template
+│   ├── .env                   # ⭐ TEK config dosyası
+│   ├── deploy/                # Docker Compose files
+│   └── .forgejo/              # CI/CD workflows
+├── superdeploy-infra/
+│   ├── terraform-wrapper.sh  # .env → Terraform
+│   ├── main.tf               # Terraform config
+│   └── ansible/              # Ansible roles
+└── SETUP.md                  # ⭐ Bu dosya
 ```
 
 ---
 
 ## 🎯 Özet
 
-| Adım | Süre | Komut |
-|------|------|-------|
-| Terraform | 30s | `terraform apply -auto-approve` |
-| Bekle | 90s | `sleep 90` |
-| Ansible | 3-4m | `ansible-playbook ... --tags system-base,git-server` |
-| Push | 10s | `git push forgejo master` |
-| **TOPLAM** | **~6 dakika** | **4 komut** |
+| Ne | Komut | Süre |
+|----|-------|------|
+| Setup | `make init` + `nano .env` | 2 dakika |
+| Deploy | `make deploy` | 6 dakika |
+| **TOPLAM** | **2 komut** | **8 dakika** |
 
 ---
 
-## 📚 Kaynaklar
+**🚀 Tek .env + Tek komut = Tam sistem!**
 
-- **Forgejo UI**: http://34.56.43.99:3001
-- **Admin**: cradexco / Admin123!ChangeME
-- **Workflow'lar**: http://34.56.43.99:3001/cradexco/superdeploy-app/actions
-- **API Docs**: http://34.56.43.99:8000/docs
-
----
-
-## 🆘 Sorun Giderme
-
-### Ansible "dpkg lock" Hatası
-```bash
-# 30 saniye daha bekle ve tekrar dene
-sleep 30
-ansible-playbook ...
-```
-
-### Runner Çalışmıyor
-```bash
-ssh superdeploy@34.56.43.99
-sudo systemctl status forgejo-runner
-sudo systemctl restart forgejo-runner
-```
-
-### Workflow Başlamıyor
-```bash
-# Runner loglarını kontrol et
-ssh superdeploy@34.56.43.99
-sudo journalctl -u forgejo-runner -f
-```
-
----
-
-**🎉 Hepsi bu kadar! 6 dakikada tam sistem!**
