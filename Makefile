@@ -77,11 +77,11 @@ terraform-apply: terraform-init ## Create VMs with Terraform
 update-ips: ## Extract IPs from Terraform and update .env
 	@echo "$(GREEN)📍 Extracting VM IPs...$(NC)"
 	@cd $(INFRA_DIR) && \
-		CORE_EXT=$$(terraform output -json vm_core_external_ips | jq -r '.[0]') && \
+		CORE_EXT=$$(terraform output -json vm_core_public_ips | jq -r '.[0]') && \
 		CORE_INT=$$(terraform output -json vm_core_internal_ips | jq -r '.[0]') && \
-		SCRAPE_EXT=$$(terraform output -json vm_scrape_external_ips | jq -r '.[0]') && \
+		SCRAPE_EXT=$$(terraform output -json vm_scrape_public_ips | jq -r '.[0]') && \
 		SCRAPE_INT=$$(terraform output -json vm_scrape_internal_ips | jq -r '.[0]') && \
-		PROXY_EXT=$$(terraform output -json vm_proxy_external_ips | jq -r '.[0]') && \
+		PROXY_EXT=$$(terraform output -json vm_proxy_public_ips | jq -r '.[0]') && \
 		PROXY_INT=$$(terraform output -json vm_proxy_internal_ips | jq -r '.[0]') && \
 		cd - > /dev/null && \
 		sed -i.bak "s|^CORE_EXTERNAL_IP=.*|CORE_EXTERNAL_IP=$$CORE_EXT|" .env && \
@@ -99,9 +99,9 @@ update-ips: ## Extract IPs from Terraform and update .env
 clean-ssh: ## Clean SSH known_hosts for VMs
 	@echo "$(GREEN)🔐 Cleaning SSH known_hosts...$(NC)"
 	@cd $(INFRA_DIR) && \
-		CORE_EXT=$$(terraform output -json vm_core_external_ips | jq -r '.[0]') && \
-		SCRAPE_EXT=$$(terraform output -json vm_scrape_external_ips | jq -r '.[0]') && \
-		PROXY_EXT=$$(terraform output -json vm_proxy_external_ips | jq -r '.[0]') && \
+		CORE_EXT=$$(terraform output -json vm_core_public_ips | jq -r '.[0]') && \
+		SCRAPE_EXT=$$(terraform output -json vm_scrape_public_ips | jq -r '.[0]') && \
+		PROXY_EXT=$$(terraform output -json vm_proxy_public_ips | jq -r '.[0]') && \
 		ssh-keygen -R $$CORE_EXT 2>/dev/null || true && \
 		ssh-keygen -R $$SCRAPE_EXT 2>/dev/null || true && \
 		ssh-keygen -R $$PROXY_EXT 2>/dev/null || true
