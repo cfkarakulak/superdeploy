@@ -1,0 +1,6 @@
+---
+- name: Restart Postfix
+  systemd:
+    name: postfix
+    state: restarted
+

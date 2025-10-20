@@ -37,7 +37,7 @@ services:
       retries: 5
 
   api:
-    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/api:${API_IMAGE_TAG}
+    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/api:${API_IMAGE_TAG}  # Immutable SHA tag recommended: abc123
     container_name: superdeploy-api
     restart: unless-stopped
     env_file:
@@ -51,9 +51,12 @@ services:
       - app-network
     ports:
       - "8000:8000"
+    labels:
+      - "com.superdeploy.image.tag=${API_IMAGE_TAG}"
+      - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
 
   dashboard:
-    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/dashboard:${DASHBOARD_IMAGE_TAG}
+    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/dashboard:${DASHBOARD_IMAGE_TAG}  # Immutable SHA tag
     container_name: superdeploy-dashboard
     restart: unless-stopped
     env_file:
@@ -64,9 +67,12 @@ services:
       - app-network
     ports:
       - "80:3000"
+    labels:
+      - "com.superdeploy.image.tag=${DASHBOARD_IMAGE_TAG}"
+      - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
 
   services:
-    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/services:${SERVICES_IMAGE_TAG}
+    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/services:${SERVICES_IMAGE_TAG}  # Immutable SHA tag
     container_name: superdeploy-services
     restart: unless-stopped
     env_file:
@@ -78,6 +84,9 @@ services:
         condition: service_healthy
     networks:
       - app-network
+    labels:
+      - "com.superdeploy.image.tag=${SERVICES_IMAGE_TAG}"
+      - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
 
 networks:
   app-network:

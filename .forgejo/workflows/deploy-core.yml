@@ -102,6 +102,9 @@ jobs:
           # Ensure DOCKER_REGISTRY is set
           export DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
           
+          # Set deployment timestamp for tracking
+          export DEPLOY_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          
           # Set DB/Queue credentials from Forgejo Secrets
           export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
           export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
@@ -138,3 +141,54 @@ jobs:
           docker compose ps
           echo ""
           echo "🌐 Services are available at: http://$(curl -s ifconfig.me)"
+
+      - name: 📧 Send deployment notification
+        if: always()
+        run: |
+          # Determine deployment status
+          if [ "${{ job.status }}" = "success" ]; then
+            STATUS="✅ SUCCESS"
+            STATUS_COLOR="green"
+          else
+            STATUS="❌ FAILED"
+            STATUS_COLOR="red"
+          fi
+          
+          # Get deployed image tags
+          API_TAG="${{ github.event.inputs.api_image_tag || 'latest' }}"
+          DASHBOARD_TAG="${{ github.event.inputs.dashboard_image_tag || 'latest' }}"
+          SERVICES_TAG="${{ github.event.inputs.services_image_tag || 'latest' }}"
+          
+          # Get external IP
+          EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "unknown")
+          
+          # Send email via sendmail/mailx (requires mail config on VM)
+          if command -v mail &> /dev/null; then
+            cat <<EOF | mail -s "[$STATUS] SuperDeploy - Core Services Deployed" cradexco@gmail.com
+SuperDeploy Deployment Notification
+═══════════════════════════════════════════════════════════════
+
+Status: $STATUS
+Timestamp: $DEPLOY_TIMESTAMP
+Repository: superdeploy-app
+Branch: master
+
+Deployed Images:
+  - API:       $API_TAG
+  - Dashboard: $DASHBOARD_TAG
+  - Services:  $SERVICES_TAG
+
+Services:
+  - Dashboard: http://$EXTERNAL_IP
+  - API:       http://$EXTERNAL_IP:8000
+  - Forgejo:   http://$EXTERNAL_IP:3001
+
+Logs: http://$EXTERNAL_IP:3001/cradexco/superdeploy-app/actions
+
+═══════════════════════════════════════════════════════════════
+EOF
+            echo "📧 Email sent to cradexco@gmail.com"
+          else
+            echo "⚠️  'mail' command not found. Install mailutils for email notifications."
+            echo "   sudo apt install mailutils"
+          fi

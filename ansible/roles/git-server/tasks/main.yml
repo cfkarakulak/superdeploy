@@ -276,6 +276,13 @@
   when: runner_registered is defined and runner_registered.stat.exists
   ignore_errors: yes
 
+- name: Setup backup cron jobs
+  shell: |
+    bash /opt/superdeploy/scripts/backup/setup-cron.sh
+  args:
+    creates: /etc/cron.d/superdeploy-backups
+  ignore_errors: yes
+
 - name: Display Forgejo access information
   debug:
     msg: |
@@ -287,6 +294,7 @@
       🔐 Admin: {{ lookup('env', 'FORGEJO_ADMIN_USER') }} / {{ lookup('env', 'FORGEJO_ADMIN_PASSWORD') }}
       📦 Repository: superdeploy-app (auto-created)
       🤖 Runner: core-runner (registered & running)
+      📅 Backups: PostgreSQL (02:00 UTC), Forgejo (03:00 UTC)
       
       ✨ NO WIZARD! NO MANUAL STEPS!
       
