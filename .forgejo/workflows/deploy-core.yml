@@ -62,7 +62,7 @@ jobs:
           export DASHBOARD_IMAGE_TAG="${{ github.event.inputs.dashboard_image_tag }}"
           export SERVICES_IMAGE_TAG="${{ github.event.inputs.services_image_tag }}"
           
-          cat > /opt/superdeploy/compose/docker-compose.yml << 'COMPOSE_EOF'
+          cat > /opt/superdeploy/compose/docker-compose.yml <<'EOF'
 version: '3.8'
 
 services:
@@ -151,7 +151,7 @@ networks:
 volumes:
   postgres_data:
   rabbitmq_data:
-COMPOSE_EOF
+EOF
           
           echo "✅ docker-compose.yml generated"
 
