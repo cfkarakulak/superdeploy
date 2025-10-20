@@ -162,33 +162,33 @@ jobs:
           # Get external IP
           EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "unknown")
           
-          # Send email via sendmail/mailx (requires mail config on VM)
+          # Send email via mailx (if available)
+          ALERT_EMAIL="${{ secrets.ALERT_EMAIL }}"
+          FORGEJO_ORG="${{ secrets.FORGEJO_ORG }}"
+          REPO_NAME="${{ secrets.REPO_SUPERDEPLOY }}"
+          
           if command -v mail &> /dev/null; then
-            ALERT_EMAIL="${{ secrets.ALERT_EMAIL }}"
-            FORGEJO_ORG="${{ secrets.FORGEJO_ORG }}"
-            REPO_NAME="${{ secrets.REPO_SUPERDEPLOY }}"
-            cat <<EMAIL_END | mail -s "[${STATUS}] SuperDeploy - Core Services Deployed" "$ALERT_EMAIL"
-SuperDeploy Deployment Notification
-
-Status = ${STATUS}
-Timestamp = ${DEPLOY_TIMESTAMP}
-Repository = ${REPO_NAME}
-Branch = master
-
-Deployed Images =
-  API = ${API_TAG}
-  Dashboard = ${DASHBOARD_TAG}
-  Services = ${SERVICES_TAG}
-
-Access URLs =
-  Dashboard = http://${EXTERNAL_IP}
-  API = http://${EXTERNAL_IP}:8000
-  Forgejo = http://${EXTERNAL_IP}:3001
-
-Logs = http://${EXTERNAL_IP}:3001/${FORGEJO_ORG}/superdeploy-app/actions
-EMAIL_END
+            {
+              echo "SuperDeploy Deployment Notification"
+              echo ""
+              echo "Status = ${STATUS}"
+              echo "Timestamp = ${DEPLOY_TIMESTAMP}"
+              echo "Repository = ${REPO_NAME}"
+              echo "Branch = master"
+              echo ""
+              echo "Deployed Images ="
+              echo "  API = ${API_TAG}"
+              echo "  Dashboard = ${DASHBOARD_TAG}"
+              echo "  Services = ${SERVICES_TAG}"
+              echo ""
+              echo "Access URLs ="
+              echo "  Dashboard = http://${EXTERNAL_IP}"
+              echo "  API = http://${EXTERNAL_IP}:8000"
+              echo "  Forgejo = http://${EXTERNAL_IP}:3001"
+              echo ""
+              echo "Logs = http://${EXTERNAL_IP}:3001/${FORGEJO_ORG}/superdeploy-app/actions"
+            } | mail -s "[${STATUS}] SuperDeploy - Core Services Deployed" "$ALERT_EMAIL"
             echo "📧 Email sent to $ALERT_EMAIL"
           else
-            echo "⚠️  'mail' command not found. Install mailutils for email notifications."
-            echo "   sudo apt install mailutils"
+            echo "⚠️  'mail' command not found"
           fi

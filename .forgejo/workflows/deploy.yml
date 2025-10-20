@@ -292,36 +292,37 @@ jobs:
           # Get external IP
           EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "unknown")
           
-          # Send email via mailx
+          # Send email via mailx (if available)
+          ENV_NAME="${{ env.ENVIRONMENT }}"
+          SERVICES_LIST="${{ env.SERVICES }}"
+          ALERT_EMAIL="${{ secrets.ALERT_EMAIL }}"
+          FORGEJO_ORG="${{ secrets.FORGEJO_ORG }}"
+          SUBJECT="[${STATUS}] SuperDeploy - ${ENV_NAME} - ${SERVICES_LIST}"
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          
           if command -v mail &> /dev/null; then
-            ENV_NAME="${{ env.ENVIRONMENT }}"
-            SERVICES_LIST="${{ env.SERVICES }}"
-            ALERT_EMAIL="${{ secrets.ALERT_EMAIL }}"
-            FORGEJO_ORG="${{ secrets.FORGEJO_ORG }}"
-            SUBJECT="[${STATUS}] SuperDeploy - ${ENV_NAME} - ${SERVICES_LIST}"
-            TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-            cat <<EMAIL_END | mail -s "$SUBJECT" "$ALERT_EMAIL"
-SuperDeploy Deployment Notification
-
-Status = ${STATUS}
-Environment = ${ENV_NAME}
-Services = ${SERVICES_LIST}
-Timestamp = ${TIMESTAMP}
-
-Deployed Images =
-  API = ${API_TAG}
-  Dashboard = ${DASHBOARD_TAG}
-  Services = ${SERVICES_TAG}
-
-Access URLs =
-  Dashboard = http://${EXTERNAL_IP}
-  API = http://${EXTERNAL_IP}:8000
-  Forgejo = http://${EXTERNAL_IP}:3001
-
-Logs = http://${EXTERNAL_IP}:3001/${FORGEJO_ORG}/superdeploy-app/actions
-EMAIL_END
+            {
+              echo "SuperDeploy Deployment Notification"
+              echo ""
+              echo "Status = ${STATUS}"
+              echo "Environment = ${ENV_NAME}"
+              echo "Services = ${SERVICES_LIST}"
+              echo "Timestamp = ${TIMESTAMP}"
+              echo ""
+              echo "Deployed Images ="
+              echo "  API = ${API_TAG}"
+              echo "  Dashboard = ${DASHBOARD_TAG}"
+              echo "  Services = ${SERVICES_TAG}"
+              echo ""
+              echo "Access URLs ="
+              echo "  Dashboard = http://${EXTERNAL_IP}"
+              echo "  API = http://${EXTERNAL_IP}:8000"
+              echo "  Forgejo = http://${EXTERNAL_IP}:3001"
+              echo ""
+              echo "Logs = http://${EXTERNAL_IP}:3001/${FORGEJO_ORG}/superdeploy-app/actions"
+            } | mail -s "$SUBJECT" "$ALERT_EMAIL"
             echo "📧 Email sent to $ALERT_EMAIL"
           else
-            echo "⚠️  'mail' command not found."
+            echo "⚠️  'mail' command not found"
           fi
 
