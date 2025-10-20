@@ -107,9 +107,10 @@ clean-ssh: ## Clean SSH known_hosts for VMs
 		ssh-keygen -R $$PROXY_EXT 2>/dev/null || true
 	@echo "$(GREEN)✅ SSH known_hosts cleaned!$(NC)"
 
-wait-vms: ## Wait for VMs to be ready (90s)
-	@echo "$(YELLOW)⏳ Waiting for VMs to complete startup (90 seconds)...$(NC)"
-	@for i in $$(seq 90 -1 1); do \
+wait-vms: ## Wait for VMs to be ready (120s for startup scripts)
+	@echo "$(YELLOW)⏳ Waiting for VMs to complete startup scripts (120 seconds)...$(NC)"
+	@echo "$(YELLOW)💡 VMs run apt-get update on first boot, this prevents dpkg lock errors$(NC)"
+	@for i in $$(seq 120 -1 1); do \
 		printf "\r$(YELLOW)⏳ $$i seconds remaining...$(NC)"; \
 		sleep 1; \
 	done
