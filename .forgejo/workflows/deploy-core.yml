@@ -19,6 +19,9 @@ jobs:
     steps:
       - name: 📦 Checkout code
         run: |
+          # Fix git safe directory
+          git config --global --add safe.directory /opt/superdeploy
+          
           # Initialize git if not exists
           if [ ! -d /opt/superdeploy/.git ]; then
             cd /opt/superdeploy
