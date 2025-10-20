@@ -29,14 +29,11 @@ jobs:
     steps:
       - name: 📦 Checkout code
         run: |
-          # Fix git safe directory
-          git config --global --add safe.directory /opt/superdeploy
-          
           # Initialize git if not exists
           if [ ! -d /opt/superdeploy/.git ]; then
             cd /opt/superdeploy
             git init
-            git remote add origin http://34.56.43.99:3001/cradexco/superdeploy-app.git
+            git remote add origin http://${{ vars.CORE_EXTERNAL_IP }}:3001/cradexco/superdeploy-app.git
             git config user.email "runner@superdeploy.local"
             git config user.name "Superdeploy Runner"
           fi
