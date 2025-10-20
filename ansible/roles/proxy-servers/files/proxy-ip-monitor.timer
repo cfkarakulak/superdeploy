@@ -1,0 +1,15 @@
+[Unit]
+Description=Proxy IP Monitor Timer
+Requires=proxy-ip-monitor.service
+
+[Timer]
+# Run on boot (after 2 minutes)
+OnBootSec=2min
+# Run every 5 minutes
+OnUnitActiveSec=5min
+# Randomize by 1 minute to avoid thundering herd
+RandomizedDelaySec=1min
+
+[Install]
+WantedBy=timers.target
+

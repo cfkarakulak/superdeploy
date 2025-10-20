@@ -1,0 +1,77 @@
+---
+# Main playbook - Deploy entire superdeploy infrastructure
+# Run with: ansible-playbook -i inventories/dev.ini playbooks/site.yml
+#
+# Tag usage:
+#   --tags system-base       : Setup base system (docker, firewall, swap, etc)
+#   --tags app-deployment    : Deploy application services (API, DB, Queue, etc)
+#   --tags git-server        : Deploy Forgejo Git server
+#   --tags scrape-workers    : Setup scrape workers
+#   --tags proxy-servers     : Setup proxy servers
+#   No tags                  : Full deployment
+
+- name: Setup Base System Infrastructure
+  hosts: core
+  become: yes
+  roles:
+    - role: system-base
+  tags:
+    - system-base
+    - full-core
+
+- name: Deploy Application Services
+  hosts: core
+  become: yes
+  roles:
+    - role: app-deployment
+  tags:
+    - app-deployment
+    - full-core
+
+- name: Deploy Git Server (Forgejo)
+  hosts: core
+  become: yes
+  roles:
+    - role: git-server
+  tags:
+    - git-server
+
+- name: Setup Scrape Workers
+  hosts: scrape
+  become: yes
+  roles:
+    - role: scrape-workers
+  tags:
+    - scrape-workers
+
+- name: Setup Proxy Servers
+  hosts: proxy
+  become: yes
+  roles:
+    - role: proxy-servers
+  tags:
+    - proxy-servers
+
+- name: Verify deployment
+  hosts: all
+  become: yes
+  tasks:
+    - name: Check Docker is running
+      service:
+        name: docker
+        state: started
+      
+    - name: Verify Docker Compose services
+      command: docker compose ps
+      args:
+        chdir: /opt/superdeploy
+      register: compose_status
+      ignore_errors: yes
+      
+    - name: Display service status
+      debug:
+        var: compose_status.stdout_lines
+  tags:
+    - verify
+    - health
+

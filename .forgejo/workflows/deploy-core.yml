@@ -4,109 +4,197 @@ on:
   workflow_dispatch:
     inputs:
       api_image_tag:
-        description: 'API image tag'
+        description: 'API Docker Image Tag'
         required: false
         default: 'latest'
       dashboard_image_tag:
-        description: 'Dashboard image tag'
+        description: 'Dashboard Docker Image Tag'
+        required: false
+        default: 'latest'
+      services_image_tag:
+        description: 'Services Docker Image Tag'
         required: false
         default: 'latest'
 
-env:
-  COMPOSE_FILE: projects/cheapa/compose/docker-compose.yml
-  ENV_FILE: projects/cheapa/.env
-
 jobs:
-  deploy-core:
-    runs-on: ubuntu-latest
+  deploy:
+    runs-on: [self-hosted, core, linux, docker]
+    
     steps:
-      - name: 📦 Checkout code
+      - name: 📦 Checkout superdeploy code
         run: |
-          git config --global --add safe.directory /opt/superdeploy
           cd /opt/superdeploy
+          git config --global --add safe.directory /opt/superdeploy
           git fetch origin
           git reset --hard origin/master
-          echo "✅ Code updated"
+          echo "✅ Superdeploy code updated"
 
-      - name: 🔐 Load environment
+      - name: 🔍 Verify app .env files exist
         run: |
-          cd /opt/superdeploy
-          if [ ! -f "${{ env.ENV_FILE }}" ]; then
-            echo "❌ ERROR: ${{ env.ENV_FILE }} not found!"
+          if [ ! -f "/opt/app-repos/api/.env" ]; then
+            echo "❌ ERROR: /opt/app-repos/api/.env not found!"
+            echo "App-specific .env files must be pushed by GitHub Actions"
             exit 1
           fi
+          if [ ! -f "/opt/app-repos/dashboard/.env" ]; then
+            echo "❌ ERROR: /opt/app-repos/dashboard/.env not found!"
+            exit 1
+          fi
+          if [ ! -f "/opt/app-repos/services/.env" ]; then
+            echo "❌ ERROR: /opt/app-repos/services/.env not found!"
+            exit 1
+          fi
+          echo "✅ All app .env files present"
+
+      - name: 🐳 Create docker-compose.yml from app configs
+        run: |
+          mkdir -p /opt/superdeploy/compose
+          
+          # Load app environment variables
           set -a
-          source ${{ env.ENV_FILE }}
+          source /opt/app-repos/api/.env
+          source /opt/app-repos/dashboard/.env
+          source /opt/app-repos/services/.env
           set +a
-          echo "✅ Environment loaded"
-
-      - name: 🏷️ Update image tags
-        run: |
-          cd /opt/superdeploy
           
-          # Update API tag if provided
-          if [ "${{ github.event.inputs.api_image_tag }}" != "latest" ]; then
-            echo "Updating API image tag to: ${{ github.event.inputs.api_image_tag }}"
-            sed -i "s/^API_IMAGE_TAG=.*/API_IMAGE_TAG=${{ github.event.inputs.api_image_tag }}/" ${{ env.ENV_FILE }}
-          fi
+          # Export Docker image tags
+          export API_IMAGE_TAG="${{ github.event.inputs.api_image_tag }}"
+          export DASHBOARD_IMAGE_TAG="${{ github.event.inputs.dashboard_image_tag }}"
+          export SERVICES_IMAGE_TAG="${{ github.event.inputs.services_image_tag }}"
           
-          # Update Dashboard tag if provided
-          if [ "${{ github.event.inputs.dashboard_image_tag }}" != "latest" ]; then
-            echo "Updating Dashboard image tag to: ${{ github.event.inputs.dashboard_image_tag }}"
-            sed -i "s/^DASHBOARD_IMAGE_TAG=.*/DASHBOARD_IMAGE_TAG=${{ github.event.inputs.dashboard_image_tag }}/" ${{ env.ENV_FILE }}
-          fi
+          cat > /opt/superdeploy/compose/docker-compose.yml << 'COMPOSE_EOF'
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: superdeploy-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-superdeploy_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: superdeploy-rabbitmq
+    restart: unless-stopped
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-superdeploy}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD:-SuperSecure123Pass}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  api:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/api:${API_IMAGE_TAG:-latest}
+    container_name: superdeploy-api
+    restart: unless-stopped
+    env_file:
+      - /opt/app-repos/api/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - app-network
+    ports:
+      - "8000:8000"
+
+  dashboard:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/dashboard:${DASHBOARD_IMAGE_TAG:-latest}
+    container_name: superdeploy-dashboard
+    restart: unless-stopped
+    env_file:
+      - /opt/app-repos/dashboard/.env
+    depends_on:
+      - api
+    networks:
+      - app-network
+    ports:
+      - "80:3000"
+
+  services:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/services:${SERVICES_IMAGE_TAG:-latest}
+    container_name: superdeploy-services
+    restart: unless-stopped
+    env_file:
+      - /opt/app-repos/services/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+COMPOSE_EOF
           
-          echo "✅ Image tags updated"
+          echo "✅ docker-compose.yml generated"
 
-      - name: 🐳 Pull latest images
+      - name: 🐳 Pull and deploy services
         run: |
-          cd /opt/superdeploy
-          docker compose -f ${{ env.COMPOSE_FILE }} --env-file ${{ env.ENV_FILE }} pull
-          echo "✅ Images pulled"
-
-      - name: 🚀 Deploy services
-        run: |
-          cd /opt/superdeploy
-          docker compose -f ${{ env.COMPOSE_FILE }} --env-file ${{ env.ENV_FILE }} up -d
-          echo "✅ Services deployed"
-
-      - name: ⏳ Wait for health checks
-        run: |
-          echo "Waiting 30 seconds for services to be healthy..."
-          sleep 30
-
-      - name: 🔍 Verify deployment
-        run: |
-          cd /opt/superdeploy
-          docker compose -f ${{ env.COMPOSE_FILE }} ps
+          cd /opt/superdeploy/compose
           
-          # Check if all services are running
-          FAILED=$(docker compose -f ${{ env.COMPOSE_FILE }} ps --filter "status=exited" -q | wc -l)
-          if [ "$FAILED" -gt 0 ]; then
-            echo "❌ Some services failed to start!"
-            docker compose -f ${{ env.COMPOSE_FILE }} ps
-            exit 1
-          fi
+          # Load infrastructure env (for DOCKER_ORG, etc.)
+          set -a
+          source /opt/superdeploy/.env
+          set +a
           
-          echo "✅ All services running"
+          # Set image tags
+          export API_IMAGE_TAG="${{ github.event.inputs.api_image_tag }}"
+          export DASHBOARD_IMAGE_TAG="${{ github.event.inputs.dashboard_image_tag }}"
+          export SERVICES_IMAGE_TAG="${{ github.event.inputs.services_image_tag }}"
+          
+          echo "Pulling images..."
+          docker compose pull
+          
+          echo "Starting services..."
+          docker compose up -d --remove-orphans
+          
+          echo "✅ Services deployed!"
 
-      - name: 🧹 Cleanup old images
+      - name: ⏳ Wait for services to be healthy
         run: |
-          echo "Cleaning up unused images..."
-          docker image prune -f
-          echo "✅ Cleanup complete"
+          cd /opt/superdeploy/compose
+          
+          echo "Waiting for services to be healthy..."
+          sleep 10
+          
+          docker compose ps
+          echo "✅ Services should be healthy!"
 
-      - name: 📊 Deployment summary
+      - name: 📊 Show deployment status
         run: |
-          echo "╔════════════════════════════════════════════════════════╗"
-          echo "║         🎉 DEPLOYMENT COMPLETE! 🎉                    ║"
-          echo "╚════════════════════════════════════════════════════════╝"
+          cd /opt/superdeploy/compose
+          
+          echo "════════════════════════════════════════════════════════"
+          echo "         🎉 DEPLOYMENT COMPLETE! 🎉                    "
+          echo "════════════════════════════════════════════════════════"
           echo ""
-          echo "📦 Services deployed:"
-          echo "  - API:        ${{ github.event.inputs.api_image_tag }}"
-          echo "  - Dashboard:  ${{ github.event.inputs.dashboard_image_tag }}"
+          docker compose ps
           echo ""
-          echo "🔗 Access:"
-          echo "  - API:       http://\$CORE_EXTERNAL_IP:8000"
-          echo "  - Dashboard: http://\$CORE_EXTERNAL_IP:8001"
-
+          echo "🌐 Services are available at: http://$(curl -s ifconfig.me)"

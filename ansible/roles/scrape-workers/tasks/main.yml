@@ -1,0 +1,194 @@
+---
+# Scrape VM tasks - VM-2 (Workers with browsers)
+
+- name: Update package cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install essential packages
+  apt:
+    name:
+      - curl
+      - wget
+      - git
+      - unzip
+      - htop
+      - vim
+      - ufw
+      - chrony
+      - python3-pip
+      - software-properties-common
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - xvfb
+      - fonts-liberation
+      - libasound2
+      - libatk-bridge2.0-0
+      - libdrm2
+      - libgtk-3-0
+      - libnspr4
+      - libnss3
+      - libxcomposite1
+      - libxdamage1
+      - libxrandr2
+      - libgbm1
+      - libxss1
+      - libasound2
+    state: present
+
+- name: Configure swap (larger for browser workloads)
+  include_tasks: swap.yml
+
+- name: Install Docker
+  block:
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/debian/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker packages
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add superdeploy user to docker group
+      user:
+        name: superdeploy
+        groups: docker
+        append: yes
+
+- name: Configure UFW firewall
+  block:
+    - name: Reset UFW to defaults
+      ufw:
+        state: reset
+
+    - name: Set UFW default policies
+      ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: 'incoming', policy: 'deny' }
+        - { direction: 'outgoing', policy: 'allow' }
+
+    - name: Allow SSH
+      ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+
+- name: Configure chrony for time synchronization
+  block:
+    - name: Start and enable chrony service
+      systemd:
+        name: chrony
+        state: started
+        enabled: yes
+
+    - name: Configure chrony servers
+      lineinfile:
+        path: /etc/chrony/chrony.conf
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "pool 0.debian.pool.ntp.org iburst"
+        - "pool 1.debian.pool.ntp.org iburst"
+        - "pool 2.debian.pool.ntp.org iburst"
+        - "pool 3.debian.pool.ntp.org iburst"
+
+- name: Create application directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: superdeploy
+    group: superdeploy
+    mode: '0755'
+  loop:
+    - /opt/superdeploy
+    - /opt/superdeploy/compose
+    - /opt/superdeploy/logs
+    - /opt/superdeploy/data
+    - /opt/superdeploy/browser-cache
+
+- name: Copy Docker Compose files
+  copy:
+    src: "../../../deploy/compose/vm2-scrape/docker-compose.simple.yml"
+    dest: "/opt/superdeploy/compose/docker-compose.yml"
+    owner: superdeploy
+    group: superdeploy
+    mode: '0644'
+
+- name: Generate environment file
+  template:
+    src: scrape.env.j2
+    dest: /opt/superdeploy/compose/.env
+    owner: superdeploy
+    group: superdeploy
+    mode: '0600'
+
+- name: Create systemd service for Docker Compose
+  copy:
+    content: |
+      [Unit]
+      Description=SuperDeploy Scrape Workers
+      Requires=docker.service
+      After=docker.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      WorkingDirectory=/opt/superdeploy/compose
+      ExecStart=/usr/bin/docker compose up -d
+      ExecStop=/usr/bin/docker compose down
+      User=superdeploy
+      Group=superdeploy
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/superdeploy-scrape.service
+    mode: '0644'
+
+- name: Enable and start superdeploy-scrape service
+  systemd:
+    name: superdeploy-scrape
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: Configure logrotate for Docker logs
+  copy:
+    content: |
+      /opt/superdeploy/logs/*.log {
+          daily
+          missingok
+          rotate 7
+          compress
+          delaycompress
+          notifempty
+          create 0644 superdeploy superdeploy
+      }
+    dest: /etc/logrotate.d/superdeploy-scrape
+    mode: '0644'

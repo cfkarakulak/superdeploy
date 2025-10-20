@@ -1,52 +1,48 @@
 # =============================================================================
-# SuperDeploy - Generic Multi-Project Deployment System
+# SuperDeploy - All-in-One Deployment System
 # =============================================================================
-# Usage: make deploy PROJECT=project-name
+# Single command to deploy everything: make deploy
 
-# Default project if not specified
-PROJECT ?= cheapa
+.PHONY: help deploy init terraform-init terraform-apply update-ips wait-vms ansible-deploy git-push clean destroy
 
-# Project-specific paths
-PROJECT_DIR := projects/$(PROJECT)
-PROJECT_ENV := $(PROJECT_DIR)/.env
-PROJECT_COMPOSE := $(PROJECT_DIR)/compose
-
-# Directories (generic)
-INFRA_DIR := ../superdeploy-infra
-ANSIBLE_DIR := $(INFRA_DIR)/ansible
+# Paths
+ENV_FILE := .env
+ANSIBLE_DIR := ansible
+TERRAFORM_WRAPPER := ./terraform-wrapper.sh
 
 # Colors
 RED := \033[0;31m
 GREEN := \033[0;32m
 YELLOW := \033[1;33m
 BLUE := \033[0;34m
-NC := \033[0m # No Color
+NC := \033[0m
+
+# =============================================================================
+# HELP
+# =============================================================================
+
+help: ## Show this help
+	@echo "$(GREEN)SuperDeploy - Infrastructure + Application Deployment$(NC)"
+	@echo ""
+	@echo "$(YELLOW)Usage:$(NC)"
+	@echo "  make deploy    - Full deployment (VM + Forgejo + Apps)"
+	@echo "  make destroy   - Destroy all infrastructure"
+	@echo "  make update-ips - Update IPs after VM restart"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  $(BLUE)%-15s$(NC) %s\n", $$1, $$2}'
 
 # =============================================================================
 # VALIDATION
 # =============================================================================
 
-check-project: ## Check if project exists
-	@if [ ! -d "$(PROJECT_DIR)" ]; then \
-		echo "$(RED)❌ ERROR: Project '$(PROJECT)' not found!$(NC)"; \
-		echo "$(YELLOW)Available projects:$(NC)"; \
-		ls -1 projects/ | sed 's/^/  - /'; \
+check-env: ## Check if .env is configured
+	@if [ ! -f "$(ENV_FILE)" ]; then \
+		echo "$(RED)❌ ERROR: .env not found!$(NC)"; \
+		echo "$(YELLOW)Run: cp ENV.example .env$(NC)"; \
 		exit 1; \
 	fi
-	@if [ ! -f "$(PROJECT_ENV)" ]; then \
-		echo "$(RED)❌ ERROR: $(PROJECT_ENV) not found!$(NC)"; \
-		echo "$(YELLOW)Create it: cp ENV.example $(PROJECT_ENV)$(NC)"; \
-		exit 1; \
-	fi
-	@echo "$(GREEN)✅ Project: $(PROJECT)$(NC)"
-
-check-env: check-project ## Check if .env is configured
-	@if grep -E "^[A-Z_]+=$$" $(PROJECT_ENV) | grep -v "^#"; then \
-		echo "$(RED)❌ ERROR: Empty values in $(PROJECT_ENV)!$(NC)"; \
-		echo "$(YELLOW)Edit $(PROJECT_ENV) and fill all empty values$(NC)"; \
-		exit 1; \
-	fi
-	@if ! grep -q "^GCP_PROJECT_ID=" $(PROJECT_ENV) || grep -q "^GCP_PROJECT_ID=$$" $(PROJECT_ENV); then \
+	@if ! grep -q "^GCP_PROJECT_ID=" $(ENV_FILE) || grep -q "^GCP_PROJECT_ID=$$" $(ENV_FILE); then \
 		echo "$(RED)❌ ERROR: GCP_PROJECT_ID not configured!$(NC)"; \
 		exit 1; \
 	fi
@@ -57,52 +53,48 @@ check-env: check-project ## Check if .env is configured
 # =============================================================================
 
 terraform-init: check-env ## Initialize Terraform
-	@echo "$(GREEN)🔧 Initializing Terraform for $(PROJECT)...$(NC)"
-	@set -a && source $(PROJECT_ENV) && set +a && \
-		cd $(INFRA_DIR) && ./terraform-wrapper.sh init
+	@echo "$(GREEN)🔧 Initializing Terraform...$(NC)"
+	@$(TERRAFORM_WRAPPER) init
 
-terraform-apply: terraform-init ## Create VMs with Terraform
-	@echo "$(GREEN)🚀 Creating GCP VMs for $(PROJECT)...$(NC)"
-	@set -a && source $(PROJECT_ENV) && set +a && \
-		cd $(INFRA_DIR) && ./terraform-wrapper.sh apply -auto-approve
+terraform-apply: terraform-init ## Create GCP VMs
+	@echo "$(GREEN)🚀 Creating GCP VMs...$(NC)"
+	@$(TERRAFORM_WRAPPER) apply -auto-approve
 	@echo "$(GREEN)✅ VMs created!$(NC)"
 
-# =============================================================================
-# IP MANAGEMENT
-# =============================================================================
-
-update-ips: check-project ## Extract IPs from Terraform and update .env
+update-ips: check-env ## Extract and update VM IPs in .env
 	@echo "$(GREEN)📍 Extracting VM IPs...$(NC)"
-	@cd $(INFRA_DIR) && \
-		CORE_EXT=$$(terraform output -json vm_core_public_ips | jq -r '.[0]') && \
-		CORE_INT=$$(terraform output -json vm_core_internal_ips | jq -r '.[0]') && \
-		SCRAPE_EXT=$$(terraform output -json vm_scrape_public_ips | jq -r '.[0]') && \
-		SCRAPE_INT=$$(terraform output -json vm_scrape_internal_ips | jq -r '.[0]') && \
-		PROXY_EXT=$$(terraform output -json vm_proxy_public_ips | jq -r '.[0]') && \
-		PROXY_INT=$$(terraform output -json vm_proxy_internal_ips | jq -r '.[0]') && \
-		cd - > /dev/null && \
-		sed -i.bak "s|^CORE_EXTERNAL_IP=.*|CORE_EXTERNAL_IP=$$CORE_EXT|" $(PROJECT_ENV) && \
-		sed -i.bak "s|^CORE_INTERNAL_IP=.*|CORE_INTERNAL_IP=$$CORE_INT|" $(PROJECT_ENV) && \
-		sed -i.bak "s|^SCRAPE_EXTERNAL_IP=.*|SCRAPE_EXTERNAL_IP=$$SCRAPE_EXT|" $(PROJECT_ENV) && \
-		sed -i.bak "s|^SCRAPE_INTERNAL_IP=.*|SCRAPE_INTERNAL_IP=$$SCRAPE_INT|" $(PROJECT_ENV) && \
-		sed -i.bak "s|^PROXY_EXTERNAL_IP=.*|PROXY_EXTERNAL_IP=$$PROXY_EXT|" $(PROJECT_ENV) && \
-		sed -i.bak "s|^PROXY_INTERNAL_IP=.*|PROXY_INTERNAL_IP=$$PROXY_INT|" $(PROJECT_ENV) && \
-		rm -f $(PROJECT_ENV).bak && \
-		echo "$(GREEN)✅ Updated $(PROJECT_ENV) with new IPs:$(NC)" && \
-		echo "  $(BLUE)CORE:$(NC)   $$CORE_EXT ($$CORE_INT)" && \
-		echo "  $(BLUE)SCRAPE:$(NC) $$SCRAPE_EXT ($$SCRAPE_INT)" && \
-		echo "  $(BLUE)PROXY:$(NC)  $$PROXY_EXT ($$PROXY_INT)"
+	@set -a && source $(ENV_FILE) && set +a && \
+		CORE_EXT=$$($(TERRAFORM_WRAPPER) output -raw vm_core_public_ips | tr -d '[]"' | tr -d ' ') && \
+		CORE_INT=$$($(TERRAFORM_WRAPPER) output -raw vm_core_internal_ips | tr -d '[]"' | tr -d ' ') && \
+		SCRAPE_EXT=$$($(TERRAFORM_WRAPPER) output -raw vm_scrape_public_ips | tr -d '[]"' | tr -d ' ') && \
+		SCRAPE_INT=$$($(TERRAFORM_WRAPPER) output -raw vm_scrape_internal_ips | tr -d '[]"' | tr -d ' ') && \
+		PROXY_EXT=$$($(TERRAFORM_WRAPPER) output -raw vm_proxy_public_ips | tr -d '[]"' | tr -d ' ') && \
+		PROXY_INT=$$($(TERRAFORM_WRAPPER) output -raw vm_proxy_internal_ips | tr -d '[]"' | tr -d ' ') && \
+		sed -i.bak "s/^CORE_EXTERNAL_IP=.*/CORE_EXTERNAL_IP=$$CORE_EXT/" $(ENV_FILE) && \
+		sed -i.bak "s/^CORE_INTERNAL_IP=.*/CORE_INTERNAL_IP=$$CORE_INT/" $(ENV_FILE) && \
+		sed -i.bak "s/^SCRAPE_EXTERNAL_IP=.*/SCRAPE_EXTERNAL_IP=$$SCRAPE_EXT/" $(ENV_FILE) && \
+		sed -i.bak "s/^SCRAPE_INTERNAL_IP=.*/SCRAPE_INTERNAL_IP=$$SCRAPE_INT/" $(ENV_FILE) && \
+		sed -i.bak "s/^PROXY_EXTERNAL_IP=.*/PROXY_EXTERNAL_IP=$$PROXY_EXT/" $(ENV_FILE) && \
+		sed -i.bak "s/^PROXY_INTERNAL_IP=.*/PROXY_INTERNAL_IP=$$PROXY_INT/" $(ENV_FILE) && \
+		rm -f $(ENV_FILE).bak
+	@set -a && source $(ENV_FILE) && set +a && \
+		echo "$(GREEN)✅ Updated $(ENV_FILE) with new IPs:$(NC)" && \
+		echo "  $(BLUE)CORE:$(NC)    $$CORE_EXTERNAL_IP ($$CORE_INTERNAL_IP)" && \
+		echo "  $(BLUE)SCRAPE:$(NC)  $$SCRAPE_EXTERNAL_IP ($$SCRAPE_INTERNAL_IP)" && \
+		echo "  $(BLUE)PROXY:$(NC)   $$PROXY_EXTERNAL_IP ($$PROXY_INTERNAL_IP)"
 
-clean-ssh: check-project ## Clean SSH known_hosts for VMs
+generate-inventory: check-env ## Generate Ansible inventory
+	@set -a && source $(ENV_FILE) && set +a && \
+		cat > $(ANSIBLE_DIR)/inventories/dev.ini << EOF && \
+[core]\nvm-core-1 ansible_host=$$CORE_EXTERNAL_IP ansible_user=$$SSH_USER\n\n[scrape]\nvm-scrape-1 ansible_host=$$SCRAPE_EXTERNAL_IP ansible_user=$$SSH_USER\n\n[proxy]\nvm-proxy-1 ansible_host=$$PROXY_EXTERNAL_IP ansible_user=$$SSH_USER\nEOF
+	echo "$(GREEN)✅ Ansible inventory generated$(NC)"
+
+clean-ssh: check-env ## Clean SSH known_hosts
 	@echo "$(GREEN)🔐 Cleaning SSH known_hosts...$(NC)"
-	@set -a && source $(PROJECT_ENV) && set +a && \
-		cd $(INFRA_DIR) && \
-		CORE_EXT=$$(terraform output -json vm_core_public_ips | jq -r '.[0]') && \
-		SCRAPE_EXT=$$(terraform output -json vm_scrape_public_ips | jq -r '.[0]') && \
-		PROXY_EXT=$$(terraform output -json vm_proxy_public_ips | jq -r '.[0]') && \
-		ssh-keygen -R $$CORE_EXT 2>/dev/null || true && \
-		ssh-keygen -R $$SCRAPE_EXT 2>/dev/null || true && \
-		ssh-keygen -R $$PROXY_EXT 2>/dev/null || true
+	@set -a && source $(ENV_FILE) && set +a && \
+		ssh-keygen -R $$CORE_EXTERNAL_IP 2>/dev/null || true && \
+		ssh-keygen -R $$SCRAPE_EXTERNAL_IP 2>/dev/null || true && \
+		ssh-keygen -R $$PROXY_EXTERNAL_IP 2>/dev/null || true
 	@echo "$(GREEN)✅ SSH known_hosts cleaned!$(NC)"
 
 wait-vms: ## Wait for VMs to be ready
@@ -119,10 +111,24 @@ wait-vms: ## Wait for VMs to be ready
 # =============================================================================
 
 ansible-deploy: check-env ## Deploy with Ansible
-	@echo "$(GREEN)🔨 Deploying $(PROJECT) with Ansible...$(NC)"
-	@set -a && source $(PROJECT_ENV) && set +a && \
+	@echo "$(GREEN)🔨 Deploying with Ansible...$(NC)"
+	@set -a && source $(ENV_FILE) && set +a && \
 		cd $(ANSIBLE_DIR) && \
-		ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,git-server
+		ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,git-server \
+			-e "core_external_ip=$$CORE_EXTERNAL_IP" \
+			-e "core_internal_ip=$$CORE_INTERNAL_IP" \
+			-e "scrape_external_ip=$$SCRAPE_EXTERNAL_IP" \
+			-e "scrape_internal_ip=$$SCRAPE_INTERNAL_IP" \
+			-e "proxy_external_ip=$$PROXY_EXTERNAL_IP" \
+			-e "proxy_internal_ip=$$PROXY_INTERNAL_IP" \
+			-e "forgejo_admin_user=$$FORGEJO_ADMIN_USER" \
+			-e "forgejo_admin_password=$$FORGEJO_ADMIN_PASSWORD" \
+			-e "forgejo_admin_email=$$FORGEJO_ADMIN_EMAIL" \
+			-e "forgejo_org=$$FORGEJO_ORG" \
+			-e "forgejo_db_name=forgejo" \
+			-e "forgejo_db_user=forgejo" \
+			-e "forgejo_db_password=$$POSTGRES_PASSWORD" \
+			-e "postgres_password=$$POSTGRES_PASSWORD"
 	@echo "$(GREEN)✅ Ansible deployment complete!$(NC)"
 
 # =============================================================================
@@ -130,94 +136,44 @@ ansible-deploy: check-env ## Deploy with Ansible
 # =============================================================================
 
 git-push: check-env ## Push code to Forgejo
-	@echo "$(GREEN)📤 Pushing $(PROJECT) to Forgejo...$(NC)"
-	@set -a && source $(PROJECT_ENV) && set +a && \
-		CORE_EXT=$$CORE_EXTERNAL_IP && \
-		FORGEJO_ORG=$$FORGEJO_ORG && \
-		REPO_SUPERDEPLOY=$$REPO_SUPERDEPLOY && \
-		ADMIN_USER=$$FORGEJO_ADMIN_USER && \
-		ADMIN_PASS=$$FORGEJO_ADMIN_PASSWORD && \
-		ENCODED_PASS=$$(printf '%s' "$$ADMIN_PASS" | jq -sRr @uri) && \
+	@echo "$(GREEN)📤 Pushing to Forgejo...$(NC)"
+	@set -a && source $(ENV_FILE) && set +a && \
+		ENCODED_PASS=$$(printf '%s' "$$FORGEJO_ADMIN_PASSWORD" | jq -sRr @uri) && \
 		echo "  📦 Pushing superdeploy-app..." && \
-		if [ -d "../../app-repos/$$REPO_SUPERDEPLOY" ]; then \
-			cd ../../app-repos/$$REPO_SUPERDEPLOY && \
-			git remote remove forgejo 2>/dev/null || true && \
-			git remote add forgejo "http://$$ADMIN_USER:$$ENCODED_PASS@$$CORE_EXT:3001/$$FORGEJO_ORG/$$REPO_SUPERDEPLOY.git" && \
-			git push -u forgejo master 2>&1 | grep -v "Password" || true; \
-		fi
-	@echo "$(GREEN)✅ All repositories pushed!$(NC)"
+		git remote remove forgejo 2>/dev/null || true && \
+		git remote add forgejo "http://$$FORGEJO_ADMIN_USER:$$ENCODED_PASS@$$CORE_EXTERNAL_IP:3001/$$FORGEJO_ORG/$$REPO_SUPERDEPLOY.git" && \
+		git push -u forgejo master 2>&1 | grep -v "Password" || true
+	@echo "$(GREEN)✅ Code pushed to Forgejo!$(NC)"
 
 # =============================================================================
 # FULL DEPLOYMENT
 # =============================================================================
 
-deploy: check-env terraform-apply update-ips clean-ssh wait-vms ansible-deploy git-push ## 🚀 Full deployment
+deploy: check-env terraform-apply update-ips generate-inventory clean-ssh wait-vms ansible-deploy git-push ## Full deployment
 	@echo ""
-	@echo "$(GREEN)╔══════════════════════════════════════════════════════════════════════════╗$(NC)"
-	@echo "$(GREEN)║                  🎉 $(PROJECT) DEPLOYED! 🎉$(NC)"
-	@echo "$(GREEN)╚══════════════════════════════════════════════════════════════════════════╝$(NC)"
+	@echo "$(GREEN)╔════════════════════════════════════════════════════════╗$(NC)"
+	@echo "$(GREEN)║  🎉 DEPLOYMENT COMPLETE! 🎉                           ║$(NC)"
+	@echo "$(GREEN)╚════════════════════════════════════════════════════════╝$(NC)"
 	@echo ""
-	@set -a && source $(PROJECT_ENV) && set +a && \
-		CORE_EXT=$$CORE_EXTERNAL_IP && \
-		echo "$(BLUE)📍 Access Points:$(NC)" && \
-		echo "  $(YELLOW)Forgejo:$(NC)   http://$$CORE_EXT:3001" && \
-		echo "  $(YELLOW)API:$(NC)       http://$$CORE_EXT:8000" && \
-		echo "  $(YELLOW)Dashboard:$(NC) http://$$CORE_EXT:8001" && \
+	@set -a && source $(ENV_FILE) && set +a && \
+		echo "$(BLUE)🌐 Forgejo:$(NC) http://$$CORE_EXTERNAL_IP:3001" && \
+		echo "$(BLUE)👤 Login:$(NC)   $$FORGEJO_ADMIN_USER / $$FORGEJO_ADMIN_PASSWORD" && \
 		echo "" && \
-		echo "$(BLUE)🔐 Credentials:$(NC)" && \
-		ADMIN_USER=$$FORGEJO_ADMIN_USER && \
-		ADMIN_PASS=$$FORGEJO_ADMIN_PASSWORD && \
-		echo "  $(YELLOW)Admin:$(NC) $$ADMIN_USER / $$ADMIN_PASS"
+		echo "$(YELLOW)Next: Push your app repos to GitHub to trigger builds!$(NC)"
 
 # =============================================================================
-# UTILITIES
+# CLEANUP
 # =============================================================================
 
-list-projects: ## List all available projects
-	@echo "$(GREEN)📦 Available projects:$(NC)"
-	@ls -1 projects/ | sed 's/^/  - /'
-
-create-project: ## Create new project (PROJECT=name)
-	@if [ -z "$(PROJECT)" ]; then \
-		echo "$(RED)❌ ERROR: PROJECT not specified!$(NC)"; \
-		echo "Usage: make create-project PROJECT=myapp"; \
-		exit 1; \
-	fi
-	@if [ -d "$(PROJECT_DIR)" ]; then \
-		echo "$(RED)❌ ERROR: Project '$(PROJECT)' already exists!$(NC)"; \
-		exit 1; \
-	fi
-	@echo "$(GREEN)📦 Creating project: $(PROJECT)...$(NC)"
-	@mkdir -p $(PROJECT_DIR)/compose
-	@cp ENV.example $(PROJECT_ENV)
-	@echo "$(GREEN)✅ Project created: $(PROJECT_DIR)$(NC)"
-	@echo "$(YELLOW)Next steps:$(NC)"
-	@echo "  1. Edit $(PROJECT_ENV)"
-	@echo "  2. Add docker-compose.yml to $(PROJECT_COMPOSE)/"
-	@echo "  3. make deploy PROJECT=$(PROJECT)"
-
-destroy: check-project ## Destroy infrastructure
-	@echo "$(RED)⚠️  This will DESTROY all VMs for project $(PROJECT)!$(NC)"
-	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ] || exit 1
+destroy: check-env ## Destroy all infrastructure
+	@echo "$(RED)⚠️  WARNING: This will destroy all VMs!$(NC)"
+	@echo "$(YELLOW)Press Ctrl+C to cancel, or Enter to continue...$(NC)"
+	@read confirm
 	@echo "$(RED)🗑️  Destroying infrastructure...$(NC)"
-	@set -a && source $(PROJECT_ENV) && set +a && \
-		cd $(INFRA_DIR) && ./terraform-wrapper.sh destroy -auto-approve
+	@$(TERRAFORM_WRAPPER) destroy -auto-approve
 	@echo "$(GREEN)✅ Infrastructure destroyed!$(NC)"
 
-help: ## Show this help
-	@echo "$(GREEN)╔══════════════════════════════════════════════════════════════════╗$(NC)"
-	@echo "$(GREEN)║       SuperDeploy - Generic Multi-Project System                 ║$(NC)"
-	@echo "$(GREEN)╚══════════════════════════════════════════════════════════════════╝$(NC)"
-	@echo ""
-	@echo "$(YELLOW)Usage:$(NC) make [command] PROJECT=project-name"
-	@echo ""
-	@echo "$(YELLOW)Available commands:$(NC)"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(BLUE)%-20s$(NC) %s\n", $$1, $$2}'
-	@echo ""
-	@echo "$(YELLOW)Examples:$(NC)"
-	@echo "  make deploy PROJECT=cheapa"
-	@echo "  make create-project PROJECT=myapp"
-	@echo "  make list-projects"
-
-.PHONY: check-project check-env terraform-init terraform-apply update-ips clean-ssh wait-vms ansible-deploy git-push deploy list-projects create-project destroy help
-.DEFAULT_GOAL := help
+clean: ## Clean Terraform state
+	@echo "$(YELLOW)🧹 Cleaning Terraform state...$(NC)"
+	@rm -rf .terraform terraform.tfstate* envs/dev/*.tfvars
+	@echo "$(GREEN)✅ Cleaned!$(NC)"

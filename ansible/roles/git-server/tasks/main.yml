@@ -1,0 +1,290 @@
+---
+# =============================================================================
+# Forgejo Installation and Configuration
+# =============================================================================
+# This role installs Forgejo Git server and Actions runner on CORE VM
+
+- name: Create Forgejo directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: superdeploy
+    group: superdeploy
+    mode: '0755'
+  loop:
+    - /opt/forgejo
+    - /opt/forgejo/data
+    - /opt/forgejo/postgres
+    - /opt/forgejo-runner
+
+- name: Ensure runner directory is owned by superdeploy
+  file:
+    path: /opt/forgejo-runner
+    state: directory
+    owner: superdeploy
+    group: superdeploy
+    recurse: yes
+
+- name: Copy Forgejo docker-compose.yml
+  template:
+    src: docker-compose.yml.j2
+    dest: /opt/forgejo/docker-compose.yml
+    owner: superdeploy
+    group: superdeploy
+    mode: '0644'
+
+- name: Copy Forgejo .env file
+  template:
+    src: forgejo.env.j2
+    dest: /opt/forgejo/.env
+    owner: superdeploy
+    group: superdeploy
+    mode: '0600'
+
+- name: Start Forgejo services
+  shell: |
+    cd /opt/forgejo
+    docker compose up -d
+  become_user: superdeploy
+
+- name: Wait for Forgejo to be ready
+  uri:
+    url: "http://localhost:3001"
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 30
+  delay: 5
+
+# =============================================================================
+# AUTO-CREATE ADMIN & REPOSITORY
+# =============================================================================
+# Admin is auto-created by forgejo-init container (see docker-compose.yml)
+
+- name: Wait for Forgejo and admin creation to complete
+  pause:
+    seconds: 40
+
+# =============================================================================
+# AUTO-CREATE REPOSITORY
+# =============================================================================
+- name: Check if repository exists
+  uri:
+    url: "http://localhost:3001/api/v1/repos/{{ lookup('env', 'FORGEJO_ORG') }}/{{ lookup('env', 'REPO_SUPERDEPLOY') }}"
+    method: GET
+    status_code: [200, 404]
+    force_basic_auth: yes
+    url_username: "{{ lookup('env', 'FORGEJO_ADMIN_USER') }}"
+    url_password: "{{ lookup('env', 'FORGEJO_ADMIN_PASSWORD') }}"
+  register: repo_check
+  failed_when: false
+
+- name: Create repository via API
+  uri:
+    url: "http://localhost:3001/api/v1/user/repos"
+    method: POST
+    body_format: json
+    body:
+      name: "{{ lookup('env', 'REPO_SUPERDEPLOY') }}"
+      description: "SuperDeploy Application - Zero-Config Deployment System"
+      private: false
+      auto_init: false
+    status_code: [201, 409]
+    force_basic_auth: yes
+    url_username: "{{ lookup('env', 'FORGEJO_ADMIN_USER') }}"
+    url_password: "{{ lookup('env', 'FORGEJO_ADMIN_PASSWORD') }}"
+  when: repo_check.status == 404
+  register: repo_create_result
+
+- name: Display repository creation result
+  debug:
+    msg: "Repository created or already exists"
+  when: repo_create_result is defined
+
+# =============================================================================
+# CREATE SERVICE REPOSITORIES
+# =============================================================================
+# App repos (API, Storefront, Services) are on GitHub, NOT Forgejo!
+# Forgejo only has superdeploy-app for deployment orchestration
+
+- name: Download Forgejo Actions runner
+  get_url:
+    url: "https://code.forgejo.org/forgejo/runner/releases/download/v5.0.1/forgejo-runner-5.0.1-linux-amd64"
+    dest: /usr/local/bin/forgejo-runner
+    mode: '0755'
+    owner: root
+    group: root
+
+# =============================================================================
+# AUTO-REGISTER RUNNER (No manual token!)
+# =============================================================================
+- name: Check if runner is already registered
+  stat:
+    path: /opt/forgejo-runner/.runner
+  register: runner_registered
+
+- name: Generate runner registration token via API
+  uri:
+    url: "http://localhost:3001/api/v1/admin/runners/registration-token"
+    method: GET
+    force_basic_auth: yes
+    url_username: "{{ lookup('env', 'FORGEJO_ADMIN_USER') }}"
+    url_password: "{{ lookup('env', 'FORGEJO_ADMIN_PASSWORD') }}"
+    return_content: yes
+  register: runner_token_response
+  when: not runner_registered.stat.exists
+
+- name: Extract runner token
+  set_fact:
+    runner_token: "{{ runner_token_response.json.token }}"
+  when: not runner_registered.stat.exists and runner_token_response is defined
+
+- name: Copy runner config template
+  template:
+    src: runner-config.yml.j2
+    dest: /opt/forgejo-runner/config.yml
+    owner: superdeploy
+    group: superdeploy
+    mode: '0644'
+
+- name: Register runner automatically
+  shell: |
+    cd /opt/forgejo-runner
+    /usr/local/bin/forgejo-runner register \
+      --instance http://localhost:3001 \
+      --token "{{ runner_token }}" \
+      --name "core-runner" \
+      --labels "self-hosted,core,linux,docker" \
+      --no-interactive
+  become_user: superdeploy
+  when: not runner_registered.stat.exists and runner_token is defined
+  register: runner_register_result
+
+- name: Display runner registration result
+  debug:
+    msg: "Runner registered successfully!"
+  when: runner_register_result is defined and runner_register_result.rc is defined and runner_register_result.rc == 0
+
+- name: Create systemd service for Forgejo runner
+  copy:
+    content: |
+      [Unit]
+      Description=Forgejo Actions Runner
+      After=docker.service network.target
+      Requires=docker.service
+
+      [Service]
+      Type=simple
+      User=superdeploy
+      Group=superdeploy
+      WorkingDirectory=/opt/forgejo-runner
+      ExecStart=/usr/local/bin/forgejo-runner daemon -c config.yml
+      Restart=always
+      RestartSec=10
+      StandardOutput=journal
+      StandardError=journal
+      
+      # Allow Docker access
+      SupplementaryGroups=docker
+
+      # Resource limits
+      LimitNOFILE=65536
+      TasksMax=4096
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/forgejo-runner.service
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: Enable and start runner service
+  systemd:
+    name: forgejo-runner
+    enabled: yes
+    state: started
+  when: runner_registered.stat.exists or (runner_register_result is defined and runner_register_result.rc == 0)
+
+- name: Ensure runner can reconnect after Forgejo restart
+  lineinfile:
+    path: /opt/forgejo-runner/config.yml
+    regexp: '^  fetch_interval:'
+    line: '  fetch_interval: 5s'
+    state: present
+  when: runner_registered.stat.exists or (runner_register_result is defined and runner_register_result.rc == 0)
+
+- name: Create runner working directories
+  stat:
+    path: /opt/superdeploy/.git
+  register: repo_cloned
+
+- name: Remove /opt/superdeploy if not a git repo
+  file:
+    path: /opt/superdeploy
+    state: absent
+  when: not repo_cloned.stat.exists
+
+- name: Create /opt/superdeploy directory
+  file:
+    path: /opt/superdeploy
+    state: directory
+    owner: superdeploy
+    group: superdeploy
+    mode: '0755'
+  when: not repo_cloned.stat.exists
+
+- name: Clone repository for runner
+  shell: |
+    cd /opt/superdeploy
+    git clone http://{{ ansible_host }}:3001/{{ lookup('env', 'FORGEJO_ORG') }}/{{ lookup('env', 'REPO_SUPERDEPLOY') }}.git .
+    git config --global --add safe.directory /opt/superdeploy
+  args:
+    creates: /opt/superdeploy/.git
+  become_user: superdeploy
+  when: not repo_cloned.stat.exists
+
+- name: Create additional directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: superdeploy
+    group: superdeploy
+    mode: '0755'
+  loop:
+    - /opt/superdeploy/compose
+    - /opt/superdeploy/logs
+    - /opt/superdeploy/data
+
+- name: Add safe directory for git (runner runs as superdeploy)
+  command: git config --global --add safe.directory /opt/superdeploy
+  become_user: superdeploy
+  ignore_errors: yes
+
+- name: Restart runner to ensure clean state
+  systemd:
+    name: forgejo-runner
+    state: restarted
+    enabled: yes
+  when: runner_registered is defined and runner_registered.stat.exists
+  ignore_errors: yes
+
+- name: Display Forgejo access information
+  debug:
+    msg: |
+      ╔══════════════════════════════════════════════════════════════════╗
+      ║  ✅ Forgejo FULL-AUTO Installation Complete!                     ║
+      ╚══════════════════════════════════════════════════════════════════╝
+      
+      🌐 Web UI: http://{{ ansible_host }}:3001
+      🔐 Admin: {{ lookup('env', 'FORGEJO_ADMIN_USER') }} / {{ lookup('env', 'FORGEJO_ADMIN_PASSWORD') }}
+      📦 Repository: superdeploy-app (auto-created)
+      🤖 Runner: core-runner (registered & running)
+      
+      ✨ NO WIZARD! NO MANUAL STEPS!
+      
+      Next: Push your code to http://{{ ansible_host }}:3001/cradexco/superdeploy-app.git
+
