@@ -29,22 +29,17 @@ jobs:
           git reset --hard origin/master
           echo "✅ Superdeploy code updated"
 
-      - name: 🔍 Verify app .env files exist
+      - name: 📝 Setup app .env files
         run: |
-          if [ ! -f "/opt/app-repos/api/.env" ]; then
-            echo "❌ ERROR: /opt/app-repos/api/.env not found!"
-            echo "App-specific .env files must be pushed by GitHub Actions"
-            exit 1
-          fi
-          if [ ! -f "/opt/app-repos/dashboard/.env" ]; then
-            echo "❌ ERROR: /opt/app-repos/dashboard/.env not found!"
-            exit 1
-          fi
-          if [ ! -f "/opt/app-repos/services/.env" ]; then
-            echo "❌ ERROR: /opt/app-repos/services/.env not found!"
-            exit 1
-          fi
-          echo "✅ All app .env files present"
+          mkdir -p /opt/app-repos/{api,dashboard,services}
+          
+          # Copy env templates from superdeploy repo
+          echo "Copying .env templates..."
+          cp /opt/superdeploy/app-env-templates/api.env /opt/app-repos/api/.env
+          cp /opt/superdeploy/app-env-templates/dashboard.env /opt/app-repos/dashboard/.env
+          cp /opt/superdeploy/app-env-templates/services.env /opt/app-repos/services/.env
+          
+          echo "✅ App .env files created from templates"
 
       - name: 🐳 Prepare docker-compose.yml
         run: |
