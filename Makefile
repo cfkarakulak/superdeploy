@@ -118,7 +118,8 @@ wait-vms: ## Wait for VMs to be ready (120s for startup scripts)
 
 ansible-deploy: ## Deploy with Ansible
 	@echo "$(GREEN)🔨 Deploying with Ansible...$(NC)"
-	@cd $(ANSIBLE_DIR) && \
+	@set -a && source .env && set +a && \
+		cd $(ANSIBLE_DIR) && \
 		ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,git-server
 	@echo "$(GREEN)✅ Ansible deployment complete!$(NC)"
 
