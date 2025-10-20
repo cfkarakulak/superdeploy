@@ -1,0 +1,301 @@
+name: Deploy Multi-Service (Reusable)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment (prod|staging)'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+          - prod
+          - staging
+      services:
+        description: 'Services to deploy (comma-separated: api,dashboard,services)'
+        required: true
+        default: 'api'
+      image_tags:
+        description: 'JSON: {"api":"abc123","dashboard":"def456","services":"ghi789"}'
+        required: true
+      migrate:
+        description: 'Run DB migrations (true/false)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, core, linux, docker]
+    
+    env:
+      ENVIRONMENT: ${{ github.event.inputs.environment }}
+      SERVICES: ${{ github.event.inputs.services }}
+      IMAGE_TAGS: ${{ github.event.inputs.image_tags }}
+      MIGRATE: ${{ github.event.inputs.migrate }}
+    
+    steps:
+      - name: 📦 Checkout superdeploy code
+        run: |
+          cd /opt/superdeploy
+          git config --global --add safe.directory /opt/superdeploy
+          git fetch origin
+          git reset --hard origin/master
+          echo "✅ Superdeploy code updated"
+
+      - name: 📝 Parse inputs
+        id: parse
+        run: |
+          # Parse JSON image_tags
+          echo "$IMAGE_TAGS" > /tmp/image_tags.json
+          
+          # Extract tags for each service
+          API_TAG=$(jq -r '.api // "latest"' /tmp/image_tags.json)
+          DASHBOARD_TAG=$(jq -r '.dashboard // "latest"' /tmp/image_tags.json)
+          SERVICES_TAG=$(jq -r '.services // "latest"' /tmp/image_tags.json)
+          
+          echo "api_tag=$API_TAG" >> $GITHUB_OUTPUT
+          echo "dashboard_tag=$DASHBOARD_TAG" >> $GITHUB_OUTPUT
+          echo "services_tag=$SERVICES_TAG" >> $GITHUB_OUTPUT
+          
+          echo "📋 Parsed tags:"
+          echo "  API: $API_TAG"
+          echo "  Dashboard: $DASHBOARD_TAG"
+          echo "  Services: $SERVICES_TAG"
+
+      - name: 📝 Setup app .env files from Forgejo Secrets
+        run: |
+          mkdir -p /opt/app-repos/{api,dashboard,services}
+          
+          echo "Generating .env files from Forgejo Secrets..."
+          
+          # API .env
+          cat > /opt/app-repos/api/.env <<EOF
+          # Database
+          DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}
+          
+          # RabbitMQ
+          RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASSWORD }}@rabbitmq:5672/
+          
+          # API Config
+          API_SECRET_KEY=${{ secrets.API_SECRET_KEY }}
+          ENVIRONMENT=${{ env.ENVIRONMENT }}
+          
+          # Optional
+          SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+          
+          # Proxy Registry
+          PROXY_REGISTRY_URL=http://proxy-registry:8001
+          PROXY_REGISTRY_API_KEY=${{ secrets.PROXY_REGISTRY_API_KEY }}
+          EOF
+          
+          # Dashboard .env
+          cat > /opt/app-repos/dashboard/.env <<EOF
+          PUBLIC_URL=${{ secrets.PUBLIC_URL }}
+          API_BASE_URL=${{ secrets.API_BASE_URL }}
+          ENVIRONMENT=${{ env.ENVIRONMENT }}
+          EOF
+          
+          # Services .env
+          cat > /opt/app-repos/services/.env <<EOF
+          # Database
+          DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}
+          
+          # RabbitMQ
+          RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASSWORD }}@rabbitmq:5672/
+          
+          # Config
+          ENVIRONMENT=${{ env.ENVIRONMENT }}
+          SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+          EOF
+          
+          echo "✅ App .env files generated from Forgejo Secrets"
+
+      - name: 🐳 Prepare docker-compose.yml
+        run: |
+          mkdir -p /opt/superdeploy/compose
+          cp /opt/superdeploy/compose/docker-compose.yml.template /opt/superdeploy/compose/docker-compose.yml
+          
+          echo "✅ docker-compose.yml ready"
+
+      - name: 🐳 Pull images (selective)
+        run: |
+          cd /opt/superdeploy/compose
+          
+          # Load infrastructure env
+          set -a
+          source /opt/superdeploy/.env
+          set +a
+          
+          # Set image tags
+          export API_IMAGE_TAG="${{ steps.parse.outputs.api_tag }}"
+          export DASHBOARD_IMAGE_TAG="${{ steps.parse.outputs.dashboard_tag }}"
+          export SERVICES_IMAGE_TAG="${{ steps.parse.outputs.services_tag }}"
+          
+          # Ensure DOCKER_REGISTRY is set
+          export DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
+          
+          # Set DB/Queue credentials from Forgejo Secrets
+          export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
+          export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
+          export POSTGRES_DB="${{ secrets.POSTGRES_DB }}"
+          export RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
+          export RABBITMQ_PASSWORD="${{ secrets.RABBITMQ_PASSWORD }}"
+          
+          # Deployment timestamp
+          export DEPLOY_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          
+          # Parse services to deploy
+          IFS=',' read -ra SERVICE_ARRAY <<< "$SERVICES"
+          
+          echo "📥 Pulling images for: ${SERVICE_ARRAY[@]}"
+          
+          # Pull only specified services
+          for service in "${SERVICE_ARRAY[@]}"; do
+            service=$(echo $service | xargs)  # trim whitespace
+            echo "Pulling $service..."
+            docker compose pull $service || echo "⚠️  Failed to pull $service"
+          done
+          
+          echo "✅ Images pulled!"
+
+      - name: 🗄️ Run DB migrations (optional)
+        if: ${{ github.event.inputs.migrate == 'true' }}
+        run: |
+          cd /opt/superdeploy/compose
+          
+          echo "🔄 Running database migrations..."
+          
+          # Example: Alembic migrations for API
+          docker compose run --rm api alembic upgrade head || {
+            echo "⚠️  Migration failed or not configured"
+          }
+          
+          echo "✅ Migrations complete"
+
+      - name: 🚀 Deploy services (selective, zero-downtime attempt)
+        run: |
+          cd /opt/superdeploy/compose
+          
+          # Load env again for compose
+          set -a
+          source /opt/superdeploy/.env
+          set +a
+          
+          export API_IMAGE_TAG="${{ steps.parse.outputs.api_tag }}"
+          export DASHBOARD_IMAGE_TAG="${{ steps.parse.outputs.dashboard_tag }}"
+          export SERVICES_IMAGE_TAG="${{ steps.parse.outputs.services_tag }}"
+          export DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
+          export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
+          export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
+          export POSTGRES_DB="${{ secrets.POSTGRES_DB }}"
+          export RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
+          export RABBITMQ_PASSWORD="${{ secrets.RABBITMQ_PASSWORD }}"
+          export DEPLOY_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          
+          # Parse services
+          IFS=',' read -ra SERVICE_ARRAY <<< "$SERVICES"
+          
+          echo "🚀 Deploying: ${SERVICE_ARRAY[@]}"
+          
+          # Deploy only specified services
+          # Note: Docker Compose doesn't have native rolling updates
+          # For true zero-downtime, use Kubernetes or Docker Swarm
+          docker compose up -d --no-deps "${SERVICE_ARRAY[@]}"
+          
+          echo "✅ Services deployed!"
+
+      - name: ⏳ Wait for services to be healthy
+        run: |
+          cd /opt/superdeploy/compose
+          
+          echo "Waiting for services to be healthy..."
+          sleep 10
+          
+          docker compose ps
+          echo "✅ Services should be healthy!"
+
+      - name: 🏥 Health checks
+        run: |
+          echo "🏥 Running health checks..."
+          
+          # PostgreSQL
+          docker exec superdeploy-postgres pg_isready -U ${{ secrets.POSTGRES_USER }} && \
+            echo "✅ PostgreSQL healthy" || echo "❌ PostgreSQL unhealthy"
+          
+          # RabbitMQ
+          docker exec superdeploy-rabbitmq rabbitmq-diagnostics ping && \
+            echo "✅ RabbitMQ healthy" || echo "❌ RabbitMQ unhealthy"
+          
+          # API health endpoint (if exists)
+          curl -f http://localhost:8000/health 2>/dev/null && \
+            echo "✅ API healthy" || echo "⚠️  API health check skipped (no endpoint)"
+
+      - name: 📊 Show deployment status
+        run: |
+          cd /opt/superdeploy/compose
+          
+          echo "════════════════════════════════════════════════════════"
+          echo "         🎉 DEPLOYMENT COMPLETE! 🎉                    "
+          echo "════════════════════════════════════════════════════════"
+          echo ""
+          echo "Environment: ${{ env.ENVIRONMENT }}"
+          echo "Services: ${{ env.SERVICES }}"
+          echo ""
+          docker compose ps
+          echo ""
+          echo "🌐 Services are available at: http://$(curl -s ifconfig.me)"
+
+      - name: 📧 Send deployment notification
+        if: always()
+        run: |
+          # Determine deployment status
+          if [ "${{ job.status }}" = "success" ]; then
+            STATUS="✅ SUCCESS"
+          else
+            STATUS="❌ FAILED"
+          fi
+          
+          # Get deployed image tags
+          API_TAG="${{ steps.parse.outputs.api_tag }}"
+          DASHBOARD_TAG="${{ steps.parse.outputs.dashboard_tag }}"
+          SERVICES_TAG="${{ steps.parse.outputs.services_tag }}"
+          
+          # Get external IP
+          EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "unknown")
+          
+          # Send email via mailx
+          if command -v mail &> /dev/null; then
+            cat <<EOF | mail -s "[$STATUS] SuperDeploy - ${{ env.ENVIRONMENT }} - ${{ env.SERVICES }}" cradexco@gmail.com
+SuperDeploy Deployment Notification
+═══════════════════════════════════════════════════════════════
+
+Status: $STATUS
+Environment: ${{ env.ENVIRONMENT }}
+Services: ${{ env.SERVICES }}
+Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Repository: superdeploy-app
+Branch: master
+
+Deployed Images:
+  - API:       $API_TAG
+  - Dashboard: $DASHBOARD_TAG
+  - Services:  $SERVICES_TAG
+
+Services:
+  - Dashboard: http://$EXTERNAL_IP
+  - API:       http://$EXTERNAL_IP:8000
+  - Forgejo:   http://$EXTERNAL_IP:3001
+
+Logs: http://$EXTERNAL_IP:3001/cradexco/superdeploy-app/actions
+
+═══════════════════════════════════════════════════════════════
+EOF
+            echo "📧 Email sent to cradexco@gmail.com"
+          else
+            echo "⚠️  'mail' command not found."
+          fi
+

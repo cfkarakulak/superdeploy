@@ -52,9 +52,22 @@ check-env: ## Check if .env is configured
 # TERRAFORM
 # =============================================================================
 
-terraform-init: check-env ## Initialize Terraform
+setup-remote-state: check-env ## Setup GCS bucket for remote state (run once)
+	@echo "$(GREEN)🪣 Creating GCS bucket for Terraform remote state...$(NC)"
+	@set -a && source $(ENV_FILE) && set +a && \
+		BUCKET="superdeploy-tfstate-$$GCP_PROJECT_ID" && \
+		if gsutil ls gs://$$BUCKET 2>/dev/null; then \
+			echo "$(YELLOW)⚠️  Bucket gs://$$BUCKET already exists$(NC)"; \
+		else \
+			gsutil mb gs://$$BUCKET && \
+			gsutil versioning set on gs://$$BUCKET && \
+			gsutil lifecycle set backend-lifecycle.json gs://$$BUCKET && \
+			echo "$(GREEN)✅ Remote state bucket created: gs://$$BUCKET$(NC)"; \
+		fi
+
+terraform-init: check-env ## Initialize Terraform (with remote state)
 	@echo "$(GREEN)🔧 Initializing Terraform...$(NC)"
-	@$(TERRAFORM_WRAPPER) init
+	@$(TERRAFORM_WRAPPER) init -reconfigure
 
 terraform-apply: terraform-init ## Create GCP VMs
 	@echo "$(GREEN)🚀 Creating GCP VMs...$(NC)"
@@ -175,6 +188,59 @@ forgejo-pat-create: check-env ## Create Forgejo Personal Access Token
 			echo "$(RED)❌ Failed to create PAT$(NC)"; \
 			exit 1; \
 		fi
+
+# =============================================================================
+# MANUAL DEPLOYMENT HELPERS
+# =============================================================================
+
+deploy-service: check-env ## Deploy specific service (make deploy-service SERVICE=api TAG=abc123 ENV=prod)
+	@if [ -z "$(SERVICE)" ] || [ -z "$(TAG)" ]; then \
+		echo "$(RED)❌ Usage: make deploy-service SERVICE=api TAG=abc123 ENV=prod$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(GREEN)🚀 Deploying $(SERVICE):$(TAG) to $(ENV)$(NC)"
+	@set -a && source $(ENV_FILE) && set +a && \
+		IMAGE_TAGS="{\"$(SERVICE)\":\"$(TAG)\"}" && \
+		curl -sS -X POST "http://$$CORE_EXTERNAL_IP:3001/api/v1/repos/$$FORGEJO_ORG/superdeploy-app/actions/workflows/deploy.yml/dispatches" \
+			-H "Authorization: token $$FORGEJO_PAT" \
+			-H "Content-Type: application/json" \
+			-d "{\"ref\":\"master\",\"inputs\":{\"environment\":\"$(ENV)\",\"services\":\"$(SERVICE)\",\"image_tags\":\"$$IMAGE_TAGS\",\"migrate\":\"false\"}}" \
+			&& echo "$(GREEN)✅ Deployment triggered!$(NC)" \
+			|| echo "$(RED)❌ Deployment failed!$(NC)"
+
+rollback: check-env ## Rollback service (make rollback SERVICE=api TAG=previous-sha ENV=prod)
+	@if [ -z "$(SERVICE)" ] || [ -z "$(TAG)" ]; then \
+		echo "$(RED)❌ Usage: make rollback SERVICE=api TAG=def456 ENV=prod$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(YELLOW)🔄 Rolling back $(SERVICE) to $(TAG) in $(ENV)$(NC)"
+	@$(MAKE) deploy-service SERVICE=$(SERVICE) TAG=$(TAG) ENV=$(ENV)
+
+deploy-all: check-env ## Deploy all services (make deploy-all API_TAG=abc DASH_TAG=def SVC_TAG=ghi ENV=prod)
+	@if [ -z "$(API_TAG)" ] || [ -z "$(DASH_TAG)" ] || [ -z "$(SVC_TAG)" ]; then \
+		echo "$(RED)❌ Usage: make deploy-all API_TAG=abc DASH_TAG=def SVC_TAG=ghi ENV=prod$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(GREEN)🚀 Deploying all services to $(ENV)$(NC)"
+	@set -a && source $(ENV_FILE) && set +a && \
+		IMAGE_TAGS="{\"api\":\"$(API_TAG)\",\"dashboard\":\"$(DASH_TAG)\",\"services\":\"$(SVC_TAG)\"}" && \
+		curl -sS -X POST "http://$$CORE_EXTERNAL_IP:3001/api/v1/repos/$$FORGEJO_ORG/superdeploy-app/actions/workflows/deploy.yml/dispatches" \
+			-H "Authorization: token $$FORGEJO_PAT" \
+			-H "Content-Type: application/json" \
+			-d "{\"ref\":\"master\",\"inputs\":{\"environment\":\"$(ENV)\",\"services\":\"api,dashboard,services\",\"image_tags\":\"$$IMAGE_TAGS\",\"migrate\":\"false\"}}" \
+			&& echo "$(GREEN)✅ Full deployment triggered!$(NC)" \
+			|| echo "$(RED)❌ Deployment failed!$(NC)"
+
+migrate-db: check-env ## Run DB migrations (make migrate-db ENV=prod)
+	@echo "$(GREEN)🗄️  Running database migrations on $(ENV)$(NC)"
+	@set -a && source $(ENV_FILE) && set +a && \
+		IMAGE_TAGS="{\"api\":\"latest\"}" && \
+		curl -sS -X POST "http://$$CORE_EXTERNAL_IP:3001/api/v1/repos/$$FORGEJO_ORG/superdeploy-app/actions/workflows/deploy.yml/dispatches" \
+			-H "Authorization: token $$FORGEJO_PAT" \
+			-H "Content-Type: application/json" \
+			-d "{\"ref\":\"master\",\"inputs\":{\"environment\":\"$(ENV)\",\"services\":\"api\",\"image_tags\":\"$$IMAGE_TAGS\",\"migrate\":\"true\"}}" \
+			&& echo "$(GREEN)✅ Migration triggered!$(NC)" \
+			|| echo "$(RED)❌ Migration failed!$(NC)"
 
 # =============================================================================
 # CLEANUP

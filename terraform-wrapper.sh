@@ -87,7 +87,11 @@ EOF
 echo "✅ Generated envs/dev/gcp.auto.tfvars from .env"
 
 # Run terraform command with tfvars file (only for plan/apply, not for output)
-if [[ "$1" == "output" ]]; then
+if [[ "$1" == "init" ]]; then
+    # Init with backend config
+    BUCKET="superdeploy-tfstate-${GCP_PROJECT_ID}"
+    terraform "$@" -backend-config="bucket=${BUCKET}" "${@:2}"
+elif [[ "$1" == "output" ]]; then
     terraform "$@"
 else
     terraform "$@" -var-file=envs/dev/gcp.auto.tfvars

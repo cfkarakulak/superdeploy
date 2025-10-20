@@ -1,0 +1,134 @@
+version: '3.8'
+
+# Core Infrastructure Services
+# PostgreSQL, RabbitMQ, Caddy Reverse Proxy, Forgejo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: superdeploy-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - /opt/backups/postgres:/backups
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    ports:
+      - "127.0.0.1:5432:5432"  # Only localhost (internal only)
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: superdeploy-rabbitmq
+    restart: unless-stopped
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+    ports:
+      - "127.0.0.1:5672:5672"   # Only localhost (internal only)
+      - "127.0.0.1:15672:15672" # Management UI (internal only, blocked by UFW)
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: superdeploy-caddy
+    restart: unless-stopped
+    environment:
+      - DOMAIN_API=${DOMAIN_API:-api.yourdomain.com}
+      - DOMAIN_FORGEJO=${DOMAIN_FORGEJO:-forgejo.yourdomain.com}
+      - DOMAIN_APP=${DOMAIN_APP:-app.yourdomain.com}
+      - ACME_EMAIL=${ACME_EMAIL:-admin@yourdomain.com}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+    networks:
+      - app-network
+    ports:
+      - "80:80"
+      - "443:443"
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - postgres
+      - rabbitmq
+
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:1.21
+    container_name: forgejo
+    restart: unless-stopped
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - FORGEJO__database__DB_TYPE=postgres
+      - FORGEJO__database__HOST=postgres:5432
+      - FORGEJO__database__NAME=${FORGEJO_DB_NAME}
+      - FORGEJO__database__USER=${FORGEJO_DB_USER}
+      - FORGEJO__database__PASSWD=${FORGEJO_DB_PASSWORD}
+      - FORGEJO__server__DOMAIN=${DOMAIN_FORGEJO:-forgejo.yourdomain.com}
+      - FORGEJO__server__ROOT_URL=https://${DOMAIN_FORGEJO:-forgejo.yourdomain.com}/
+      - FORGEJO__server__SSH_DOMAIN=${DOMAIN_FORGEJO:-forgejo.yourdomain.com}
+      - FORGEJO__server__START_SSH_SERVER=true
+      - FORGEJO__server__SSH_PORT=2222
+      - FORGEJO__actions__ENABLED=true
+      - FORGEJO__security__INSTALL_LOCK=true
+      - FORGEJO__security__SECRET_KEY=${FORGEJO_SECRET_KEY}
+      - FORGEJO__service__DISABLE_REGISTRATION=true
+      - FORGEJO__service__REQUIRE_SIGNIN_VIEW=false
+      - FORGEJO__service__ENABLE_NOTIFY_MAIL=true
+      - FORGEJO__mailer__ENABLED=true
+      - FORGEJO__mailer__FROM=${FORGEJO_MAIL_FROM:-noreply@yourdomain.com}
+      - FORGEJO__mailer__PROTOCOL=smtp
+      - FORGEJO__mailer__SMTP_ADDR=${SMTP_HOST:-localhost}
+      - FORGEJO__mailer__SMTP_PORT=${SMTP_PORT:-25}
+      - FORGEJO__openid__ENABLE_OPENID_SIGNIN=false
+      - FORGEJO__openid__ENABLE_OPENID_SIGNUP=false
+    volumes:
+      - forgejo_data:/data
+      - /opt/backups/forgejo:/backups
+    networks:
+      - app-network
+    ports:
+      - "3001:3001"  # HTTP (will be proxied via Caddy)
+      - "2222:2222"  # SSH Git
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  caddy_data:
+  caddy_config:
+  caddy_logs:
+  forgejo_data:
+

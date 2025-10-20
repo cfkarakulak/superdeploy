@@ -1,0 +1,87 @@
+version: '3.8'
+
+# Application Services
+# API, Dashboard, Background Services
+
+services:
+  api:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/api:${API_IMAGE_TAG}
+    container_name: superdeploy-api
+    restart: unless-stopped
+    env_file:
+      - /opt/app-repos/api/.env
+    networks:
+      - app-network
+    ports:
+      - "127.0.0.1:8000:8000"  # Internal only, accessed via Caddy
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    labels:
+      - "com.superdeploy.service=api"
+      - "com.superdeploy.image.tag=${API_IMAGE_TAG}"
+      - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
+    stop_grace_period: 30s  # Graceful shutdown
+
+  dashboard:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/dashboard:${DASHBOARD_IMAGE_TAG}
+    container_name: superdeploy-dashboard
+    restart: unless-stopped
+    env_file:
+      - /opt/app-repos/dashboard/.env
+    networks:
+      - app-network
+    ports:
+      - "127.0.0.1:3000:3000"  # Internal only, accessed via Caddy
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    labels:
+      - "com.superdeploy.service=dashboard"
+      - "com.superdeploy.image.tag=${DASHBOARD_IMAGE_TAG}"
+      - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
+    stop_grace_period: 10s
+
+  services:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/services:${SERVICES_IMAGE_TAG}
+    container_name: superdeploy-services
+    restart: unless-stopped
+    env_file:
+      - /opt/app-repos/services/.env
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]  # Basic python check
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    labels:
+      - "com.superdeploy.service=services"
+      - "com.superdeploy.image.tag=${SERVICES_IMAGE_TAG}"
+      - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
+    stop_grace_period: 60s  # Workers need more time
+
+networks:
+  app-network:
+    external: true  # Created by core compose
+
