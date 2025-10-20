@@ -35,7 +35,7 @@ route:
 receivers:
   - name: 'email-notifications'
     email_configs:
-      - to: 'cradexco@gmail.com'
+      - to: '${ALERT_EMAIL}'
         headers:
           Subject: '[SuperDeploy] {{ .GroupLabels.alertname }} - {{ .GroupLabels.severity }}'
         html: |
@@ -50,7 +50,7 @@ receivers:
 
   - name: 'email-critical'
     email_configs:
-      - to: 'cradexco@gmail.com'
+      - to: '${ALERT_EMAIL}'
         headers:
           Subject: '[CRITICAL] SuperDeploy Alert - IMMEDIATE ACTION REQUIRED'
           Priority: '1'

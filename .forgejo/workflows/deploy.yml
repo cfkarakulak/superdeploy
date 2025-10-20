@@ -164,17 +164,42 @@ jobs:
 
       - name: 🗄️ Run DB migrations (optional)
         if: ${{ github.event.inputs.migrate == 'true' }}
+        timeout-minutes: 10
         run: |
           cd /opt/superdeploy/compose
           
           echo "🔄 Running database migrations..."
+          echo "⚠️  Migration failure will STOP deployment"
           
-          # Example: Alembic migrations for API
-          docker compose run --rm api alembic upgrade head || {
-            echo "⚠️  Migration failed or not configured"
+          # Load env for compose
+          set -a
+          source /opt/superdeploy/.env
+          set +a
+          
+          export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
+          export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
+          export POSTGRES_DB="${{ secrets.POSTGRES_DB }}"
+          
+          # Run migrations with timeout and error handling
+          if docker compose -f docker-compose.core.yml -f docker-compose.apps.yml \
+             run --rm api alembic upgrade head; then
+            echo "✅ Migrations completed successfully"
+          else
+            echo "❌ MIGRATION FAILED!"
+            echo "⚠️  Deployment will be aborted"
+            echo "📋 Manual rollback may be required"
+            exit 1
+          fi
+          
+          # Verify migration was successful
+          echo "🔍 Verifying migration..."
+          docker compose -f docker-compose.core.yml -f docker-compose.apps.yml \
+            run --rm api alembic current || {
+            echo "❌ Migration verification failed"
+            exit 1
           }
           
-          echo "✅ Migrations complete"
+          echo "✅ Migration verified"
 
       - name: 🚀 Deploy services (selective, zero-downtime attempt)
         run: |

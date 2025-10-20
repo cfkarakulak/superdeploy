@@ -1,26 +1,29 @@
 # Terraform
 *.tfstate
 *.tfstate.*
+*.tfstate.backup
 .terraform/
 .terraform.lock.hcl
 terraform.tfvars
 *.auto.tfvars
 crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
 
 # Ansible
 *.retry
-group_vars/
-host_vars/
-ansible/inventories/*.ini
-!ansible/inventories/*.example
+ansible.log
+*.pyc
 
-# Environment files (keep .env files in git for this project)
+# Environment files
+.env
 .env.local
 .env.production
 *.local
 
 # Secrets
-terraform-key.json
 *_key.json
 *.pem
 *.key
@@ -31,14 +34,9 @@ id_rsa*
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
 venv/
 env/
 .venv
-
-# Docker
-docker-compose.override.yml
 
 # Logs
 *.log
@@ -64,5 +62,3 @@ Thumbs.db
 tmp/
 temp/
 .tmp/
-
-test
