@@ -1,6 +1,0 @@
-# Deployment Test File
-This file is used to test workflow triggers.
-Date: $(date)
-# Test deployment Mon Oct 20 12:43:11 +03 2025
-# Retry Mon Oct 20 12:44:10 +03 2025
-s# Deploy with proper env Mon Oct 20 12:53:56 +03 2025
