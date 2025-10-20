@@ -1,8 +1,6 @@
 name: Deploy CORE Services
 
 on:
-  push:
-    branches: [master]
   workflow_dispatch:
     inputs:
       api_image_tag:
