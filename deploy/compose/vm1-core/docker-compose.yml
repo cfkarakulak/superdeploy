@@ -85,6 +85,9 @@ services:
 
   # API Service (FastAPI example)
   api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
     image: superdeploy/api:1.0.0  # Pinned version (not 'latest')
     container_name: superdeploy-api
     restart: unless-stopped
@@ -124,6 +127,9 @@ services:
 
   # Proxy Registry Service
   proxy_registry:
+    build:
+      context: ./proxy-registry
+      dockerfile: Dockerfile
     image: superdeploy/proxy-registry:1.0.0  # Pinned version
     container_name: superdeploy-proxy-registry
     restart: unless-stopped
@@ -162,11 +168,12 @@ services:
 
   # Dashboard (Static Frontend)
   dashboard:
-    image: nginx:alpine
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    image: superdeploy/dashboard:1.0.0
     container_name: superdeploy-dashboard
     restart: always
-    volumes:
-      - ./dashboard:/usr/share/nginx/html:ro
     networks:
       - superdeploy
     healthcheck:
