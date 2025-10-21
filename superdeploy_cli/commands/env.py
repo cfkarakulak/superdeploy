@@ -1,9 +1,7 @@
 """SuperDeploy CLI - Secure env viewing command"""
 
 import click
-import os
 import getpass
-import hashlib
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -16,12 +14,12 @@ def verify_password(env_vars):
     """Verify user identity with password challenge"""
     # Use GITHUB_TOKEN as verification (secure and already in .env)
     expected_token = env_vars.get("GITHUB_TOKEN", "")
-    
+
     if not expected_token or expected_token in ["", "your-github-token"]:
         console.print("[red]❌ GITHUB_TOKEN not configured in .env[/red]")
         console.print("[yellow]Set a valid GITHUB_TOKEN to use --no-mask[/yellow]")
         return False
-    
+
     console.print(
         Panel(
             "[yellow]⚠️  Sensitive data access[/yellow]\n\n"
