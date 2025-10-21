@@ -3,12 +3,8 @@
 
 import click
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich import box
 from pathlib import Path
 import sys
-import os
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -31,14 +27,14 @@ BANNER = """
 def cli(ctx):
     """
     SuperDeploy - Deploy production apps like Heroku, on your own infrastructure.
-    
+
     \b
     Quick Start:
       superdeploy init      # Interactive setup
       superdeploy up        # Deploy infrastructure
       superdeploy sync      # Sync secrets to GitHub
       superdeploy deploy    # Deploy apps
-    
+
     \b
     Daily Workflow:
       git push origin production  # Auto-deploy!
@@ -67,4 +63,3 @@ cli.add_command(config.config_group)
 
 if __name__ == "__main__":
     cli()
-

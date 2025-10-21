@@ -1,7 +1,6 @@
 """SuperDeploy CLI - Sync command (AGE key + GitHub secrets automation)"""
 
 import click
-import json
 import subprocess
 from rich.console import Console
 from rich.panel import Panel
@@ -15,10 +14,10 @@ def get_age_public_key(env):
     """Fetch AGE public key from runner VM"""
     try:
         key = ssh_command(
-            host=env['CORE_EXTERNAL_IP'],
-            user=env.get('SSH_USER', 'superdeploy'),
-            key_path=env['SSH_KEY_PATH'].replace('~', env.get('HOME', '/root')),
-            cmd='cat /opt/forgejo-runner/.age/public_key.txt'
+            host=env["CORE_EXTERNAL_IP"],
+            user=env.get("SSH_USER", "superdeploy"),
+            key_path=env["SSH_KEY_PATH"].replace("~", env.get("HOME", "/root")),
+            cmd="cat /opt/forgejo-runner/.age/public_key.txt",
         )
         return key.strip()
     except Exception as e:
@@ -29,26 +28,26 @@ def get_age_public_key(env):
 def create_forgejo_pat(env):
     """Create Forgejo Personal Access Token"""
     console.print("[dim]Creating Forgejo PAT...[/dim]")
-    
+
     import requests
     import time
-    
+
     forgejo_url = f"http://{env['CORE_EXTERNAL_IP']}:3001"
     token_name = f"github-actions-{int(time.time())}"
-    
+
     try:
         response = requests.post(
             f"{forgejo_url}/api/v1/users/{env['FORGEJO_ADMIN_USER']}/tokens",
-            auth=(env['FORGEJO_ADMIN_USER'], env['FORGEJO_ADMIN_PASSWORD']),
+            auth=(env["FORGEJO_ADMIN_USER"], env["FORGEJO_ADMIN_PASSWORD"]),
             json={
                 "name": token_name,
-                "scopes": ["write:repository", "write:activitypub"]
-            }
+                "scopes": ["write:repository", "write:activitypub"],
+            },
         )
-        
+
         if response.status_code == 201:
-            pat = response.json()['sha1']
-            console.print(f"[green]✅ Forgejo PAT created[/green]")
+            pat = response.json()["sha1"]
+            console.print("[green]✅ Forgejo PAT created[/green]")
             return pat
         else:
             console.print(f"[yellow]⚠️  PAT creation failed: {response.text}[/yellow]")
@@ -61,13 +60,13 @@ def create_forgejo_pat(env):
 def set_github_repo_secrets(repo, secrets):
     """Set GitHub repository secrets using gh CLI"""
     console.print(f"[dim]Setting repository secrets for {repo}...[/dim]")
-    
+
     for key, value in secrets.items():
         try:
             subprocess.run(
                 ["gh", "secret", "set", key, "-b", value, "-R", repo],
                 check=True,
-                capture_output=True
+                capture_output=True,
             )
             console.print(f"  [green]✓[/green] {key}")
         except subprocess.CalledProcessError as e:
@@ -77,13 +76,13 @@ def set_github_repo_secrets(repo, secrets):
 def set_github_env_secrets(repo, env_name, secrets):
     """Set GitHub environment secrets using gh CLI"""
     console.print(f"[dim]Setting environment secrets for {repo} ({env_name})...[/dim]")
-    
+
     for key, value in secrets.items():
         try:
             subprocess.run(
                 ["gh", "secret", "set", key, "-b", value, "-e", env_name, "-R", repo],
                 check=True,
-                capture_output=True
+                capture_output=True,
             )
             console.print(f"  [green]✓[/green] {key}")
         except subprocess.CalledProcessError as e:
@@ -91,134 +90,135 @@ def set_github_env_secrets(repo, env_name, secrets):
 
 
 @click.command()
-@click.option('--skip-forgejo', is_flag=True, help='Skip Forgejo PAT creation')
-@click.option('--skip-github', is_flag=True, help='Skip GitHub secrets sync')
+@click.option("--skip-forgejo", is_flag=True, help="Skip Forgejo PAT creation")
+@click.option("--skip-github", is_flag=True, help="Skip GitHub secrets sync")
 def sync(skip_forgejo, skip_github):
     """
     Sync ALL secrets to GitHub (magic!)
-    
+
     This command will:
     - Fetch AGE public key from runner VM
     - Create Forgejo PAT (if needed)
     - Push ALL secrets to GitHub repos (using gh CLI)
-    
+
     \b
     Requirements:
     - gh CLI installed and authenticated
     - SSH access to VMs
     - GITHUB_TOKEN in .env
     """
-    console.print(Panel.fit(
-        "[bold cyan]🔄 SuperDeploy Secret Sync[/bold cyan]\n\n"
-        "[white]Automating GitHub secrets configuration...[/white]",
-        border_style="cyan"
-    ))
-    
+    console.print(
+        Panel.fit(
+            "[bold cyan]🔄 SuperDeploy Secret Sync[/bold cyan]\n\n"
+            "[white]Automating GitHub secrets configuration...[/white]",
+            border_style="cyan",
+        )
+    )
+
     env = load_env()
-    
+
     # Validate required vars
-    required = ['CORE_EXTERNAL_IP', 'SSH_KEY_PATH', 'GITHUB_TOKEN']
+    required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH", "GITHUB_TOKEN"]
     if not validate_env_vars(env, required):
         raise SystemExit(1)
-    
+
     # GitHub repos (from .env or defaults)
     repos = {
-        'api': env.get('GITHUB_REPO_API', 'cheapaio/api'),
-        'dashboard': env.get('GITHUB_REPO_DASHBOARD', 'cheapaio/dashboard'),
-        'services': env.get('GITHUB_REPO_SERVICES', 'cheapaio/services'),
+        "api": env.get("GITHUB_REPO_API", "cheapaio/api"),
+        "dashboard": env.get("GITHUB_REPO_DASHBOARD", "cheapaio/dashboard"),
+        "services": env.get("GITHUB_REPO_SERVICES", "cheapaio/services"),
     }
-    
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        console=console
+        console=console,
     ) as progress:
-        
         # Step 1: Fetch AGE public key
         task1 = progress.add_task("[cyan]Fetching AGE public key from VM...", total=1)
         age_public_key = get_age_public_key(env)
-        
+
         if not age_public_key:
             console.print("[red]❌ Failed to fetch AGE public key![/red]")
             raise SystemExit(1)
-        
+
         progress.advance(task1)
         console.print(f"[green]✅ AGE Public Key: {age_public_key[:30]}...[/green]")
-        
+
         # Step 2: Create Forgejo PAT (if not exists)
         task2 = progress.add_task("[cyan]Creating Forgejo PAT...", total=1)
-        
-        forgejo_pat = env.get('FORGEJO_PAT')
-        if not forgejo_pat or forgejo_pat == 'auto-generated' or skip_forgejo:
+
+        forgejo_pat = env.get("FORGEJO_PAT")
+        if not forgejo_pat or forgejo_pat == "auto-generated" or skip_forgejo:
             forgejo_pat = create_forgejo_pat(env)
-            
+
             if forgejo_pat:
                 # Update .env file
-                env_file_path = env.get('ENV_FILE_PATH', '.env')
-                with open(env_file_path, 'r') as f:
+                env_file_path = env.get("ENV_FILE_PATH", ".env")
+                with open(env_file_path, "r") as f:
                     lines = f.readlines()
-                
-                with open(env_file_path, 'w') as f:
+
+                with open(env_file_path, "w") as f:
                     for line in lines:
-                        if line.startswith('FORGEJO_PAT='):
-                            f.write(f'FORGEJO_PAT={forgejo_pat}\n')
+                        if line.startswith("FORGEJO_PAT="):
+                            f.write(f"FORGEJO_PAT={forgejo_pat}\n")
                         else:
                             f.write(line)
-                
+
                 console.print("[green]✅ Forgejo PAT saved to .env[/green]")
-        
+
         progress.advance(task2)
-        
+
         if skip_github:
             console.print("[yellow]⚠️  Skipping GitHub secrets sync[/yellow]")
             return
-        
+
         # Step 3: Sync to GitHub
-        task3 = progress.add_task("[cyan]Syncing secrets to GitHub...", total=len(repos))
-        
+        task3 = progress.add_task(
+            "[cyan]Syncing secrets to GitHub...", total=len(repos)
+        )
+
         for app_name, repo in repos.items():
-            console.print(f"\n[bold cyan]━━━ {app_name.upper()} ({repo}) ━━━[/bold cyan]")
-            
+            console.print(
+                f"\n[bold cyan]━━━ {app_name.upper()} ({repo}) ━━━[/bold cyan]"
+            )
+
             # Repository secrets (same for all)
             repo_secrets = {
-                'AGE_PUBLIC_KEY': age_public_key,
-                'FORGEJO_BASE_URL': f"http://{env['CORE_EXTERNAL_IP']}:3001",
-                'FORGEJO_ORG': env.get('FORGEJO_ORG', 'cradexco'),
-                'FORGEJO_PAT': forgejo_pat or '',
-                'DOCKER_USERNAME': env.get('DOCKER_USERNAME', ''),
-                'DOCKER_TOKEN': env.get('DOCKER_TOKEN', ''),
+                "AGE_PUBLIC_KEY": age_public_key,
+                "FORGEJO_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:3001",
+                "FORGEJO_ORG": env.get("FORGEJO_ORG", "cradexco"),
+                "FORGEJO_PAT": forgejo_pat or "",
+                "DOCKER_USERNAME": env.get("DOCKER_USERNAME", ""),
+                "DOCKER_TOKEN": env.get("DOCKER_TOKEN", ""),
             }
-            
+
             set_github_repo_secrets(repo, repo_secrets)
-            
+
             # Environment secrets (production)
             env_secrets = {
-                'POSTGRES_HOST': env.get('CORE_INTERNAL_IP', ''),
-                'POSTGRES_USER': env.get('POSTGRES_USER', 'superdeploy'),
-                'POSTGRES_PASSWORD': env.get('POSTGRES_PASSWORD', ''),
-                'POSTGRES_DB': env.get('POSTGRES_DB', 'superdeploy_db'),
-                'POSTGRES_PORT': '5432',
-                
-                'RABBITMQ_HOST': env.get('CORE_INTERNAL_IP', ''),
-                'RABBITMQ_USER': env.get('RABBITMQ_USER', 'superdeploy'),
-                'RABBITMQ_PASSWORD': env.get('RABBITMQ_PASSWORD', ''),
-                'RABBITMQ_PORT': '5672',
-                
-                'REDIS_HOST': env.get('CORE_INTERNAL_IP', ''),
-                'REDIS_PASSWORD': env.get('REDIS_PASSWORD', ''),
-                
-                'API_SECRET_KEY': env.get('API_SECRET_KEY', ''),
-                'API_DEBUG': 'false',
-                'API_BASE_URL': f"http://{env.get('CORE_EXTERNAL_IP', '')}:8000",
-                'PUBLIC_URL': f"http://{env.get('CORE_EXTERNAL_IP', '')}",
-                
-                'SENTRY_DSN': env.get('SENTRY_DSN', ''),
+                "POSTGRES_HOST": env.get("CORE_INTERNAL_IP", ""),
+                "POSTGRES_USER": env.get("POSTGRES_USER", "superdeploy"),
+                "POSTGRES_PASSWORD": env.get("POSTGRES_PASSWORD", ""),
+                "POSTGRES_DB": env.get("POSTGRES_DB", "superdeploy_db"),
+                "POSTGRES_PORT": "5432",
+                "RABBITMQ_HOST": env.get("CORE_INTERNAL_IP", ""),
+                "RABBITMQ_USER": env.get("RABBITMQ_USER", "superdeploy"),
+                "RABBITMQ_PASSWORD": env.get("RABBITMQ_PASSWORD", ""),
+                "RABBITMQ_PORT": "5672",
+                "REDIS_HOST": env.get("CORE_INTERNAL_IP", ""),
+                "REDIS_PASSWORD": env.get("REDIS_PASSWORD", ""),
+                "API_SECRET_KEY": env.get("API_SECRET_KEY", ""),
+                "API_DEBUG": "false",
+                "API_BASE_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}:8000",
+                "PUBLIC_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}",
+                "SENTRY_DSN": env.get("SENTRY_DSN", ""),
             }
-            
-            set_github_env_secrets(repo, 'production', env_secrets)
-            
+
+            set_github_env_secrets(repo, "production", env_secrets)
+
             progress.advance(task3)
-    
+
     console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
     console.print("[bold green]🎉 Sync Complete![/bold green]")
     console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")

@@ -17,30 +17,30 @@ def find_env_file() -> Optional[Path]:
         Path.home() / ".superdeploy" / ".env",
         Path(__file__).parent.parent / ".env",
     ]
-    
+
     for path in search_paths:
         if path.exists():
             return path
-    
+
     return None
 
 
 def load_env() -> Dict[str, Any]:
     """Load .env file with smart detection"""
     env_file = find_env_file()
-    
+
     if not env_file:
         console.print("[red]❌ Error: .env file not found![/red]")
         console.print("\n[yellow]Searched locations:[/yellow]")
         console.print(f"  • {Path.cwd() / '.env'}")
         console.print(f"  • {Path.home() / '.superdeploy' / '.env'}")
-        console.print(f"\n[cyan]Solution:[/cyan]")
+        console.print("\n[cyan]Solution:[/cyan]")
         console.print("  1. cd to your superdeploy directory")
         console.print("  2. Or run: [bold]superdeploy init[/bold]")
         raise SystemExit(1)
-    
+
     env_vars = dotenv_values(env_file)
-    env_vars['ENV_FILE_PATH'] = str(env_file)  # Store path for later use
+    env_vars["ENV_FILE_PATH"] = str(env_file)  # Store path for later use
     console.print(f"[dim]Loaded: {env_file}[/dim]")
     return env_vars
 
@@ -49,7 +49,7 @@ def run_command(
     cmd: str,
     cwd: Optional[str] = None,
     env: Optional[Dict] = None,
-    capture_output: bool = False
+    capture_output: bool = False,
 ) -> subprocess.CompletedProcess:
     """Run shell command with better error handling"""
     try:
@@ -60,7 +60,7 @@ def run_command(
             env={**os.environ, **(env or {})},
             capture_output=capture_output,
             text=True,
-            check=True
+            check=True,
         )
         return result
     except subprocess.CalledProcessError as e:
@@ -88,12 +88,11 @@ def get_project_root() -> Path:
 def validate_env_vars(env: Dict, required_keys: list) -> bool:
     """Validate required env vars are present"""
     missing = [key for key in required_keys if not env.get(key)]
-    
+
     if missing:
         console.print("[red]❌ Missing required env vars:[/red]")
         for key in missing:
             console.print(f"  • {key}")
         return False
-    
-    return True
 
+    return True
