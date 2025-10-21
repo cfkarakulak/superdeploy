@@ -194,20 +194,20 @@
       
       # PostgreSQL
       POSTGRES_USER=cheapa_user
-      POSTGRES_PASSWORD={{ lookup('env', 'POSTGRES_PASSWORD') }}
+      POSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}
       POSTGRES_DB=cheapa_db
       
       # RabbitMQ
       RABBITMQ_USER=cheapa_user
-      RABBITMQ_PASSWORD={{ lookup('env', 'RABBITMQ_PASSWORD') }}
+      RABBITMQ_PASSWORD={{ RABBITMQ_PASSWORD }}
       
       # Redis
-      REDIS_PASSWORD={{ lookup('env', 'REDIS_PASSWORD') }}
+      REDIS_PASSWORD={{ REDIS_PASSWORD }}
       
       # Forgejo (will be used by git-server role)
       FORGEJO_DB_NAME=forgejo
       FORGEJO_DB_USER=forgejo
-      FORGEJO_DB_PASSWORD={{ lookup('env', 'POSTGRES_PASSWORD') }}
+      FORGEJO_DB_PASSWORD={{ POSTGRES_PASSWORD }}
     dest: /opt/superdeploy/projects/cheapa/compose/.env
     owner: superdeploy
     group: superdeploy
