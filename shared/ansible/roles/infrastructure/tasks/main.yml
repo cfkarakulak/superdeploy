@@ -66,6 +66,9 @@
   become_user: superdeploy
   shell: |
     cd /opt/superdeploy/shared/compose
+    set -a
+    source ../.env
+    set +a
     docker compose -f docker-compose.infrastructure.yml up -d
   args:
     executable: /bin/bash
