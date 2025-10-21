@@ -242,7 +242,7 @@ gh secret set SMTP_USERNAME --repo cheapaio/services --body "cradexco@gmail.com"
 gh secret set SMTP_PASSWORD --repo cheapaio/services --body "ajjb ydtw ptpr rflw"
 ```
 
-**Not:** `superdeploy up` sonrası otomatik yapılmıyor çünkü Gmail şifresi `.env` dosyasında değil.
+**Not:** Gmail SMTP credentials `.env` dosyasında tanımlı. `superdeploy sync` ile otomatik GitHub/Forgejo'ya aktarılır.
 
 ---
 
