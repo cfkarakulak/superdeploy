@@ -46,9 +46,7 @@ def releases(app, limit):
     ssh_key = env_vars["SSH_KEY_PATH"]
 
     # Get current running container info (use docker inspect --format instead of jq)
-    inspect_cmd = (
-        f"docker inspect superdeploy-{app} 2>/dev/null || echo 'NOT_FOUND'"
-    )
+    inspect_cmd = f"docker inspect superdeploy-{app} 2>/dev/null || echo 'NOT_FOUND'"
 
     try:
         current_info = ssh_command(

@@ -40,7 +40,7 @@ def logs(app, follow, lines, environment):
     ssh_host = env["CORE_EXTERNAL_IP"]
 
     follow_flag = "-f" if follow else ""
-    docker_cmd = f"docker logs {follow_flag} --tail {lines} superdeploy-{app}-1 2>&1"
+    docker_cmd = f"docker logs {follow_flag} --tail {lines} superdeploy-{app} 2>&1"
 
     ssh_cmd = [
         "ssh",

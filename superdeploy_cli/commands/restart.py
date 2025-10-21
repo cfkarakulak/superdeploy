@@ -45,7 +45,7 @@ def restart(app, environment):
         console.print(f"[green]✅ {app} restarted successfully![/green]")
 
         # Show status
-        status_cmd = f"docker ps --filter name=superdeploy-{app}-1 --format 'table {{{{.Names}}}}\t{{{{.Status}}}}'"
+        status_cmd = f"docker ps --filter name=superdeploy-{app} --format 'table {{{{.Names}}}}\t{{{{.Status}}}}'"
         status = ssh_command(
             host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=status_cmd
         )

@@ -38,7 +38,8 @@ def run(app, command):
     ssh_user = env.get("SSH_USER", "superdeploy")
     ssh_host = env["CORE_EXTERNAL_IP"]
 
-    docker_cmd = f"docker exec -it superdeploy-{app}-1 {command}"
+    # Use -i (not -it) for non-interactive commands to avoid TTY errors
+    docker_cmd = f"docker exec -i superdeploy-{app} {command}"
 
     ssh_cmd = [
         "ssh",
@@ -46,7 +47,6 @@ def run(app, command):
         ssh_key,
         "-o",
         "StrictHostKeyChecking=no",
-        "-t",  # Force TTY allocation for interactive commands
         f"{ssh_user}@{ssh_host}",
         docker_cmd,
     ]
