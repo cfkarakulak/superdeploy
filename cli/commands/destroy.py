@@ -11,10 +11,9 @@ console = Console()
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 @click.option("--keep-network", is_flag=True, help="Keep VPC network (only delete VMs)")
-def destroy(project, yes, keep_network):
+def destroy(yes, keep_network):
     """
     Destroy all infrastructure (like 'heroku apps:destroy')
 
