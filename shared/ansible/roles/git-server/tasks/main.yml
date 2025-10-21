@@ -16,10 +16,6 @@
     - /opt/forgejo/data
     - /opt/forgejo/postgres
     - /opt/forgejo-runner
-    - /opt/app-repos
-    - /opt/app-repos/api
-    - /opt/app-repos/dashboard
-    - /opt/app-repos/services
 
 - name: Ensure runner directory is owned by superdeploy
   file:

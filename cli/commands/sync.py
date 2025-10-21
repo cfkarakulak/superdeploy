@@ -264,26 +264,28 @@ def sync(project, skip_forgejo, skip_github):
     # Load project-specific secrets (OPTIONAL - if exists)
     secrets_file = project_path / "secrets.env"
     project_secrets = {}
-    
+
     if secrets_file.exists():
         project_secrets = dotenv_values(secrets_file)
         console.print(f"[dim]Loaded project secrets from: {secrets_file}[/dim]")
         env.update(project_secrets)
     else:
         console.print(
-            "[dim]No project secrets file (app secrets managed in app-repos)[/dim]"
+            "[dim]No project secrets file (app secrets managed externally)[/dim]"
         )
 
     # Validate required vars
     required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH"]
     if not validate_env_vars(env, required):
         raise SystemExit(1)
-    
+
     # Check if gh CLI is available
     try:
         subprocess.run(["gh", "--version"], capture_output=True, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        console.print("[yellow]⚠️  GitHub CLI (gh) not installed - skipping GitHub secrets sync[/yellow]")
+        console.print(
+            "[yellow]⚠️  GitHub CLI (gh) not installed - skipping GitHub secrets sync[/yellow]"
+        )
         console.print("[dim]Install: brew install gh[/dim]")
         skip_github = True
 
