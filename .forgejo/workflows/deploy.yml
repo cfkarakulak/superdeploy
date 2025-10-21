@@ -41,7 +41,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, core, linux, docker, cheapa]  # Project-specific label
+    runs-on: [self-hosted, core, linux, docker]  # Generic runner labels
     
     env:
       PROJECT: ${{ github.event.inputs.project }}

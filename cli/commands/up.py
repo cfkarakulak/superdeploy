@@ -360,33 +360,39 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
 
     # Auto-sync GitHub secrets (unless --skip-sync flag)
     if not skip_sync:
-        console.print("\n[bold cyan]🔄 Auto-syncing GitHub secrets (new IPs)...[/bold cyan]")
-        
+        console.print(
+            "\n[bold cyan]🔄 Auto-syncing GitHub secrets (new IPs)...[/bold cyan]"
+        )
+
         # Direct sync call with proper error handling
         try:
             import subprocess
+
             sync_cmd = [
-                "superdeploy", "sync",
-                "-p", project,
-                "--skip-forgejo"  # Forgejo already has secrets via Ansible
+                "superdeploy",
+                "sync",
+                "-p",
+                project,
+                "--skip-forgejo",  # Forgejo already has secrets via Ansible
             ]
-            
+
             result = subprocess.run(
-                sync_cmd,
-                capture_output=True,
-                text=True,
-                timeout=60
+                sync_cmd, capture_output=True, text=True, timeout=60
             )
-            
+
             if result.returncode == 0:
                 console.print("[green]✅ GitHub secrets synced![/green]")
             else:
-                console.print("[yellow]⚠️  Sync had issues (check output above)[/yellow]")
+                console.print(
+                    "[yellow]⚠️  Sync had issues (check output above)[/yellow]"
+                )
                 if result.stderr:
                     console.print(f"[dim]{result.stderr[:500]}[/dim]")
         except Exception as e:
             console.print(f"[yellow]⚠️  Sync failed: {e}[/yellow]")
-            console.print("[dim]Run 'superdeploy sync -p cheapa' manually to update GitHub secrets[/dim]")
+            console.print(
+                "[dim]Run 'superdeploy sync -p cheapa' manually to update GitHub secrets[/dim]"
+            )
     else:
         console.print(
             "\n[yellow]Note:[/yellow] Run [bold cyan]superdeploy sync -p cheapa[/bold cyan] to configure GitHub secrets"
