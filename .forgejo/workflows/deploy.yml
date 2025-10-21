@@ -7,6 +7,10 @@ on:
         description: 'Workflow title (auto-generated from GitHub)'
         required: false
         default: 'Deploy Multi-Service'
+      project:
+        description: 'Project name (cheapa, projectb, etc.)'
+        required: true
+        default: 'cheapa'
       environment:
         description: 'Environment (prod|staging)'
         required: true
@@ -40,6 +44,7 @@ jobs:
     runs-on: [self-hosted, core, linux, docker]
     
     env:
+      PROJECT: ${{ github.event.inputs.project }}
       ENVIRONMENT: ${{ github.event.inputs.environment }}
       SERVICES: ${{ github.event.inputs.services }}
       IMAGE_TAGS: ${{ github.event.inputs.image_tags }}
@@ -147,16 +152,23 @@ jobs:
           
           echo "✅ App .env files generated from Forgejo Secrets"
 
-      - name: 🐳 Prepare docker-compose.yml
+      - name: 🐳 Prepare docker-compose.yml (project-aware)
         run: |
-          mkdir -p /opt/superdeploy/compose
-          cp /opt/superdeploy/compose/docker-compose.yml.template /opt/superdeploy/compose/docker-compose.yml
+          PROJECT="${{ github.event.inputs.project }}"
+          COMPOSE_DIR="/opt/superdeploy/projects/${PROJECT}/compose"
           
-          echo "✅ docker-compose.yml ready"
+          if [ ! -d "$COMPOSE_DIR" ]; then
+            echo "❌ Project '${PROJECT}' not found at ${COMPOSE_DIR}"
+            exit 1
+          fi
+          
+          cd "$COMPOSE_DIR"
+          echo "✅ Using project '${PROJECT}' compose files from ${COMPOSE_DIR}"
 
       - name: 🐳 Pull images (selective)
         run: |
-          cd /opt/superdeploy/compose
+          PROJECT="${{ github.event.inputs.project }}"
+          cd /opt/superdeploy/projects/${PROJECT}/compose
           
           # Load infrastructure env
           set -a
@@ -210,7 +222,8 @@ jobs:
         if: ${{ github.event.inputs.migrate == 'true' }}
         timeout-minutes: 10
         run: |
-          cd /opt/superdeploy/compose
+          PROJECT="${{ github.event.inputs.project }}"
+          cd /opt/superdeploy/projects/${PROJECT}/compose
           
           echo "🔄 Running database migrations..."
           echo "⚠️  Migration failure will STOP deployment"
@@ -247,7 +260,8 @@ jobs:
 
       - name: 🚀 Deploy services (selective, zero-downtime attempt)
         run: |
-          cd /opt/superdeploy/compose
+          PROJECT="${{ github.event.inputs.project }}"
+          cd /opt/superdeploy/projects/${PROJECT}/compose
           
           # Load env again for compose
           set -a
@@ -258,11 +272,15 @@ jobs:
           export DASHBOARD_IMAGE_TAG="${{ steps.parse.outputs.dashboard_tag }}"
           export SERVICES_IMAGE_TAG="${{ steps.parse.outputs.services_tag }}"
           export DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
+          export DOCKER_ORG="${DOCKER_ORG}"
           export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
           export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
           export POSTGRES_DB="${{ secrets.POSTGRES_DB }}"
           export RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
           export RABBITMQ_PASSWORD="${{ secrets.RABBITMQ_PASSWORD }}"
+          export REDIS_PASSWORD="${{ secrets.REDIS_PASSWORD }}"
+          export CORE_EXTERNAL_IP="${CORE_EXTERNAL_IP}"
+          export CORE_INTERNAL_IP="${CORE_INTERNAL_IP}"
           export DEPLOY_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           export GIT_SHA="${{ github.sha }}"
           export RELEASE_VERSION="v$(date +%Y%m%d)-${GITHUB_RUN_NUMBER:-1}"
@@ -270,53 +288,69 @@ jobs:
           # Parse services
           IFS=',' read -ra SERVICE_ARRAY <<< "$SERVICES"
           
-          echo "🚀 Deploying: ${SERVICE_ARRAY[@]}"
+          echo "🚀 Deploying ${PROJECT}: ${SERVICE_ARRAY[@]}"
           
-          # Deploy only specified services
-          # Note: Docker Compose doesn't have native rolling updates
-          # For true zero-downtime, use Kubernetes or Docker Swarm
-          docker compose up -d --no-deps "${SERVICE_ARRAY[@]}"
+          # First, start core services if not running
+          docker compose -f docker-compose.core.yml up -d
+          sleep 5
+          
+          # Then deploy app services
+          docker compose -f docker-compose.apps.yml up -d --no-deps "${SERVICE_ARRAY[@]}"
           
           echo "✅ Services deployed!"
 
       - name: ⏳ Wait for services to be healthy
         run: |
-          cd /opt/superdeploy/compose
+          PROJECT="${{ github.event.inputs.project }}"
+          cd /opt/superdeploy/projects/${PROJECT}/compose
           
           echo "Waiting for services to be healthy..."
           sleep 10
           
-          docker compose ps
+          docker compose -f docker-compose.apps.yml ps
           echo "✅ Services should be healthy!"
 
       - name: 🏥 Health checks
         run: |
-          echo "🏥 Running health checks..."
+          PROJECT="${{ github.event.inputs.project }}"
+          echo "🏥 Running health checks for project: ${PROJECT}..."
           
           # PostgreSQL
-          docker exec superdeploy-postgres pg_isready -U ${{ secrets.POSTGRES_USER }} && \
+          docker exec ${PROJECT}-postgres pg_isready -U ${{ secrets.POSTGRES_USER }} && \
             echo "✅ PostgreSQL healthy" || echo "❌ PostgreSQL unhealthy"
           
-          # RabbitMQ
-          docker exec superdeploy-rabbitmq rabbitmq-diagnostics ping && \
-            echo "✅ RabbitMQ healthy" || echo "❌ RabbitMQ unhealthy"
+          # RabbitMQ (if exists)
+          if docker ps --format '{{.Names}}' | grep -q "^${PROJECT}-rabbitmq$"; then
+            docker exec ${PROJECT}-rabbitmq rabbitmq-diagnostics ping && \
+              echo "✅ RabbitMQ healthy" || echo "❌ RabbitMQ unhealthy"
+          fi
+          
+          # Redis (if exists)
+          if docker ps --format '{{.Names}}' | grep -q "^${PROJECT}-redis$"; then
+            docker exec ${PROJECT}-redis redis-cli ping && \
+              echo "✅ Redis healthy" || echo "❌ Redis unhealthy"
+          fi
           
           # API health endpoint (if exists)
-          curl -f http://localhost:8000/health 2>/dev/null && \
-            echo "✅ API healthy" || echo "⚠️  API health check skipped (no endpoint)"
+          if docker ps --format '{{.Names}}' | grep -q "^${PROJECT}-api$"; then
+            curl -f http://localhost:8000/health 2>/dev/null && \
+              echo "✅ API healthy" || echo "⚠️  API health check skipped (no endpoint)"
+          fi
 
       - name: 📊 Show deployment status
         run: |
-          cd /opt/superdeploy/compose
+          PROJECT="${{ github.event.inputs.project }}"
+          cd /opt/superdeploy/projects/${PROJECT}/compose
           
           echo "════════════════════════════════════════════════════════"
           echo "         🎉 DEPLOYMENT COMPLETE! 🎉                    "
           echo "════════════════════════════════════════════════════════"
           echo ""
+          echo "Project: ${PROJECT}"
           echo "Environment: ${{ env.ENVIRONMENT }}"
           echo "Services: ${{ env.SERVICES }}"
           echo ""
-          docker compose ps
+          docker compose -f docker-compose.apps.yml ps
           echo ""
           echo "🌐 Services are available at: http://$(curl -s ifconfig.me)"
 
