@@ -51,7 +51,13 @@ def create_forgejo_pat(env):
             auth=(env["FORGEJO_ADMIN_USER"], env["FORGEJO_ADMIN_PASSWORD"]),
             json={
                 "name": token_name,
-                "scopes": ["write:repository", "write:activitypub"],
+                "scopes": [
+                    "read:user",
+                    "write:repository",
+                    "write:activitypub",
+                    "write:misc",
+                    "write:organization",
+                ],
             },
         )
 
@@ -92,14 +98,16 @@ def create_github_environment(repo, env_name):
             capture_output=True,
             check=False,
         )
-        
+
         if result.returncode != 0:
             # Create environment (minimal, free plan compatible)
             subprocess.run(
                 [
-                    "gh", "api",
+                    "gh",
+                    "api",
                     f"repos/{repo}/environments/{env_name}",
-                    "-X", "PUT",
+                    "-X",
+                    "PUT",
                 ],
                 check=True,
                 capture_output=True,
@@ -107,10 +115,12 @@ def create_github_environment(repo, env_name):
             console.print(f"  [green]✓[/green] Created environment: {env_name}")
         else:
             console.print(f"  [dim]Environment '{env_name}' already exists[/dim]")
-        
+
         return True
     except subprocess.CalledProcessError as e:
-        console.print(f"  [red]✗[/red] Failed to create environment: {e.stderr.decode()}")
+        console.print(
+            f"  [red]✗[/red] Failed to create environment: {e.stderr.decode()}"
+        )
         return False
 
 
@@ -239,22 +249,22 @@ def sync(skip_forgejo, skip_github):
             # Environment-specific secrets (production & staging)
             for env_name in ["production", "staging"]:
                 console.print(f"\n[dim]Configuring {env_name} environment...[/dim]")
-                
+
                 # Create environment
                 if not create_github_environment(repo, env_name):
                     console.print(f"[yellow]⚠️  Skipping {env_name} secrets[/yellow]")
                     continue
-                
-                # Environment secrets
+
+                # Environment secrets - use actual .env values
                 env_secrets = {
                     "POSTGRES_HOST": env.get("CORE_INTERNAL_IP", ""),
-                    "POSTGRES_USER": env.get("POSTGRES_USER", "cheapa_user"),
-                    "POSTGRES_PASSWORD": env.get("POSTGRES_PASSWORD", ""),
-                    "POSTGRES_DB": env.get("POSTGRES_DB", "cheapa_db"),
+                    "POSTGRES_USER": env.get("POSTGRES_USER"),
+                    "POSTGRES_PASSWORD": env.get("POSTGRES_PASSWORD"),
+                    "POSTGRES_DB": env.get("POSTGRES_DB"),
                     "POSTGRES_PORT": "5432",
                     "RABBITMQ_HOST": env.get("CORE_INTERNAL_IP", ""),
-                    "RABBITMQ_USER": env.get("RABBITMQ_USER", "cheapa_user"),
-                    "RABBITMQ_PASSWORD": env.get("RABBITMQ_PASSWORD", ""),
+                    "RABBITMQ_USER": env.get("RABBITMQ_USER"),
+                    "RABBITMQ_PASSWORD": env.get("RABBITMQ_PASSWORD"),
                     "RABBITMQ_PORT": "5672",
                     "REDIS_HOST": env.get("CORE_INTERNAL_IP", ""),
                     "REDIS_PASSWORD": env.get("REDIS_PASSWORD", ""),
@@ -264,7 +274,7 @@ def sync(skip_forgejo, skip_github):
                     "PUBLIC_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}",
                     "SENTRY_DSN": env.get("SENTRY_DSN", ""),
                 }
-                
+
                 set_github_env_secrets(repo, env_name, env_secrets)
 
             progress.advance(task3)
