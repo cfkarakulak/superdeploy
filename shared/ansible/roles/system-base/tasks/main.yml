@@ -37,6 +37,7 @@
       - vim
       - ufw
       - chrony
+      - rsync
       - python3-pip
       - mailutils
       - postfix
