@@ -307,7 +307,7 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,ap
         ) as progress:
             task3 = progress.add_task("[cyan]Pushing code...", total=2)
 
-            # GitHub
+            # GitHub - Push superdeploy repo as backup
             github_token = env.get("GITHUB_TOKEN")
             if github_token and github_token != "your-github-token":
                 try:
@@ -322,26 +322,14 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,ap
                     cwd=project_root,
                 )
                 run_command("git push -u github master", cwd=project_root)
-                console.print("[green]✅ Pushed to GitHub![/green]")
+                console.print("[green]✅ Superdeploy backed up to GitHub![/green]")
 
             progress.advance(task3)
 
-            # Forgejo
-            import urllib.parse
-
-            encoded_pass = urllib.parse.quote(env.get("FORGEJO_ADMIN_PASSWORD", ""))
-            forgejo_url = f"http://{env.get('FORGEJO_ADMIN_USER', 'admin')}:{encoded_pass}@{env['CORE_EXTERNAL_IP']}:3001/{env.get('FORGEJO_ORG', 'cradexco')}/{env.get('REPO_SUPERDEPLOY', 'superdeploy-app')}.git"
-
-            try:
-                subprocess.run(
-                    ["git", "remote", "remove", "forgejo"], capture_output=True
-                )
-            except:
-                pass
-
-            run_command(f"git remote add forgejo {forgejo_url}", cwd=project_root)
-            run_command("git push -u forgejo master", cwd=project_root)
-            console.print("[green]✅ Code pushed to Forgejo![/green]")
+            # Clone superdeploy to Forgejo runner (for deployment workflows)
+            # Note: We don't push here - Ansible already cloned it to /opt/superdeploy
+            # The runner will pull latest changes on each workflow run
+            console.print("[dim]Forgejo runner has superdeploy code at /opt/superdeploy[/dim]")
 
             progress.advance(task3)
 
@@ -362,7 +350,7 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,ap
         from click.testing import CliRunner
 
         runner = CliRunner()
-        result = runner.invoke(sync_command, ["--skip-forgejo"], obj={})
+        result = runner.invoke(sync_command, ["-p", project, "--skip-forgejo"], obj={})
 
         if result.exit_code == 0:
             console.print("[green]✅ GitHub secrets synced![/green]")
