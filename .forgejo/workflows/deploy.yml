@@ -1,4 +1,4 @@
-name: ${{ github.event.inputs.title || 'Deploy Multi-Service' }}
+name: ${{ inputs.title || 'Deploy Multi-Service' }}
 
 on:
   workflow_dispatch:
