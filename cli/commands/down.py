@@ -13,7 +13,11 @@ console = Console()
 @click.command()
 @click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-@click.option("--keep-infra", is_flag=True, help="Keep shared infrastructure (only stop project services)")
+@click.option(
+    "--keep-infra",
+    is_flag=True,
+    help="Keep shared infrastructure (only stop project services)",
+)
 def down(project, yes, keep_infra):
     """
     Stop and destroy project resources (like 'heroku apps:destroy')

@@ -118,20 +118,16 @@
 - name: Success message
   debug:
     msg: |
-      ✅ Infrastructure deployed successfully!
+      ✅ Shared infrastructure deployed successfully!
       
-      SHARED SERVICES:
-        - PostgreSQL (superdeploy-postgres)
-        - RabbitMQ (superdeploy-rabbitmq)
-        - Redis (superdeploy-redis)
+      MONITORING & PROXY (Shared):
         - Prometheus (superdeploy-prometheus) → http://{{ core_external_ip }}:9090
         - Grafana (superdeploy-grafana) → http://{{ core_external_ip }}:3000
-        - Caddy (superdeploy-caddy)
+        - Alertmanager (superdeploy-alertmanager) → http://{{ core_external_ip }}:9093
+        - Caddy (superdeploy-caddy) → http://{{ core_external_ip }}
       
-      PROJECT: CHEAPA
-        - Database: cheapa_db (initialized)
-        - Vhost: cheapa (initialized)
-        - Prometheus targets: provisioned
-        - Caddy routes: provisioned
+      PROJECT-SPECIFIC SERVICES:
+        - Each project has its own: PostgreSQL, RabbitMQ, Redis, Forgejo
+        - Deployed via project-specific docker-compose files
       
-      Next: Push to GitHub → Forgejo will deploy app services
+      Next: Deploy Forgejo → Push to GitHub → App deployment

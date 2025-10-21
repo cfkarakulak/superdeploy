@@ -11,7 +11,6 @@ from cli.utils import (
     run_command,
     get_project_root,
     validate_env_vars,
-    validate_project,
 )
 
 console = Console()
@@ -194,8 +193,8 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
     """
     console.print(
         Panel.fit(
-            f"[bold cyan]🚀 SuperDeploy Infrastructure Deployment[/bold cyan]\n\n"
-            f"[white]Deploying shared infrastructure (Terraform + Ansible)...[/white]",
+            "[bold cyan]🚀 SuperDeploy Infrastructure Deployment[/bold cyan]\n\n"
+            "[white]Deploying shared infrastructure (Terraform + Ansible)...[/white]",
             border_style="cyan",
         )
     )
