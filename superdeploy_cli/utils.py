@@ -73,9 +73,12 @@ def run_command(
 def ssh_command(host: str, user: str, key_path: str, cmd: str) -> str:
     """Run SSH command on remote host"""
     import os
+
     # Expand ~ to actual home directory
     expanded_key_path = os.path.expanduser(key_path)
-    ssh_cmd = f"ssh -i {expanded_key_path} -o StrictHostKeyChecking=no {user}@{host} '{cmd}'"
+    ssh_cmd = (
+        f"ssh -i {expanded_key_path} -o StrictHostKeyChecking=no {user}@{host} '{cmd}'"
+    )
     result = run_command(ssh_cmd, capture_output=True)
     return result.stdout.strip()
 

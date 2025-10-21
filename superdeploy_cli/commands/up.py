@@ -46,12 +46,14 @@ def update_ips_in_env(project_root, env_file_path):
     """Extract VM IPs from Terraform and update .env"""
     console.print("[cyan]📍 Extracting VM IPs...[/cyan]")
 
+    terraform_dir = project_root / "terraform"
+
     # Get IPs from Terraform
     try:
         core_ext = subprocess.run(
             "terraform output -json vm_core_public_ips | jq -r '.[0]'",
             shell=True,
-            cwd=project_root,
+            cwd=terraform_dir,
             capture_output=True,
             text=True,
             check=True,
@@ -60,7 +62,7 @@ def update_ips_in_env(project_root, env_file_path):
         core_int = subprocess.run(
             "terraform output -json vm_core_internal_ips | jq -r '.[0]'",
             shell=True,
-            cwd=project_root,
+            cwd=terraform_dir,
             capture_output=True,
             text=True,
             check=True,
@@ -69,7 +71,7 @@ def update_ips_in_env(project_root, env_file_path):
         scrape_ext = subprocess.run(
             "terraform output -json vm_scrape_public_ips | jq -r '.[0]'",
             shell=True,
-            cwd=project_root,
+            cwd=terraform_dir,
             capture_output=True,
             text=True,
             check=True,
@@ -78,7 +80,7 @@ def update_ips_in_env(project_root, env_file_path):
         scrape_int = subprocess.run(
             "terraform output -json vm_scrape_internal_ips | jq -r '.[0]'",
             shell=True,
-            cwd=project_root,
+            cwd=terraform_dir,
             capture_output=True,
             text=True,
             check=True,
@@ -87,7 +89,7 @@ def update_ips_in_env(project_root, env_file_path):
         proxy_ext = subprocess.run(
             "terraform output -json vm_proxy_public_ips | jq -r '.[0]'",
             shell=True,
-            cwd=project_root,
+            cwd=terraform_dir,
             capture_output=True,
             text=True,
             check=True,
@@ -96,7 +98,7 @@ def update_ips_in_env(project_root, env_file_path):
         proxy_int = subprocess.run(
             "terraform output -json vm_proxy_internal_ips | jq -r '.[0]'",
             shell=True,
-            cwd=project_root,
+            cwd=terraform_dir,
             capture_output=True,
             text=True,
             check=True,
@@ -218,11 +220,12 @@ def up(skip_terraform, skip_ansible, skip_git_push):
             task1 = progress.add_task("[cyan]Provisioning VMs (Terraform)...", total=3)
 
             # Init
-            run_command("./terraform-wrapper.sh init", cwd=project_root)
+            terraform_dir = project_root / "terraform"
+            run_command("./terraform-wrapper.sh init", cwd=terraform_dir)
             progress.advance(task1)
 
             # Apply
-            run_command("./terraform-wrapper.sh apply -auto-approve", cwd=project_root)
+            run_command("./terraform-wrapper.sh apply -auto-approve", cwd=terraform_dir)
             progress.advance(task1)
 
             # Update IPs

@@ -18,7 +18,7 @@ console = Console()
 def deploy(app, environment, tag, migrate):
     """
     Trigger deployment via Forgejo workflow
-    
+
     \b
     Examples:
       superdeploy deploy -a api                    # Deploy API (latest)
@@ -27,12 +27,12 @@ def deploy(app, environment, tag, migrate):
       superdeploy deploy -a api --migrate          # Deploy + migrate
     """
     env = load_env()
-    
+
     # Validate required vars
     required = ["CORE_EXTERNAL_IP", "FORGEJO_PAT", "FORGEJO_ORG", "REPO_SUPERDEPLOY"]
     if not validate_env_vars(env, required):
         raise SystemExit(1)
-    
+
     console.print(
         Panel.fit(
             f"[bold cyan]🚀 Triggering Deployment[/bold cyan]\n\n"
@@ -42,13 +42,13 @@ def deploy(app, environment, tag, migrate):
             border_style="cyan",
         )
     )
-    
+
     # Determine services
     if app == "all" or not app:
         services = "api,dashboard,services"
     else:
         services = app
-    
+
     # Build image tags JSON
     if tag:
         # Specific tag
@@ -61,11 +61,11 @@ def deploy(app, environment, tag, migrate):
     else:
         # Latest
         image_tags = {svc: "latest" for svc in services.split(",")}
-    
+
     # Forgejo API call
     forgejo_url = f"http://{env['CORE_EXTERNAL_IP']}:3001"
     workflow_url = f"{forgejo_url}/api/v1/repos/{env['FORGEJO_ORG']}/{env['REPO_SUPERDEPLOY']}/actions/workflows/deploy.yml/dispatches"
-    
+
     payload = {
         "ref": "master",
         "inputs": {
@@ -75,17 +75,19 @@ def deploy(app, environment, tag, migrate):
             "migrate": "true" if migrate else "false",
         },
     }
-    
+
     headers = {
         "Authorization": f"token {env['FORGEJO_PAT']}",
         "Content-Type": "application/json",
     }
-    
+
     try:
         console.print("[cyan]📡 Calling Forgejo API...[/cyan]")
-        
-        response = requests.post(workflow_url, json=payload, headers=headers, timeout=10)
-        
+
+        response = requests.post(
+            workflow_url, json=payload, headers=headers, timeout=10
+        )
+
         if response.status_code == 204:
             console.print("[green]✅ Deployment triggered successfully![/green]")
             console.print(
@@ -95,7 +97,7 @@ def deploy(app, environment, tag, migrate):
             console.print(f"[red]❌ API call failed: {response.status_code}[/red]")
             console.print(f"[dim]{response.text}[/dim]")
             raise SystemExit(1)
-    
+
     except requests.exceptions.RequestException as e:
         console.print(f"[red]❌ Request failed: {e}[/red]")
         raise SystemExit(1)

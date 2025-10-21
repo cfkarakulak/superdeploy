@@ -1,4 +1,5 @@
 import os
+
 """SuperDeploy CLI - Logs command"""
 
 import click
@@ -17,7 +18,7 @@ console = Console()
 def logs(app, follow, lines, environment):
     """
     View application logs
-    
+
     \b
     Examples:
       superdeploy logs -a api              # Last 100 lines
@@ -25,30 +26,32 @@ def logs(app, follow, lines, environment):
       superdeploy logs -a api -n 500       # Last 500 lines
     """
     env = load_env()
-    
+
     # Validate required vars
     required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH", "SSH_USER"]
     if not validate_env_vars(env, required):
         raise SystemExit(1)
-    
+
     console.print(f"[cyan]📋 Fetching logs for [bold]{app}[/bold]...[/cyan]")
-    
+
     # SSH command to get docker logs
     ssh_key = os.path.expanduser(env["SSH_KEY_PATH"])
     ssh_user = env.get("SSH_USER", "superdeploy")
     ssh_host = env["CORE_EXTERNAL_IP"]
-    
+
     follow_flag = "-f" if follow else ""
     docker_cmd = f"docker logs {follow_flag} --tail {lines} superdeploy-{app}-1 2>&1"
-    
+
     ssh_cmd = [
         "ssh",
-        "-i", ssh_key,
-        "-o", "StrictHostKeyChecking=no",
+        "-i",
+        ssh_key,
+        "-o",
+        "StrictHostKeyChecking=no",
         f"{ssh_user}@{ssh_host}",
-        docker_cmd
+        docker_cmd,
     ]
-    
+
     try:
         # Stream logs to terminal
         process = subprocess.Popen(
@@ -56,17 +59,17 @@ def logs(app, follow, lines, environment):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1
+            bufsize=1,
         )
-        
+
         console.print(f"[green]✅ Streaming logs from {app}...[/green]")
         console.print("[dim]Press Ctrl+C to stop[/dim]\n")
-        
+
         for line in process.stdout:
             print(line, end="")
-        
+
         process.wait()
-        
+
     except KeyboardInterrupt:
         console.print("\n[yellow]⏹️  Stopped[/yellow]")
         process.terminate()

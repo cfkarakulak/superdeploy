@@ -5,12 +5,14 @@
 
 set -e
 
-# Load .env from current directory
-ENV_FILE=".env"
-
-if [ ! -f "$ENV_FILE" ]; then
-    echo "❌ ERROR: $ENV_FILE not found!"
-    echo "Run: make init"
+# Load .env from parent directory (project root)
+if [ -f "../.env" ]; then
+    ENV_FILE="../.env"
+elif [ -f ".env" ]; then
+    ENV_FILE=".env"
+else
+    echo "❌ ERROR: .env not found!"
+    echo "Expected: ../env or .env"
     exit 1
 fi
 
