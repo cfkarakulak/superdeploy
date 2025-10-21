@@ -277,7 +277,10 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,ap
   -e "forgejo_db_name=forgejo" \
   -e "forgejo_db_user=forgejo" \
   -e "forgejo_db_password={env.get("POSTGRES_PASSWORD", "")}" \
-  -e "postgres_password={env.get("POSTGRES_PASSWORD", "")}"
+  -e "postgres_password={env.get("POSTGRES_PASSWORD", "")}" \
+  -e "POSTGRES_PASSWORD={env.get("POSTGRES_PASSWORD", "")}" \
+  -e "RABBITMQ_PASSWORD={env.get("RABBITMQ_PASSWORD", "")}" \
+  -e "REDIS_PASSWORD={env.get("REDIS_PASSWORD", "")}"
 """
 
             run_command(ansible_cmd)
