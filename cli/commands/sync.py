@@ -282,15 +282,15 @@ def sync(project, skip_forgejo, skip_github, env_file):
             console.print(f"[dim]✓ Loaded: {env_path}[/dim]")
         else:
             console.print(f"[yellow]⚠️  Skipped (not found): {env_path}[/yellow]")
-    
+
     # Load project-specific secrets (OPTIONAL - if exists)
     secrets_file = project_path / "secrets.env"
     project_secrets = {}
-    
+
     if secrets_file.exists():
         project_secrets = dotenv_values(secrets_file)
         console.print(f"[dim]✓ Loaded project secrets: {secrets_file}[/dim]")
-    
+
     # Merge all: infra → project → additional
     env.update(project_secrets)
     env.update(additional_envs)

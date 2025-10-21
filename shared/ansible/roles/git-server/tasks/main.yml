@@ -241,7 +241,7 @@
       --instance http://localhost:3001 \
       --token "{{ runner_token }}" \
       --name "core-runner" \
-      --labels "self-hosted,core,linux,docker,cheapa" \
+      --labels "self-hosted,core,linux,docker" \
       --no-interactive
   become_user: superdeploy
   when: not runner_registered.stat.exists and runner_token is defined
