@@ -227,20 +227,31 @@ def sync_forgejo_secrets(env, forgejo_pat, project_env=None):
 @click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
 @click.option("--skip-forgejo", is_flag=True, help="Skip Forgejo PAT creation")
 @click.option("--skip-github", is_flag=True, help="Skip GitHub secrets sync")
-def sync(project, skip_forgejo, skip_github):
+@click.option(
+    "--env-file",
+    "-e",
+    multiple=True,
+    help="Additional .env files to load (e.g., ../my-api/.env)",
+)
+def sync(project, skip_forgejo, skip_github, env_file):
     """
     Sync ALL secrets to GitHub (magic!)
 
     This command will:
+    - Load secrets from superdeploy/.env (infrastructure)
+    - Load secrets from --env-file (app-specific, multiple allowed)
     - Fetch AGE public key from runner VM
     - Create Forgejo PAT (if needed)
     - Push ALL secrets to GitHub repos (using gh CLI)
 
     \b
+    Example:
+      superdeploy sync -p cheapa -e ../my-api/.env -e ../my-dashboard/.env
+
+    \b
     Requirements:
     - gh CLI installed and authenticated
     - SSH access to VMs
-    - GITHUB_TOKEN in .env
     """
     from cli.utils import validate_project, get_project_path
     from dotenv import dotenv_values
@@ -261,18 +272,28 @@ def sync(project, skip_forgejo, skip_github):
     # Load infrastructure .env
     env = load_env()
 
+    # Load additional env files (from CLI args)
+    additional_envs = {}
+    for env_path in env_file:
+        env_path = os.path.expanduser(env_path)
+        if os.path.exists(env_path):
+            file_envs = dotenv_values(env_path)
+            additional_envs.update(file_envs)
+            console.print(f"[dim]✓ Loaded: {env_path}[/dim]")
+        else:
+            console.print(f"[yellow]⚠️  Skipped (not found): {env_path}[/yellow]")
+    
     # Load project-specific secrets (OPTIONAL - if exists)
     secrets_file = project_path / "secrets.env"
     project_secrets = {}
-
+    
     if secrets_file.exists():
         project_secrets = dotenv_values(secrets_file)
-        console.print(f"[dim]Loaded project secrets from: {secrets_file}[/dim]")
-        env.update(project_secrets)
-    else:
-        console.print(
-            "[dim]No project secrets file (app secrets managed externally)[/dim]"
-        )
+        console.print(f"[dim]✓ Loaded project secrets: {secrets_file}[/dim]")
+    
+    # Merge all: infra → project → additional
+    env.update(project_secrets)
+    env.update(additional_envs)
 
     # Validate required vars
     required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH"]
