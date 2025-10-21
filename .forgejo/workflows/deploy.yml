@@ -1,4 +1,4 @@
-name: Deploy Multi-Service (Reusable)
+name: 🚀 [${{ github.event.inputs.project }}] Deploy
 
 on:
   workflow_dispatch:
@@ -151,6 +151,38 @@ jobs:
           EOF
           
           echo "✅ App .env files generated from Forgejo Secrets"
+          
+          # Create project-specific .env for docker-compose
+          PROJECT="${{ github.event.inputs.project }}"
+          cat > /opt/superdeploy/projects/${PROJECT}/compose/.env <<EOF
+          # Core Services Credentials
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+          
+          RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
+          RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }}
+          
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          
+          # Application Environment Variables
+          API_SECRET_KEY=${{ secrets.API_SECRET_KEY }}
+          API_DEBUG=${{ secrets.API_DEBUG }}
+          API_BASE_URL=${{ secrets.API_BASE_URL }}
+          PUBLIC_URL=${{ secrets.PUBLIC_URL }}
+          SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+          
+          # Docker Registry
+          DOCKER_REGISTRY=${DOCKER_REGISTRY:-docker.io}
+          DOCKER_ORG=${DOCKER_ORG}
+          
+          # Release Info
+          RELEASE_VERSION=${RELEASE_VERSION:-unknown}
+          GIT_SHA=${{ github.sha }}
+          DEPLOY_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          EOF
+          
+          echo "✅ Project .env created at /opt/superdeploy/projects/${PROJECT}/compose/.env"
 
       - name: 🐳 Prepare docker-compose.yml (project-aware)
         run: |
