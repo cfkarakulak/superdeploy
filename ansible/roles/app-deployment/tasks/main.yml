@@ -296,7 +296,7 @@
 # STEP 9: Verify deployment
 # =============================================================================
 - name: Verify core services are running
-  command: docker ps --filter "label=com.superdeploy.project=cheapa" --format "table {{.Names}}\t{{.Status}}"
+  shell: docker ps --filter "label=com.superdeploy.project=cheapa" --format "table {{ '{{' }}.Names{{ '}}' }}\t{{ '{{' }}.Status{{ '}}' }}"
   register: docker_ps_output
   become_user: superdeploy
 
