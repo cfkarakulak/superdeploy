@@ -263,7 +263,7 @@ def up(skip_terraform, skip_ansible, skip_git_push):
             ansible_dir = project_root / "ansible"
             ansible_cmd = f"""
 cd {ansible_dir} && \
-ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,git-server \
+ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,app-deployment,git-server \
   -e "core_external_ip={env["CORE_EXTERNAL_IP"]}" \
   -e "core_internal_ip={env["CORE_INTERNAL_IP"]}" \
   -e "scrape_external_ip={env.get("SCRAPE_EXTERNAL_IP", "")}" \
