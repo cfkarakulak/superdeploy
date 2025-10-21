@@ -6,12 +6,7 @@
 # ═══════════════════════════════════════════════════════════════════════════
 
 networks:
-  # Shared infrastructure network (for Caddy/Prometheus/Grafana access)
-  infrastructure:
-    external: true
-    name: superdeploy-infrastructure
-  
-  # Project-specific isolated network
+  # Project-specific isolated network (FULLY ISOLATED)
   cheapa-network:
     name: cheapa-network
     driver: bridge
@@ -149,9 +144,10 @@ services:
     # See: .forgejo/workflows/deploy.yml
     volumes:
       - api-data:/app/data
+    ports:
+      - "8000:8000"  # Exposed for Caddy reverse proxy
     networks:
-      - infrastructure  # For Caddy/Prometheus access
-      - cheapa-network  # For DB/Queue/Cache access
+      - cheapa-network
     depends_on:
       postgres:
         condition: service_healthy
@@ -194,9 +190,10 @@ services:
     restart: unless-stopped
     # Environment variables injected via Forgejo workflow (from GitHub Secrets)
     # See: .forgejo/workflows/deploy.yml
+    ports:
+      - "3000:3000"  # Exposed for Caddy reverse proxy
     networks:
-      - infrastructure  # For Caddy/Prometheus access
-      - cheapa-network  # For API access
+      - cheapa-network
     depends_on:
       api:
         condition: service_healthy
@@ -236,8 +233,7 @@ services:
     # Environment variables injected via Forgejo workflow (from GitHub Secrets)
     # See: .forgejo/workflows/deploy.yml
     networks:
-      - infrastructure  # For monitoring
-      - cheapa-network  # For DB/Queue/Cache access
+      - cheapa-network
     depends_on:
       postgres:
         condition: service_healthy
