@@ -385,7 +385,7 @@ superdeploy sync --skip-forgejo
 superdeploy rollback -a api v42
 
 # Logs kontrol et
-superdeploy logs -a api --tail 100
+superdeploy logs -p cheapa -a api --tail 100
 ```
 
 ### **"Migration failed"**

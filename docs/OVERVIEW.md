@@ -194,7 +194,7 @@ cp ENV.example .env
 # (Şifreleri doldur)
 
 # 2. Tek komutla tüm infrastructure'ı ayağa kaldır
-superdeploy up
+superdeploy up -p cheapa
 
 # 3. GitHub'a push yap
 cd ../app-repos/api
@@ -211,10 +211,10 @@ Detaylar için: `SETUP.md` ve `DEPLOYMENT.md`
 
 ```bash
 # Tüm servislerin durumunu gör
-superdeploy status
+superdeploy status -p cheapa
 
 # Hangi image'ların deploy olduğunu gör
-superdeploy releases -a api
+superdeploy releases -p cheapa -a api
 
 # Bir önceki versiona geri dön
 superdeploy rollback -a api v42
@@ -223,7 +223,7 @@ superdeploy rollback -a api v42
 superdeploy env show
 
 # Logs
-superdeploy logs -a api --tail 100
+superdeploy logs -p cheapa -a api --tail 100
 ```
 
 ---

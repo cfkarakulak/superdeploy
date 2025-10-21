@@ -8,7 +8,7 @@ Bu döküman, sistemi kurduktan sonra **günlük kullanımda** ihtiyaç duyacağ
 
 ```bash
 # Sistem durumu
-superdeploy status
+superdeploy status -p cheapa
 
 # Yeni deployment
 git push origin production
@@ -17,14 +17,14 @@ git push origin production
 superdeploy rollback -a api v42
 
 # Logs
-superdeploy logs -a api --tail 100
+superdeploy logs -p cheapa -a api --tail 100
 
 # Secrets yönetimi
 superdeploy env show
-superdeploy sync
+superdeploy sync -p cheapa
 
 # Infrastructure
-superdeploy destroy
+superdeploy destroy -p cheapa
 ```
 
 ---
@@ -34,7 +34,7 @@ superdeploy destroy
 ### **Tüm Servislerin Durumu**
 
 ```bash
-superdeploy status
+superdeploy status -p cheapa
 ```
 
 **Çıktı:**
@@ -130,7 +130,7 @@ git push origin main
 
 ```bash
 # 1. Hangi versiyonlar var?
-superdeploy releases -a api
+superdeploy releases -p cheapa -a api
 
 # Çıktı:
 # v45  2025-10-21 17:30  abc123  CURRENT
@@ -156,26 +156,26 @@ superdeploy rollback -a api v43
 
 ```bash
 # Son 100 satır
-superdeploy logs -a api --tail 100
+superdeploy logs -p cheapa -a api --tail 100
 
 # Real-time takip (Ctrl+C ile çık)
-superdeploy logs -a api --follow
+superdeploy logs -p cheapa -a api --follow
 
 # Belirli bir zaman aralığı
-superdeploy logs -a api --since "30m"
+superdeploy logs -p cheapa -a api --since "30m"
 
 # Error logları filtrele
-superdeploy logs -a api --tail 500 | grep ERROR
+superdeploy logs -p cheapa -a api --tail 500 | grep ERROR
 ```
 
 ### **Database Logs**
 
 ```bash
 # PostgreSQL logs
-superdeploy logs -s postgres --tail 100
+superdeploy logs -p cheapa -s postgres --tail 100
 
 # RabbitMQ logs
-superdeploy logs -s rabbitmq --tail 100
+superdeploy logs -p cheapa -s rabbitmq --tail 100
 ```
 
 ### **VM'ye SSH ile Bağlanma**
@@ -225,10 +225,10 @@ superdeploy env show --no-mask
 nano superdeploy/.env
 
 # 2. Yeni değerleri GitHub'a sync et
-superdeploy sync
+superdeploy sync -p cheapa
 
 # 3. Servisleri restart et (yeni env'ler yüklensin)
-superdeploy restart -a api
+superdeploy restart -p cheapa -a api
 ```
 
 ### **Yeni Bir Secret Ekleme**
@@ -238,14 +238,14 @@ superdeploy restart -a api
 echo "NEW_API_KEY=abc123xyz" >> superdeploy/.env
 
 # 2. Sync et
-superdeploy sync
+superdeploy sync -p cheapa
 
 # 3. docker-compose.apps.yml'e ekle (eğer container'da kullanılacaksa)
 # environment:
 #   NEW_API_KEY: ${NEW_API_KEY}
 
 # 4. Redeploy (git push veya manuel)
-superdeploy restart -a api
+superdeploy restart -p cheapa -a api
 ```
 
 ---
@@ -294,10 +294,10 @@ cat backup_20251021.sql | docker exec -i cheapa-postgres psql -U superdeploy sup
 
 ```bash
 # Tek bir service
-superdeploy restart -a api
+superdeploy restart -p cheapa -a api
 
 # Tüm app services
-superdeploy restart --all
+superdeploy restart -p cheapa --all
 
 # Core services (PostgreSQL, RabbitMQ, vb.)
 ssh superdeploy@34.42.105.169
@@ -333,13 +333,13 @@ docker volume prune -f
 
 ```bash
 # 1. superdeploy up komutu otomatik günceller
-superdeploy up
+superdeploy up -p cheapa
 
 # Veya sadece sync:
-superdeploy sync
+superdeploy sync -p cheapa
 
 # 2. Yeni IP'yi kontrol et
-superdeploy status
+superdeploy status -p cheapa
 
 # 3. GitHub secrets güncellenmiş mi kontrol et
 gh secret list --repo cheapaio/api | grep FORGEJO_BASE_URL
@@ -491,7 +491,7 @@ curl https://yourdomain.com/health
 ### **Tüm Infrastructure'ı Sil**
 
 ```bash
-superdeploy destroy
+superdeploy destroy -p cheapa
 # Confirm? (y/n): y
 
 # Bu komut:

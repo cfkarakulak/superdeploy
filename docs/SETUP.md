@@ -202,8 +202,10 @@ superdeploy --version
 **Tek komutla tüm sistem ayağa kalkacak!**
 
 ```bash
-superdeploy up
+superdeploy up -p cheapa
 ```
+
+**Not:** Her komut artık `--project` (veya `-p`) parametresi gerektiriyor.
 
 ### **Bu Komut Ne Yapar?**
 
@@ -288,7 +290,7 @@ Artık sistemi kullanmaya hazırsın. Günlük kullanım için `OPERATIONS.md` d
 gcloud compute instances list
 
 # Servislerin durumunu kontrol et
-superdeploy status
+superdeploy status -p cheapa
 
 # Forgejo'ya web browser'dan bağlan
 # http://[CORE_EXTERNAL_IP]:3001
