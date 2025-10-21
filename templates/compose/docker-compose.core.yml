@@ -27,7 +27,7 @@ services:
   # PostgreSQL (Project-Specific)
   # ═══════════════════════════════════════════════════════════════════════════
   postgres:
-    image: postgres:{{POSTGRES_VERSION|default("15-alpine")}}
+    image: postgres:{{POSTGRES_VERSION|default('15-alpine')}}
     container_name: {{PROJECT}}-postgres
     restart: unless-stopped
     environment:
@@ -65,7 +65,7 @@ services:
   # RabbitMQ (Project-Specific)
   # ═══════════════════════════════════════════════════════════════════════════
   rabbitmq:
-    image: rabbitmq:{{RABBITMQ_VERSION|default("3.12-management-alpine")}}
+    image: rabbitmq:{{RABBITMQ_VERSION|default('3.12-management-alpine')}}
     container_name: {{PROJECT}}-rabbitmq
     restart: unless-stopped
     environment:
@@ -102,7 +102,7 @@ services:
   # Redis (Project-Specific)
   # ═══════════════════════════════════════════════════════════════════════════
   redis:
-    image: redis:{{REDIS_VERSION|default("7-alpine")}}
+    image: redis:{{REDIS_VERSION|default('7-alpine')}}
     container_name: {{PROJECT}}-redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD:?required}

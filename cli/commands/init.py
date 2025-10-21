@@ -54,16 +54,7 @@ def render_template(template_path, context):
     with open(template_path) as f:
         template = Template(f.read())
     
-    # Handle conditional sections (simple implementation)
-    content = template.render(**context)
-    
-    # Process service-specific sections
-    if "SERVICES" in context:
-        for service in context["SERVICES"]:
-            service["IS_API"] = service["SERVICE"] == "api"
-            service["IS_DASHBOARD"] = service["SERVICE"] == "dashboard"
-            service["IS_SERVICES"] = service["SERVICE"] == "services"
-    
+    # Render template with context
     return template.render(**context)
 
 
@@ -193,7 +184,7 @@ def init(project, yes, subnet, services, no_interactive):
         "CREATED_AT": datetime.now().isoformat(),
         "UPDATED_AT": datetime.now().isoformat(),
         "SUBNET": project_subnet,
-        "SERVICES": [{"SERVICE": s} for s in selected_services],
+        "SERVICES_LIST": selected_services,  # For Jinja2 templates
         "POSTGRES_VERSION": "15-alpine",
         "RABBITMQ_VERSION": "3.12-management-alpine",
         "REDIS_VERSION": "7-alpine",

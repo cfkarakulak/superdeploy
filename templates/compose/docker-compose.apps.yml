@@ -12,24 +12,21 @@ networks:
     name: {{PROJECT}}-network
 
 volumes:
-{{#SERVICES}}
-{{#IS_API}}
+{% if 'api' in SERVICES_LIST %}
   api-data:
     name: {{PROJECT}}-api-data
-{{/IS_API}}
-{{#IS_DASHBOARD}}
+{% endif %}
+{% if 'dashboard' in SERVICES_LIST %}
   dashboard-data:
     name: {{PROJECT}}-dashboard-data
-{{/IS_DASHBOARD}}
-{{#IS_SERVICES}}
+{% endif %}
+{% if 'services' in SERVICES_LIST %}
   services-data:
     name: {{PROJECT}}-services-data
-{{/IS_SERVICES}}
-{{/SERVICES}}
+{% endif %}
 
 services:
-{{#SERVICES}}
-{{#IS_API}}
+{% if 'api' in SERVICES_LIST %}
   # ═══════════════════════════════════════════════════════════════════════════
   # API Service
   # ═══════════════════════════════════════════════════════════════════════════
@@ -41,7 +38,7 @@ services:
     volumes:
       - api-data:/app/data
     ports:
-      - "{{API_PORT|default("8000")}}:8000"
+      - "{{API_PORT|default(8000)}}:8000"
     networks:
       - {{PROJECT}}-network
     healthcheck:
@@ -69,9 +66,9 @@ services:
       - "com.superdeploy.release=${RELEASE_VERSION:-unknown}"
       - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
       - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
-{{/IS_API}}
+{% endif %}
 
-{{#IS_DASHBOARD}}
+{% if 'dashboard' in SERVICES_LIST %}
   # ═══════════════════════════════════════════════════════════════════════════
   # Dashboard Service
   # ═══════════════════════════════════════════════════════════════════════════
@@ -81,7 +78,7 @@ services:
     restart: unless-stopped
     # Environment variables injected via Forgejo workflow (from GitHub Secrets)
     ports:
-      - "{{DASHBOARD_PORT|default("3000")}}:3000"
+      - "{{DASHBOARD_PORT|default(3000)}}:3000"
     networks:
       - {{PROJECT}}-network
     depends_on:
@@ -112,9 +109,9 @@ services:
       - "com.superdeploy.release=${RELEASE_VERSION:-unknown}"
       - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
       - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
-{{/IS_DASHBOARD}}
+{% endif %}
 
-{{#IS_SERVICES}}
+{% if 'services' in SERVICES_LIST %}
   # ═══════════════════════════════════════════════════════════════════════════
   # Background Services (Celery Workers)
   # ═══════════════════════════════════════════════════════════════════════════
@@ -152,5 +149,4 @@ services:
       - "com.superdeploy.release=${RELEASE_VERSION:-unknown}"
       - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
       - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
-{{/IS_SERVICES}}
-{{/SERVICES}}
+{% endif %}

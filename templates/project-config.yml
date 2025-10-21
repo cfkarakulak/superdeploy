@@ -13,31 +13,31 @@ network:
 
 # Services to deploy
 services:
-{{#SERVICES}}
-  - {{SERVICE}}
-{{/SERVICES}}
+{% for service in SERVICES_LIST %}
+  - {{service}}
+{% endfor %}
 
 # Core Services Configuration
 core_services:
   postgres:
-    version: "{{POSTGRES_VERSION|default("15-alpine")}}"
+    version: "{{POSTGRES_VERSION|default('15-alpine')}}"
     user: "{{PROJECT}}_user"
     database: "{{PROJECT}}_db"
   rabbitmq:
-    version: "{{RABBITMQ_VERSION|default("3.12-management-alpine")}}"
+    version: "{{RABBITMQ_VERSION|default('3.12-management-alpine')}}"
     user: "{{PROJECT}}_user"
   redis:
-    version: "{{REDIS_VERSION|default("7-alpine")}}"
+    version: "{{REDIS_VERSION|default('7-alpine')}}"
 
 # Port Assignments
 ports:
-  api: {{API_PORT|default("8000")}}
-  dashboard: {{DASHBOARD_PORT|default("3000")}}
+  api: {{API_PORT|default(8000)}}
+  dashboard: {{DASHBOARD_PORT|default(3000)}}
   
 # Monitoring
 monitoring:
-  enabled: {{MONITORING_ENABLED|default("true")}}
-  prometheus_target: {{PROMETHEUS_TARGET|default("true")}}
+  enabled: {{MONITORING_ENABLED|default(true)}}
+  prometheus_target: {{PROMETHEUS_TARGET|default(true)}}
 
 # Domain Configuration (optional)
 domain: {{DOMAIN}}
