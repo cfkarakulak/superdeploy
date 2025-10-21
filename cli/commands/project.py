@@ -1,6 +1,7 @@
 """
 Project deployment commands
 """
+
 import subprocess
 from pathlib import Path
 from rich.console import Console
@@ -55,16 +56,16 @@ def deploy(project, services):
     ansible_playbook = ansible_dir / "playbooks" / "project_deploy.yml"
 
     if not ansible_playbook.exists():
-        console.print(f"[yellow]Creating project deployment playbook...[/yellow]")
+        console.print("[yellow]Creating project deployment playbook...[/yellow]")
         _create_project_deploy_playbook(ansible_dir)
 
     ansible_cmd = f"""
 cd {ansible_dir} && \\
 ansible-playbook -i inventories/dev.ini playbooks/project_deploy.yml \\
   -e "project_name={project}" \\
-  -e "project_postgres_password={project_secrets.get('POSTGRES_PASSWORD', '')}" \\
-  -e "project_rabbitmq_password={project_secrets.get('RABBITMQ_PASSWORD', '')}" \\
-  -e "project_redis_password={project_secrets.get('REDIS_PASSWORD', '')}"
+  -e "project_postgres_password={project_secrets.get("POSTGRES_PASSWORD", "")}" \\
+  -e "project_rabbitmq_password={project_secrets.get("RABBITMQ_PASSWORD", "")}" \\
+  -e "project_redis_password={project_secrets.get("REDIS_PASSWORD", "")}"
 """
 
     try:
@@ -167,4 +168,3 @@ def _create_project_deploy_playbook(ansible_dir):
 
     playbook_path.write_text(playbook_content)
     console.print(f"[green]✅ Created {playbook_path}[/green]")
-

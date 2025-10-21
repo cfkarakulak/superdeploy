@@ -47,15 +47,15 @@
     content: |
       # Shared Infrastructure Environment
       # These are Forgejo/Git server credentials
-      POSTGRES_USER={{ forgejo_db_user | default('forgejo') }}
+      POSTGRES_USER={{ forgejo_db_user }}
       POSTGRES_PASSWORD={{ forgejo_db_password }}
-      RABBITMQ_USER={{ RABBITMQ_USER | default('admin') }}
-      RABBITMQ_PASSWORD={{ RABBITMQ_PASSWORD | default('changeme') }}
-      REDIS_PASSWORD={{ REDIS_PASSWORD | default('changeme') }}
-      GRAFANA_ADMIN_USER={{ GRAFANA_ADMIN_USER | default('admin') }}
+      RABBITMQ_USER={{ RABBITMQ_USER }}
+      RABBITMQ_PASSWORD={{ RABBITMQ_PASSWORD }}
+      REDIS_PASSWORD={{ REDIS_PASSWORD }}
+      GRAFANA_ADMIN_USER={{ GRAFANA_ADMIN_USER }}
       GRAFANA_ADMIN_PASSWORD={{ GRAFANA_ADMIN_PASSWORD }}
       CORE_EXTERNAL_IP={{ core_external_ip }}
-      DOCKER_REGISTRY={{ DOCKER_REGISTRY | default('docker.io') }}
+      DOCKER_REGISTRY={{ DOCKER_REGISTRY }}
       DOCKER_ORG={{ DOCKER_ORG }}
     dest: /opt/superdeploy/shared/.env
     owner: superdeploy
