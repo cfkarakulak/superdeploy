@@ -1,0 +1,27 @@
+Metadata-Version: 2.4
+Name: superdeploy
+Version: 1.0.0
+Summary: Heroku-like PaaS for self-hosted infrastructure
+Author: SuperDeploy Team
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.9
+Requires-Dist: click>=8.1.0
+Requires-Dist: rich>=13.0.0
+Requires-Dist: inquirer>=3.1.0
+Requires-Dist: python-dotenv>=1.0.0
+Requires-Dist: pyyaml>=6.0.0
+Requires-Dist: requests>=2.31.0
+Requires-Dist: ansible-runner>=2.3.0
+Requires-Dist: python-terraform>=0.10.1
+Requires-Dist: jinja2>=3.1.0
+Requires-Dist: paramiko>=3.0.0
+Dynamic: author
+Dynamic: classifier
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary

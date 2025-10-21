@@ -1,0 +1,2 @@
+[console_scripts]
+superdeploy = superdeploy_cli.main:cli
