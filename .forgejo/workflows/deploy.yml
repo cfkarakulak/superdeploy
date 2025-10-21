@@ -356,6 +356,16 @@ jobs:
           
           echo "Deploying ${PROJECT}: ${SERVICE_ARRAY[@]}"
           
+          # Load ALL env files for docker-compose
+          set -a
+          [ -f env/postgres.env ] && source env/postgres.env
+          [ -f env/rabbitmq.env ] && source env/rabbitmq.env
+          [ -f env/redis.env ] && source env/redis.env
+          [ -f env/api.env ] && source env/api.env
+          [ -f env/dashboard.env ] && source env/dashboard.env
+          [ -f env/services.env ] && source env/services.env
+          set +a
+          
           # Deploy app services only (core services managed by Ansible/systemd)
           docker compose -f docker-compose.apps.yml up -d --no-deps "${SERVICE_ARRAY[@]}"
           
