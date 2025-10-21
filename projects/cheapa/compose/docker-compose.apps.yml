@@ -145,6 +145,31 @@ services:
     image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/api:${API_IMAGE_TAG:-latest}
     container_name: cheapa-api
     restart: unless-stopped
+    environment:
+      # Database
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:?required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: ${POSTGRES_DB:?required}
+      # RabbitMQ
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER: ${RABBITMQ_USER:?required}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?required}
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
+      # API Config
+      API_SECRET_KEY: ${API_SECRET_KEY:?required}
+      API_DEBUG: ${API_DEBUG:-false}
+      API_BASE_URL: ${API_BASE_URL:?required}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      # Proxy Registry
+      PROXY_REGISTRY_URL: ${PROXY_REGISTRY_URL:-http://proxy-registry:8001}
+      PROXY_REGISTRY_API_KEY: ${PROXY_REGISTRY_API_KEY:-}
     volumes:
       - api-data:/app/data
     networks:
@@ -190,6 +215,14 @@ services:
     image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/dashboard:${DASHBOARD_IMAGE_TAG:-latest}
     container_name: cheapa-dashboard
     restart: unless-stopped
+    environment:
+      PORT: 3000
+      API_URL: http://api:8000
+      API_BASE_URL: ${API_BASE_URL:?required}
+      PUBLIC_URL: ${PUBLIC_URL:?required}
+      PROXY_REGISTRY_URL: ${PROXY_REGISTRY_URL:-http://proxy-registry:8001}
+      NODE_ENV: ${NODE_ENV:-production}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
     networks:
       - infrastructure  # For Caddy/Prometheus access
       - cheapa-network  # For API access
@@ -229,6 +262,25 @@ services:
     image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/services:${SERVICES_IMAGE_TAG:-latest}
     container_name: cheapa-services
     restart: unless-stopped
+    environment:
+      # Database
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:?required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: ${POSTGRES_DB:?required}
+      # RabbitMQ
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER: ${RABBITMQ_USER:?required}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?required}
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
+      # Config
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      SENTRY_DSN: ${SENTRY_DSN:-}
     networks:
       - infrastructure  # For monitoring
       - cheapa-network  # For DB/Queue/Cache access
