@@ -1,19 +1,19 @@
 version: '3.8'
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CHEAPA PROJECT - APPLICATION SERVICES
+# CHEAPA PROJECT - FULLY ISOLATED SERVICES
 # ═══════════════════════════════════════════════════════════════════════════
-# Connects to shared infrastructure via 'infrastructure' network
-# Isolated within 'cheapa-network' for app-to-app communication
+# Each project has its OWN database, queue, and cache for full isolation.
+# App services connect to infrastructure network for monitoring/proxy access.
 # ═══════════════════════════════════════════════════════════════════════════
 
 networks:
-  # Shared infrastructure network (external)
+  # Shared infrastructure network (for Caddy/Prometheus/Grafana access)
   infrastructure:
     external: true
     name: superdeploy-infrastructure
   
-  # Project-specific network (isolated)
+  # Project-specific isolated network
   cheapa-network:
     name: cheapa-network
     driver: bridge
@@ -21,13 +21,131 @@ networks:
       driver: default
       config:
         - subnet: 10.10.0.0/24
-          gateway: 10.10.0.1
+          # No gateway specified - Docker assigns automatically
 
 volumes:
+  postgres-data:
+    name: cheapa-postgres-data
+  rabbitmq-data:
+    name: cheapa-rabbitmq-data
+  redis-data:
+    name: cheapa-redis-data
   api-data:
     name: cheapa-api-data
 
 services:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PostgreSQL (Project-Specific)
+  # ═══════════════════════════════════════════════════════════════════════════
+  postgres:
+    image: postgres:15-alpine
+    container_name: cheapa-postgres
+    restart: unless-stopped
+    env_file:
+      - ./env/postgres.env
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - cheapa-network  # ONLY internal network
+    # NO PORT PUBLISHING - internal only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.superdeploy.project=cheapa"
+      - "com.superdeploy.service=postgres"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # RabbitMQ (Project-Specific)
+  # ═══════════════════════════════════════════════════════════════════════════
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: cheapa-rabbitmq
+    restart: unless-stopped
+    env_file:
+      - ./env/rabbitmq.env
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - cheapa-network  # ONLY internal network
+    # NO PORT PUBLISHING - internal only
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.superdeploy.project=cheapa"
+      - "com.superdeploy.service=rabbitmq"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Redis (Project-Specific)
+  # ═══════════════════════════════════════════════════════════════════════════
+  redis:
+    image: redis:7-alpine
+    container_name: cheapa-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?required}
+    env_file:
+      - ./env/redis.env
+    volumes:
+      - redis-data:/data
+    networks:
+      - cheapa-network  # ONLY internal network
+    # NO PORT PUBLISHING - internal only
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --pass $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+    stop_grace_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.superdeploy.project=cheapa"
+      - "com.superdeploy.service=redis"
+
   # ═══════════════════════════════════════════════════════════════════════════
   # API Service
   # ═══════════════════════════════════════════════════════════════════════════
@@ -35,40 +153,26 @@ services:
     image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/api:${API_IMAGE_TAG:-latest}
     container_name: cheapa-api
     restart: unless-stopped
-    environment:
-      # Database (shared PostgreSQL)
-      POSTGRES_HOST: superdeploy-postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: cheapa_user
-      POSTGRES_PASSWORD: ${CHEAPA_POSTGRES_PASSWORD:?required}
-      POSTGRES_DB: cheapa_db
-      
-      # Queue (shared RabbitMQ)
-      RABBITMQ_HOST: superdeploy-rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_USER: cheapa_user
-      RABBITMQ_PASSWORD: ${CHEAPA_RABBITMQ_PASSWORD:?required}
-      RABBITMQ_VHOST: cheapa
-      
-      # Cache (shared Redis)
-      REDIS_HOST: superdeploy-redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
-      
-      # App config
-      API_SECRET_KEY: ${API_SECRET_KEY:?required}
-      API_DEBUG: "false"
+    env_file:
+      - ./env/api.env
     volumes:
       - api-data:/app/data
     networks:
-      - infrastructure  # Access to shared services
-      - cheapa-network  # Isolated app network
+      - infrastructure  # For Caddy/Prometheus access
+      - cheapa-network  # For DB/Queue/Cache access
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 40s
     deploy:
       resources:
         limits:
@@ -96,17 +200,20 @@ services:
     image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/dashboard:${DASHBOARD_IMAGE_TAG:-latest}
     container_name: cheapa-dashboard
     restart: unless-stopped
-    environment:
-      API_BASE_URL: http://cheapa-api:8000
-      PUBLIC_URL: ${PUBLIC_URL}
+    env_file:
+      - ./env/dashboard.env
     networks:
-      - cheapa-network
+      - infrastructure  # For Caddy/Prometheus access
+      - cheapa-network  # For API access
+    depends_on:
+      api:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 20s
     deploy:
       resources:
         limits:
@@ -128,36 +235,26 @@ services:
       - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # Background Services (Workers)
+  # Background Services (Celery Workers)
   # ═══════════════════════════════════════════════════════════════════════════
   services:
     image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/services:${SERVICES_IMAGE_TAG:-latest}
     container_name: cheapa-services
     restart: unless-stopped
-    environment:
-      # Database
-      POSTGRES_HOST: superdeploy-postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: cheapa_user
-      POSTGRES_PASSWORD: ${CHEAPA_POSTGRES_PASSWORD:?required}
-      POSTGRES_DB: cheapa_db
-      
-      # Queue
-      RABBITMQ_HOST: superdeploy-rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_USER: cheapa_user
-      RABBITMQ_PASSWORD: ${CHEAPA_RABBITMQ_PASSWORD:?required}
-      RABBITMQ_VHOST: cheapa
-      
-      # Cache
-      REDIS_HOST: superdeploy-redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
+    env_file:
+      - ./env/services.env
     networks:
-      - infrastructure
-      - cheapa-network
+      - infrastructure  # For monitoring
+      - cheapa-network  # For DB/Queue/Cache access
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "ps", "aux", "|", "grep", "celery"]
+      test: ["CMD-SHELL", "ps aux | grep -v grep | grep celery || exit 1"]
       interval: 60s
       timeout: 10s
       retries: 3

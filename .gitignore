@@ -9,6 +9,8 @@
 *.env.*.local
 secrets.env
 projects/*/secrets.env
+projects/*/compose/env/*.env
+!projects/*/compose/env/*.env.example
 
 # Python
 __pycache__/
