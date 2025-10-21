@@ -226,16 +226,14 @@
 # STEP 6: Start core services
 # =============================================================================
 - name: Start Cheapa core services (PostgreSQL, RabbitMQ, Redis, Caddy)
-  community.docker.docker_compose_v2:
-    project_src: /opt/superdeploy/projects/cheapa/compose
-    files:
-      - docker-compose.core.yml
-    state: present
+  shell: |
+    set -a
+    source .env
+    set +a
+    docker compose -f docker-compose.core.yml up -d
+  args:
+    chdir: /opt/superdeploy/projects/cheapa/compose
   become_user: superdeploy
-  environment:
-    POSTGRES_PASSWORD: "{{ lookup('env', 'POSTGRES_PASSWORD') }}"
-    RABBITMQ_PASSWORD: "{{ lookup('env', 'RABBITMQ_PASSWORD') }}"
-    REDIS_PASSWORD: "{{ lookup('env', 'REDIS_PASSWORD') }}"
 
 # =============================================================================
 # STEP 7: Wait for services to be healthy
