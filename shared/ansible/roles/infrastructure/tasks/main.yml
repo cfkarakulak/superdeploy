@@ -46,30 +46,37 @@
   copy:
     content: |
       # Shared Infrastructure Environment
-      # ONLY for Forgejo + Monitoring (NO project data!)
-      POSTGRES_USER={{ POSTGRES_USER }}
-      POSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}
+      # ONLY for Monitoring (Prometheus/Grafana) + Proxy (Caddy)
       GRAFANA_ADMIN_USER={{ GRAFANA_ADMIN_USER }}
       GRAFANA_ADMIN_PASSWORD={{ GRAFANA_ADMIN_PASSWORD }}
       SMTP_USERNAME={{ SMTP_USERNAME }}
       SMTP_PASSWORD={{ SMTP_PASSWORD }}
       ALERT_EMAIL={{ ALERT_EMAIL }}
       CORE_EXTERNAL_IP={{ core_external_ip }}
-      DOCKER_REGISTRY={{ DOCKER_REGISTRY }}
-      DOCKER_ORG={{ DOCKER_ORG }}
     dest: /opt/superdeploy/shared/.env
     owner: superdeploy
     group: superdeploy
     mode: '0600'
 
-- name: Start shared infrastructure services
+- name: Start shared monitoring
   become_user: superdeploy
   shell: |
     cd /opt/superdeploy/shared/compose
     set -a
     source ../.env
     set +a
-    docker compose -f docker-compose.infrastructure.yml up -d
+    docker compose -f docker-compose.monitoring.yml up -d
+  args:
+    executable: /bin/bash
+
+- name: Start shared proxy
+  become_user: superdeploy
+  shell: |
+    cd /opt/superdeploy/shared/compose
+    set -a
+    source ../.env
+    set +a
+    docker compose -f docker-compose.proxy.yml up -d
   args:
     executable: /bin/bash
 

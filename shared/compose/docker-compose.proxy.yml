@@ -1,0 +1,45 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SHARED PROXY - Reverse proxy for ALL projects
+# ═══════════════════════════════════════════════════════════════════════════
+# This is truly shared - ONE Caddy for all projects
+# Projects write their routes to /opt/superdeploy/shared/caddy/routes/
+# ═══════════════════════════════════════════════════════════════════════════
+
+networks:
+  proxy:
+    name: superdeploy-proxy
+    driver: bridge
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: superdeploy-caddy
+    restart: unless-stopped
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/superdeploy/shared/caddy/routes:/etc/caddy/routes:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - proxy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "2019:2019"
+    environment:
+      CORE_EXTERNAL_IP: ${CORE_EXTERNAL_IP:?required}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+

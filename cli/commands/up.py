@@ -289,15 +289,11 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
   -e "forgejo_db_name=forgejo" \
   -e "forgejo_db_user=forgejo" \
   -e "forgejo_db_password={env["FORGEJO_DB_PASSWORD"]}" \
-  -e "POSTGRES_USER={env["FORGEJO_DB_USER"]}" \
-  -e "POSTGRES_PASSWORD={env["FORGEJO_DB_PASSWORD"]}" \
   -e "GRAFANA_ADMIN_USER={env["GRAFANA_ADMIN_USER"]}" \
   -e "GRAFANA_ADMIN_PASSWORD={env["GRAFANA_ADMIN_PASSWORD"]}" \
   -e "SMTP_USERNAME={env.get("SMTP_USERNAME", "")}" \
   -e "SMTP_PASSWORD={env.get("SMTP_PASSWORD", "")}" \
-  -e "ALERT_EMAIL={env.get("ALERT_EMAIL", "")}" \
-  -e "DOCKER_REGISTRY={env["DOCKER_REGISTRY"]}" \
-  -e "DOCKER_ORG={env["DOCKER_ORG"]}"
+  -e "ALERT_EMAIL={env.get("ALERT_EMAIL", "")}"
 """
 
         run_command(ansible_cmd)
