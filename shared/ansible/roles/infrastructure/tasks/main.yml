@@ -101,7 +101,7 @@
 
 - name: Display running services
   become_user: superdeploy
-  command: docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+  command: docker ps --format "table {% raw %}{{.Names}}\t{{.Status}}\t{{.Ports}}{% endraw %}"
   register: docker_ps_output
 
 - name: Show infrastructure status
