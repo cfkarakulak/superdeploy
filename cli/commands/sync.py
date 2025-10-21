@@ -140,7 +140,7 @@ def set_github_env_secrets(repo, env_name, secrets):
             console.print(f"  [red]✗[/red] {key}: {e.stderr.decode()}")
 
 
-def sync_forgejo_secrets(env, forgejo_pat):
+def sync_forgejo_secrets(env, forgejo_pat, project_env=None):
     """Sync all secrets to Forgejo repository"""
     import requests
 
@@ -164,25 +164,34 @@ def sync_forgejo_secrets(env, forgejo_pat):
         console.print(f"[yellow]⚠️  Forgejo not accessible: {e}[/yellow]")
         return
 
+    # Merge project-specific secrets if provided
+    merged_env = {**env}
+    if project_env:
+        merged_env.update(project_env)
+
     secrets = {
-        # Core Services
-        "POSTGRES_HOST": env["CORE_INTERNAL_IP"],
-        "POSTGRES_USER": env["POSTGRES_USER"],
-        "POSTGRES_PASSWORD": env["POSTGRES_PASSWORD"],
-        "POSTGRES_DB": env["POSTGRES_DB"],
+        # Core Services (from project secrets)
+        "POSTGRES_HOST": merged_env.get(
+            "POSTGRES_HOST", env.get("CORE_INTERNAL_IP", "")
+        ),
+        "POSTGRES_USER": merged_env.get("POSTGRES_USER", ""),
+        "POSTGRES_PASSWORD": merged_env.get("POSTGRES_PASSWORD", ""),
+        "POSTGRES_DB": merged_env.get("POSTGRES_DB", ""),
         "POSTGRES_PORT": "5432",
-        "RABBITMQ_HOST": env["CORE_INTERNAL_IP"],
-        "RABBITMQ_USER": env["RABBITMQ_USER"],
-        "RABBITMQ_PASSWORD": env["RABBITMQ_PASSWORD"],
+        "RABBITMQ_HOST": merged_env.get(
+            "RABBITMQ_HOST", env.get("CORE_INTERNAL_IP", "")
+        ),
+        "RABBITMQ_USER": merged_env.get("RABBITMQ_USER", ""),
+        "RABBITMQ_PASSWORD": merged_env.get("RABBITMQ_PASSWORD", ""),
         "RABBITMQ_PORT": "5672",
-        "REDIS_HOST": env["CORE_INTERNAL_IP"],
-        "REDIS_PASSWORD": env["REDIS_PASSWORD"],
+        "REDIS_HOST": merged_env.get("REDIS_HOST", env.get("CORE_INTERNAL_IP", "")),
+        "REDIS_PASSWORD": merged_env.get("REDIS_PASSWORD", ""),
         # App Config
-        "API_SECRET_KEY": env["API_SECRET_KEY"],
+        "API_SECRET_KEY": merged_env.get("API_SECRET_KEY", ""),
         "API_DEBUG": "false",
         "API_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:8000",
         "PUBLIC_URL": f"http://{env['CORE_EXTERNAL_IP']}",
-        "SENTRY_DSN": env.get("SENTRY_DSN", ""),  # Optional
+        "SENTRY_DSN": merged_env.get("SENTRY_DSN", ""),  # Optional
         # Infrastructure
         "CORE_EXTERNAL_IP": env["CORE_EXTERNAL_IP"],
         "CORE_INTERNAL_IP": env["CORE_INTERNAL_IP"],
@@ -325,7 +334,7 @@ def sync(project, skip_forgejo, skip_github):
             console.print(
                 "\n[bold cyan]📝 Syncing secrets to Forgejo repository...[/bold cyan]"
             )
-            sync_forgejo_secrets(env, forgejo_pat)
+            sync_forgejo_secrets(env, forgejo_pat, project_secrets)
 
         if skip_github:
             console.print("[yellow]⚠️  Skipping GitHub secrets sync[/yellow]")
@@ -362,24 +371,32 @@ def sync(project, skip_forgejo, skip_github):
                     console.print(f"[yellow]⚠️  Skipping {env_name} secrets[/yellow]")
                     continue
 
-                # Environment secrets - use actual .env values (NO FALLBACKS!)
+                # Environment secrets - merge infrastructure + project secrets
+                merged_env = {**env, **project_secrets}
+
                 env_secrets = {
-                    "POSTGRES_HOST": env["CORE_INTERNAL_IP"],
-                    "POSTGRES_USER": env["POSTGRES_USER"],
-                    "POSTGRES_PASSWORD": env["POSTGRES_PASSWORD"],
-                    "POSTGRES_DB": env["POSTGRES_DB"],
+                    "POSTGRES_HOST": merged_env.get(
+                        "POSTGRES_HOST", env["CORE_INTERNAL_IP"]
+                    ),
+                    "POSTGRES_USER": merged_env.get("POSTGRES_USER", ""),
+                    "POSTGRES_PASSWORD": merged_env.get("POSTGRES_PASSWORD", ""),
+                    "POSTGRES_DB": merged_env.get("POSTGRES_DB", ""),
                     "POSTGRES_PORT": "5432",
-                    "RABBITMQ_HOST": env["CORE_INTERNAL_IP"],
-                    "RABBITMQ_USER": env["RABBITMQ_USER"],
-                    "RABBITMQ_PASSWORD": env["RABBITMQ_PASSWORD"],
+                    "RABBITMQ_HOST": merged_env.get(
+                        "RABBITMQ_HOST", env["CORE_INTERNAL_IP"]
+                    ),
+                    "RABBITMQ_USER": merged_env.get("RABBITMQ_USER", ""),
+                    "RABBITMQ_PASSWORD": merged_env.get("RABBITMQ_PASSWORD", ""),
                     "RABBITMQ_PORT": "5672",
-                    "REDIS_HOST": env["CORE_INTERNAL_IP"],
-                    "REDIS_PASSWORD": env["REDIS_PASSWORD"],
-                    "API_SECRET_KEY": env["API_SECRET_KEY"],
+                    "REDIS_HOST": merged_env.get("REDIS_HOST", env["CORE_INTERNAL_IP"]),
+                    "REDIS_PASSWORD": merged_env.get("REDIS_PASSWORD", ""),
+                    "API_SECRET_KEY": merged_env.get("API_SECRET_KEY", ""),
                     "API_DEBUG": "true" if env_name == "staging" else "false",
                     "API_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:8000",
                     "PUBLIC_URL": f"http://{env['CORE_EXTERNAL_IP']}",
-                    "SENTRY_DSN": env.get("SENTRY_DSN", ""),  # Optional
+                    "SENTRY_DSN": merged_env.get("SENTRY_DSN", ""),  # Optional
+                    "SMTP_USERNAME": env.get("SMTP_USERNAME", ""),
+                    "SMTP_PASSWORD": env.get("SMTP_PASSWORD", ""),
                 }
 
                 set_github_env_secrets(repo, env_name, env_secrets)
