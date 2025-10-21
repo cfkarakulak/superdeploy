@@ -2,18 +2,17 @@
 # Core Services deployment - PostgreSQL, RabbitMQ, Caddy
 # This role deploys the core infrastructure services (separate from app services)
 
-- name: Copy projects directory from superdeploy repository
-  synchronize:
-    src: "../../../../projects/"
-    dest: "/opt/superdeploy/projects/"
-    delete: no
-    recursive: yes
-  delegate_to: localhost
-  become: no  # Don't use sudo on localhost
+- name: Clone superdeploy repository
+  git:
+    repo: "https://github.com/cfkarakulak/superdeploy.git"
+    dest: "/opt/superdeploy"
+    version: "master"
+    force: yes
+  become_user: superdeploy
 
-- name: Fix ownership of projects directory
+- name: Ensure proper ownership of superdeploy directory
   file:
-    path: /opt/superdeploy/projects
+    path: /opt/superdeploy
     owner: superdeploy
     group: superdeploy
     recurse: yes
