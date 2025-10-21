@@ -1,3 +1,4 @@
+import os
 """SuperDeploy CLI - Scale command"""
 
 import click
@@ -43,7 +44,7 @@ def scale(scale_spec, environment):
     # SSH command
     ssh_host = env_vars["CORE_EXTERNAL_IP"]
     ssh_user = env_vars.get("SSH_USER", "superdeploy")
-    ssh_key = env_vars["SSH_KEY_PATH"].replace("~", env_vars.get("HOME", "/root"))
+    ssh_key = os.path.expanduser(env_vars["SSH_KEY_PATH"])
     
     scale_cmd = f"cd /opt/superdeploy/compose && docker-compose up -d --scale {app}={replicas} --no-recreate"
     

@@ -1,3 +1,4 @@
+import os
 """SuperDeploy CLI - Run command"""
 
 import click
@@ -32,7 +33,7 @@ def run(app, command):
     console.print(f"[dim]$ {command}[/dim]\n")
     
     # SSH + docker exec
-    ssh_key = env["SSH_KEY_PATH"].replace("~", env.get("HOME", "/root"))
+    ssh_key = os.path.expanduser(env["SSH_KEY_PATH"])
     ssh_user = env.get("SSH_USER", "superdeploy")
     ssh_host = env["CORE_EXTERNAL_IP"]
     

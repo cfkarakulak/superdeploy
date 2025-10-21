@@ -1,3 +1,4 @@
+import os
 """SuperDeploy CLI - Status command"""
 
 import click
@@ -48,7 +49,7 @@ def status():
     # Check VMs
     ssh_host = env["CORE_EXTERNAL_IP"]
     ssh_user = env.get("SSH_USER", "superdeploy")
-    ssh_key = env["SSH_KEY_PATH"].replace("~", env.get("HOME", "/root"))
+    ssh_key = os.path.expanduser(env["SSH_KEY_PATH"])
     
     try:
         # Check core VM

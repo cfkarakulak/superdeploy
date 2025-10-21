@@ -1,3 +1,4 @@
+import os
 """SuperDeploy CLI - Logs command"""
 
 import click
@@ -33,7 +34,7 @@ def logs(app, follow, lines, environment):
     console.print(f"[cyan]📋 Fetching logs for [bold]{app}[/bold]...[/cyan]")
     
     # SSH command to get docker logs
-    ssh_key = env["SSH_KEY_PATH"].replace("~", env.get("HOME", "/root"))
+    ssh_key = os.path.expanduser(env["SSH_KEY_PATH"])
     ssh_user = env.get("SSH_USER", "superdeploy")
     ssh_host = env["CORE_EXTERNAL_IP"]
     

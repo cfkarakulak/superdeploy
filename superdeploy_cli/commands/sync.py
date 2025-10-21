@@ -1,3 +1,4 @@
+import os
 """SuperDeploy CLI - Sync command (AGE key + GitHub secrets automation)"""
 
 import click
@@ -16,7 +17,7 @@ def get_age_public_key(env):
         key = ssh_command(
             host=env["CORE_EXTERNAL_IP"],
             user=env.get("SSH_USER", "superdeploy"),
-            key_path=env["SSH_KEY_PATH"].replace("~", env.get("HOME", "/root")),
+            key_path=os.path.expanduser(env["SSH_KEY_PATH"]),
             cmd="cat /opt/forgejo-runner/.age/public_key.txt",
         )
         return key.strip()
