@@ -39,7 +39,7 @@ def config_set(key_value, app, environment):
 
     # Get GitHub org from environment or project config
     github_org = env_vars.get("GITHUB_ORG", f"{project}io")
-    
+
     # Map app to GitHub repo (project-aware)
     repos = {
         "api": env_vars.get("GITHUB_REPO_API", f"{github_org}/api"),
@@ -151,7 +151,7 @@ def config_unset(key, app, environment):
     """
     # Map app to GitHub repo
     env_vars = load_env()
-    
+
     # Get GitHub org from environment or project config
     github_org = env_vars.get("GITHUB_ORG", f"{project}io")
 

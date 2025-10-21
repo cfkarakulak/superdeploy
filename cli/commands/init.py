@@ -87,23 +87,22 @@ def init(project, yes, subnet, services, no_interactive):
     interactive = not no_interactive and not yes
 
     # Service selection
-    available_services = ["api", "dashboard", "services", "worker", "scraper"]
     selected_services = []
 
     if services:
+        # User provided services via CLI
         selected_services = [s.strip() for s in services.split(",")]
     elif interactive:
-        console.print("\n[bold]Select services for this project:[/bold]")
-        for service in available_services:
-            if service in ["api", "dashboard", "services"]:  # Default selections
-                selected = Confirm.ask(f"  Include {service}?", default=True)
-            else:
-                selected = Confirm.ask(f"  Include {service}?", default=False)
-
-            if selected:
-                selected_services.append(service)
+        # Interactive service selection
+        console.print("\n[bold]Add services for this project:[/bold]")
+        console.print("  [dim]Enter service names (comma-separated, e.g., api,dashboard,worker)[/dim]")
+        services_input = Prompt.ask(
+            "  Services", 
+            default="api,dashboard,services"
+        )
+        selected_services = [s.strip() for s in services_input.split(",")]
     else:
-        # Default services
+        # Default services for non-interactive mode
         selected_services = ["api", "dashboard", "services"]
 
     # Network configuration
@@ -142,9 +141,7 @@ def init(project, yes, subnet, services, no_interactive):
     github_org = f"{project}io"  # Default
     if interactive:
         console.print("\n[bold]GitHub organization:[/bold]")
-        github_org = Prompt.ask(
-            "  GitHub org name", default=f"{project}io"
-        )
+        github_org = Prompt.ask("  GitHub org name", default=f"{project}io")
 
     # Domain
     project_domain = ""
@@ -266,61 +263,65 @@ def init(project, yes, subnet, services, no_interactive):
 
     # Show exact commands with generated passwords
     if passwords:
-        for service in selected_services:
-            if service in ["api", "dashboard", "services"]:
-                console.print(f"\n   # For {service} repository:")
-                console.print(
-                    f"   [dim]gh secret set POSTGRES_USER -b \"{project}_user\" -R {github_org}/{service}[/dim]"
-                )
-                console.print(
-                    f"   [dim]gh secret set POSTGRES_PASSWORD -b \"{passwords['POSTGRES_PASSWORD']}\" -R {github_org}/{service}[/dim]"
-                )
-                console.print(
-                    f"   [dim]gh secret set POSTGRES_DB -b \"{project}_db\" -R {github_org}/{service}[/dim]"
-                )
-                console.print(
-                    f"   [dim]gh secret set POSTGRES_HOST -b \"postgres\" -R {github_org}/{service}[/dim]"
-                )
-                console.print(
-                    f"   [dim]gh secret set POSTGRES_PORT -b \"5432\" -R {github_org}/{service}[/dim]"
-                )
-                console.print("")
-                console.print(
-                    f"   [dim]gh secret set RABBITMQ_USER -b \"{project}_user\" -R {github_org}/{service}[/dim]"
-                )
-                console.print(
-                    f"   [dim]gh secret set RABBITMQ_PASSWORD -b \"{passwords['RABBITMQ_PASSWORD']}\" -R {github_org}/{service}[/dim]"
-                )
-                console.print(
-                    f"   [dim]gh secret set RABBITMQ_HOST -b \"rabbitmq\" -R {github_org}/{service}[/dim]"
-                )
-                console.print(
-                    f"   [dim]gh secret set RABBITMQ_PORT -b \"5672\" -R {github_org}/{service}[/dim]"
-                )
-                console.print("")
-                console.print(
-                    f"   [dim]gh secret set REDIS_PASSWORD -b \"{passwords['REDIS_PASSWORD']}\" -R {github_org}/{service}[/dim]"
-                )
-                console.print(
-                    f"   [dim]gh secret set REDIS_HOST -b \"redis\" -R {github_org}/{service}[/dim]"
-                )
-                console.print(
-                    f"   [dim]gh secret set REDIS_PORT -b \"6379\" -R {github_org}/{service}[/dim]"
-                )
-                break
+        # Show for first service only (others will be same)
+        if selected_services:
+            service = selected_services[0]
+            console.print(f"\n   # For each service repository ({', '.join(selected_services)}):")
+            console.print(f"   # Example for '{service}':")
+            console.print(
+                f'   [dim]gh secret set POSTGRES_USER -b "{project}_user" -R {github_org}/{service}[/dim]'
+            )
+            console.print(
+                f'   [dim]gh secret set POSTGRES_PASSWORD -b "{passwords["POSTGRES_PASSWORD"]}" -R {github_org}/{service}[/dim]'
+            )
+            console.print(
+                f'   [dim]gh secret set POSTGRES_DB -b "{project}_db" -R {github_org}/{service}[/dim]'
+            )
+            console.print(
+                f'   [dim]gh secret set POSTGRES_HOST -b "postgres" -R {github_org}/{service}[/dim]'
+            )
+            console.print(
+                f'   [dim]gh secret set POSTGRES_PORT -b "5432" -R {github_org}/{service}[/dim]'
+            )
+            console.print("")
+            console.print(
+                f'   [dim]gh secret set RABBITMQ_USER -b "{project}_user" -R {github_org}/{service}[/dim]'
+            )
+            console.print(
+                f'   [dim]gh secret set RABBITMQ_PASSWORD -b "{passwords["RABBITMQ_PASSWORD"]}" -R {github_org}/{service}[/dim]'
+            )
+            console.print(
+                f'   [dim]gh secret set RABBITMQ_HOST -b "rabbitmq" -R {github_org}/{service}[/dim]'
+            )
+            console.print(
+                f'   [dim]gh secret set RABBITMQ_PORT -b "5672" -R {github_org}/{service}[/dim]'
+            )
+            console.print("")
+            console.print(
+                f'   [dim]gh secret set REDIS_PASSWORD -b "{passwords["REDIS_PASSWORD"]}" -R {github_org}/{service}[/dim]'
+            )
+            console.print(
+                f'   [dim]gh secret set REDIS_HOST -b "redis" -R {github_org}/{service}[/dim]'
+            )
+            console.print(
+                f'   [dim]gh secret set REDIS_PORT -b "6379" -R {github_org}/{service}[/dim]'
+            )
+            console.print(
+                f"\n   [dim]# Repeat for other services: {', '.join(selected_services[1:])}[/dim]"
+            ) if len(selected_services) > 1 else None
     else:
-        for service in selected_services:
-            if service in ["api", "dashboard", "services"]:
-                console.print(
-                    f"   [dim]gh secret set POSTGRES_PASSWORD -R {github_org}/{service}[/dim]"
-                )
-                console.print(
-                    f"   [dim]gh secret set RABBITMQ_PASSWORD -R {github_org}/{service}[/dim]"
-                )
-                console.print(
-                    f"   [dim]gh secret set REDIS_PASSWORD -R {github_org}/{service}[/dim]"
-                )
-                break
+        if selected_services:
+            service = selected_services[0]
+            console.print(f"\n   # For each service repository:")
+            console.print(
+                f"   [dim]gh secret set POSTGRES_PASSWORD -R {github_org}/{service}[/dim]"
+            )
+            console.print(
+                f"   [dim]gh secret set RABBITMQ_PASSWORD -R {github_org}/{service}[/dim]"
+            )
+            console.print(
+                f"   [dim]gh secret set REDIS_PASSWORD -R {github_org}/{service}[/dim]"
+            )
 
     if passwords:
         console.print(
