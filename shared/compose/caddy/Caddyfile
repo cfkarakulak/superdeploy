@@ -1,0 +1,31 @@
+{
+  email admin@superdeploy.io
+  log {
+    output file /data/access.log
+    format json
+  }
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# INFRASTRUCTURE SERVICES (Built-in)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Grafana
+:3000 {
+  reverse_proxy superdeploy-grafana:3000
+}
+
+# Prometheus
+:9090 {
+  reverse_proxy superdeploy-prometheus:9090
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PROJECT ROUTES (Auto-imported from /etc/caddy/routes/*.caddy)
+# ═══════════════════════════════════════════════════════════════════════════
+# Each project writes its own route file:
+#   /opt/superdeploy/shared/caddy/routes/cheapa.caddy
+#   /opt/superdeploy/shared/caddy/routes/projectb.caddy
+
+import /etc/caddy/routes/*.caddy
+

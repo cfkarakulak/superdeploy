@@ -41,7 +41,7 @@
     groups: docker
     append: yes
 
-- name: Configure Docker daemon (log rotation)
+- name: Configure Docker daemon (log rotation, ulimits, OOM)
   ansible.builtin.copy:
     content: |
       {
@@ -50,8 +50,22 @@
           "max-size": "10m",
           "max-file": "3"
         },
+        "default-ulimits": {
+          "nofile": {
+            "Name": "nofile",
+            "Hard": 65536,
+            "Soft": 65536
+          }
+        },
         "storage-driver": "overlay2",
-        "userland-proxy": false
+        "userland-proxy": false,
+        "live-restore": true,
+        "default-address-pools": [
+          {
+            "base": "172.17.0.0/12",
+            "size": 24
+          }
+        ]
       }
     dest: /etc/docker/daemon.json
     owner: root

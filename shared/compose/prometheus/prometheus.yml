@@ -1,0 +1,62 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'superdeploy'
+
+# ═══════════════════════════════════════════════════════════════════════════
+# INFRASTRUCTURE MONITORING (Project-Agnostic)
+# ═══════════════════════════════════════════════════════════════════════════
+
+scrape_configs:
+  # Self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          layer: 'infrastructure'
+
+  # PostgreSQL (shared)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['superdeploy-postgres-exporter:9187']
+        labels:
+          service: 'postgres'
+          layer: 'infrastructure'
+
+  # RabbitMQ (shared)
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['superdeploy-rabbitmq:15692']
+        labels:
+          service: 'rabbitmq'
+          layer: 'infrastructure'
+
+  # Redis (shared)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['superdeploy-redis-exporter:9121']
+        labels:
+          service: 'redis'
+          layer: 'infrastructure'
+
+  # Caddy (shared)
+  - job_name: 'caddy'
+    static_configs:
+      - targets: ['superdeploy-caddy:2019']
+        labels:
+          service: 'caddy'
+          layer: 'infrastructure'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PROJECT-SPECIFIC TARGETS (File-Based Service Discovery)
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Each project writes its own /opt/superdeploy/projects/<project>/prometheus/targets.yml
+  # Prometheus automatically discovers and scrapes them
+  
+  - job_name: 'project-services'
+    file_sd_configs:
+      - files:
+          - '/etc/prometheus/projects/*/targets.yml'
+        refresh_interval: 30s

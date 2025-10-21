@@ -28,13 +28,13 @@
     - security
     - full-core
 
-- name: Deploy Application Services
+- name: Deploy Infrastructure (Shared + Projects)
   hosts: core
   become: yes
   roles:
-    - role: app-deployment
+    - role: infrastructure
   tags:
-    - app-deployment
+    - infrastructure
     - full-core
 
 - name: Deploy Git Server (Forgejo)

@@ -1,0 +1,192 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════
+# INFRASTRUCTURE DEPLOYMENT
+# ═══════════════════════════════════════════════════════════════════════════
+# 1. Deploy shared infrastructure (project-agnostic)
+# 2. Deploy project-specific services (with proper separation)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# =============================================================================
+# SHARED INFRASTRUCTURE
+# =============================================================================
+
+- name: Create shared infrastructure directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: superdeploy
+    group: superdeploy
+    mode: '0755'
+  loop:
+    - /opt/superdeploy/shared
+    - /opt/superdeploy/shared/compose
+    - /opt/superdeploy/shared/prometheus/projects
+    - /opt/superdeploy/shared/grafana/dashboards
+    - /opt/superdeploy/shared/caddy/routes
+    - /opt/superdeploy/shared/postgres/init.d
+
+- name: Sync shared infrastructure compose files
+  synchronize:
+    src: "{{ playbook_dir }}/../shared/compose/"
+    dest: /opt/superdeploy/shared/compose/
+    delete: no
+    recursive: yes
+    rsync_opts:
+      - "--exclude=.env*"
+      - "--exclude=*.log"
+      - "--chown=superdeploy:superdeploy"
+
+- name: Generate shared infrastructure .env file
+  copy:
+    content: |
+      # Shared Infrastructure Environment
+      POSTGRES_ADMIN_USER={{ POSTGRES_ADMIN_USER | default('postgres') }}
+      POSTGRES_ADMIN_PASSWORD={{ POSTGRES_ADMIN_PASSWORD }}
+      RABBITMQ_ADMIN_USER={{ RABBITMQ_ADMIN_USER | default('admin') }}
+      RABBITMQ_ADMIN_PASSWORD={{ RABBITMQ_ADMIN_PASSWORD }}
+      REDIS_PASSWORD={{ REDIS_PASSWORD }}
+      GRAFANA_ADMIN_USER={{ GRAFANA_ADMIN_USER | default('admin') }}
+      GRAFANA_ADMIN_PASSWORD={{ GRAFANA_ADMIN_PASSWORD }}
+      CORE_EXTERNAL_IP={{ core_external_ip }}
+      DOCKER_REGISTRY={{ DOCKER_REGISTRY | default('docker.io') }}
+      DOCKER_ORG={{ DOCKER_ORG }}
+    dest: /opt/superdeploy/shared/.env
+    owner: superdeploy
+    group: superdeploy
+    mode: '0600'
+
+- name: Start shared infrastructure services
+  become_user: superdeploy
+  shell: |
+    cd /opt/superdeploy/shared/compose
+    docker compose -f docker-compose.infrastructure.yml up -d
+  args:
+    executable: /bin/bash
+
+- name: Wait for shared infrastructure to be healthy
+  pause:
+    seconds: 30
+
+# =============================================================================
+# PROJECT: CHEAPA
+# =============================================================================
+
+- name: Create Cheapa project directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: superdeploy
+    group: superdeploy
+    mode: '0755'
+  loop:
+    - /opt/superdeploy/projects
+    - /opt/superdeploy/projects/cheapa
+    - /opt/superdeploy/projects/cheapa/compose
+    - /opt/superdeploy/projects/cheapa/provision
+
+- name: Sync Cheapa compose files
+  synchronize:
+    src: "{{ playbook_dir }}/../projects/cheapa/compose/"
+    dest: /opt/superdeploy/projects/cheapa/compose/
+    delete: no
+    recursive: yes
+    rsync_opts:
+      - "--exclude=.env*"
+      - "--exclude=*.log"
+      - "--chown=superdeploy:superdeploy"
+
+- name: Sync Cheapa provision files
+  synchronize:
+    src: "{{ playbook_dir }}/../projects/cheapa/provision/"
+    dest: /opt/superdeploy/projects/cheapa/provision/
+    delete: no
+    recursive: yes
+    rsync_opts:
+      - "--chown=superdeploy:superdeploy"
+
+- name: Copy Cheapa PostgreSQL init script to shared
+  copy:
+    src: /opt/superdeploy/projects/cheapa/provision/postgres/init-cheapa-db.sh
+    dest: /opt/superdeploy/shared/postgres/init.d/cheapa.sh
+    owner: superdeploy
+    group: superdeploy
+    mode: '0755'
+    remote_src: yes
+
+- name: Copy Cheapa Prometheus targets to shared
+  copy:
+    src: /opt/superdeploy/projects/cheapa/provision/prometheus/targets.yml
+    dest: /opt/superdeploy/shared/prometheus/projects/cheapa.yml
+    owner: superdeploy
+    group: superdeploy
+    mode: '0644'
+    remote_src: yes
+
+- name: Copy Cheapa Caddy routes to shared
+  copy:
+    src: /opt/superdeploy/projects/cheapa/provision/caddy/routes.caddy
+    dest: /opt/superdeploy/shared/caddy/routes/cheapa.caddy
+    owner: superdeploy
+    group: superdeploy
+    mode: '0644'
+    remote_src: yes
+
+- name: Initialize Cheapa PostgreSQL database
+  become_user: superdeploy
+  shell: |
+    docker exec superdeploy-postgres bash -c "
+      export CHEAPA_POSTGRES_PASSWORD='{{ CHEAPA_POSTGRES_PASSWORD }}'
+      /docker-entrypoint-initdb.d/cheapa.sh
+    " || echo "Database already exists"
+  args:
+    executable: /bin/bash
+  ignore_errors: yes
+
+- name: Initialize Cheapa RabbitMQ vhost
+  become_user: superdeploy
+  shell: |
+    docker exec superdeploy-rabbitmq rabbitmqctl add_vhost cheapa || echo "Vhost exists"
+    docker exec superdeploy-rabbitmq rabbitmqctl add_user cheapa_user "{{ CHEAPA_RABBITMQ_PASSWORD }}" || echo "User exists"
+    docker exec superdeploy-rabbitmq rabbitmqctl set_permissions -p cheapa cheapa_user ".*" ".*" ".*"
+    docker exec superdeploy-rabbitmq rabbitmqctl set_user_tags cheapa_user management
+  args:
+    executable: /bin/bash
+  ignore_errors: yes
+
+- name: Reload Caddy config (pick up new routes)
+  shell: docker exec superdeploy-caddy caddy reload --config /etc/caddy/Caddyfile
+  ignore_errors: yes
+
+- name: Reload Prometheus config (pick up new targets)
+  shell: curl -X POST http://localhost:9090/-/reload
+  ignore_errors: yes
+
+- name: Display running services
+  become_user: superdeploy
+  command: docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+  register: docker_ps_output
+
+- name: Show infrastructure status
+  debug:
+    msg: "{{ docker_ps_output.stdout_lines }}"
+
+- name: Success message
+  debug:
+    msg: |
+      ✅ Infrastructure deployed successfully!
+      
+      SHARED SERVICES:
+        - PostgreSQL (superdeploy-postgres)
+        - RabbitMQ (superdeploy-rabbitmq)
+        - Redis (superdeploy-redis)
+        - Prometheus (superdeploy-prometheus) → http://{{ core_external_ip }}:9090
+        - Grafana (superdeploy-grafana) → http://{{ core_external_ip }}:3000
+        - Caddy (superdeploy-caddy)
+      
+      PROJECT: CHEAPA
+        - Database: cheapa_db (initialized)
+        - Vhost: cheapa (initialized)
+        - Prometheus targets: provisioned
+        - Caddy routes: provisioned
+      
+      Next: Push to GitHub → Forgejo will deploy app services
