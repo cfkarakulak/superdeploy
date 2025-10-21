@@ -1,0 +1,110 @@
+---
+# ============================================================================
+# Cheapa Project Configuration
+# ============================================================================
+# This file contains all Cheapa-specific infrastructure and app configuration
+
+# Project Identity
+project_name: cheapa
+project_id: cheapa-io
+project_domain: cheapa.io
+
+# GCP Configuration
+gcp_region: us-central1
+gcp_zone: us-central1-a
+vm_machine_type: e2-medium
+vm_disk_size: 30
+
+# Network Configuration
+network_name: "{{ project_name }}-network"
+subnet_name: "{{ project_name }}-subnet"
+subnet_cidr: "10.10.0.0/24"  # Cheapa: 10.10.x.x
+
+# Docker Network
+docker_network_name: "{{ project_name }}-network"
+
+# Core Services Configuration
+core_services:
+  postgres:
+    container_name: "{{ project_name }}-postgres"
+    port: 5432
+    user: "{{ project_name }}_user"
+    db: "{{ project_name }}_db"
+    volume: "{{ project_name }}-postgres-data"
+    
+  rabbitmq:
+    container_name: "{{ project_name }}-rabbitmq"
+    port: 5672
+    management_port: 15672
+    user: "{{ project_name }}_user"
+    volume: "{{ project_name }}-rabbitmq-data"
+    
+  redis:
+    container_name: "{{ project_name }}-redis"
+    port: 6379
+    volume: "{{ project_name }}-redis-data"
+    
+  caddy:
+    container_name: "{{ project_name }}-caddy"
+    http_port: 80
+    https_port: 443
+    volume: "{{ project_name }}-caddy-data"
+
+# Application Services
+app_services:
+  api:
+    container_name: "{{ project_name }}-api"
+    port: 8000
+    replicas: 2
+    
+  dashboard:
+    container_name: "{{ project_name }}-dashboard"
+    port: 3000
+    replicas: 1
+    
+  services:
+    container_name: "{{ project_name }}-services"
+    replicas: 3
+
+# GitHub Repositories
+github_repos:
+  api: "cheapaio/api"
+  dashboard: "cheapaio/dashboard"
+  services: "cheapaio/services"
+
+# Forgejo Configuration
+forgejo:
+  enabled: true
+  org: "{{ project_name }}"
+  admin_user: "{{ project_name }}-admin"
+
+# Resource Limits
+resource_limits:
+  postgres:
+    memory: "2G"
+    cpus: "1.0"
+  rabbitmq:
+    memory: "1G"
+    cpus: "0.5"
+  redis:
+    memory: "512M"
+    cpus: "0.25"
+  api:
+    memory: "1G"
+    cpus: "0.5"
+  dashboard:
+    memory: "512M"
+    cpus: "0.25"
+
+# Monitoring
+monitoring:
+  enabled: false  # Will be enabled per project
+  prometheus_port: 9090
+  grafana_port: 3001
+
+# Backup Configuration
+backup:
+  enabled: true
+  retention_days: 7
+  gcs_bucket: "{{ project_name }}-backups"
+

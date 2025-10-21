@@ -1,0 +1,74 @@
+global:
+  resolve_timeout: 5m
+  smtp_from: 'alertmanager@yourdomain.com'
+  smtp_smarthost: 'localhost:25'
+  smtp_require_tls: false
+
+# Email notification template
+templates:
+  - '/etc/alertmanager/*.tmpl'
+
+# Route tree
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  receiver: 'email-notifications'
+  
+  routes:
+    # Critical alerts immediately
+    - match:
+        severity: critical
+      receiver: 'email-critical'
+      group_wait: 0s
+      repeat_interval: 5m
+    
+    # Warnings with grouping
+    - match:
+        severity: warning
+      receiver: 'email-notifications'
+      group_wait: 30s
+      repeat_interval: 4h
+
+# Receivers
+receivers:
+  - name: 'email-notifications'
+    email_configs:
+      - to: '${ALERT_EMAIL}'
+        headers:
+          Subject: '[SuperDeploy] {{ .GroupLabels.alertname }} - {{ .GroupLabels.severity }}'
+        html: |
+          {{ range .Alerts }}
+          <b>Alert:</b> {{ .Labels.alertname }}<br>
+          <b>Severity:</b> {{ .Labels.severity }}<br>
+          <b>Summary:</b> {{ .Annotations.summary }}<br>
+          <b>Description:</b> {{ .Annotations.description }}<br>
+          <b>Started:</b> {{ .StartsAt }}<br>
+          <hr>
+          {{ end }}
+
+  - name: 'email-critical'
+    email_configs:
+      - to: '${ALERT_EMAIL}'
+        headers:
+          Subject: '[CRITICAL] SuperDeploy Alert - IMMEDIATE ACTION REQUIRED'
+          Priority: '1'
+        html: |
+          <h2 style="color: red;">CRITICAL ALERT</h2>
+          {{ range .Alerts }}
+          <b>Alert:</b> {{ .Labels.alertname }}<br>
+          <b>Summary:</b> {{ .Annotations.summary }}<br>
+          <b>Description:</b> {{ .Annotations.description }}<br>
+          <b>Started:</b> {{ .StartsAt }}<br>
+          <hr>
+          {{ end }}
+
+# Inhibition rules (suppress certain alerts when others fire)
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']
+
