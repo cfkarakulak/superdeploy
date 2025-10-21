@@ -1,4 +1,5 @@
 import os
+
 """SuperDeploy CLI - Sync command (AGE key + GitHub secrets automation)"""
 
 import click
@@ -14,13 +15,21 @@ console = Console()
 def get_age_public_key(env):
     """Fetch AGE public key from runner VM"""
     try:
-        key = ssh_command(
+        # Read entire key file, then parse locally
+        key_file = ssh_command(
             host=env["CORE_EXTERNAL_IP"],
             user=env.get("SSH_USER", "superdeploy"),
             key_path=os.path.expanduser(env["SSH_KEY_PATH"]),
-            cmd="cat /opt/forgejo-runner/.age/public_key.txt",
+            cmd="cat /opt/forgejo-runner/.age/key.txt",
         )
-        return key.strip()
+
+        # Extract public key line (format: "# public key: age1...")
+        for line in key_file.split("\n"):
+            if "public key:" in line:
+                return line.split("public key:")[-1].strip()
+
+        console.print("[red]❌ Could not find public key in AGE key file[/red]")
+        return None
     except Exception as e:
         console.print(f"[red]❌ Failed to fetch AGE key: {e}[/red]")
         return None
@@ -72,6 +81,38 @@ def set_github_repo_secrets(repo, secrets):
             console.print(f"  [green]✓[/green] {key}")
         except subprocess.CalledProcessError as e:
             console.print(f"  [red]✗[/red] {key}: {e.stderr.decode()}")
+
+
+def create_github_environment(repo, env_name):
+    """Create GitHub environment if it doesn't exist"""
+    try:
+        # Check if environment exists
+        result = subprocess.run(
+            ["gh", "api", f"repos/{repo}/environments/{env_name}"],
+            capture_output=True,
+            check=False,
+        )
+        
+        if result.returncode != 0:
+            # Create environment
+            subprocess.run(
+                [
+                    "gh", "api",
+                    f"repos/{repo}/environments/{env_name}",
+                    "-X", "PUT",
+                    "-f", "wait_timer=0",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            console.print(f"  [green]✓[/green] Created environment: {env_name}")
+        else:
+            console.print(f"  [dim]Environment '{env_name}' already exists[/dim]")
+        
+        return True
+    except subprocess.CalledProcessError as e:
+        console.print(f"  [red]✗[/red] Failed to create environment: {e.stderr.decode()}")
+        return False
 
 
 def set_github_env_secrets(repo, env_name, secrets):
@@ -184,7 +225,7 @@ def sync(skip_forgejo, skip_github):
                 f"\n[bold cyan]━━━ {app_name.upper()} ({repo}) ━━━[/bold cyan]"
             )
 
-            # Repository secrets (same for all)
+            # Repository secrets (infrastructure/build related)
             repo_secrets = {
                 "AGE_PUBLIC_KEY": age_public_key,
                 "FORGEJO_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:3001",
@@ -196,27 +237,36 @@ def sync(skip_forgejo, skip_github):
 
             set_github_repo_secrets(repo, repo_secrets)
 
-            # Environment secrets (production)
-            env_secrets = {
-                "POSTGRES_HOST": env.get("CORE_INTERNAL_IP", ""),
-                "POSTGRES_USER": env.get("POSTGRES_USER", "superdeploy"),
-                "POSTGRES_PASSWORD": env.get("POSTGRES_PASSWORD", ""),
-                "POSTGRES_DB": env.get("POSTGRES_DB", "superdeploy_db"),
-                "POSTGRES_PORT": "5432",
-                "RABBITMQ_HOST": env.get("CORE_INTERNAL_IP", ""),
-                "RABBITMQ_USER": env.get("RABBITMQ_USER", "superdeploy"),
-                "RABBITMQ_PASSWORD": env.get("RABBITMQ_PASSWORD", ""),
-                "RABBITMQ_PORT": "5672",
-                "REDIS_HOST": env.get("CORE_INTERNAL_IP", ""),
-                "REDIS_PASSWORD": env.get("REDIS_PASSWORD", ""),
-                "API_SECRET_KEY": env.get("API_SECRET_KEY", ""),
-                "API_DEBUG": "false",
-                "API_BASE_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}:8000",
-                "PUBLIC_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}",
-                "SENTRY_DSN": env.get("SENTRY_DSN", ""),
-            }
-
-            set_github_env_secrets(repo, "production", env_secrets)
+            # Environment-specific secrets (production & staging)
+            for env_name in ["production", "staging"]:
+                console.print(f"\n[dim]Configuring {env_name} environment...[/dim]")
+                
+                # Create environment
+                if not create_github_environment(repo, env_name):
+                    console.print(f"[yellow]⚠️  Skipping {env_name} secrets[/yellow]")
+                    continue
+                
+                # Environment secrets
+                env_secrets = {
+                    "POSTGRES_HOST": env.get("CORE_INTERNAL_IP", ""),
+                    "POSTGRES_USER": env.get("POSTGRES_USER", "cheapa_user"),
+                    "POSTGRES_PASSWORD": env.get("POSTGRES_PASSWORD", ""),
+                    "POSTGRES_DB": env.get("POSTGRES_DB", "cheapa_db"),
+                    "POSTGRES_PORT": "5432",
+                    "RABBITMQ_HOST": env.get("CORE_INTERNAL_IP", ""),
+                    "RABBITMQ_USER": env.get("RABBITMQ_USER", "cheapa_user"),
+                    "RABBITMQ_PASSWORD": env.get("RABBITMQ_PASSWORD", ""),
+                    "RABBITMQ_PORT": "5672",
+                    "REDIS_HOST": env.get("CORE_INTERNAL_IP", ""),
+                    "REDIS_PASSWORD": env.get("REDIS_PASSWORD", ""),
+                    "API_SECRET_KEY": env.get("API_SECRET_KEY", ""),
+                    "API_DEBUG": "true" if env_name == "staging" else "false",
+                    "API_BASE_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}:8000",
+                    "PUBLIC_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}",
+                    "SENTRY_DSN": env.get("SENTRY_DSN", ""),
+                }
+                
+                set_github_env_secrets(repo, env_name, env_secrets)
 
             progress.advance(task3)
 

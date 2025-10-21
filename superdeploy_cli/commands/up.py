@@ -176,7 +176,8 @@ def clean_ssh_known_hosts(env):
 @click.option("--skip-terraform", is_flag=True, help="Skip Terraform provisioning")
 @click.option("--skip-ansible", is_flag=True, help="Skip Ansible configuration")
 @click.option("--skip-git-push", is_flag=True, help="Skip Git push")
-def up(skip_terraform, skip_ansible, skip_git_push):
+@click.option("--skip-sync", is_flag=True, help="Skip automatic GitHub secrets sync")
+def up(skip_terraform, skip_ansible, skip_git_push, skip_sync):
     """
     Deploy infrastructure (like 'heroku create')
 
@@ -342,6 +343,25 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,ap
     console.print(
         f"[cyan]👤 Login:[/cyan]   {env.get('FORGEJO_ADMIN_USER', 'admin')} / {env.get('FORGEJO_ADMIN_PASSWORD', '')}"
     )
-    console.print(
-        "\n[yellow]Next step:[/yellow] [bold cyan]superdeploy sync[/bold cyan]"
-    )
+
+    # Auto-sync GitHub secrets (unless --skip-sync flag)
+    if not skip_sync:
+        console.print("\n[bold cyan]🔄 Auto-syncing GitHub secrets...[/bold cyan]")
+        from superdeploy_cli.commands.sync import sync as sync_command
+
+        # Call sync programmatically (need to create click Context)
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(sync_command, ["--skip-forgejo"], obj={})
+
+        if result.exit_code == 0:
+            console.print("[green]✅ GitHub secrets synced![/green]")
+        else:
+            console.print(
+                "[yellow]⚠️  Sync failed. Run 'superdeploy sync' manually.[/yellow]"
+            )
+    else:
+        console.print(
+            "\n[yellow]Note:[/yellow] Run [bold cyan]superdeploy sync[/bold cyan] to configure GitHub secrets"
+        )
