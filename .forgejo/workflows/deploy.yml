@@ -1,4 +1,4 @@
-name: ${{ github.event.inputs.title || 'Deploy Application' }}
+name: Deploy Application
 
 on:
   workflow_dispatch:
@@ -51,6 +51,18 @@ jobs:
       MIGRATE: ${{ github.event.inputs.migrate }}
     
     steps:
+      - name: 🚀 ${{ github.event.inputs.title || 'Deploy Application' }}
+        run: |
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "  🚀 ${{ github.event.inputs.title || 'Deploy Application' }}"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          echo "📋 Deployment Info:"
+          echo "  Project: ${{ github.event.inputs.project }}"
+          echo "  Environment: ${{ github.event.inputs.environment }}"
+          echo "  Services: ${{ github.event.inputs.services }}"
+          echo ""
+
       - name: 📦 Checkout superdeploy code
         run: |
           cd /opt/superdeploy
@@ -385,6 +397,8 @@ jobs:
       - name: 📧 Send deployment notification
         if: always()
         run: |
+          set -x  # Enable debug output
+          
           # Determine deployment status
           if [ "${{ job.status }}" = "success" ]; then
             STATUS="✅ SUCCESS"
@@ -408,6 +422,12 @@ jobs:
           WORKFLOW_TITLE="${{ github.event.inputs.title }}"
           SUBJECT="[${STATUS}] ${WORKFLOW_TITLE}"
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          
+          # Debug: Print email config
+          echo "DEBUG: Email Configuration"
+          echo "  ALERT_EMAIL=${ALERT_EMAIL}"
+          echo "  SUBJECT=${SUBJECT}"
+          echo "  STATUS=${STATUS}"
           
           # Install mailutils if not present
           if ! command -v mail &> /dev/null; then
