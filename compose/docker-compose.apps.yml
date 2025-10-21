@@ -29,6 +29,8 @@ services:
       - "com.superdeploy.service=api"
       - "com.superdeploy.image.tag=${API_IMAGE_TAG}"
       - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
+      - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
+      - "com.superdeploy.release=${RELEASE_VERSION:-v1}"
     stop_grace_period: 30s  # Graceful shutdown
 
   dashboard:
@@ -54,6 +56,8 @@ services:
       - "com.superdeploy.service=dashboard"
       - "com.superdeploy.image.tag=${DASHBOARD_IMAGE_TAG}"
       - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
+      - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
+      - "com.superdeploy.release=${RELEASE_VERSION:-v1}"
     stop_grace_period: 10s
 
   services:
@@ -79,6 +83,8 @@ services:
       - "com.superdeploy.service=services"
       - "com.superdeploy.image.tag=${SERVICES_IMAGE_TAG}"
       - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
+      - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
+      - "com.superdeploy.release=${RELEASE_VERSION:-v1}"
     stop_grace_period: 60s  # Workers need more time
 
 networks:

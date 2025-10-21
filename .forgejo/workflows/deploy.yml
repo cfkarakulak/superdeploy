@@ -260,6 +260,8 @@ jobs:
           export RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
           export RABBITMQ_PASSWORD="${{ secrets.RABBITMQ_PASSWORD }}"
           export DEPLOY_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export GIT_SHA="${{ github.sha }}"
+          export RELEASE_VERSION="v$(date +%Y%m%d)-${GITHUB_RUN_NUMBER:-1}"
           
           # Parse services
           IFS=',' read -ra SERVICE_ARRAY <<< "$SERVICES"

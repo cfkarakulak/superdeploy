@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from superdeploy_cli.commands import init, up, sync, status, logs, run_cmd, deploy
-from superdeploy_cli.commands import scale, restart, doctor, config, env
+from superdeploy_cli.commands import scale, restart, doctor, config, env, releases
 
 console = Console()
 
@@ -60,6 +60,8 @@ cli.add_command(restart.restart)
 cli.add_command(doctor.doctor)
 cli.add_command(config.config_group)
 cli.add_command(env.env_group)
+cli.add_command(releases.releases)
+cli.add_command(releases.rollback)
 
 
 if __name__ == "__main__":

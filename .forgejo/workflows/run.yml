@@ -1,0 +1,59 @@
+name: 🎯 One-off Command Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'App name (api, dashboard, services)'
+        required: true
+        type: string
+      command:
+        description: 'Command to run'
+        required: true
+        type: string
+
+jobs:
+  run-command:
+    runs-on: [self-hosted, linux, x64]
+    
+    steps:
+      - name: 📝 Command Info
+        run: |
+          echo "🎯 One-off Command Runner"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "App:     ${{ github.event.inputs.app }}"
+          echo "Command: ${{ github.event.inputs.command }}"
+          echo ""
+      
+      - name: ⚡ Run Command
+        run: |
+          cd /opt/superdeploy/compose
+          
+          APP="${{ github.event.inputs.app }}"
+          CMD="${{ github.event.inputs.command }}"
+          
+          echo "Executing: docker compose run --rm $APP sh -lc '$CMD'"
+          echo ""
+          
+          # Run with docker compose
+          docker compose run --rm "$APP" sh -lc "$CMD" 2>&1 || {
+            echo ""
+            echo "❌ Command failed with exit code $?"
+            exit 1
+          }
+          
+          echo ""
+          echo "✅ Command completed successfully!"
+      
+      - name: 📧 Notify completion
+        if: always()
+        run: |
+          STATUS="${{ job.status == 'success' && '✅ SUCCESS' || '❌ FAILED' }}"
+          
+          echo "$STATUS - One-off command completed"
+          echo ""
+          echo "App: ${{ github.event.inputs.app }}"
+          echo "Command: ${{ github.event.inputs.command }}"
+          echo "Status: $STATUS"
+

@@ -16,6 +16,7 @@ superdeploy_cli/commands/doctor.py
 superdeploy_cli/commands/env.py
 superdeploy_cli/commands/init.py
 superdeploy_cli/commands/logs.py
+superdeploy_cli/commands/releases.py
 superdeploy_cli/commands/restart.py
 superdeploy_cli/commands/run_cmd.py
 superdeploy_cli/commands/scale.py
