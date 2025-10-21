@@ -140,6 +140,61 @@ def set_github_env_secrets(repo, env_name, secrets):
             console.print(f"  [red]✗[/red] {key}: {e.stderr.decode()}")
 
 
+def sync_forgejo_secrets(env, forgejo_pat):
+    """Sync all secrets to Forgejo repository"""
+    import requests
+    
+    forgejo_url = f"http://{env['CORE_EXTERNAL_IP']}:3001"
+    org = env.get("FORGEJO_ORG", "cradexco")
+    repo = env.get("REPO_SUPERDEPLOY", "superdeploy-app")
+    
+    secrets = {
+        # Core Services
+        "POSTGRES_HOST": env.get("CORE_INTERNAL_IP", ""),
+        "POSTGRES_USER": env.get("POSTGRES_USER"),
+        "POSTGRES_PASSWORD": env.get("POSTGRES_PASSWORD"),
+        "POSTGRES_DB": env.get("POSTGRES_DB"),
+        "POSTGRES_PORT": "5432",
+        "RABBITMQ_HOST": env.get("CORE_INTERNAL_IP", ""),
+        "RABBITMQ_USER": env.get("RABBITMQ_USER"),
+        "RABBITMQ_PASSWORD": env.get("RABBITMQ_PASSWORD"),
+        "RABBITMQ_PORT": "5672",
+        "REDIS_HOST": env.get("CORE_INTERNAL_IP", ""),
+        "REDIS_PASSWORD": env.get("REDIS_PASSWORD", ""),
+        # App Config
+        "API_SECRET_KEY": env.get("API_SECRET_KEY", ""),
+        "API_DEBUG": "false",
+        "API_BASE_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}:8000",
+        "PUBLIC_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}",
+        "SENTRY_DSN": env.get("SENTRY_DSN", ""),
+        # Infrastructure
+        "CORE_EXTERNAL_IP": env.get("CORE_EXTERNAL_IP", ""),
+        "CORE_INTERNAL_IP": env.get("CORE_INTERNAL_IP", ""),
+        "DOCKER_REGISTRY": "docker.io",
+        "DOCKER_ORG": env.get("DOCKER_ORG", ""),
+    }
+    
+    for key, value in secrets.items():
+        try:
+            response = requests.put(
+                f"{forgejo_url}/api/v1/repos/{org}/{repo}/actions/secrets/{key}",
+                headers={
+                    "Authorization": f"token {forgejo_pat}",
+                    "Content-Type": "application/json",
+                },
+                json={"data": value},
+                timeout=10,
+            )
+            if response.status_code in [200, 201, 204]:
+                console.print(f"  [green]✓[/green] {key}")
+            else:
+                console.print(f"  [yellow]⚠[/yellow] {key}: {response.status_code}")
+        except Exception as e:
+            console.print(f"  [red]✗[/red] {key}: {e}")
+    
+    console.print("[green]✅ Forgejo secrets synced![/green]")
+
+
 @click.command()
 @click.option("--skip-forgejo", is_flag=True, help="Skip Forgejo PAT creation")
 @click.option("--skip-github", is_flag=True, help="Skip GitHub secrets sync")
@@ -219,6 +274,11 @@ def sync(skip_forgejo, skip_github):
                 console.print("[green]✅ Forgejo PAT saved to .env[/green]")
 
         progress.advance(task2)
+        
+        # Step 2.5: Sync secrets to Forgejo repository
+        if forgejo_pat:
+            console.print("\n[bold cyan]📝 Syncing secrets to Forgejo repository...[/bold cyan]")
+            sync_forgejo_secrets(env, forgejo_pat)
 
         if skip_github:
             console.print("[yellow]⚠️  Skipping GitHub secrets sync[/yellow]")
