@@ -6,8 +6,6 @@
 #   --tags system-base       : Setup base system (docker, firewall, swap, etc)
 #   --tags app-deployment    : Deploy application services (API, DB, Queue, etc)
 #   --tags git-server        : Deploy Forgejo Git server
-#   --tags scrape-workers    : Setup scrape workers
-#   --tags proxy-servers     : Setup proxy servers
 #   No tags                  : Full deployment
 
 - name: Setup Base System Infrastructure
@@ -46,22 +44,6 @@
     - role: git-server
   tags:
     - git-server
-
-- name: Setup Scrape Workers
-  hosts: scrape
-  become: yes
-  roles:
-    - role: scrape-workers
-  tags:
-    - scrape-workers
-
-- name: Setup Proxy Servers
-  hosts: proxy
-  become: yes
-  roles:
-    - role: proxy-servers
-  tags:
-    - proxy-servers
 
 - name: Verify deployment
   hosts: all

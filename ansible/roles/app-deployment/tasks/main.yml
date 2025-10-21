@@ -2,42 +2,44 @@
 # Core Services deployment - PostgreSQL, RabbitMQ, Caddy
 # This role deploys the core infrastructure services (separate from app services)
 
-- name: Copy compose directory from superdeploy repository
+- name: Copy projects directory from superdeploy repository
   synchronize:
-    src: "../../../../compose/"
-    dest: "/opt/superdeploy/compose/"
+    src: "../../../../projects/"
+    dest: "/opt/superdeploy/projects/"
     delete: no
     recursive: yes
   delegate_to: localhost
+  become: no  # Don't use sudo on localhost
 
-- name: Fix ownership of compose directory
+- name: Fix ownership of projects directory
   file:
-    path: /opt/superdeploy/compose
+    path: /opt/superdeploy/projects
     owner: superdeploy
     group: superdeploy
     recurse: yes
 
-- name: Generate environment file for core services
+- name: Generate environment file for core services (Cheapa project)
   template:
     src: core.env.j2
-    dest: /opt/superdeploy/compose/.env
+    dest: /opt/superdeploy/projects/cheapa/compose/.env
     owner: superdeploy
     group: superdeploy
     mode: '0600'
 
-- name: Create Docker network for app services
-  shell: docker network create app-network 2>/dev/null || true
+- name: Create Docker network for Cheapa project
+  shell: docker network create cheapa-network 2>/dev/null || true
   become_user: superdeploy
 
-- name: Start core services (PostgreSQL, RabbitMQ, Caddy)
+- name: Start core services (PostgreSQL, RabbitMQ, Caddy, Redis) for Cheapa
   shell: |
-    cd /opt/superdeploy/compose
-    export POSTGRES_USER=superdeploy
+    cd /opt/superdeploy/projects/cheapa/compose
+    export POSTGRES_USER="cheapa_user"
     export POSTGRES_PASSWORD="{{ lookup('env', 'POSTGRES_PASSWORD') }}"
-    export POSTGRES_DB=superdeploy_db
-    export RABBITMQ_USER=superdeploy
+    export POSTGRES_DB="cheapa_db"
+    export RABBITMQ_USER="cheapa_user"
     export RABBITMQ_PASSWORD="{{ lookup('env', 'RABBITMQ_PASSWORD') }}"
-    docker compose -f docker-compose.core.yml up -d postgres rabbitmq caddy
+    export REDIS_PASSWORD="{{ lookup('env', 'REDIS_PASSWORD') }}"
+    docker compose -f docker-compose.core.yml up -d
   become_user: superdeploy
   environment:
     FORGEJO_DB_NAME: "forgejo"
@@ -45,32 +47,32 @@
     FORGEJO_DB_PASSWORD: "{{ lookup('env', 'POSTGRES_PASSWORD') }}"
     FORGEJO_SECRET_KEY: "dummy"
 
-- name: Create systemd service for core services persistence
+- name: Create systemd service for Cheapa core services persistence
   copy:
     content: |
       [Unit]
-      Description=SuperDeploy Core Services (PostgreSQL, RabbitMQ, Caddy)
+      Description=Cheapa Core Services (PostgreSQL, RabbitMQ, Redis, Caddy)
       Requires=docker.service
       After=docker.service
 
       [Service]
       Type=oneshot
       RemainAfterExit=yes
-      WorkingDirectory=/opt/superdeploy/compose
-      EnvironmentFile=/opt/superdeploy/compose/.env
-      ExecStart=/usr/bin/docker compose -f docker-compose.core.yml up -d postgres rabbitmq caddy
-      ExecStop=/usr/bin/docker compose -f docker-compose.core.yml stop postgres rabbitmq caddy
+      WorkingDirectory=/opt/superdeploy/projects/cheapa/compose
+      EnvironmentFile=/opt/superdeploy/projects/cheapa/compose/.env
+      ExecStart=/usr/bin/docker compose -f docker-compose.core.yml up -d
+      ExecStop=/usr/bin/docker compose -f docker-compose.core.yml stop
       User=superdeploy
       Group=superdeploy
 
       [Install]
       WantedBy=multi-user.target
-    dest: /etc/systemd/system/superdeploy-core.service
+    dest: /etc/systemd/system/cheapa-core.service
     mode: '0644'
 
-- name: Enable superdeploy-core service (for VM restart persistence)
+- name: Enable cheapa-core service (for VM restart persistence)
   systemd:
-    name: superdeploy-core
+    name: cheapa-core
     enabled: yes
     daemon_reload: yes
 
