@@ -94,13 +94,12 @@ def create_github_environment(repo, env_name):
         )
         
         if result.returncode != 0:
-            # Create environment
+            # Create environment (minimal, free plan compatible)
             subprocess.run(
                 [
                     "gh", "api",
                     f"repos/{repo}/environments/{env_name}",
                     "-X", "PUT",
-                    "-f", "wait_timer=0",
                 ],
                 check=True,
                 capture_output=True,
