@@ -268,6 +268,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
 
         ansible_dir = project_root / "shared" / "ansible"
         # Load project secrets for infrastructure deployment
+        project_path = project_root / "projects" / project
         project_secrets_file = project_path / "secrets.env"
         project_secrets = {}
         if project_secrets_file.exists():
