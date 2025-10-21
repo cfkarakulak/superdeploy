@@ -1,59 +1,277 @@
 ---
-# Core Services deployment - PostgreSQL, RabbitMQ, Caddy
-# This role deploys the core infrastructure services (separate from app services)
+# Core Services deployment - PostgreSQL, RabbitMQ, Redis, Caddy
+# This role deploys ONLY the core infrastructure services
+# Actual application code (projects/) will be pushed via Forgejo later
 
-- name: Clone superdeploy repository
-  git:
-    repo: "https://github.com/cfkarakulak/superdeploy.git"
-    dest: "/opt/superdeploy"
-    version: "master"
-    force: yes
-  become_user: superdeploy
-
-- name: Ensure proper ownership of superdeploy directory
+# =============================================================================
+# STEP 1: Create directory structure
+# =============================================================================
+- name: Create Cheapa project directory structure
   file:
-    path: /opt/superdeploy
+    path: "{{ item }}"
+    state: directory
     owner: superdeploy
     group: superdeploy
-    recurse: yes
+    mode: '0755'
+  loop:
+    - /opt/superdeploy
+    - /opt/superdeploy/projects
+    - /opt/superdeploy/projects/cheapa
+    - /opt/superdeploy/projects/cheapa/compose
+    - /opt/superdeploy/projects/cheapa/compose/caddy
 
-- name: Generate environment file for core services (Cheapa project)
-  template:
-    src: core.env.j2
+# =============================================================================
+# STEP 2: Generate docker-compose.core.yml from template
+# =============================================================================
+- name: Generate Cheapa core services compose file
+  copy:
+    content: |
+      version: '3.8'
+      
+      networks:
+        cheapa-network:
+          name: cheapa-network
+          driver: bridge
+      
+      volumes:
+        cheapa-postgres-data:
+        cheapa-rabbitmq-data:
+        cheapa-redis-data:
+        cheapa-caddy-data:
+        cheapa-caddy-config:
+      
+      services:
+        postgres:
+          image: postgres:15-alpine
+          container_name: cheapa-postgres
+          restart: unless-stopped
+          environment:
+            POSTGRES_USER: ${POSTGRES_USER:-cheapa_user}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+            POSTGRES_DB: ${POSTGRES_DB:-cheapa_db}
+            PGDATA: /var/lib/postgresql/data/pgdata
+          volumes:
+            - cheapa-postgres-data:/var/lib/postgresql/data
+          networks:
+            - cheapa-network
+          ports:
+            - "127.0.0.1:5432:5432"
+          healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cheapa_user}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+          deploy:
+            resources:
+              limits:
+                memory: 2G
+                cpus: '1.0'
+          labels:
+            - "com.superdeploy.project=cheapa"
+            - "com.superdeploy.service=postgres"
+      
+        rabbitmq:
+          image: rabbitmq:3-management-alpine
+          container_name: cheapa-rabbitmq
+          restart: unless-stopped
+          environment:
+            RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-cheapa_user}
+            RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?required}
+            RABBITMQ_DEFAULT_VHOST: cheapa
+          volumes:
+            - cheapa-rabbitmq-data:/var/lib/rabbitmq
+          networks:
+            - cheapa-network
+          ports:
+            - "127.0.0.1:5672:5672"
+            - "127.0.0.1:15672:15672"
+          healthcheck:
+            test: ["CMD", "rabbitmq-diagnostics", "ping"]
+            interval: 30s
+            timeout: 10s
+            retries: 5
+          deploy:
+            resources:
+              limits:
+                memory: 1G
+                cpus: '0.5'
+          labels:
+            - "com.superdeploy.project=cheapa"
+            - "com.superdeploy.service=rabbitmq"
+      
+        redis:
+          image: redis:7-alpine
+          container_name: cheapa-redis
+          restart: unless-stopped
+          command: redis-server --requirepass ${REDIS_PASSWORD:?required}
+          volumes:
+            - cheapa-redis-data:/data
+          networks:
+            - cheapa-network
+          ports:
+            - "127.0.0.1:6379:6379"
+          healthcheck:
+            test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+          deploy:
+            resources:
+              limits:
+                memory: 512M
+                cpus: '0.25'
+          labels:
+            - "com.superdeploy.project=cheapa"
+            - "com.superdeploy.service=redis"
+      
+        caddy:
+          image: caddy:2-alpine
+          container_name: cheapa-caddy
+          restart: unless-stopped
+          volumes:
+            - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+            - cheapa-caddy-data:/data
+            - cheapa-caddy-config:/config
+          networks:
+            - cheapa-network
+          ports:
+            - "80:80"
+            - "443:443"
+          healthcheck:
+            test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:2019/metrics"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+          labels:
+            - "com.superdeploy.project=cheapa"
+            - "com.superdeploy.service=caddy"
+    dest: /opt/superdeploy/projects/cheapa/compose/docker-compose.core.yml
+    owner: superdeploy
+    group: superdeploy
+    mode: '0644'
+
+# =============================================================================
+# STEP 3: Generate Caddyfile
+# =============================================================================
+- name: Generate Caddyfile for reverse proxy
+  copy:
+    content: |
+      # Cheapa Project - Caddy Reverse Proxy
+      {
+          admin off
+          auto_https off
+      }
+      
+      :80 {
+          # API routes
+          handle /api/* {
+              reverse_proxy cheapa-api:8000
+          }
+          
+          # Dashboard (SPA)
+          handle /* {
+              reverse_proxy cheapa-dashboard:3000
+          }
+          
+          # Health check
+          handle /health {
+              respond "OK" 200
+          }
+      }
+    dest: /opt/superdeploy/projects/cheapa/compose/caddy/Caddyfile
+    owner: superdeploy
+    group: superdeploy
+    mode: '0644'
+
+# =============================================================================
+# STEP 4: Generate .env file for core services
+# =============================================================================
+- name: Generate environment file for Cheapa core services
+  copy:
+    content: |
+      # Cheapa Core Services Environment
+      # Generated by Ansible
+      
+      # PostgreSQL
+      POSTGRES_USER=cheapa_user
+      POSTGRES_PASSWORD={{ lookup('env', 'POSTGRES_PASSWORD') }}
+      POSTGRES_DB=cheapa_db
+      
+      # RabbitMQ
+      RABBITMQ_USER=cheapa_user
+      RABBITMQ_PASSWORD={{ lookup('env', 'RABBITMQ_PASSWORD') }}
+      
+      # Redis
+      REDIS_PASSWORD={{ lookup('env', 'REDIS_PASSWORD') }}
+      
+      # Forgejo (will be used by git-server role)
+      FORGEJO_DB_NAME=forgejo
+      FORGEJO_DB_USER=forgejo
+      FORGEJO_DB_PASSWORD={{ lookup('env', 'POSTGRES_PASSWORD') }}
     dest: /opt/superdeploy/projects/cheapa/compose/.env
     owner: superdeploy
     group: superdeploy
     mode: '0600'
 
+# =============================================================================
+# STEP 5: Create Docker network
+# =============================================================================
 - name: Create Docker network for Cheapa project
-  shell: docker network create cheapa-network 2>/dev/null || true
+  docker_network:
+    name: cheapa-network
+    driver: bridge
   become_user: superdeploy
 
-- name: Start core services (PostgreSQL, RabbitMQ, Caddy, Redis) for Cheapa
-  shell: |
-    cd /opt/superdeploy/projects/cheapa/compose
-    export POSTGRES_USER="cheapa_user"
-    export POSTGRES_PASSWORD="{{ lookup('env', 'POSTGRES_PASSWORD') }}"
-    export POSTGRES_DB="cheapa_db"
-    export RABBITMQ_USER="cheapa_user"
-    export RABBITMQ_PASSWORD="{{ lookup('env', 'RABBITMQ_PASSWORD') }}"
-    export REDIS_PASSWORD="{{ lookup('env', 'REDIS_PASSWORD') }}"
-    docker compose -f docker-compose.core.yml up -d
+# =============================================================================
+# STEP 6: Start core services
+# =============================================================================
+- name: Start Cheapa core services (PostgreSQL, RabbitMQ, Redis, Caddy)
+  community.docker.docker_compose_v2:
+    project_src: /opt/superdeploy/projects/cheapa/compose
+    files:
+      - docker-compose.core.yml
+    state: present
   become_user: superdeploy
   environment:
-    FORGEJO_DB_NAME: "forgejo"
-    FORGEJO_DB_USER: "forgejo"
-    FORGEJO_DB_PASSWORD: "{{ lookup('env', 'POSTGRES_PASSWORD') }}"
-    FORGEJO_SECRET_KEY: "dummy"
+    POSTGRES_PASSWORD: "{{ lookup('env', 'POSTGRES_PASSWORD') }}"
+    RABBITMQ_PASSWORD: "{{ lookup('env', 'RABBITMQ_PASSWORD') }}"
+    REDIS_PASSWORD: "{{ lookup('env', 'REDIS_PASSWORD') }}"
 
-- name: Create systemd service for Cheapa core services persistence
+# =============================================================================
+# STEP 7: Wait for services to be healthy
+# =============================================================================
+- name: Wait for PostgreSQL to be ready
+  wait_for:
+    host: 127.0.0.1
+    port: 5432
+    timeout: 60
+    state: started
+
+- name: Wait for RabbitMQ to be ready
+  wait_for:
+    host: 127.0.0.1
+    port: 5672
+    timeout: 60
+    state: started
+
+- name: Wait for Redis to be ready
+  wait_for:
+    host: 127.0.0.1
+    port: 6379
+    timeout: 60
+    state: started
+
+# =============================================================================
+# STEP 8: Create systemd service for persistence across VM reboots
+# =============================================================================
+- name: Create systemd service for Cheapa core services
   copy:
     content: |
       [Unit]
       Description=Cheapa Core Services (PostgreSQL, RabbitMQ, Redis, Caddy)
       Requires=docker.service
       After=docker.service
-
+      
       [Service]
       Type=oneshot
       RemainAfterExit=yes
@@ -63,30 +281,42 @@
       ExecStop=/usr/bin/docker compose -f docker-compose.core.yml stop
       User=superdeploy
       Group=superdeploy
-
+      
       [Install]
       WantedBy=multi-user.target
     dest: /etc/systemd/system/cheapa-core.service
     mode: '0644'
 
-- name: Enable cheapa-core service (for VM restart persistence)
+- name: Enable cheapa-core service for VM restart persistence
   systemd:
     name: cheapa-core
     enabled: yes
     daemon_reload: yes
 
-- name: Configure logrotate for Docker logs
-  copy:
-    content: |
-      /opt/superdeploy/logs/*.log {
-          daily
-          missingok
-          rotate 7
-          compress
-          delaycompress
-          notifempty
-          create 0644 superdeploy superdeploy
-      }
-    dest: /etc/logrotate.d/superdeploy
-    mode: '0644'
+# =============================================================================
+# STEP 9: Verify deployment
+# =============================================================================
+- name: Verify core services are running
+  command: docker ps --filter "label=com.superdeploy.project=cheapa" --format "table {{.Names}}\t{{.Status}}"
+  register: docker_ps_output
+  become_user: superdeploy
 
+- name: Display running services
+  debug:
+    msg: "{{ docker_ps_output.stdout_lines }}"
+
+- name: Success message
+  debug:
+    msg: |
+      ✅ Cheapa core services deployed successfully!
+      
+      Services running:
+        - PostgreSQL (cheapa-postgres)
+        - RabbitMQ (cheapa-rabbitmq)
+        - Redis (cheapa-redis)
+        - Caddy (cheapa-caddy)
+      
+      Next steps:
+        1. Forgejo will be installed by git-server role
+        2. Push superdeploy to Forgejo
+        3. GitHub Actions will deploy application services
