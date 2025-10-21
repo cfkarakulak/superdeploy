@@ -215,9 +215,10 @@ def sync_forgejo_secrets(env, forgejo_pat):
 
 
 @click.command()
+@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
 @click.option("--skip-forgejo", is_flag=True, help="Skip Forgejo PAT creation")
 @click.option("--skip-github", is_flag=True, help="Skip GitHub secrets sync")
-def sync(skip_forgejo, skip_github):
+def sync(project, skip_forgejo, skip_github):
     """
     Sync ALL secrets to GitHub (magic!)
 
@@ -232,15 +233,40 @@ def sync(skip_forgejo, skip_github):
     - SSH access to VMs
     - GITHUB_TOKEN in .env
     """
+    from cli.utils import validate_project, get_project_path
+    from dotenv import dotenv_values
+
+    # Validate project first
+    validate_project(project)
+    project_path = get_project_path(project)
+
     console.print(
         Panel.fit(
-            "[bold cyan]🔄 SuperDeploy Secret Sync[/bold cyan]\n\n"
-            "[white]Automating GitHub secrets configuration...[/white]",
+            f"[bold cyan]🔄 SuperDeploy Secret Sync[/bold cyan]\n\n"
+            f"[white]Project: {project}[/white]\n"
+            f"[white]Automating GitHub secrets configuration...[/white]",
             border_style="cyan",
         )
     )
 
+    # Load infrastructure .env
     env = load_env()
+
+    # Load project-specific secrets
+    secrets_file = project_path / "secrets.env"
+    if not secrets_file.exists():
+        console.print(f"[red]❌ Project secrets file not found: {secrets_file}[/red]")
+        console.print("\n[yellow]Create it with:[/yellow]")
+        console.print(
+            f"  cp projects/{project}/secrets.env.example projects/{project}/secrets.env"
+        )
+        raise SystemExit(1)
+
+    project_secrets = dotenv_values(secrets_file)
+    console.print(f"[dim]Loaded project secrets from: {secrets_file}[/dim]")
+
+    # Merge: infrastructure + project secrets
+    env.update(project_secrets)
 
     # Validate required vars
     required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH", "GITHUB_TOKEN"]

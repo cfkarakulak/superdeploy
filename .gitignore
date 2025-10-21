@@ -4,8 +4,11 @@
 
 # Environment & Secrets
 .env
+.env.*
 *.env.local
 *.env.*.local
+secrets.env
+projects/*/secrets.env
 
 # Python
 __pycache__/

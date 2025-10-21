@@ -12,7 +12,6 @@ from cli.utils import (
     get_project_root,
     validate_env_vars,
     validate_project,
-    get_project_path,
 )
 
 console = Console()
@@ -195,7 +194,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
     """
     # Validate project first
     validate_project(project)
-    
+
     console.print(
         Panel.fit(
             f"[bold cyan]🚀 SuperDeploy Infrastructure Deployment[/bold cyan]\n\n"
