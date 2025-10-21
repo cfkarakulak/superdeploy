@@ -118,12 +118,34 @@ jobs:
 
       - name: Setup app .env files from Forgejo Secrets
         run: |
-          mkdir -p /opt/app-repos/{api,dashboard,services}
+          PROJECT="${{ github.event.inputs.project }}"
+          COMPOSE_DIR="/opt/superdeploy/projects/${PROJECT}/compose"
+          
+          # Create env directory
+          mkdir -p ${COMPOSE_DIR}/env
           
           echo "Generating .env files from Forgejo Secrets..."
           
+          # PostgreSQL .env
+          cat > ${COMPOSE_DIR}/env/postgres.env <<EOF
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+          EOF
+          
+          # RabbitMQ .env
+          cat > ${COMPOSE_DIR}/env/rabbitmq.env <<EOF
+          RABBITMQ_DEFAULT_USER=${{ secrets.RABBITMQ_USER }}
+          RABBITMQ_DEFAULT_PASS=${{ secrets.RABBITMQ_PASSWORD }}
+          EOF
+          
+          # Redis .env
+          cat > ${COMPOSE_DIR}/env/redis.env <<EOF
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          EOF
+          
           # API .env
-          cat > /opt/app-repos/api/.env <<EOF
+          cat > ${COMPOSE_DIR}/env/api.env <<EOF
           # Database
           DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}
           
@@ -143,14 +165,14 @@ jobs:
           EOF
           
           # Dashboard .env
-          cat > /opt/app-repos/dashboard/.env <<EOF
+          cat > ${COMPOSE_DIR}/env/dashboard.env <<EOF
           PUBLIC_URL=${{ secrets.PUBLIC_URL }}
           API_BASE_URL=${{ secrets.API_BASE_URL }}
           ENVIRONMENT=${{ env.ENVIRONMENT }}
           EOF
           
           # Services .env
-          cat > /opt/app-repos/services/.env <<EOF
+          cat > ${COMPOSE_DIR}/env/services.env <<EOF
           # Database
           DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}
           
