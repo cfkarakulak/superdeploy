@@ -255,14 +255,12 @@ def up(skip_terraform, skip_ansible, skip_git_push, skip_sync):
                 progress.advance(task_wait)
             console.print("[green]✅ VMs ready![/green]")
 
-        # Ansible
-        if not skip_ansible:
-            task2 = progress.add_task(
-                "[cyan]Configuring services (Ansible)...", total=1
-            )
+    # Ansible (outside progress context to avoid output mixing)
+    if not skip_ansible:
+        console.print("\n[cyan]⚙️  Configuring services (Ansible)...[/cyan]")
 
-            ansible_dir = project_root / "ansible"
-            ansible_cmd = f"""
+        ansible_dir = project_root / "ansible"
+        ansible_cmd = f"""
 cd {ansible_dir} && \
 ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,app-deployment,git-server \
   -e "core_external_ip={env["CORE_EXTERNAL_IP"]}" \
@@ -289,13 +287,17 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,ap
   -e "REDIS_PASSWORD={env.get("REDIS_PASSWORD", "")}"
 """
 
-            run_command(ansible_cmd)
-            progress.advance(task2)
+        run_command(ansible_cmd)
+        console.print("[green]✅ Services configured![/green]")
 
-            console.print("[green]✅ Services configured![/green]")
-
-        # Git push
-        if not skip_git_push:
+    # Git push (also outside progress to avoid mixing)
+    if not skip_git_push:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            console=console,
+        ) as progress:
             task3 = progress.add_task("[cyan]Pushing code...", total=2)
 
             # GitHub

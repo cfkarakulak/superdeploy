@@ -1,4 +1,4 @@
-name: Deploy Application
+name: ${{ github.event.inputs.title || 'Deploy Application' }}
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       title:
         description: 'Workflow title (auto-generated from GitHub)'
         required: false
-        default: 'Deploy Multi-Service'
+        default: 'Deploy Application'
       project:
         description: 'Project name (cheapa, projectb, etc.)'
         required: true
@@ -400,12 +400,13 @@ jobs:
           # Get external IP
           EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "unknown")
           
-          # Email config - hardcoded (root cause fix: no dependency on secrets)
+          # Email config (from Forgejo Secrets)
           ENV_NAME="${{ env.ENVIRONMENT }}"
           SERVICES_LIST="${{ env.SERVICES }}"
-          ALERT_EMAIL="cradexco@gmail.com"  # From .env
-          FORGEJO_ORG="cradexco"  # From .env
-          SUBJECT="[${STATUS}] SuperDeploy - ${ENV_NAME} - ${SERVICES_LIST}"
+          ALERT_EMAIL="${{ secrets.ALERT_EMAIL }}"
+          FORGEJO_ORG="${{ secrets.FORGEJO_ORG }}"
+          WORKFLOW_TITLE="${{ github.event.inputs.title }}"
+          SUBJECT="[${STATUS}] ${WORKFLOW_TITLE}"
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           
           # Install mailutils if not present

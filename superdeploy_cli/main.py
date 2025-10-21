@@ -10,7 +10,15 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from superdeploy_cli.commands import init, up, sync, status, logs, run_cmd, deploy
-from superdeploy_cli.commands import scale, restart, doctor, config, env, releases
+from superdeploy_cli.commands import (
+    scale,
+    restart,
+    doctor,
+    config,
+    env,
+    releases,
+    destroy,
+)
 
 console = Console()
 
@@ -50,6 +58,7 @@ def cli(ctx):
 # Register commands
 cli.add_command(init.init)
 cli.add_command(up.up)
+cli.add_command(destroy.destroy)
 cli.add_command(sync.sync)
 cli.add_command(status.status)
 cli.add_command(logs.logs)

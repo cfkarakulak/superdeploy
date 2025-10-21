@@ -12,6 +12,7 @@ superdeploy_cli/utils.py
 superdeploy_cli/commands/__init__.py
 superdeploy_cli/commands/config.py
 superdeploy_cli/commands/deploy.py
+superdeploy_cli/commands/destroy.py
 superdeploy_cli/commands/doctor.py
 superdeploy_cli/commands/env.py
 superdeploy_cli/commands/init.py

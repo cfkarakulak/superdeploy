@@ -143,37 +143,56 @@ def set_github_env_secrets(repo, env_name, secrets):
 def sync_forgejo_secrets(env, forgejo_pat):
     """Sync all secrets to Forgejo repository"""
     import requests
-    
+
     forgejo_url = f"http://{env['CORE_EXTERNAL_IP']}:3001"
-    org = env.get("FORGEJO_ORG", "cradexco")
-    repo = env.get("REPO_SUPERDEPLOY", "superdeploy-app")
-    
+    org = env["FORGEJO_ORG"]  # No fallback - MUST exist
+    repo = env["REPO_SUPERDEPLOY"]  # No fallback - MUST exist
+
+    # Test connection first
+    try:
+        test_response = requests.get(
+            f"{forgejo_url}/api/v1/user",
+            headers={"Authorization": f"token {forgejo_pat}"},
+            timeout=5,
+        )
+        if test_response.status_code != 200:
+            console.print(
+                "[yellow]⚠️  Forgejo not ready yet (will sync on next run)[/yellow]"
+            )
+            return
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Forgejo not accessible: {e}[/yellow]")
+        return
+
     secrets = {
         # Core Services
-        "POSTGRES_HOST": env.get("CORE_INTERNAL_IP", ""),
-        "POSTGRES_USER": env.get("POSTGRES_USER"),
-        "POSTGRES_PASSWORD": env.get("POSTGRES_PASSWORD"),
-        "POSTGRES_DB": env.get("POSTGRES_DB"),
+        "POSTGRES_HOST": env["CORE_INTERNAL_IP"],
+        "POSTGRES_USER": env["POSTGRES_USER"],
+        "POSTGRES_PASSWORD": env["POSTGRES_PASSWORD"],
+        "POSTGRES_DB": env["POSTGRES_DB"],
         "POSTGRES_PORT": "5432",
-        "RABBITMQ_HOST": env.get("CORE_INTERNAL_IP", ""),
-        "RABBITMQ_USER": env.get("RABBITMQ_USER"),
-        "RABBITMQ_PASSWORD": env.get("RABBITMQ_PASSWORD"),
+        "RABBITMQ_HOST": env["CORE_INTERNAL_IP"],
+        "RABBITMQ_USER": env["RABBITMQ_USER"],
+        "RABBITMQ_PASSWORD": env["RABBITMQ_PASSWORD"],
         "RABBITMQ_PORT": "5672",
-        "REDIS_HOST": env.get("CORE_INTERNAL_IP", ""),
-        "REDIS_PASSWORD": env.get("REDIS_PASSWORD", ""),
+        "REDIS_HOST": env["CORE_INTERNAL_IP"],
+        "REDIS_PASSWORD": env["REDIS_PASSWORD"],
         # App Config
-        "API_SECRET_KEY": env.get("API_SECRET_KEY", ""),
+        "API_SECRET_KEY": env["API_SECRET_KEY"],
         "API_DEBUG": "false",
-        "API_BASE_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}:8000",
-        "PUBLIC_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}",
-        "SENTRY_DSN": env.get("SENTRY_DSN", ""),
+        "API_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:8000",
+        "PUBLIC_URL": f"http://{env['CORE_EXTERNAL_IP']}",
+        "SENTRY_DSN": env.get("SENTRY_DSN", ""),  # Optional
         # Infrastructure
-        "CORE_EXTERNAL_IP": env.get("CORE_EXTERNAL_IP", ""),
-        "CORE_INTERNAL_IP": env.get("CORE_INTERNAL_IP", ""),
+        "CORE_EXTERNAL_IP": env["CORE_EXTERNAL_IP"],
+        "CORE_INTERNAL_IP": env["CORE_INTERNAL_IP"],
         "DOCKER_REGISTRY": "docker.io",
-        "DOCKER_ORG": env.get("DOCKER_ORG", ""),
+        "DOCKER_ORG": env["DOCKER_ORG"],
+        # Notifications
+        "ALERT_EMAIL": env.get("ALERT_EMAIL", ""),  # Optional
+        "FORGEJO_ORG": env["FORGEJO_ORG"],
     }
-    
+
     for key, value in secrets.items():
         try:
             response = requests.put(
@@ -191,7 +210,7 @@ def sync_forgejo_secrets(env, forgejo_pat):
                 console.print(f"  [yellow]⚠[/yellow] {key}: {response.status_code}")
         except Exception as e:
             console.print(f"  [red]✗[/red] {key}: {e}")
-    
+
     console.print("[green]✅ Forgejo secrets synced![/green]")
 
 
@@ -228,11 +247,11 @@ def sync(skip_forgejo, skip_github):
     if not validate_env_vars(env, required):
         raise SystemExit(1)
 
-    # GitHub repos (from .env or defaults)
+    # GitHub repos (MUST exist in .env - no defaults)
     repos = {
-        "api": env.get("GITHUB_REPO_API", "cheapaio/api"),
-        "dashboard": env.get("GITHUB_REPO_DASHBOARD", "cheapaio/dashboard"),
-        "services": env.get("GITHUB_REPO_SERVICES", "cheapaio/services"),
+        "api": env["GITHUB_REPO_API"],
+        "dashboard": env["GITHUB_REPO_DASHBOARD"],
+        "services": env["GITHUB_REPO_SERVICES"],
     }
 
     with Progress(
@@ -274,10 +293,12 @@ def sync(skip_forgejo, skip_github):
                 console.print("[green]✅ Forgejo PAT saved to .env[/green]")
 
         progress.advance(task2)
-        
+
         # Step 2.5: Sync secrets to Forgejo repository
         if forgejo_pat:
-            console.print("\n[bold cyan]📝 Syncing secrets to Forgejo repository...[/bold cyan]")
+            console.print(
+                "\n[bold cyan]📝 Syncing secrets to Forgejo repository...[/bold cyan]"
+            )
             sync_forgejo_secrets(env, forgejo_pat)
 
         if skip_github:
@@ -298,10 +319,10 @@ def sync(skip_forgejo, skip_github):
             repo_secrets = {
                 "AGE_PUBLIC_KEY": age_public_key,
                 "FORGEJO_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:3001",
-                "FORGEJO_ORG": env.get("FORGEJO_ORG", "cradexco"),
-                "FORGEJO_PAT": forgejo_pat or "",
-                "DOCKER_USERNAME": env.get("DOCKER_USERNAME", ""),
-                "DOCKER_TOKEN": env.get("DOCKER_TOKEN", ""),
+                "FORGEJO_ORG": env["FORGEJO_ORG"],
+                "FORGEJO_PAT": forgejo_pat,
+                "DOCKER_USERNAME": env["DOCKER_USERNAME"],
+                "DOCKER_TOKEN": env["DOCKER_TOKEN"],
             }
 
             set_github_repo_secrets(repo, repo_secrets)
@@ -315,24 +336,24 @@ def sync(skip_forgejo, skip_github):
                     console.print(f"[yellow]⚠️  Skipping {env_name} secrets[/yellow]")
                     continue
 
-                # Environment secrets - use actual .env values
+                # Environment secrets - use actual .env values (NO FALLBACKS!)
                 env_secrets = {
-                    "POSTGRES_HOST": env.get("CORE_INTERNAL_IP", ""),
-                    "POSTGRES_USER": env.get("POSTGRES_USER"),
-                    "POSTGRES_PASSWORD": env.get("POSTGRES_PASSWORD"),
-                    "POSTGRES_DB": env.get("POSTGRES_DB"),
+                    "POSTGRES_HOST": env["CORE_INTERNAL_IP"],
+                    "POSTGRES_USER": env["POSTGRES_USER"],
+                    "POSTGRES_PASSWORD": env["POSTGRES_PASSWORD"],
+                    "POSTGRES_DB": env["POSTGRES_DB"],
                     "POSTGRES_PORT": "5432",
-                    "RABBITMQ_HOST": env.get("CORE_INTERNAL_IP", ""),
-                    "RABBITMQ_USER": env.get("RABBITMQ_USER"),
-                    "RABBITMQ_PASSWORD": env.get("RABBITMQ_PASSWORD"),
+                    "RABBITMQ_HOST": env["CORE_INTERNAL_IP"],
+                    "RABBITMQ_USER": env["RABBITMQ_USER"],
+                    "RABBITMQ_PASSWORD": env["RABBITMQ_PASSWORD"],
                     "RABBITMQ_PORT": "5672",
-                    "REDIS_HOST": env.get("CORE_INTERNAL_IP", ""),
-                    "REDIS_PASSWORD": env.get("REDIS_PASSWORD", ""),
-                    "API_SECRET_KEY": env.get("API_SECRET_KEY", ""),
+                    "REDIS_HOST": env["CORE_INTERNAL_IP"],
+                    "REDIS_PASSWORD": env["REDIS_PASSWORD"],
+                    "API_SECRET_KEY": env["API_SECRET_KEY"],
                     "API_DEBUG": "true" if env_name == "staging" else "false",
-                    "API_BASE_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}:8000",
-                    "PUBLIC_URL": f"http://{env.get('CORE_EXTERNAL_IP', '')}",
-                    "SENTRY_DSN": env.get("SENTRY_DSN", ""),
+                    "API_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:8000",
+                    "PUBLIC_URL": f"http://{env['CORE_EXTERNAL_IP']}",
+                    "SENTRY_DSN": env.get("SENTRY_DSN", ""),  # Optional
                 }
 
                 set_github_env_secrets(repo, env_name, env_secrets)
