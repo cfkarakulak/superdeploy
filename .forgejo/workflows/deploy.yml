@@ -1,4 +1,4 @@
-name: ${{ inputs.title || 'Deploy Multi-Service' }}
+name: Deploy Multi-Service (Reusable)
 
 on:
   workflow_dispatch:
@@ -290,11 +290,7 @@ jobs:
           
           echo "🚀 Deploying ${PROJECT}: ${SERVICE_ARRAY[@]}"
           
-          # First, start core services if not running
-          docker compose -f docker-compose.core.yml up -d
-          sleep 5
-          
-          # Then deploy app services
+          # Deploy app services only (core services managed by Ansible/systemd)
           docker compose -f docker-compose.apps.yml up -d --no-deps "${SERVICE_ARRAY[@]}"
           
           echo "✅ Services deployed!"
