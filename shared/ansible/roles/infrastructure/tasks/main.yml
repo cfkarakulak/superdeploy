@@ -34,7 +34,13 @@
     rsync_opts:
       - "--exclude=.env*"
       - "--exclude=*.log"
-      - "--chown=superdeploy:superdeploy"
+
+- name: Fix ownership of shared infrastructure files
+  file:
+    path: /opt/superdeploy/shared/compose
+    owner: superdeploy
+    group: superdeploy
+    recurse: yes
 
 - name: Generate shared infrastructure .env file
   copy:
@@ -93,7 +99,6 @@
     rsync_opts:
       - "--exclude=.env*"
       - "--exclude=*.log"
-      - "--chown=superdeploy:superdeploy"
 
 - name: Sync Cheapa provision files
   synchronize:
@@ -101,8 +106,16 @@
     dest: /opt/superdeploy/projects/cheapa/provision/
     delete: no
     recursive: yes
-    rsync_opts:
-      - "--chown=superdeploy:superdeploy"
+
+- name: Fix ownership of Cheapa files
+  file:
+    path: "{{ item }}"
+    owner: superdeploy
+    group: superdeploy
+    recurse: yes
+  loop:
+    - /opt/superdeploy/projects/cheapa/compose
+    - /opt/superdeploy/projects/cheapa/provision
 
 - name: Copy Cheapa PostgreSQL init script to shared
   copy:
