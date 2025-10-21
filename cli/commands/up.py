@@ -192,14 +192,10 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
     \b
     Estimated time: ~10 minutes
     """
-    # Validate project first
-    validate_project(project)
-
     console.print(
         Panel.fit(
             f"[bold cyan]🚀 SuperDeploy Infrastructure Deployment[/bold cyan]\n\n"
-            f"[white]Project: [bold]{project}[/bold][/white]\n"
-            f"[white]Deploying VMs, Forgejo, and services...[/white]",
+            f"[white]Deploying shared infrastructure (Terraform + Ansible)...[/white]",
             border_style="cyan",
         )
     )
@@ -209,7 +205,6 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
         raise SystemExit(1)
 
     env = load_env()
-    env["ACTIVE_PROJECT"] = project  # Make project available to all subprocesses
     project_root = get_project_root()
 
     # Validate required vars

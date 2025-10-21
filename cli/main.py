@@ -23,7 +23,7 @@ from cli.commands import (
     config,
     env,
     releases,
-    destroy,
+    down,
     project,
 )
 
@@ -65,7 +65,7 @@ def cli(ctx):
 # Register commands
 cli.add_command(init.init)
 cli.add_command(up.up)
-cli.add_command(destroy.destroy)
+cli.add_command(down.down)
 cli.add_command(sync.sync)
 cli.add_command(status.status)
 cli.add_command(logs.logs)

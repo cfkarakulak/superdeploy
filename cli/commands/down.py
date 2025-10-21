@@ -1,4 +1,4 @@
-"""SuperDeploy CLI - Destroy command"""
+"""SuperDeploy CLI - Down command"""
 
 import click
 import subprocess
@@ -11,11 +11,12 @@ console = Console()
 
 
 @click.command()
+@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-@click.option("--keep-network", is_flag=True, help="Keep VPC network (only delete VMs)")
-def destroy(yes, keep_network):
+@click.option("--keep-infra", is_flag=True, help="Keep shared infrastructure (only stop project services)")
+def down(project, yes, keep_infra):
     """
-    Destroy all infrastructure (like 'heroku apps:destroy')
+    Stop and destroy project resources (like 'heroku apps:destroy')
 
     This command will:
     - Delete all VMs (core, scrape, proxy)
@@ -28,8 +29,9 @@ def destroy(yes, keep_network):
     """
     console.print(
         Panel.fit(
-            "[bold red]⚠️  SuperDeploy Infrastructure Destruction[/bold red]\n\n"
-            "[white]This will permanently delete all VMs and data![/white]",
+            f"[bold red]⚠️  SuperDeploy Project Shutdown[/bold red]\n\n"
+            f"[white]Project: [bold]{project}[/bold][/white]\n"
+            f"[white]This will stop all services and optionally destroy VMs![/white]",
             border_style="red",
         )
     )
