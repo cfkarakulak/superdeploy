@@ -51,10 +51,10 @@ jobs:
       MIGRATE: ${{ github.event.inputs.migrate }}
     
     steps:
-      - name: 🚀 ${{ github.event.inputs.title || 'Deploy Application' }}
+      - name: ${{ github.event.inputs.title || 'Deploy Application' }}
         run: |
           echo "═══════════════════════════════════════════════════════════════"
-          echo "  🚀 ${{ github.event.inputs.title || 'Deploy Application' }}"
+          echo "  ${{ github.event.inputs.title || 'Deploy Application' }}"
           echo "═══════════════════════════════════════════════════════════════"
           echo ""
           echo "📋 Deployment Info:"
@@ -63,7 +63,7 @@ jobs:
           echo "  Services: ${{ github.event.inputs.services }}"
           echo ""
 
-      - name: 📦 Checkout superdeploy code
+      - name: Checkout superdeploy code
         run: |
           cd /opt/superdeploy
           git config --global --add safe.directory /opt/superdeploy
@@ -71,7 +71,7 @@ jobs:
           git reset --hard origin/master
           echo "✅ Superdeploy code updated"
 
-      - name: 🔓 Decrypt environment variables
+      - name: Decrypt environment variables
         id: decrypt
         run: |
           set +x  # Disable echo for security
@@ -96,7 +96,7 @@ jobs:
             echo "env_file=" >> $GITHUB_OUTPUT
           fi
 
-      - name: 📝 Parse inputs
+      - name: Parse inputs
         id: parse
         run: |
           # Parse JSON image_tags
@@ -116,7 +116,7 @@ jobs:
           echo "  Dashboard: $DASHBOARD_TAG"
           echo "  Services: $SERVICES_TAG"
 
-      - name: 📝 Setup app .env files from Forgejo Secrets
+      - name: Setup app .env files from Forgejo Secrets
         run: |
           mkdir -p /opt/app-repos/{api,dashboard,services}
           
@@ -196,7 +196,7 @@ jobs:
           
           echo "✅ Project .env created at /opt/superdeploy/projects/${PROJECT}/compose/.env"
 
-      - name: 🐳 Prepare docker-compose.yml (project-aware)
+      - name: Prepare docker-compose.yml (project-aware)
         run: |
           PROJECT="${{ github.event.inputs.project }}"
           COMPOSE_DIR="/opt/superdeploy/projects/${PROJECT}/compose"
@@ -209,7 +209,7 @@ jobs:
           cd "$COMPOSE_DIR"
           echo "✅ Using project '${PROJECT}' compose files from ${COMPOSE_DIR}"
 
-      - name: 🐳 Pull images (selective)
+      - name: Pull images (selective)
         run: |
           PROJECT="${{ github.event.inputs.project }}"
           cd /opt/superdeploy/projects/${PROJECT}/compose
@@ -262,7 +262,7 @@ jobs:
           
           echo "✅ Images pulled!"
 
-      - name: 🗄️ Run DB migrations (optional)
+      - name: Run DB migrations (optional)
         if: ${{ github.event.inputs.migrate == 'true' }}
         timeout-minutes: 10
         run: |
@@ -302,7 +302,7 @@ jobs:
           
           echo "✅ Migration verified"
 
-      - name: 🚀 Deploy services (selective, zero-downtime attempt)
+      - name: Deploy services (selective, zero-downtime attempt)
         run: |
           PROJECT="${{ github.event.inputs.project }}"
           cd /opt/superdeploy/projects/${PROJECT}/compose
@@ -332,7 +332,7 @@ jobs:
           # Parse services
           IFS=',' read -ra SERVICE_ARRAY <<< "$SERVICES"
           
-          echo "🚀 Deploying ${PROJECT}: ${SERVICE_ARRAY[@]}"
+          echo "Deploying ${PROJECT}: ${SERVICE_ARRAY[@]}"
           
           # Deploy app services only (core services managed by Ansible/systemd)
           docker compose -f docker-compose.apps.yml up -d --no-deps "${SERVICE_ARRAY[@]}"
@@ -350,10 +350,10 @@ jobs:
           docker compose -f docker-compose.apps.yml ps
           echo "✅ Services should be healthy!"
 
-      - name: 🏥 Health checks
+      - name: Health checks
         run: |
           PROJECT="${{ github.event.inputs.project }}"
-          echo "🏥 Running health checks for project: ${PROJECT}..."
+          echo "Running health checks for project: ${PROJECT}..."
           
           # PostgreSQL
           docker exec ${PROJECT}-postgres pg_isready -U ${{ secrets.POSTGRES_USER }} && \
@@ -377,7 +377,7 @@ jobs:
               echo "✅ API healthy" || echo "⚠️  API health check skipped (no endpoint)"
           fi
 
-      - name: 📊 Show deployment status
+      - name: Show deployment status
         run: |
           PROJECT="${{ github.event.inputs.project }}"
           cd /opt/superdeploy/projects/${PROJECT}/compose
@@ -394,7 +394,7 @@ jobs:
           echo ""
           echo "🌐 Services are available at: http://$(curl -s ifconfig.me)"
 
-      - name: 📧 Send deployment notification
+      - name: Send deployment notification
         if: always()
         run: |
           set -x  # Enable debug output
@@ -431,7 +431,7 @@ jobs:
           
           # Install mailutils if not present
           if ! command -v mail &> /dev/null; then
-            echo "📦 Installing mailutils..."
+            echo "Installing mailutils..."
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq && apt-get install -y mailutils postfix 2>&1 | grep -v "^Get:" || {
               echo "⚠️  Failed to install mailutils - email will be skipped"

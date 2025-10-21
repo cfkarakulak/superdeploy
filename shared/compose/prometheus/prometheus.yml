@@ -5,6 +5,19 @@ global:
     cluster: 'superdeploy'
 
 # ═══════════════════════════════════════════════════════════════════════════
+# ALERTING
+# ═══════════════════════════════════════════════════════════════════════════
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+
+# Load alert rules from projects
+rule_files:
+  - '/etc/prometheus/rules/*.yml'
+
+# ═══════════════════════════════════════════════════════════════════════════
 # INFRASTRUCTURE MONITORING (Project-Agnostic)
 # ═══════════════════════════════════════════════════════════════════════════
 

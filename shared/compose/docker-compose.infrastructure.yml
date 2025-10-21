@@ -22,6 +22,7 @@ volumes:
   rabbitmq-data:
   redis-data:
   prometheus-data:
+  alertmanager-data:
   grafana-data:
   caddy-data:
   caddy-config:
@@ -205,6 +206,34 @@ services:
           cpus: '1.0'
         reservations:
           memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Alertmanager (Email Notifications)
+  # ═══════════════════════════════════════════════════════════════════════════
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: superdeploy-alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./alertmanager:/etc/alertmanager
+      - alertmanager-data:/alertmanager
+    networks:
+      - infrastructure
+    environment:
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      ALERT_EMAIL: ${ALERT_EMAIL}
+    labels:
+      - "com.superdeploy.service=alertmanager"
+      - "com.superdeploy.layer=infrastructure"
     logging:
       driver: json-file
       options:

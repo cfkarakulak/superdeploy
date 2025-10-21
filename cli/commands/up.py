@@ -287,9 +287,9 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,ap
   -e "forgejo_org={env.get("FORGEJO_ORG", "cradexco")}" \
   -e "forgejo_db_name=forgejo" \
   -e "forgejo_db_user=forgejo" \
-  -e "forgejo_db_password={env.get('FORGEJO_DB_PASSWORD', 'changeme')}" \
-  -e "postgres_password={env.get('FORGEJO_DB_PASSWORD', 'changeme')}" \
-  -e "POSTGRES_PASSWORD={env.get('FORGEJO_DB_PASSWORD', 'changeme')}" \
+  -e "forgejo_db_password={env.get("FORGEJO_DB_PASSWORD", "changeme")}" \
+  -e "postgres_password={env.get("FORGEJO_DB_PASSWORD", "changeme")}" \
+  -e "POSTGRES_PASSWORD={env.get("FORGEJO_DB_PASSWORD", "changeme")}" \
   -e "RABBITMQ_PASSWORD=dummy" \
   -e "REDIS_PASSWORD=dummy"
 """
@@ -329,7 +329,9 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,ap
             # Clone superdeploy to Forgejo runner (for deployment workflows)
             # Note: We don't push here - Ansible already cloned it to /opt/superdeploy
             # The runner will pull latest changes on each workflow run
-            console.print("[dim]Forgejo runner has superdeploy code at /opt/superdeploy[/dim]")
+            console.print(
+                "[dim]Forgejo runner has superdeploy code at /opt/superdeploy[/dim]"
+            )
 
             progress.advance(task3)
 
