@@ -11,7 +11,7 @@ console = Console()
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
+@click.option("--project", "-p", required=True, help="Project name")
 @click.option("-a", "--app", help="App name (api, dashboard, services, or 'all')")
 @click.option("-e", "--env", "environment", default="production", help="Environment")
 @click.option("-t", "--tag", help="Image tag (default: latest)")

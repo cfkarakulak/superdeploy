@@ -10,7 +10,6 @@ from pathlib import Path
 from datetime import datetime
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
-from rich.panel import Panel
 from rich.table import Table
 from jinja2 import Template
 import secrets
@@ -22,7 +21,7 @@ def get_used_subnets():
     """Get list of subnets already in use by other projects"""
     used_subnets = []
     projects_dir = Path("/opt/apps")
-    
+
     if projects_dir.exists():
         for project_dir in projects_dir.iterdir():
             if project_dir.is_dir():
@@ -30,22 +29,26 @@ def get_used_subnets():
                 if config_file.exists():
                     with open(config_file) as f:
                         config = yaml.safe_load(f)
-                        if config and "network" in config and "subnet" in config["network"]:
+                        if (
+                            config
+                            and "network" in config
+                            and "subnet" in config["network"]
+                        ):
                             used_subnets.append(config["network"]["subnet"])
-    
+
     return used_subnets
 
 
 def find_next_subnet(used_subnets):
     """Find next available subnet starting from 172.20.0.0/24"""
     base = ipaddress.IPv4Network("172.20.0.0/24")
-    
+
     # Try subnets incrementally
     for i in range(20, 255):  # 172.20.0.0 to 172.254.0.0
         candidate = ipaddress.IPv4Network(f"172.{i}.0.0/24")
         if str(candidate) not in used_subnets:
             return str(candidate)
-    
+
     raise ValueError("No available subnets in 172.x.0.0/24 range")
 
 
@@ -53,7 +56,7 @@ def render_template(template_path, context):
     """Render a template file with given context"""
     with open(template_path) as f:
         template = Template(f.read())
-    
+
     # Render template with context
     return template.render(**context)
 
@@ -67,26 +70,26 @@ def render_template(template_path, context):
 def init(project, yes, subnet, services, no_interactive):
     """
     Initialize a new project with interactive setup
-    
+
     Example:
         superdeploy init -p marketplace
     """
     console.print(f"\n[bold cyan]🎯 Creating new project: {project}[/bold cyan]")
     console.print("━" * 40)
-    
+
     # Check if project already exists
     project_dir = Path(f"/opt/apps/{project}")
     if project_dir.exists():
         console.print(f"[red]❌ Project '{project}' already exists![/red]")
         return
-    
+
     # Determine mode
     interactive = not no_interactive and not yes
-    
+
     # Service selection
     available_services = ["api", "dashboard", "services", "worker", "scraper"]
     selected_services = []
-    
+
     if services:
         selected_services = [s.strip() for s in services.split(",")]
     elif interactive:
@@ -96,87 +99,96 @@ def init(project, yes, subnet, services, no_interactive):
                 selected = Confirm.ask(f"  Include {service}?", default=True)
             else:
                 selected = Confirm.ask(f"  Include {service}?", default=False)
-            
+
             if selected:
                 selected_services.append(service)
     else:
         # Default services
         selected_services = ["api", "dashboard", "services"]
-    
+
     # Network configuration
     used_subnets = get_used_subnets()
-    
+
     if subnet:
         project_subnet = subnet
     elif interactive:
         console.print("\n[bold]Configure networking:[/bold]")
         auto_subnet = Confirm.ask("  Auto-assign subnet?", default=True)
-        
+
         if auto_subnet:
             project_subnet = find_next_subnet(used_subnets)
             console.print(f"\n[green]✨ Auto-assigned subnet: {project_subnet}[/green]")
         else:
-            project_subnet = Prompt.ask("  Enter custom subnet", default="172.20.0.0/24")
+            project_subnet = Prompt.ask(
+                "  Enter custom subnet", default="172.20.0.0/24"
+            )
     else:
         project_subnet = find_next_subnet(used_subnets)
-    
+
     # Database configuration
     generate_passwords = True
     if interactive:
         console.print("\n[bold]Database configuration:[/bold]")
-        generate_passwords = Confirm.ask(
-            "  Generate secure passwords?", 
-            default=True
-        )
-    
+        generate_passwords = Confirm.ask("  Generate secure passwords?", default=True)
+
     # Monitoring
     enable_monitoring = True
     if interactive:
-        enable_monitoring = Confirm.ask("\nEnable monitoring for this project?", default=True)
-    
+        enable_monitoring = Confirm.ask(
+            "\nEnable monitoring for this project?", default=True
+        )
+
+    # GitHub Organization
+    github_org = f"{project}io"  # Default
+    if interactive:
+        console.print("\n[bold]GitHub organization:[/bold]")
+        github_org = Prompt.ask(
+            "  GitHub org name", default=f"{project}io"
+        )
+
     # Domain
     project_domain = ""
     if interactive:
         console.print("\n[bold]Configure domain (optional):[/bold]")
         project_domain = Prompt.ask(
-            f"  Domain for {project}", 
-            default=f"{project}.example.com"
+            f"  Domain for {project}", default=f"{project}.example.com"
         )
         if project_domain == f"{project}.example.com":
             project_domain = ""  # Don't save example domain
-    
+
     # Port assignments
     api_port = 8000 + len(used_subnets) * 10  # Offset ports by project
     dashboard_port = 3000 + len(used_subnets) * 10
-    
+
     # Summary
     console.print("\n[bold cyan]📋 Summary:[/bold cyan]")
     console.print("━" * 40)
-    
+
     table = Table(show_header=False, box=None)
     table.add_column("Property", style="dim")
     table.add_column("Value", style="bright_white")
-    
+
     table.add_row("Project:", project)
     table.add_row("Services:", ", ".join(selected_services))
     table.add_row("Network:", project_subnet)
     table.add_row("Database:", "PostgreSQL 15")
     table.add_row("Queue:", "RabbitMQ 3.12")
     table.add_row("Cache:", "Redis 7")
+    table.add_row("GitHub Org:", github_org)
     table.add_row("Monitoring:", "✓ Enabled" if enable_monitoring else "✗ Disabled")
     if project_domain:
         table.add_row("Domain:", project_domain)
-    
+
     console.print(table)
-    
+
     # Confirm
     if interactive and not Confirm.ask("\n[bold]Create project?[/bold]", default=True):
         console.print("[yellow]Cancelled.[/yellow]")
         return
-    
+
     # Create project structure
     console.print("\n[dim]Creating project structure...[/dim]")
-    
+
     # Template context
     context = {
         "PROJECT": project,
@@ -193,33 +205,34 @@ def init(project, yes, subnet, services, no_interactive):
         "MONITORING_ENABLED": enable_monitoring,
         "PROMETHEUS_TARGET": enable_monitoring,
         "DOMAIN": project_domain,
+        "GITHUB_ORG": github_org,
     }
-    
+
     # Create directories
     compose_dir = project_dir / "compose"
     data_dir = project_dir / "data"
-    
+
     compose_dir.mkdir(parents=True, exist_ok=True)
     data_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Copy and render templates
     template_dir = Path(__file__).parent.parent.parent / "templates"
-    
+
     # Render docker-compose.core.yml
     core_template = template_dir / "compose" / "docker-compose.core.yml"
     core_output = compose_dir / "docker-compose.core.yml"
     core_output.write_text(render_template(core_template, context))
-    
+
     # Render docker-compose.apps.yml
     apps_template = template_dir / "compose" / "docker-compose.apps.yml"
     apps_output = compose_dir / "docker-compose.apps.yml"
     apps_output.write_text(render_template(apps_template, context))
-    
+
     # Render project config
     config_template = template_dir / "project-config.yml"
     config_output = project_dir / "config.yml"
     config_output.write_text(render_template(config_template, context))
-    
+
     # Generate passwords if requested
     passwords = {}
     if generate_passwords:
@@ -228,40 +241,98 @@ def init(project, yes, subnet, services, no_interactive):
             "RABBITMQ_PASSWORD": secrets.token_urlsafe(32),
             "REDIS_PASSWORD": secrets.token_urlsafe(32),
         }
-        
+
         # Save password hints
         password_file = project_dir / ".passwords.yml"
         with open(password_file, "w") as f:
-            yaml.dump({
-                "generated_at": datetime.now().isoformat(),
-                "passwords": passwords,
-                "note": "Add these to GitHub Secrets for each app repository"
-            }, f)
-        
+            yaml.dump(
+                {
+                    "generated_at": datetime.now().isoformat(),
+                    "passwords": passwords,
+                    "note": "Add these to GitHub Secrets for each app repository",
+                },
+                f,
+            )
+
         # Make it readable only by owner
         os.chmod(password_file, 0o600)
-    
+
     # Success message
-    console.print(f"\n[green]✅ Project created successfully![/green]")
-    
+    console.print("\n[green]✅ Project created successfully![/green]")
+
     # Next steps
     console.print("\n[bold]📝 Next steps:[/bold]")
     console.print("1. Add secrets to GitHub:")
-    
-    for service in selected_services:
-        if service in ["api", "dashboard", "services"]:
-            console.print(f"   [dim]gh secret set POSTGRES_PASSWORD -R {project}io/{service}[/dim]")
-            console.print(f"   [dim]gh secret set RABBITMQ_PASSWORD -R {project}io/{service}[/dim]")
-            console.print(f"   [dim]gh secret set REDIS_PASSWORD -R {project}io/{service}[/dim]")
-            break
-    
+
+    # Show exact commands with generated passwords
     if passwords:
-        console.print(f"\n   [dim]Generated passwords saved in: /opt/apps/{project}/.passwords.yml[/dim]")
-    
+        for service in selected_services:
+            if service in ["api", "dashboard", "services"]:
+                console.print(f"\n   # For {service} repository:")
+                console.print(
+                    f"   [dim]gh secret set POSTGRES_USER -b \"{project}_user\" -R {github_org}/{service}[/dim]"
+                )
+                console.print(
+                    f"   [dim]gh secret set POSTGRES_PASSWORD -b \"{passwords['POSTGRES_PASSWORD']}\" -R {github_org}/{service}[/dim]"
+                )
+                console.print(
+                    f"   [dim]gh secret set POSTGRES_DB -b \"{project}_db\" -R {github_org}/{service}[/dim]"
+                )
+                console.print(
+                    f"   [dim]gh secret set POSTGRES_HOST -b \"postgres\" -R {github_org}/{service}[/dim]"
+                )
+                console.print(
+                    f"   [dim]gh secret set POSTGRES_PORT -b \"5432\" -R {github_org}/{service}[/dim]"
+                )
+                console.print("")
+                console.print(
+                    f"   [dim]gh secret set RABBITMQ_USER -b \"{project}_user\" -R {github_org}/{service}[/dim]"
+                )
+                console.print(
+                    f"   [dim]gh secret set RABBITMQ_PASSWORD -b \"{passwords['RABBITMQ_PASSWORD']}\" -R {github_org}/{service}[/dim]"
+                )
+                console.print(
+                    f"   [dim]gh secret set RABBITMQ_HOST -b \"rabbitmq\" -R {github_org}/{service}[/dim]"
+                )
+                console.print(
+                    f"   [dim]gh secret set RABBITMQ_PORT -b \"5672\" -R {github_org}/{service}[/dim]"
+                )
+                console.print("")
+                console.print(
+                    f"   [dim]gh secret set REDIS_PASSWORD -b \"{passwords['REDIS_PASSWORD']}\" -R {github_org}/{service}[/dim]"
+                )
+                console.print(
+                    f"   [dim]gh secret set REDIS_HOST -b \"redis\" -R {github_org}/{service}[/dim]"
+                )
+                console.print(
+                    f"   [dim]gh secret set REDIS_PORT -b \"6379\" -R {github_org}/{service}[/dim]"
+                )
+                break
+    else:
+        for service in selected_services:
+            if service in ["api", "dashboard", "services"]:
+                console.print(
+                    f"   [dim]gh secret set POSTGRES_PASSWORD -R {github_org}/{service}[/dim]"
+                )
+                console.print(
+                    f"   [dim]gh secret set RABBITMQ_PASSWORD -R {github_org}/{service}[/dim]"
+                )
+                console.print(
+                    f"   [dim]gh secret set REDIS_PASSWORD -R {github_org}/{service}[/dim]"
+                )
+                break
+
+    if passwords:
+        console.print(
+            f"\n   [dim]Generated passwords saved in: /opt/apps/{project}/.passwords.yml[/dim]"
+        )
+
     console.print("\n2. Push your code:")
     console.print("   [dim]git push origin production[/dim]")
-    
-    console.print("\n[green]🚀 That's it! Deployment will happen automatically.[/green]")
+
+    console.print(
+        "\n[green]🚀 That's it! Deployment will happen automatically.[/green]"
+    )
 
 
 if __name__ == "__main__":

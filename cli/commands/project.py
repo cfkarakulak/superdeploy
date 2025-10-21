@@ -18,7 +18,7 @@ def project():
 
 
 @project.command()
-@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
+@click.option("--project", "-p", required=True, help="Project name")
 @click.option(
     "--services",
     "-s",

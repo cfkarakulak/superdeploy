@@ -12,7 +12,7 @@ console = Console()
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
+@click.option("--project", "-p", required=True, help="Project name")
 @click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
 @click.option("-n", "--limit", default=10, help="Number of releases to show")
 def releases(project, app, limit):

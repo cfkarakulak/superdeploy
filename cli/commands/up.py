@@ -173,7 +173,7 @@ def clean_ssh_known_hosts(env):
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
+@click.option("--project", "-p", required=True, help="Project name")
 @click.option("--skip-terraform", is_flag=True, help="Skip Terraform provisioning")
 @click.option("--skip-ansible", is_flag=True, help="Skip Ansible configuration")
 @click.option("--skip-git-push", is_flag=True, help="Skip Git push")
@@ -391,9 +391,9 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
         except Exception as e:
             console.print(f"[yellow]⚠️  Sync failed: {e}[/yellow]")
             console.print(
-                "[dim]Run 'superdeploy sync -p cheapa' manually to update GitHub secrets[/dim]"
+                f"[dim]Run 'superdeploy sync -p {project}' manually to update GitHub secrets[/dim]"
             )
     else:
         console.print(
-            "\n[yellow]Note:[/yellow] Run [bold cyan]superdeploy sync -p cheapa[/bold cyan] to configure GitHub secrets"
+            f"\n[yellow]Note:[/yellow] Run [bold cyan]superdeploy sync -p {project}[/bold cyan] to configure GitHub secrets"
         )

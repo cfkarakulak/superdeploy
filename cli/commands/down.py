@@ -11,7 +11,7 @@ console = Console()
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
+@click.option("--project", "-p", required=True, help="Project name")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 @click.option(
     "--keep-infra",

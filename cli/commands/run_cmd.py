@@ -11,7 +11,7 @@ console = Console()
 
 
 @click.command(name="run")
-@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
+@click.option("--project", "-p", required=True, help="Project name")
 @click.argument("app")
 @click.argument("command")
 def run(project, app, command):

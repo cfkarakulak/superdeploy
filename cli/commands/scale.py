@@ -10,7 +10,7 @@ console = Console()
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
+@click.option("--project", "-p", required=True, help="Project name")
 @click.argument("scale_spec")
 @click.option("-e", "--env", "environment", default="production", help="Environment")
 def scale(project, scale_spec, environment):

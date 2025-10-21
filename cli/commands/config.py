@@ -37,11 +37,14 @@ def config_set(key_value, app, environment):
         console.print("[red]❌ Invalid format! Use: KEY=VALUE[/red]")
         raise SystemExit(1)
 
-    # Map app to GitHub repo
+    # Get GitHub org from environment or project config
+    github_org = env_vars.get("GITHUB_ORG", f"{project}io")
+    
+    # Map app to GitHub repo (project-aware)
     repos = {
-        "api": env_vars.get("GITHUB_REPO_API", "cheapaio/api"),
-        "dashboard": env_vars.get("GITHUB_REPO_DASHBOARD", "cheapaio/dashboard"),
-        "services": env_vars.get("GITHUB_REPO_SERVICES", "cheapaio/services"),
+        "api": env_vars.get("GITHUB_REPO_API", f"{github_org}/api"),
+        "dashboard": env_vars.get("GITHUB_REPO_DASHBOARD", f"{github_org}/dashboard"),
+        "services": env_vars.get("GITHUB_REPO_SERVICES", f"{github_org}/services"),
     }
 
     repo = repos.get(app)
@@ -148,11 +151,14 @@ def config_unset(key, app, environment):
     """
     # Map app to GitHub repo
     env_vars = load_env()
+    
+    # Get GitHub org from environment or project config
+    github_org = env_vars.get("GITHUB_ORG", f"{project}io")
 
     repos = {
-        "api": env_vars.get("GITHUB_REPO_API", "cheapaio/api"),
-        "dashboard": env_vars.get("GITHUB_REPO_DASHBOARD", "cheapaio/dashboard"),
-        "services": env_vars.get("GITHUB_REPO_SERVICES", "cheapaio/services"),
+        "api": env_vars.get("GITHUB_REPO_API", f"{github_org}/api"),
+        "dashboard": env_vars.get("GITHUB_REPO_DASHBOARD", f"{github_org}/dashboard"),
+        "services": env_vars.get("GITHUB_REPO_SERVICES", f"{github_org}/services"),
     }
 
     repo = repos.get(app)

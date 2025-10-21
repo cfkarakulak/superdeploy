@@ -224,7 +224,7 @@ def sync_forgejo_secrets(env, forgejo_pat, project_env=None):
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
+@click.option("--project", "-p", required=True, help="Project name")
 @click.option("--skip-forgejo", is_flag=True, help="Skip Forgejo PAT creation")
 @click.option("--skip-github", is_flag=True, help="Skip GitHub secrets sync")
 @click.option(
@@ -246,7 +246,7 @@ def sync(project, skip_forgejo, skip_github, env_file):
 
     \b
     Example:
-      superdeploy sync -p cheapa -e ../my-api/.env -e ../my-dashboard/.env
+      superdeploy sync -p myproject -e ../my-api/.env -e ../my-dashboard/.env
 
     \b
     Requirements:

@@ -11,7 +11,7 @@ console = Console()
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
+@click.option("--project", "-p", required=True, help="Project name")
 @click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
 @click.option("-f", "--follow", is_flag=True, help="Follow logs (tail -f)")
 @click.option("-n", "--lines", default=100, help="Number of lines")

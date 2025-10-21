@@ -42,6 +42,14 @@ monitoring:
 # Domain Configuration (optional)
 domain: {{DOMAIN}}
 
+# GitHub Configuration
+github:
+  organization: {{GITHUB_ORG}}
+  repositories:
+    api: {{GITHUB_ORG}}/api
+    dashboard: {{GITHUB_ORG}}/dashboard
+    services: {{GITHUB_ORG}}/services
+
 # Deployment Settings
 deployment:
   auto_deploy: true
