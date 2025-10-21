@@ -122,11 +122,45 @@
 # =============================================================================
 # SETUP AGE ENCRYPTION (for encrypted env transfer from GitHub)
 # =============================================================================
-- name: Install age (encryption tool)
-  apt:
-    name: age
-    state: present
-    update_cache: yes
+- name: Check if AGE binary exists
+  stat:
+    path: /usr/local/bin/age
+  register: age_binary_exists
+
+- name: Download and install age (fast binary install)
+  when: not age_binary_exists.stat.exists
+  block:
+    - name: Download age binary
+      get_url:
+        url: "https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz"
+        dest: /tmp/age.tar.gz
+        mode: '0644'
+      become_user: superdeploy
+
+    - name: Extract age binary
+      unarchive:
+        src: /tmp/age.tar.gz
+        dest: /tmp/
+        remote_src: yes
+      become_user: superdeploy
+
+    - name: Install age and age-keygen binaries
+      copy:
+        src: "/tmp/age/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        mode: '0755'
+        remote_src: yes
+      loop:
+        - age
+        - age-keygen
+
+    - name: Clean up downloaded files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/age.tar.gz
+        - /tmp/age
 
 - name: Check if AGE keypair exists
   stat:
