@@ -45,10 +45,9 @@
 - name: Generate shared infrastructure .env file
   copy:
     content: |
-      # Shared Infrastructure Environment
-      # These are Forgejo/Git server credentials
-      POSTGRES_USER={{ forgejo_db_user }}
-      POSTGRES_PASSWORD={{ forgejo_db_password }}
+      # Shared Infrastructure Environment (App-Agnostic)
+      POSTGRES_USER={{ POSTGRES_USER }}
+      POSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}
       RABBITMQ_USER={{ RABBITMQ_USER }}
       RABBITMQ_PASSWORD={{ RABBITMQ_PASSWORD }}
       REDIS_PASSWORD={{ REDIS_PASSWORD }}

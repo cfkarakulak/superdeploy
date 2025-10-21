@@ -289,7 +289,7 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
   -e "forgejo_db_name=forgejo" \
   -e "forgejo_db_user=forgejo" \
   -e "forgejo_db_password={env["FORGEJO_DB_PASSWORD"]}" \
-  -e "postgres_password={env["FORGEJO_DB_PASSWORD"]}" \
+  -e "POSTGRES_USER={env["FORGEJO_DB_USER"]}" \
   -e "POSTGRES_PASSWORD={env["FORGEJO_DB_PASSWORD"]}" \
   -e "RABBITMQ_USER={env["RABBITMQ_USER"]}" \
   -e "RABBITMQ_PASSWORD={env["RABBITMQ_PASSWORD"]}" \
