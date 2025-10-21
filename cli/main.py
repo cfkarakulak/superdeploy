@@ -24,6 +24,7 @@ from cli.commands import (
     env,
     releases,
     destroy,
+    project,
 )
 
 console = Console()
@@ -77,6 +78,7 @@ cli.add_command(config.config_group)
 cli.add_command(env.env_group)
 cli.add_command(releases.releases)
 cli.add_command(releases.rollback)
+cli.add_command(project.project)
 
 
 if __name__ == "__main__":

@@ -267,14 +267,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
         console.print("\n[cyan]⚙️  Configuring services (Ansible)...[/cyan]")
 
         ansible_dir = project_root / "shared" / "ansible"
-        # Load project secrets for infrastructure deployment
-        project_path = project_root / "projects" / project
-        project_secrets_file = project_path / "secrets.env"
-        project_secrets = {}
-        if project_secrets_file.exists():
-            from dotenv import dotenv_values
-            project_secrets = dotenv_values(project_secrets_file)
-        
+
         ansible_cmd = f"""
 cd {ansible_dir} && \
 ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,infrastructure,git-server \
@@ -298,15 +291,10 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
   -e "forgejo_db_password={env.get("FORGEJO_DB_PASSWORD", "changeme")}" \
   -e "postgres_password={env.get("FORGEJO_DB_PASSWORD", "changeme")}" \
   -e "POSTGRES_PASSWORD={env.get("FORGEJO_DB_PASSWORD", "changeme")}" \
-  -e "POSTGRES_ADMIN_PASSWORD={env.get("GRAFANA_ADMIN_PASSWORD", "changeme")}" \
-  -e "RABBITMQ_ADMIN_PASSWORD={env.get("GRAFANA_ADMIN_PASSWORD", "changeme")}" \
-  -e "REDIS_PASSWORD={project_secrets.get("REDIS_PASSWORD", "changeme")}" \
   -e "GRAFANA_ADMIN_USER={env.get("GRAFANA_ADMIN_USER", "admin")}" \
   -e "GRAFANA_ADMIN_PASSWORD={env.get("GRAFANA_ADMIN_PASSWORD", "changeme")}" \
   -e "DOCKER_REGISTRY={env.get("DOCKER_REGISTRY", "docker.io")}" \
-  -e "DOCKER_ORG={env.get("DOCKER_ORG", "")}" \
-  -e "CHEAPA_POSTGRES_PASSWORD={project_secrets.get("POSTGRES_PASSWORD", "changeme")}" \
-  -e "CHEAPA_RABBITMQ_PASSWORD={project_secrets.get("RABBITMQ_PASSWORD", "changeme")}"
+  -e "DOCKER_ORG={env.get("DOCKER_ORG", "")}"
 """
 
         run_command(ansible_cmd)

@@ -27,7 +27,7 @@
 
 - name: Sync shared infrastructure compose files
   synchronize:
-    src: "{{ playbook_dir }}/../shared/compose/"
+    src: "{{ playbook_dir }}/../../compose/"
     dest: /opt/superdeploy/shared/compose/
     delete: no
     recursive: yes
@@ -74,97 +74,18 @@
     seconds: 30
 
 # =============================================================================
-# PROJECT: CHEAPA
+# PROJECTS BASE (Project-agnostic)
 # =============================================================================
+# Note: Specific project deployment is handled via CLI commands
+# Infrastructure only provides the base directory structure
 
-- name: Create Cheapa project directories
+- name: Create projects base directory
   file:
-    path: "{{ item }}"
+    path: /opt/superdeploy/projects
     state: directory
     owner: superdeploy
     group: superdeploy
     mode: '0755'
-  loop:
-    - /opt/superdeploy/projects
-    - /opt/superdeploy/projects/cheapa
-    - /opt/superdeploy/projects/cheapa/compose
-    - /opt/superdeploy/projects/cheapa/provision
-
-- name: Sync Cheapa compose files
-  synchronize:
-    src: "{{ playbook_dir }}/../projects/cheapa/compose/"
-    dest: /opt/superdeploy/projects/cheapa/compose/
-    delete: no
-    recursive: yes
-    rsync_opts:
-      - "--exclude=.env*"
-      - "--exclude=*.log"
-
-- name: Sync Cheapa provision files
-  synchronize:
-    src: "{{ playbook_dir }}/../projects/cheapa/provision/"
-    dest: /opt/superdeploy/projects/cheapa/provision/
-    delete: no
-    recursive: yes
-
-- name: Fix ownership of Cheapa files
-  file:
-    path: "{{ item }}"
-    owner: superdeploy
-    group: superdeploy
-    recurse: yes
-  loop:
-    - /opt/superdeploy/projects/cheapa/compose
-    - /opt/superdeploy/projects/cheapa/provision
-
-- name: Copy Cheapa PostgreSQL init script to shared
-  copy:
-    src: /opt/superdeploy/projects/cheapa/provision/postgres/init-cheapa-db.sh
-    dest: /opt/superdeploy/shared/postgres/init.d/cheapa.sh
-    owner: superdeploy
-    group: superdeploy
-    mode: '0755'
-    remote_src: yes
-
-- name: Copy Cheapa Prometheus targets to shared
-  copy:
-    src: /opt/superdeploy/projects/cheapa/provision/prometheus/targets.yml
-    dest: /opt/superdeploy/shared/prometheus/projects/cheapa.yml
-    owner: superdeploy
-    group: superdeploy
-    mode: '0644'
-    remote_src: yes
-
-- name: Copy Cheapa Caddy routes to shared
-  copy:
-    src: /opt/superdeploy/projects/cheapa/provision/caddy/routes.caddy
-    dest: /opt/superdeploy/shared/caddy/routes/cheapa.caddy
-    owner: superdeploy
-    group: superdeploy
-    mode: '0644'
-    remote_src: yes
-
-- name: Initialize Cheapa PostgreSQL database
-  become_user: superdeploy
-  shell: |
-    docker exec superdeploy-postgres bash -c "
-      export CHEAPA_POSTGRES_PASSWORD='{{ CHEAPA_POSTGRES_PASSWORD }}'
-      /docker-entrypoint-initdb.d/cheapa.sh
-    " || echo "Database already exists"
-  args:
-    executable: /bin/bash
-  ignore_errors: yes
-
-- name: Initialize Cheapa RabbitMQ vhost
-  become_user: superdeploy
-  shell: |
-    docker exec superdeploy-rabbitmq rabbitmqctl add_vhost cheapa || echo "Vhost exists"
-    docker exec superdeploy-rabbitmq rabbitmqctl add_user cheapa_user "{{ CHEAPA_RABBITMQ_PASSWORD }}" || echo "User exists"
-    docker exec superdeploy-rabbitmq rabbitmqctl set_permissions -p cheapa cheapa_user ".*" ".*" ".*"
-    docker exec superdeploy-rabbitmq rabbitmqctl set_user_tags cheapa_user management
-  args:
-    executable: /bin/bash
-  ignore_errors: yes
 
 - name: Reload Caddy config (pick up new routes)
   shell: docker exec superdeploy-caddy caddy reload --config /etc/caddy/Caddyfile
