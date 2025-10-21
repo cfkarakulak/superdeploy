@@ -18,6 +18,10 @@ on:
       image_tags:
         description: 'JSON: {"api":"abc123","dashboard":"def456","services":"ghi789"}'
         required: true
+      encrypted_env:
+        description: 'Encrypted environment variables (base64 of AGE-encrypted .env)'
+        required: false
+        default: ''
       migrate:
         description: 'Run DB migrations (true/false)'
         required: false
@@ -45,6 +49,31 @@ jobs:
           git fetch origin
           git reset --hard origin/master
           echo "✅ Superdeploy code updated"
+
+      - name: 🔓 Decrypt environment variables
+        id: decrypt
+        run: |
+          set +x  # Disable echo for security
+          
+          ENCRYPTED_ENV="${{ github.event.inputs.encrypted_env }}"
+          
+          if [ -n "$ENCRYPTED_ENV" ] && [ "$ENCRYPTED_ENV" != "" ]; then
+            echo "🔐 Decrypting environment variables..."
+            
+            # Decode base64 and decrypt with AGE private key
+            echo "$ENCRYPTED_ENV" | base64 -d | age -d -i /opt/forgejo-runner/.age/key.txt > /opt/superdeploy/.env.decrypted 2>/dev/null
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ Environment decrypted successfully"
+              echo "env_file=/opt/superdeploy/.env.decrypted" >> $GITHUB_OUTPUT
+            else
+              echo "❌ Failed to decrypt environment"
+              echo "env_file=" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "⚠️  No encrypted environment provided, using Forgejo secrets fallback"
+            echo "env_file=" >> $GITHUB_OUTPUT
+          fi
 
       - name: 📝 Parse inputs
         id: parse
@@ -138,12 +167,23 @@ jobs:
           # Ensure DOCKER_REGISTRY is set
           export DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
           
-          # Set DB/Queue credentials from Forgejo Secrets
-          export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
-          export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
-          export POSTGRES_DB="${{ secrets.POSTGRES_DB }}"
-          export RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
-          export RABBITMQ_PASSWORD="${{ secrets.RABBITMQ_PASSWORD }}"
+          # Load decrypted env if available (from GitHub)
+          ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
+          
+          if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
+            echo "📥 Loading decrypted environment from GitHub"
+            set -a
+            source "$ENV_FILE"
+            set +a
+          else
+            echo "📥 Using Forgejo secrets (fallback)"
+            # Set DB/Queue credentials from Forgejo Secrets
+            export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
+            export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
+            export POSTGRES_DB="${{ secrets.POSTGRES_DB }}"
+            export RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
+            export RABBITMQ_PASSWORD="${{ secrets.RABBITMQ_PASSWORD }}"
+          fi
           
           # Deployment timestamp
           export DEPLOY_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -324,5 +364,15 @@ jobs:
             echo "📧 Email sent to $ALERT_EMAIL"
           else
             echo "⚠️  'mail' command not found"
+          fi
+
+      - name: 🧹 Cleanup decrypted env (security)
+        if: always()
+        run: |
+          ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
+          if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
+            echo "🔒 Securely deleting decrypted env file..."
+            shred -u "$ENV_FILE" 2>/dev/null || rm -f "$ENV_FILE"
+            echo "✅ Decrypted env removed"
           fi
 

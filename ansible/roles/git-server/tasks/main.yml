@@ -120,6 +120,59 @@
     group: root
 
 # =============================================================================
+# SETUP AGE ENCRYPTION (for encrypted env transfer from GitHub)
+# =============================================================================
+- name: Install age (encryption tool)
+  apt:
+    name: age
+    state: present
+    update_cache: yes
+
+- name: Check if AGE keypair exists
+  stat:
+    path: /opt/forgejo-runner/.age/key.txt
+  register: age_key_exists
+
+- name: Create AGE directory
+  file:
+    path: /opt/forgejo-runner/.age
+    state: directory
+    owner: superdeploy
+    group: superdeploy
+    mode: '0700'
+  when: not age_key_exists.stat.exists
+
+- name: Generate AGE keypair
+  shell: |
+    age-keygen -o /opt/forgejo-runner/.age/key.txt
+    chown superdeploy:superdeploy /opt/forgejo-runner/.age/key.txt
+    chmod 600 /opt/forgejo-runner/.age/key.txt
+  when: not age_key_exists.stat.exists
+
+- name: Extract AGE public key
+  shell: |
+    grep "public key:" /opt/forgejo-runner/.age/key.txt | cut -d: -f2 | tr -d ' ' > /opt/forgejo-runner/.age/public_key.txt
+    chown superdeploy:superdeploy /opt/forgejo-runner/.age/public_key.txt
+  when: not age_key_exists.stat.exists
+
+- name: Read AGE public key
+  slurp:
+    src: /opt/forgejo-runner/.age/public_key.txt
+  register: age_public_key_content
+
+- name: Display AGE public key for GitHub
+  debug:
+    msg: |
+      ╔══════════════════════════════════════════════════════════════════╗
+      ║  🔐 AGE PUBLIC KEY (Add to GitHub Secrets)                       ║
+      ╚══════════════════════════════════════════════════════════════════╝
+      
+      In GitHub repo secrets, add:
+      AGE_PUBLIC_KEY={{ age_public_key_content['content'] | b64decode | trim }}
+      
+      This allows GitHub Actions to encrypt env vars before sending to Forgejo.
+
+# =============================================================================
 # AUTO-REGISTER RUNNER (No manual token!)
 # =============================================================================
 - name: Check if runner is already registered
