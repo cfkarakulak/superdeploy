@@ -116,125 +116,58 @@ jobs:
           echo "  Dashboard: $DASHBOARD_TAG"
           echo "  Services: $SERVICES_TAG"
 
-      - name: Setup app .env files from Forgejo Secrets
+      - name: Save decrypted environment to project directory
+        if: steps.decrypt.outputs.env_file != ''
         run: |
           PROJECT="${{ github.event.inputs.project }}"
-          COMPOSE_DIR="/opt/superdeploy/projects/${PROJECT}/compose"
+          ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
+          PROJECT_DIR="/opt/apps/${PROJECT}"
           
-          # Create env directory
-          mkdir -p ${COMPOSE_DIR}/env
-          
-          echo "Generating .env files from Forgejo Secrets..."
-          
-          # PostgreSQL .env
-          cat > ${COMPOSE_DIR}/env/postgres.env <<EOF
-          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
-          EOF
-          
-          # RabbitMQ .env
-          cat > ${COMPOSE_DIR}/env/rabbitmq.env <<EOF
-          RABBITMQ_DEFAULT_USER=${{ secrets.RABBITMQ_USER }}
-          RABBITMQ_DEFAULT_PASS=${{ secrets.RABBITMQ_PASSWORD }}
-          EOF
-          
-          # Redis .env
-          cat > ${COMPOSE_DIR}/env/redis.env <<EOF
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-          EOF
-          
-          # API .env
-          cat > ${COMPOSE_DIR}/env/api.env <<EOF
-          # Database
-          DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}
-          
-          # RabbitMQ
-          RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASSWORD }}@rabbitmq:5672/
-          
-          # API Config
-          API_SECRET_KEY=${{ secrets.API_SECRET_KEY }}
-          ENVIRONMENT=${{ env.ENVIRONMENT }}
-          
-          # Optional
-          SENTRY_DSN=${{ secrets.SENTRY_DSN }}
-          
-          # Proxy Registry
-          PROXY_REGISTRY_URL=http://proxy-registry:8001
-          PROXY_REGISTRY_API_KEY=${{ secrets.PROXY_REGISTRY_API_KEY }}
-          EOF
-          
-          # Dashboard .env
-          cat > ${COMPOSE_DIR}/env/dashboard.env <<EOF
-          PUBLIC_URL=${{ secrets.PUBLIC_URL }}
-          API_BASE_URL=${{ secrets.API_BASE_URL }}
-          ENVIRONMENT=${{ env.ENVIRONMENT }}
-          EOF
-          
-          # Services .env
-          cat > ${COMPOSE_DIR}/env/services.env <<EOF
-          # Database
-          DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}
-          
-          # RabbitMQ
-          RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASSWORD }}@rabbitmq:5672/
-          
-          # Config
-          ENVIRONMENT=${{ env.ENVIRONMENT }}
-          SENTRY_DSN=${{ secrets.SENTRY_DSN }}
-          EOF
-          
-          echo "✅ App .env files generated from Forgejo Secrets"
-          
-          # Create project-specific .env for docker-compose
-          PROJECT="${{ github.event.inputs.project }}"
-          cat > /opt/superdeploy/projects/${PROJECT}/compose/.env <<EOF
-          # Core Services Credentials
-          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
-          
-          RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
-          RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }}
-          
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-          
-          # Application Environment Variables
-          API_SECRET_KEY=${{ secrets.API_SECRET_KEY }}
-          API_DEBUG=${{ secrets.API_DEBUG }}
-          API_BASE_URL=${{ secrets.API_BASE_URL }}
-          PUBLIC_URL=${{ secrets.PUBLIC_URL }}
-          SENTRY_DSN=${{ secrets.SENTRY_DSN }}
-          
-          # Docker Registry
-          DOCKER_REGISTRY=${DOCKER_REGISTRY:-docker.io}
-          DOCKER_ORG=${DOCKER_ORG}
-          
-          # Release Info
-          RELEASE_VERSION=${RELEASE_VERSION:-unknown}
-          GIT_SHA=${{ github.sha }}
-          DEPLOY_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          EOF
-          
-          echo "✅ Project .env created at /opt/superdeploy/projects/${PROJECT}/compose/.env"
-
-      - name: Prepare docker-compose.yml (project-aware)
-        run: |
-          PROJECT="${{ github.event.inputs.project }}"
-          COMPOSE_DIR="/opt/superdeploy/projects/${PROJECT}/compose"
-          
-          if [ ! -d "$COMPOSE_DIR" ]; then
-            echo "❌ Project '${PROJECT}' not found at ${COMPOSE_DIR}"
+          # Ensure project directory exists
+          if [ ! -d "$PROJECT_DIR" ]; then
+            echo "❌ Project '${PROJECT}' not initialized!"
+            echo "Run: superdeploy init -p ${PROJECT}"
             exit 1
           fi
           
-          cd "$COMPOSE_DIR"
-          echo "✅ Using project '${PROJECT}' compose files from ${COMPOSE_DIR}"
+          # Copy decrypted env to project directory
+          cp "$ENV_FILE" "${PROJECT_DIR}/compose/.env"
+          
+          # Set proper permissions
+          chmod 600 "${PROJECT_DIR}/compose/.env"
+          chown superdeploy:superdeploy "${PROJECT_DIR}/compose/.env"
+          
+          echo "✅ Environment saved to ${PROJECT_DIR}/compose/.env"
+
+      - name: Verify project setup
+        run: |
+          PROJECT="${{ github.event.inputs.project }}"
+          PROJECT_DIR="/opt/apps/${PROJECT}"
+          
+          if [ ! -d "$PROJECT_DIR" ]; then
+            echo "❌ Project '${PROJECT}' not found!"
+            echo "Please initialize project first: superdeploy init -p ${PROJECT}"
+            exit 1
+          fi
+          
+          # Check for compose files
+          if [ ! -f "${PROJECT_DIR}/compose/docker-compose.core.yml" ]; then
+            echo "❌ Missing docker-compose.core.yml"
+            exit 1
+          fi
+          
+          if [ ! -f "${PROJECT_DIR}/compose/docker-compose.apps.yml" ]; then
+            echo "❌ Missing docker-compose.apps.yml"
+            exit 1
+          fi
+          
+          cd "${PROJECT_DIR}/compose"
+          echo "✅ Project '${PROJECT}' is properly configured"
 
       - name: Pull images (selective)
         run: |
           PROJECT="${{ github.event.inputs.project }}"
-          cd /opt/superdeploy/projects/${PROJECT}/compose
+          cd /opt/apps/${PROJECT}/compose
           
           # Load infrastructure env
           set -a
@@ -249,7 +182,7 @@ jobs:
           # Ensure DOCKER_REGISTRY is set
           export DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
           
-          # Load decrypted env if available (from GitHub)
+          # GitHub must provide encrypted env (no fallback)
           ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
           
           if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
@@ -258,13 +191,9 @@ jobs:
             source "$ENV_FILE"
             set +a
           else
-            echo "📥 Using Forgejo secrets (fallback)"
-            # Set DB/Queue credentials from Forgejo Secrets
-            export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
-            export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
-            export POSTGRES_DB="${{ secrets.POSTGRES_DB }}"
-            export RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
-            export RABBITMQ_PASSWORD="${{ secrets.RABBITMQ_PASSWORD }}"
+            echo "❌ No environment provided from GitHub!"
+            echo "Cannot proceed without credentials"
+            exit 1
           fi
           
           # Deployment timestamp
@@ -289,7 +218,7 @@ jobs:
         timeout-minutes: 10
         run: |
           PROJECT="${{ github.event.inputs.project }}"
-          cd /opt/superdeploy/projects/${PROJECT}/compose
+          cd /opt/apps/${PROJECT}/compose
           
           echo "🔄 Running database migrations..."
           echo "⚠️  Migration failure will STOP deployment"
@@ -299,9 +228,13 @@ jobs:
           source /opt/superdeploy/.env
           set +a
           
-          export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
-          export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
-          export POSTGRES_DB="${{ secrets.POSTGRES_DB }}"
+          # Load env from GitHub
+          ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
+          if [ -f "$ENV_FILE" ]; then
+            set -a
+            source "$ENV_FILE"
+            set +a
+          fi
           
           # Run migrations with timeout and error handling
           if docker compose -f docker-compose.core.yml -f docker-compose.apps.yml \
@@ -327,21 +260,29 @@ jobs:
       - name: Deploy core services (always)
         run: |
           PROJECT="${{ github.event.inputs.project }}"
-          cd /opt/superdeploy/projects/${PROJECT}/compose
+          cd /opt/apps/${PROJECT}/compose
           
           echo "🔧 Deploying core services (postgres, rabbitmq, redis)..."
           
-          # Load env
+          # Load decrypted env from GitHub (MUST have project-specific creds)
+          ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
+          
+          if [ -z "$ENV_FILE" ] || [ ! -f "$ENV_FILE" ]; then
+            echo "❌ No environment file provided from GitHub!"
+            echo "Core services need project-specific credentials"
+            exit 1
+          fi
+          
+          # Load ALL credentials from GitHub
           set -a
-          source /opt/superdeploy/.env
+          source "$ENV_FILE"
           set +a
           
-          export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
-          export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
-          export POSTGRES_DB="${{ secrets.POSTGRES_DB }}"
-          export RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
-          export RABBITMQ_PASSWORD="${{ secrets.RABBITMQ_PASSWORD }}"
-          export REDIS_PASSWORD="${{ secrets.REDIS_PASSWORD }}"
+          # Verify required vars
+          if [ -z "$POSTGRES_PASSWORD" ] || [ -z "$RABBITMQ_PASSWORD" ] || [ -z "$REDIS_PASSWORD" ]; then
+            echo "❌ Missing required credentials in environment file"
+            exit 1
+          fi
           
           # Deploy core services (always)
           docker compose -f docker-compose.core.yml up -d
@@ -351,26 +292,28 @@ jobs:
       - name: Deploy app services (selective)
         run: |
           PROJECT="${{ github.event.inputs.project }}"
-          cd /opt/superdeploy/projects/${PROJECT}/compose
+          cd /opt/apps/${PROJECT}/compose
           
-          # Load env again for compose
+          # Load decrypted env from GitHub (contains ALL app+infra vars)
+          ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
+          
+          if [ -z "$ENV_FILE" ] || [ ! -f "$ENV_FILE" ]; then
+            echo "❌ No environment file provided from GitHub!"
+            exit 1
+          fi
+          
+          # Load ALL vars from GitHub
           set -a
-          source /opt/superdeploy/.env
+          source "$ENV_FILE"
+          source /opt/superdeploy/.env  # For infra vars (IPs, etc)
           set +a
           
+          # Set image tags from parsed inputs
           export API_IMAGE_TAG="${{ steps.parse.outputs.api_tag }}"
           export DASHBOARD_IMAGE_TAG="${{ steps.parse.outputs.dashboard_tag }}"
           export SERVICES_IMAGE_TAG="${{ steps.parse.outputs.services_tag }}"
-          export DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
-          export DOCKER_ORG="${DOCKER_ORG}"
-          export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
-          export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
-          export POSTGRES_DB="${{ secrets.POSTGRES_DB }}"
-          export RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
-          export RABBITMQ_PASSWORD="${{ secrets.RABBITMQ_PASSWORD }}"
-          export REDIS_PASSWORD="${{ secrets.REDIS_PASSWORD }}"
-          export CORE_EXTERNAL_IP="${CORE_EXTERNAL_IP}"
-          export CORE_INTERNAL_IP="${CORE_INTERNAL_IP}"
+          
+          # Add deployment metadata
           export DEPLOY_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           export GIT_SHA="${{ github.sha }}"
           export RELEASE_VERSION="v$(date +%Y%m%d)-${GITHUB_RUN_NUMBER:-1}"
@@ -388,7 +331,7 @@ jobs:
       - name: ⏳ Wait for services to be healthy
         run: |
           PROJECT="${{ github.event.inputs.project }}"
-          cd /opt/superdeploy/projects/${PROJECT}/compose
+          cd /opt/apps/${PROJECT}/compose
           
           echo "Waiting for services to be healthy..."
           sleep 10
@@ -402,7 +345,7 @@ jobs:
           echo "Running health checks for project: ${PROJECT}..."
           
           # PostgreSQL
-          docker exec ${PROJECT}-postgres pg_isready -U ${{ secrets.POSTGRES_USER }} && \
+          docker exec ${PROJECT}-postgres pg_isready && \
             echo "✅ PostgreSQL healthy" || echo "❌ PostgreSQL unhealthy"
           
           # RabbitMQ (if exists)
@@ -426,7 +369,7 @@ jobs:
       - name: Show deployment status
         run: |
           PROJECT="${{ github.event.inputs.project }}"
-          cd /opt/superdeploy/projects/${PROJECT}/compose
+          cd /opt/apps/${PROJECT}/compose
           
           echo "════════════════════════════════════════════════════════"
           echo "         🎉 DEPLOYMENT COMPLETE! 🎉                    "

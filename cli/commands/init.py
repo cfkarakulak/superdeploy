@@ -1,201 +1,277 @@
-"""SuperDeploy CLI - Init command (Interactive setup wizard)"""
+"""
+Project initialization command with interactive setup
+"""
 
+import os
+import yaml
 import click
-import inquirer
-import secrets
-from rich.console import Console
-from rich.panel import Panel
+import ipaddress
 from pathlib import Path
-import subprocess
+from datetime import datetime
+from rich.console import Console
+from rich.prompt import Prompt, Confirm
+from rich.panel import Panel
+from rich.table import Table
+from jinja2 import Template
+import secrets
 
 console = Console()
 
 
+def get_used_subnets():
+    """Get list of subnets already in use by other projects"""
+    used_subnets = []
+    projects_dir = Path("/opt/apps")
+    
+    if projects_dir.exists():
+        for project_dir in projects_dir.iterdir():
+            if project_dir.is_dir():
+                config_file = project_dir / "config.yml"
+                if config_file.exists():
+                    with open(config_file) as f:
+                        config = yaml.safe_load(f)
+                        if config and "network" in config and "subnet" in config["network"]:
+                            used_subnets.append(config["network"]["subnet"])
+    
+    return used_subnets
+
+
+def find_next_subnet(used_subnets):
+    """Find next available subnet starting from 172.20.0.0/24"""
+    base = ipaddress.IPv4Network("172.20.0.0/24")
+    
+    # Try subnets incrementally
+    for i in range(20, 255):  # 172.20.0.0 to 172.254.0.0
+        candidate = ipaddress.IPv4Network(f"172.{i}.0.0/24")
+        if str(candidate) not in used_subnets:
+            return str(candidate)
+    
+    raise ValueError("No available subnets in 172.x.0.0/24 range")
+
+
+def render_template(template_path, context):
+    """Render a template file with given context"""
+    with open(template_path) as f:
+        template = Template(f.read())
+    
+    # Handle conditional sections (simple implementation)
+    content = template.render(**context)
+    
+    # Process service-specific sections
+    if "SERVICES" in context:
+        for service in context["SERVICES"]:
+            service["IS_API"] = service["SERVICE"] == "api"
+            service["IS_DASHBOARD"] = service["SERVICE"] == "dashboard"
+            service["IS_SERVICES"] = service["SERVICE"] == "services"
+    
+    return template.render(**context)
+
+
 @click.command()
-@click.option(
-    "--non-interactive", is_flag=True, help="Non-interactive mode (use defaults)"
-)
-def init(non_interactive):
+@click.option("--project", "-p", required=True, help="Project name")
+@click.option("--yes", "-y", is_flag=True, help="Accept all defaults")
+@click.option("--subnet", help="Custom subnet (e.g., 172.21.0.0/24)")
+@click.option("--services", help="Comma-separated services (e.g., api,dashboard)")
+@click.option("--no-interactive", is_flag=True, help="Disable interactive mode")
+def init(project, yes, subnet, services, no_interactive):
     """
-    Interactive setup wizard - Creates .env with smart defaults
-
-    This command will:
-    - Detect GCP project
-    - Generate secure passwords
-    - Create SSH keys (if needed)
-    - Set up .env file
+    Initialize a new project with interactive setup
+    
+    Example:
+        superdeploy init -p marketplace
     """
-    console.print(
-        Panel.fit(
-            "[bold cyan]SuperDeploy Setup Wizard[/bold cyan]\n\n"
-            "[white]Let's configure your deployment environment![/white]",
-            border_style="cyan",
+    console.print(f"\n[bold cyan]🎯 Creating new project: {project}[/bold cyan]")
+    console.print("━" * 40)
+    
+    # Check if project already exists
+    project_dir = Path(f"/opt/apps/{project}")
+    if project_dir.exists():
+        console.print(f"[red]❌ Project '{project}' already exists![/red]")
+        return
+    
+    # Determine mode
+    interactive = not no_interactive and not yes
+    
+    # Service selection
+    available_services = ["api", "dashboard", "services", "worker", "scraper"]
+    selected_services = []
+    
+    if services:
+        selected_services = [s.strip() for s in services.split(",")]
+    elif interactive:
+        console.print("\n[bold]Select services for this project:[/bold]")
+        for service in available_services:
+            if service in ["api", "dashboard", "services"]:  # Default selections
+                selected = Confirm.ask(f"  Include {service}?", default=True)
+            else:
+                selected = Confirm.ask(f"  Include {service}?", default=False)
+            
+            if selected:
+                selected_services.append(service)
+    else:
+        # Default services
+        selected_services = ["api", "dashboard", "services"]
+    
+    # Network configuration
+    used_subnets = get_used_subnets()
+    
+    if subnet:
+        project_subnet = subnet
+    elif interactive:
+        console.print("\n[bold]Configure networking:[/bold]")
+        auto_subnet = Confirm.ask("  Auto-assign subnet?", default=True)
+        
+        if auto_subnet:
+            project_subnet = find_next_subnet(used_subnets)
+            console.print(f"\n[green]✨ Auto-assigned subnet: {project_subnet}[/green]")
+        else:
+            project_subnet = Prompt.ask("  Enter custom subnet", default="172.20.0.0/24")
+    else:
+        project_subnet = find_next_subnet(used_subnets)
+    
+    # Database configuration
+    generate_passwords = True
+    if interactive:
+        console.print("\n[bold]Database configuration:[/bold]")
+        generate_passwords = Confirm.ask(
+            "  Generate secure passwords?", 
+            default=True
         )
-    )
-
-    env_data = {}
-
-    # Detect GCP project
-    console.print("\n[cyan]━━━ Step 1/6: GCP Configuration ━━━[/cyan]")
-    try:
-        result = subprocess.run(
-            ["gcloud", "config", "get-value", "project"], capture_output=True, text=True
-        )
-        detected_project = result.stdout.strip()
-        console.print(f"[dim]Detected project: {detected_project}[/dim]")
-    except:
-        detected_project = ""
-
-    if non_interactive:
-        env_data["GCP_PROJECT_ID"] = detected_project or "your-project-id"
-    else:
-        questions = [
-            inquirer.Text(
-                "gcp_project", message="GCP Project ID", default=detected_project or ""
-            ),
-            inquirer.List(
-                "gcp_region",
-                message="GCP Region",
-                choices=["us-central1", "us-east1", "europe-west1", "asia-southeast1"],
-                default="us-central1",
-            ),
-        ]
-        answers = inquirer.prompt(questions)
-        env_data["GCP_PROJECT_ID"] = answers["gcp_project"]
-        env_data["GCP_REGION"] = answers["gcp_region"]
-
-    # SSH Key
-    console.print("\n[cyan]━━━ Step 2/6: SSH Configuration ━━━[/cyan]")
-    ssh_key_path = Path.home() / ".ssh" / "superdeploy_gcp"
-
-    if not ssh_key_path.exists():
-        if non_interactive or inquirer.confirm(
-            "SSH key not found. Create one?", default=True
-        ):
-            console.print("[yellow]Creating SSH key...[/yellow]")
-            subprocess.run(
-                ["ssh-keygen", "-t", "ed25519", "-f", str(ssh_key_path), "-N", ""],
-                check=True,
-            )
-            console.print("[green]✅ SSH key created![/green]")
-
-            # Add to GCP
-            if inquirer.confirm("Add SSH key to GCP?", default=True):
-                subprocess.run(
-                    [
-                        "gcloud",
-                        "compute",
-                        "os-login",
-                        "ssh-keys",
-                        "add",
-                        "--key-file",
-                        f"{ssh_key_path}.pub",
-                    ],
-                    check=False,
-                )
-
-    env_data["SSH_KEY_PATH"] = "~/.ssh/superdeploy_gcp"
-    env_data["SSH_USER"] = "superdeploy"
-
-    # Docker Hub
-    console.print("\n[cyan]━━━ Step 3/6: Docker Hub ━━━[/cyan]")
-    docker_questions = [
-        inquirer.Text("docker_user", message="Docker Hub username"),
-        inquirer.Password("docker_token", message="Docker Hub token"),
-    ]
-
-    if not non_interactive:
-        docker_answers = inquirer.prompt(docker_questions)
-        env_data["DOCKER_USERNAME"] = docker_answers["docker_user"]
-        env_data["DOCKER_TOKEN"] = docker_answers["docker_token"]
-        env_data["DOCKER_ORG"] = docker_answers["docker_user"]
-    else:
-        env_data["DOCKER_USERNAME"] = "your-dockerhub-username"
-        env_data["DOCKER_TOKEN"] = "your-dockerhub-token"
-        env_data["DOCKER_ORG"] = "your-dockerhub-username"
-
-    env_data["DOCKER_REGISTRY"] = "docker.io"
-
-    # GitHub
-    console.print("\n[cyan]━━━ Step 4/6: GitHub Integration ━━━[/cyan]")
-    if not non_interactive:
-        github_token = inquirer.text("GitHub Personal Access Token")
-        env_data["GITHUB_TOKEN"] = github_token
-    else:
-        env_data["GITHUB_TOKEN"] = "ghp_your_github_token"
-
-    # Forgejo
-    console.print("\n[cyan]━━━ Step 5/6: Forgejo Configuration ━━━[/cyan]")
-    console.print("[dim]Generating secure passwords...[/dim]")
-
-    env_data["FORGEJO_ORG"] = "cradexco"
-    env_data["FORGEJO_ADMIN_USER"] = "admin"
-    env_data["FORGEJO_ADMIN_PASSWORD"] = secrets.token_urlsafe(16)
-    env_data["FORGEJO_ADMIN_EMAIL"] = "admin@example.com"
-    env_data["REPO_SUPERDEPLOY"] = "superdeploy-app"
-    env_data["FORGEJO_DB_USER"] = "superdeploy"
-    env_data["FORGEJO_DB_PASSWORD"] = secrets.token_urlsafe(16)
-    env_data["FORGEJO_DB_NAME"] = "forgejo"
-
-    # App Secrets
-    console.print("\n[cyan]━━━ Step 6/6: Application Secrets ━━━[/cyan]")
-    console.print("[dim]Generating strong passwords...[/dim]")
-
-    env_data["POSTGRES_USER"] = "superdeploy"
-    env_data["POSTGRES_PASSWORD"] = secrets.token_urlsafe(24)
-    env_data["POSTGRES_DB"] = "superdeploy_db"
-    env_data["RABBITMQ_USER"] = "superdeploy"
-    env_data["RABBITMQ_PASSWORD"] = secrets.token_urlsafe(24)
-    env_data["REDIS_PASSWORD"] = secrets.token_urlsafe(24)
-    env_data["API_SECRET_KEY"] = secrets.token_hex(32)
-
-    # Feature Toggles
-    env_data["USE_REMOTE_STATE"] = "false"
-    env_data["ENABLE_MONITORING"] = "false"
-    env_data["ENABLE_HARDENING"] = "false"
-    env_data["EXPOSE_RABBITMQ_MGMT"] = "true"
-
+    
     # Monitoring
-    if not non_interactive:
-        alert_email = inquirer.text("Alert email", default="your-email@example.com")
-        env_data["ALERT_EMAIL"] = alert_email
-    else:
-        env_data["ALERT_EMAIL"] = "your-email@example.com"
-
-    env_data["GRAFANA_ADMIN_USER"] = "admin"
-    env_data["GRAFANA_ADMIN_PASSWORD"] = secrets.token_urlsafe(16)
-
-    # IP placeholders
-    env_data["CORE_EXTERNAL_IP"] = ""
-    env_data["CORE_INTERNAL_IP"] = ""
-    env_data["SCRAPE_EXTERNAL_IP"] = ""
-    env_data["SCRAPE_INTERNAL_IP"] = ""
-    env_data["PROXY_EXTERNAL_IP"] = ""
-    env_data["PROXY_INTERNAL_IP"] = ""
-
-    # VM Config
-    env_data["VM_MACHINE_TYPE"] = "e2-medium"
-    env_data["VM_DISK_SIZE"] = "20"
-    env_data["VM_IMAGE"] = "debian-cloud/debian-11"
-
-    # Write .env file
-    console.print("\n[cyan]━━━ Writing .env file... ━━━[/cyan]")
-    env_file = Path.cwd() / ".env"
-
-    with open(env_file, "w") as f:
-        f.write("# SuperDeploy Configuration\n")
-        f.write("# Generated by: superdeploy init\n\n")
-
-        for key, value in env_data.items():
-            f.write(f"{key}={value}\n")
-
-    console.print(f"\n[green]✅ Configuration saved to:[/green] {env_file}")
-
+    enable_monitoring = True
+    if interactive:
+        enable_monitoring = Confirm.ask("\nEnable monitoring for this project?", default=True)
+    
+    # Domain
+    project_domain = ""
+    if interactive:
+        console.print("\n[bold]Configure domain (optional):[/bold]")
+        project_domain = Prompt.ask(
+            f"  Domain for {project}", 
+            default=f"{project}.example.com"
+        )
+        if project_domain == f"{project}.example.com":
+            project_domain = ""  # Don't save example domain
+    
+    # Port assignments
+    api_port = 8000 + len(used_subnets) * 10  # Offset ports by project
+    dashboard_port = 3000 + len(used_subnets) * 10
+    
     # Summary
-    console.print("\n[bold cyan]━━━ Setup Complete! ━━━[/bold cyan]")
-    console.print("\n[white]Next steps:[/white]")
-    console.print("  1. [cyan]superdeploy up[/cyan]        # Deploy infrastructure")
-    console.print("  2. [cyan]superdeploy sync[/cyan]      # Sync secrets to GitHub")
-    console.print("  3. [cyan]superdeploy deploy[/cyan]    # Deploy applications")
+    console.print("\n[bold cyan]📋 Summary:[/bold cyan]")
+    console.print("━" * 40)
+    
+    table = Table(show_header=False, box=None)
+    table.add_column("Property", style="dim")
+    table.add_column("Value", style="bright_white")
+    
+    table.add_row("Project:", project)
+    table.add_row("Services:", ", ".join(selected_services))
+    table.add_row("Network:", project_subnet)
+    table.add_row("Database:", "PostgreSQL 15")
+    table.add_row("Queue:", "RabbitMQ 3.12")
+    table.add_row("Cache:", "Redis 7")
+    table.add_row("Monitoring:", "✓ Enabled" if enable_monitoring else "✗ Disabled")
+    if project_domain:
+        table.add_row("Domain:", project_domain)
+    
+    console.print(table)
+    
+    # Confirm
+    if interactive and not Confirm.ask("\n[bold]Create project?[/bold]", default=True):
+        console.print("[yellow]Cancelled.[/yellow]")
+        return
+    
+    # Create project structure
+    console.print("\n[dim]Creating project structure...[/dim]")
+    
+    # Template context
+    context = {
+        "PROJECT": project,
+        "DESCRIPTION": f"{project.title()} project",
+        "CREATED_AT": datetime.now().isoformat(),
+        "UPDATED_AT": datetime.now().isoformat(),
+        "SUBNET": project_subnet,
+        "SERVICES": [{"SERVICE": s} for s in selected_services],
+        "POSTGRES_VERSION": "15-alpine",
+        "RABBITMQ_VERSION": "3.12-management-alpine",
+        "REDIS_VERSION": "7-alpine",
+        "API_PORT": api_port,
+        "DASHBOARD_PORT": dashboard_port,
+        "MONITORING_ENABLED": enable_monitoring,
+        "PROMETHEUS_TARGET": enable_monitoring,
+        "DOMAIN": project_domain,
+    }
+    
+    # Create directories
+    compose_dir = project_dir / "compose"
+    data_dir = project_dir / "data"
+    
+    compose_dir.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Copy and render templates
+    template_dir = Path(__file__).parent.parent.parent / "templates"
+    
+    # Render docker-compose.core.yml
+    core_template = template_dir / "compose" / "docker-compose.core.yml"
+    core_output = compose_dir / "docker-compose.core.yml"
+    core_output.write_text(render_template(core_template, context))
+    
+    # Render docker-compose.apps.yml
+    apps_template = template_dir / "compose" / "docker-compose.apps.yml"
+    apps_output = compose_dir / "docker-compose.apps.yml"
+    apps_output.write_text(render_template(apps_template, context))
+    
+    # Render project config
+    config_template = template_dir / "project-config.yml"
+    config_output = project_dir / "config.yml"
+    config_output.write_text(render_template(config_template, context))
+    
+    # Generate passwords if requested
+    passwords = {}
+    if generate_passwords:
+        passwords = {
+            "POSTGRES_PASSWORD": secrets.token_urlsafe(32),
+            "RABBITMQ_PASSWORD": secrets.token_urlsafe(32),
+            "REDIS_PASSWORD": secrets.token_urlsafe(32),
+        }
+        
+        # Save password hints
+        password_file = project_dir / ".passwords.yml"
+        with open(password_file, "w") as f:
+            yaml.dump({
+                "generated_at": datetime.now().isoformat(),
+                "passwords": passwords,
+                "note": "Add these to GitHub Secrets for each app repository"
+            }, f)
+        
+        # Make it readable only by owner
+        os.chmod(password_file, 0o600)
+    
+    # Success message
+    console.print(f"\n[green]✅ Project created successfully![/green]")
+    
+    # Next steps
+    console.print("\n[bold]📝 Next steps:[/bold]")
+    console.print("1. Add secrets to GitHub:")
+    
+    for service in selected_services:
+        if service in ["api", "dashboard", "services"]:
+            console.print(f"   [dim]gh secret set POSTGRES_PASSWORD -R {project}io/{service}[/dim]")
+            console.print(f"   [dim]gh secret set RABBITMQ_PASSWORD -R {project}io/{service}[/dim]")
+            console.print(f"   [dim]gh secret set REDIS_PASSWORD -R {project}io/{service}[/dim]")
+            break
+    
+    if passwords:
+        console.print(f"\n   [dim]Generated passwords saved in: /opt/apps/{project}/.passwords.yml[/dim]")
+    
+    console.print("\n2. Push your code:")
+    console.print("   [dim]git push origin production[/dim]")
+    
+    console.print("\n[green]🚀 That's it! Deployment will happen automatically.[/green]")
 
-    console.print("\n[dim]Estimated time: ~10 minutes[/dim]")
+
+if __name__ == "__main__":
+    init()
