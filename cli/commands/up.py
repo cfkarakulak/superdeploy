@@ -328,26 +328,29 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,ap
 
             # Push to Forgejo (needed for workflows)
             import urllib.parse
+
             encoded_pass = urllib.parse.quote(env["FORGEJO_ADMIN_PASSWORD"])
             forgejo_url = f"http://{env['FORGEJO_ADMIN_USER']}:{encoded_pass}@{env['CORE_EXTERNAL_IP']}:3001/{env['FORGEJO_ORG']}/{env['REPO_SUPERDEPLOY']}.git"
 
             try:
                 subprocess.run(
-                    ["git", "remote", "remove", "forgejo"], 
+                    ["git", "remote", "remove", "forgejo"],
                     capture_output=True,
-                    cwd=project_root
+                    cwd=project_root,
                 )
             except:
                 pass
 
             run_command(f"git remote add forgejo {forgejo_url}", cwd=project_root)
-            
+
             # Push workflows to Forgejo
             try:
                 run_command("git push forgejo master:master -f", cwd=project_root)
                 console.print("[green]✅ Workflows pushed to Forgejo![/green]")
             except Exception as e:
-                console.print(f"[yellow]⚠️  Forgejo push failed (may already exist): {e}[/yellow]")
+                console.print(
+                    f"[yellow]⚠️  Forgejo push failed (may already exist): {e}[/yellow]"
+                )
 
             progress.advance(task3)
 
