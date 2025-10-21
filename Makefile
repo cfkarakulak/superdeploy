@@ -267,3 +267,23 @@ clean: ## Clean Terraform state
 	@echo "$(YELLOW)🧹 Cleaning Terraform state...$(NC)"
 	@rm -rf .terraform terraform.tfstate* envs/dev/*.tfvars
 	@echo "$(GREEN)✅ Cleaned!$(NC)"
+
+# =============================================================================
+# 🎯 CLI Tools (Heroku-like UX)
+# =============================================================================
+
+cli-install: ## Install superdeploy CLI to /usr/local/bin
+	@echo "$(GREEN)📦 Installing superdeploy CLI...$(NC)"
+	@sudo cp bin/superdeploy /usr/local/bin/superdeploy
+	@sudo chmod +x /usr/local/bin/superdeploy
+	@echo "$(GREEN)✅ superdeploy CLI installed!$(NC)"
+	@echo ""
+	@echo "Usage:"
+	@echo "  superdeploy logs -a api -f"
+	@echo "  superdeploy run api \"python manage.py migrate\""
+	@echo "  superdeploy scale api=3"
+	@echo "  superdeploy deploy -a api -e production"
+
+cli-test: ## Test CLI commands
+	@./bin/superdeploy apps
+	@./bin/superdeploy status
