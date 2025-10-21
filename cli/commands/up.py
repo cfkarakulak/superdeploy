@@ -266,7 +266,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
     if not skip_ansible:
         console.print("\n[cyan]⚙️  Configuring services (Ansible)...[/cyan]")
 
-        ansible_dir = project_root / "ansible"
+        ansible_dir = project_root / "shared" / "ansible"
         ansible_cmd = f"""
 cd {ansible_dir} && \
 ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,app-deployment,git-server \
