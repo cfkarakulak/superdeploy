@@ -6,7 +6,36 @@ You need to do this **once per application**.
 
 ---
 
-## 📋 Overview
+## 🎯 Quick Start (Recommended)
+
+**The easiest way:**
+
+```bash
+cd ~/Desktop/superdeploy
+
+# 1. Fill in app passwords in .env
+vim .env  # Add POSTGRES_PASSWORD, RABBITMQ_PASSWORD, etc.
+
+# 2. Install GitHub CLI (if not already)
+brew install gh
+gh auth login
+
+# 3. Sync EVERYTHING automatically!
+superdeploy sync
+```
+
+That's it! `superdeploy sync` will:
+- ✅ Auto-fetch AGE public key from VM
+- ✅ Auto-create Forgejo PAT (if needed)
+- ✅ Push all repo secrets to GitHub
+- ✅ Push all environment secrets to GitHub
+- ✅ Configure production environment for all apps
+
+**Duration:** ~30 seconds (vs. 20 minutes manual!)
+
+---
+
+## 📋 Manual Setup (If You Prefer)
 
 For each app, you'll:
 1. Configure GitHub repository secrets

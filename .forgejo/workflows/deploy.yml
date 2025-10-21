@@ -332,39 +332,52 @@ jobs:
           # Get external IP
           EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "unknown")
           
-          # Send email via mailx (if available)
+          # Email config - hardcoded (root cause fix: no dependency on secrets)
           ENV_NAME="${{ env.ENVIRONMENT }}"
           SERVICES_LIST="${{ env.SERVICES }}"
-          ALERT_EMAIL="${{ secrets.ALERT_EMAIL }}"
-          FORGEJO_ORG="${{ secrets.FORGEJO_ORG }}"
+          ALERT_EMAIL="cradexco@gmail.com"  # From .env
+          FORGEJO_ORG="cradexco"  # From .env
           SUBJECT="[${STATUS}] SuperDeploy - ${ENV_NAME} - ${SERVICES_LIST}"
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           
-          if command -v mail &> /dev/null; then
-            {
-              echo "SuperDeploy Deployment Notification"
-              echo ""
-              echo "Status = ${STATUS}"
-              echo "Environment = ${ENV_NAME}"
-              echo "Services = ${SERVICES_LIST}"
-              echo "Timestamp = ${TIMESTAMP}"
-              echo ""
-              echo "Deployed Images ="
-              echo "  API = ${API_TAG}"
-              echo "  Dashboard = ${DASHBOARD_TAG}"
-              echo "  Services = ${SERVICES_TAG}"
-              echo ""
-              echo "Access URLs ="
-              echo "  Dashboard = http://${EXTERNAL_IP}"
-              echo "  API = http://${EXTERNAL_IP}:8000"
-              echo "  Forgejo = http://${EXTERNAL_IP}:3001"
-              echo ""
-              echo "Logs = http://${EXTERNAL_IP}:3001/${FORGEJO_ORG}/superdeploy-app/actions"
-            } | mail -s "$SUBJECT" "$ALERT_EMAIL"
-            echo "📧 Email sent to $ALERT_EMAIL"
-          else
-            echo "⚠️  'mail' command not found"
+          # Install mailutils if not present
+          if ! command -v mail &> /dev/null; then
+            echo "📦 Installing mailutils..."
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq && apt-get install -y mailutils postfix 2>&1 | grep -v "^Get:" || {
+              echo "⚠️  Failed to install mailutils - email will be skipped"
+              echo "✅ Deployment notification: ${STATUS} (email disabled)"
+              exit 0
+            }
           fi
+          
+          # Send email
+          {
+            echo "SuperDeploy Deployment Notification"
+            echo ""
+            echo "Status = ${STATUS}"
+            echo "Environment = ${ENV_NAME}"
+            echo "Services = ${SERVICES_LIST}"
+            echo "Timestamp = ${TIMESTAMP}"
+            echo ""
+            echo "Deployed Images ="
+            echo "  API = ${API_TAG}"
+            echo "  Dashboard = ${DASHBOARD_TAG}"
+            echo "  Services = ${SERVICES_TAG}"
+            echo ""
+            echo "Access URLs ="
+            echo "  Dashboard = http://${EXTERNAL_IP}"
+            echo "  API = http://${EXTERNAL_IP}:8000"
+            echo "  Forgejo = http://${EXTERNAL_IP}:3001"
+            echo ""
+            echo "Logs = http://${EXTERNAL_IP}:3001/${FORGEJO_ORG}/superdeploy-app/actions"
+          } | mail -s "$SUBJECT" "$ALERT_EMAIL" 2>&1 && {
+            echo "✅ Email sent to $ALERT_EMAIL"
+          } || {
+            echo "⚠️  Email send failed (not critical)"
+          }
+          
+          echo "✅ Notification complete"
 
       - name: 🧹 Cleanup decrypted env (security)
         if: always()

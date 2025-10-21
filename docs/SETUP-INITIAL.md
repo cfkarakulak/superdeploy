@@ -267,12 +267,17 @@ make cli-install
 
 # Verify installation
 superdeploy --help
+
+# Test from any directory
+cd ~
+superdeploy status  # Works from anywhere!
 ```
 
 Now you can use commands like:
 - `superdeploy status`
 - `superdeploy logs -a api -f`
 - `superdeploy run api "python manage.py migrate"`
+- `superdeploy sync` - **🔥 Auto-sync ALL secrets!**
 
 ---
 
