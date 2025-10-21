@@ -228,11 +228,12 @@
 - name: Start Cheapa core services (PostgreSQL, RabbitMQ, Redis, Caddy)
   shell: |
     set -a
-    source .env
+    . .env
     set +a
     docker compose -f docker-compose.core.yml up -d
   args:
     chdir: /opt/superdeploy/projects/cheapa/compose
+    executable: /bin/bash
   become_user: superdeploy
 
 # =============================================================================
