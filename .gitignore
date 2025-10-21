@@ -27,13 +27,15 @@ build/
 *.egg
 
 # Terraform
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.backup
-terraform/*.tfstate.*
-terraform/.terraform.lock.hcl
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfstate.*
 terraform/envs/**/*.tfvars
+shared/terraform/envs/**/*.tfvars
 !terraform/envs/**/*.tfvars.example
+!shared/terraform/envs/**/*.tfvars.example
 
 # Ansible
 ansible/*.retry

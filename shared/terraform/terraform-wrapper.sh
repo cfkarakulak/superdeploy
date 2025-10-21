@@ -5,14 +5,18 @@
 
 set -e
 
-# Load .env from parent directory (project root)
-if [ -f "../.env" ]; then
+# Load .env from project root
+# Script location: shared/terraform/terraform-wrapper.sh
+# .env location: ../../.env (project root)
+if [ -f "../../.env" ]; then
+    ENV_FILE="../../.env"
+elif [ -f "../.env" ]; then
     ENV_FILE="../.env"
 elif [ -f ".env" ]; then
     ENV_FILE=".env"
 else
     echo "❌ ERROR: .env not found!"
-    echo "Expected: ../env or .env"
+    echo "Expected: ../../.env (from shared/terraform/)"
     exit 1
 fi
 
