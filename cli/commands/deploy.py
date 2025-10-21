@@ -11,11 +11,12 @@ console = Console()
 
 
 @click.command()
+@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
 @click.option("-a", "--app", help="App name (api, dashboard, services, or 'all')")
 @click.option("-e", "--env", "environment", default="production", help="Environment")
 @click.option("-t", "--tag", help="Image tag (default: latest)")
 @click.option("--migrate", is_flag=True, help="Run DB migrations")
-def deploy(app, environment, tag, migrate):
+def deploy(project, app, environment, tag, migrate):
     """
     Trigger deployment via Forgejo workflow
 
@@ -36,6 +37,7 @@ def deploy(app, environment, tag, migrate):
     console.print(
         Panel.fit(
             f"[bold cyan]🚀 Triggering Deployment[/bold cyan]\n\n"
+            f"[white]Project: {project}[/white]\n"
             f"[white]App: {app or 'all'}[/white]\n"
             f"[white]Environment: {environment}[/white]\n"
             f"[white]Tag: {tag or 'latest'}[/white]",
@@ -69,6 +71,7 @@ def deploy(app, environment, tag, migrate):
     payload = {
         "ref": "master",
         "inputs": {
+            "project": project,  # Project is mandatory now
             "environment": environment,
             "services": services,
             "image_tags": json.dumps(image_tags),

@@ -11,11 +11,12 @@ console = Console()
 
 
 @click.command()
+@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
 @click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
 @click.option("-f", "--follow", is_flag=True, help="Follow logs (tail -f)")
 @click.option("-n", "--lines", default=100, help="Number of lines")
 @click.option("-e", "--env", "environment", default="production", help="Environment")
-def logs(app, follow, lines, environment):
+def logs(project, app, follow, lines, environment):
     """
     View application logs
 
@@ -32,7 +33,7 @@ def logs(app, follow, lines, environment):
     if not validate_env_vars(env, required):
         raise SystemExit(1)
 
-    console.print(f"[cyan]📋 Fetching logs for [bold]{app}[/bold]...[/cyan]")
+    console.print(f"[cyan]📋 Fetching logs for [bold]{project}/{app}[/bold]...[/cyan]")
 
     # SSH command to get docker logs
     ssh_key = os.path.expanduser(env["SSH_KEY_PATH"])
@@ -40,7 +41,8 @@ def logs(app, follow, lines, environment):
     ssh_host = env["CORE_EXTERNAL_IP"]
 
     follow_flag = "-f" if follow else ""
-    docker_cmd = f"docker logs {follow_flag} --tail {lines} superdeploy-{app} 2>&1"
+    # Container naming: {project}-{app}
+    docker_cmd = f"docker logs {follow_flag} --tail {lines} {project}-{app} 2>&1"
 
     ssh_cmd = [
         "ssh",

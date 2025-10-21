@@ -10,9 +10,10 @@ console = Console()
 
 
 @click.command()
+@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
 @click.argument("app")
 @click.option("-e", "--env", "environment", default="production", help="Environment")
-def restart(app, environment):
+def restart(project, app, environment):
     """
     Restart service
 
@@ -35,17 +36,18 @@ def restart(app, environment):
     ssh_user = env_vars.get("SSH_USER", "superdeploy")
     ssh_key = os.path.expanduser(env_vars["SSH_KEY_PATH"])
 
-    restart_cmd = f"cd /opt/superdeploy/compose && docker-compose restart {app}"
+    # Project-specific compose directory
+    restart_cmd = f"cd /opt/superdeploy/projects/{project}/compose && docker compose -f docker-compose.apps.yml restart {app}"
 
     try:
         result = ssh_command(
             host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=restart_cmd
         )
 
-        console.print(f"[green]✅ {app} restarted successfully![/green]")
+        console.print(f"[green]✅ {project}/{app} restarted successfully![/green]")
 
-        # Show status
-        status_cmd = f"docker ps --filter name=superdeploy-{app} --format 'table {{{{.Names}}}}\t{{{{.Status}}}}'"
+        # Show status (container naming: {project}-{app})
+        status_cmd = f"docker ps --filter name={project}-{app} --format 'table {{{{.Names}}}}\t{{{{.Status}}}}'"
         status = ssh_command(
             host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=status_cmd
         )

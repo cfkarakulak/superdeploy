@@ -11,9 +11,10 @@ console = Console()
 
 
 @click.command(name="run")
+@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
 @click.argument("app")
 @click.argument("command")
-def run(app, command):
+def run(project, app, command):
     """
     Run one-off command in app container
 
@@ -33,13 +34,13 @@ def run(app, command):
     console.print(f"[cyan]⚡ Running command in [bold]{app}[/bold]:[/cyan]")
     console.print(f"[dim]$ {command}[/dim]\n")
 
-    # SSH + docker exec
+    # SSH + docker exec (container naming: {project}-{app})
     ssh_key = os.path.expanduser(env["SSH_KEY_PATH"])
     ssh_user = env.get("SSH_USER", "superdeploy")
     ssh_host = env["CORE_EXTERNAL_IP"]
 
     # Use -i (not -it) for non-interactive commands to avoid TTY errors
-    docker_cmd = f"docker exec -i superdeploy-{app} {command}"
+    docker_cmd = f"docker exec -i {project}-{app} {command}"
 
     ssh_cmd = [
         "ssh",

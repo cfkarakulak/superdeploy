@@ -45,6 +45,39 @@ def load_env() -> Dict[str, Any]:
     return env_vars
 
 
+def get_available_projects() -> list:
+    """Get list of available projects"""
+    project_root = get_project_root()
+    projects_dir = project_root / "projects"
+    
+    if not projects_dir.exists():
+        return []
+    
+    return [d.name for d in projects_dir.iterdir() if d.is_dir() and not d.name.startswith('.')]
+
+
+def validate_project(project: str) -> None:
+    """Validate that project exists"""
+    available = get_available_projects()
+    
+    if not available:
+        console.print("[red]❌ No projects found in projects/ directory![/red]")
+        raise SystemExit(1)
+    
+    if project not in available:
+        console.print(f"[red]❌ Project '{project}' not found![/red]")
+        console.print(f"\n[yellow]Available projects:[/yellow]")
+        for p in available:
+            console.print(f"  • {p}")
+        raise SystemExit(1)
+
+
+def get_project_path(project: str) -> Path:
+    """Get project directory path"""
+    validate_project(project)
+    return get_project_root() / "projects" / project
+
+
 def run_command(
     cmd: str,
     cwd: Optional[str] = None,

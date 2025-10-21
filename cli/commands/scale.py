@@ -10,9 +10,10 @@ console = Console()
 
 
 @click.command()
+@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
 @click.argument("scale_spec")
 @click.option("-e", "--env", "environment", default="production", help="Environment")
-def scale(scale_spec, environment):
+def scale(project, scale_spec, environment):
     """
     Scale service replicas
 
@@ -48,18 +49,19 @@ def scale(scale_spec, environment):
     ssh_user = env_vars.get("SSH_USER", "superdeploy")
     ssh_key = os.path.expanduser(env_vars["SSH_KEY_PATH"])
 
-    scale_cmd = f"cd /opt/superdeploy/compose && docker-compose up -d --scale {app}={replicas} --no-recreate"
+    # Project-specific compose directory
+    scale_cmd = f"cd /opt/superdeploy/projects/{project}/compose && docker compose -f docker-compose.apps.yml up -d --scale {app}={replicas} --no-recreate"
 
     try:
         result = ssh_command(
             host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=scale_cmd
         )
 
-        console.print("[green]✅ Scaling complete![/green]")
+        console.print(f"[green]✅ Scaling {project}/{app} complete![/green]")
         console.print(f"\n[dim]{result}[/dim]")
 
-        # Show current status
-        status_cmd = f"docker ps --filter name=superdeploy-{app} --format 'table {{{{.Names}}}}\t{{{{.Status}}}}'"
+        # Show current status (container naming: {project}-{app})
+        status_cmd = f"docker ps --filter name={project}-{app} --format 'table {{{{.Names}}}}\t{{{{.Status}}}}'"
         status = ssh_command(
             host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=status_cmd
         )

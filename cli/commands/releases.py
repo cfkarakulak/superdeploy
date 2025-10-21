@@ -12,9 +12,10 @@ console = Console()
 
 
 @click.command()
+@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
 @click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
 @click.option("-n", "--limit", default=10, help="Number of releases to show")
-def releases(app, limit):
+def releases(project, app, limit):
     """
     Show release history for an app
 
@@ -45,8 +46,8 @@ def releases(app, limit):
     ssh_user = env_vars.get("SSH_USER", "superdeploy")
     ssh_key = env_vars["SSH_KEY_PATH"]
 
-    # Get current running container info (use docker inspect --format instead of jq)
-    inspect_cmd = f"docker inspect superdeploy-{app} 2>/dev/null || echo 'NOT_FOUND'"
+    # Get current running container info (container naming: {project}-{app})
+    inspect_cmd = f"docker inspect {project}-{app} 2>/dev/null || echo 'NOT_FOUND'"
 
     try:
         current_info = ssh_command(

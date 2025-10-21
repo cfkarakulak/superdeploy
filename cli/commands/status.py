@@ -11,7 +11,8 @@ console = Console()
 
 
 @click.command()
-def status():
+@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
+def status(project):
     """
     Show infrastructure status
 
@@ -94,23 +95,24 @@ def status():
         table.add_row("Runner", "❌ Error", "Cannot check")
 
     try:
-        # Check containers
+        # Check containers (project-specific naming: {project}-{app})
         containers = ssh_command(
             host=ssh_host,
             user=ssh_user,
             key_path=ssh_key,
-            cmd="docker ps --filter name=superdeploy --format '{{.Names}}: {{.Status}}' | head -5",
+            cmd=f"docker ps --filter name={project}- --format '{{{{.Names}}}}: {{{{.Status}}}}' | head -10",
         )
 
         for line in containers.strip().split("\n"):
             if line:
                 name, status = line.split(":", 1)
-                name = name.replace("superdeploy-", "").replace("-1", "")
+                # Remove project prefix for display
+                display_name = name.replace(f"{project}-", "")
 
                 if "Up" in status:
-                    table.add_row(f"  {name}", "✅ Running", status.strip())
+                    table.add_row(f"  {display_name}", "✅ Running", status.strip())
                 else:
-                    table.add_row(f"  {name}", "❌ Down", status.strip())
+                    table.add_row(f"  {display_name}", "❌ Down", status.strip())
     except:
         table.add_row("Containers", "❌ Error", "Cannot check")
 

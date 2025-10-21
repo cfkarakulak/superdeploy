@@ -11,6 +11,8 @@ from cli.utils import (
     run_command,
     get_project_root,
     validate_env_vars,
+    validate_project,
+    get_project_path,
 )
 
 console = Console()
@@ -173,11 +175,12 @@ def clean_ssh_known_hosts(env):
 
 
 @click.command()
+@click.option("--project", "-p", required=True, help="Project name (e.g., cheapa)")
 @click.option("--skip-terraform", is_flag=True, help="Skip Terraform provisioning")
 @click.option("--skip-ansible", is_flag=True, help="Skip Ansible configuration")
 @click.option("--skip-git-push", is_flag=True, help="Skip Git push")
 @click.option("--skip-sync", is_flag=True, help="Skip automatic GitHub secrets sync")
-def up(skip_terraform, skip_ansible, skip_git_push, skip_sync):
+def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
     """
     Deploy infrastructure (like 'heroku create')
 
@@ -190,10 +193,14 @@ def up(skip_terraform, skip_ansible, skip_git_push, skip_sync):
     \b
     Estimated time: ~10 minutes
     """
+    # Validate project first
+    validate_project(project)
+    
     console.print(
         Panel.fit(
-            "[bold cyan]🚀 SuperDeploy Infrastructure Deployment[/bold cyan]\n\n"
-            "[white]Deploying VMs, Forgejo, and services...[/white]",
+            f"[bold cyan]🚀 SuperDeploy Infrastructure Deployment[/bold cyan]\n\n"
+            f"[white]Project: [bold]{project}[/bold][/white]\n"
+            f"[white]Deploying VMs, Forgejo, and services...[/white]",
             border_style="cyan",
         )
     )
@@ -203,6 +210,7 @@ def up(skip_terraform, skip_ansible, skip_git_push, skip_sync):
         raise SystemExit(1)
 
     env = load_env()
+    env["ACTIVE_PROJECT"] = project  # Make project available to all subprocesses
     project_root = get_project_root()
 
     # Validate required vars
