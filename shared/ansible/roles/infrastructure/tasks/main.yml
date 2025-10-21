@@ -46,11 +46,7 @@
   copy:
     content: |
       # Shared Infrastructure Environment
-      POSTGRES_ADMIN_USER={{ POSTGRES_ADMIN_USER | default('postgres') }}
-      POSTGRES_ADMIN_PASSWORD={{ POSTGRES_ADMIN_PASSWORD }}
-      RABBITMQ_ADMIN_USER={{ RABBITMQ_ADMIN_USER | default('admin') }}
-      RABBITMQ_ADMIN_PASSWORD={{ RABBITMQ_ADMIN_PASSWORD }}
-      REDIS_PASSWORD={{ REDIS_PASSWORD }}
+      # (Project-specific credentials are managed separately)
       GRAFANA_ADMIN_USER={{ GRAFANA_ADMIN_USER | default('admin') }}
       GRAFANA_ADMIN_PASSWORD={{ GRAFANA_ADMIN_PASSWORD }}
       CORE_EXTERNAL_IP={{ core_external_ip }}
