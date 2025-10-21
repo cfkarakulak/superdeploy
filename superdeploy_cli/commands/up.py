@@ -270,6 +270,11 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,ap
   -e "scrape_internal_ip={env.get("SCRAPE_INTERNAL_IP", "")}" \
   -e "proxy_external_ip={env.get("PROXY_EXTERNAL_IP", "")}" \
   -e "proxy_internal_ip={env.get("PROXY_INTERNAL_IP", "")}" \
+  -e "FORGEJO_ADMIN_USER={env.get("FORGEJO_ADMIN_USER", "admin")}" \
+  -e "FORGEJO_ADMIN_PASSWORD={env.get("FORGEJO_ADMIN_PASSWORD", "")}" \
+  -e "FORGEJO_ADMIN_EMAIL={env.get("FORGEJO_ADMIN_EMAIL", "admin@example.com")}" \
+  -e "FORGEJO_ORG={env.get("FORGEJO_ORG", "cradexco")}" \
+  -e "REPO_SUPERDEPLOY={env.get("REPO_SUPERDEPLOY", "superdeploy-app")}" \
   -e "forgejo_admin_user={env.get("FORGEJO_ADMIN_USER", "admin")}" \
   -e "forgejo_admin_password={env.get("FORGEJO_ADMIN_PASSWORD", "")}" \
   -e "forgejo_admin_email={env.get("FORGEJO_ADMIN_EMAIL", "admin@example.com")}" \
