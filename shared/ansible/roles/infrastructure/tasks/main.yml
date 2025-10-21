@@ -45,14 +45,15 @@
 - name: Generate shared infrastructure .env file
   copy:
     content: |
-      # Shared Infrastructure Environment (App-Agnostic)
+      # Shared Infrastructure Environment
+      # ONLY for Forgejo + Monitoring (NO project data!)
       POSTGRES_USER={{ POSTGRES_USER }}
       POSTGRES_PASSWORD={{ POSTGRES_PASSWORD }}
-      RABBITMQ_USER={{ RABBITMQ_USER }}
-      RABBITMQ_PASSWORD={{ RABBITMQ_PASSWORD }}
-      REDIS_PASSWORD={{ REDIS_PASSWORD }}
       GRAFANA_ADMIN_USER={{ GRAFANA_ADMIN_USER }}
       GRAFANA_ADMIN_PASSWORD={{ GRAFANA_ADMIN_PASSWORD }}
+      SMTP_USERNAME={{ SMTP_USERNAME }}
+      SMTP_PASSWORD={{ SMTP_PASSWORD }}
+      ALERT_EMAIL={{ ALERT_EMAIL }}
       CORE_EXTERNAL_IP={{ core_external_ip }}
       DOCKER_REGISTRY={{ DOCKER_REGISTRY }}
       DOCKER_ORG={{ DOCKER_ORG }}
