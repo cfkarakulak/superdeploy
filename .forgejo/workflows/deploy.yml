@@ -1,8 +1,12 @@
-name: Deploy Multi-Service (Reusable)
+name: ${{ github.event.inputs.title || 'Deploy Multi-Service' }}
 
 on:
   workflow_dispatch:
     inputs:
+      title:
+        description: 'Workflow title (auto-generated from GitHub)'
+        required: false
+        default: 'Deploy Multi-Service'
       environment:
         description: 'Environment (prod|staging)'
         required: true
