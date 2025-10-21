@@ -282,12 +282,19 @@ def sync(project, skip_forgejo, skip_github):
     if not validate_env_vars(env, required):
         raise SystemExit(1)
 
-    # GitHub repos (MUST exist in .env - no defaults)
-    repos = {
-        "api": env["GITHUB_REPO_API"],
-        "dashboard": env["GITHUB_REPO_DASHBOARD"],
-        "services": env["GITHUB_REPO_SERVICES"],
-    }
+    # Load project config
+    import yaml
+    config_file = project_path / "config.yml"
+    if not config_file.exists():
+        console.print(f"[red]✗[/red] Project config not found: {config_file}")
+        console.print(f"[yellow]Create config.yml for project '{project}'[/yellow]")
+        raise SystemExit(1)
+    
+    with open(config_file) as f:
+        project_config = yaml.safe_load(f)
+    
+    # GitHub repos from project config
+    repos = project_config.get("repositories", {})
 
     with Progress(
         SpinnerColumn(),
