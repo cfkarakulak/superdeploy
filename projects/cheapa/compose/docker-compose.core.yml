@@ -1,99 +1,57 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# CHEAPA PROJECT - APPLICATION SERVICES
+# CHEAPA PROJECT - CORE SERVICES (Always Running)
 # ═══════════════════════════════════════════════════════════════════════════
-# These services are deployed selectively based on GitHub Actions input.
-# Core services (postgres, rabbitmq, redis) are in docker-compose.core.yml
+# These services are ALWAYS deployed and running.
+# They provide the foundation for application services.
 # ═══════════════════════════════════════════════════════════════════════════
 
 networks:
-  # Use the network created by docker-compose.core.yml
+  # Project-specific isolated network (FULLY ISOLATED)
   cheapa-network:
-    external: true
     name: cheapa-network
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/24
 
 volumes:
-  api-data:
-    name: cheapa-api-data
+  postgres-data:
+    name: cheapa-postgres-data
+  rabbitmq-data:
+    name: cheapa-rabbitmq-data
+  redis-data:
+    name: cheapa-redis-data
 
 services:
-
   # ═══════════════════════════════════════════════════════════════════════════
-  # API Service
+  # PostgreSQL (Project-Specific)
   # ═══════════════════════════════════════════════════════════════════════════
-  api:
-    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/api:${API_IMAGE_TAG:-latest}
-    container_name: cheapa-api
+  postgres:
+    image: postgres:15-alpine
+    container_name: cheapa-postgres
     restart: unless-stopped
-    # Environment variables injected via Forgejo workflow (from GitHub Secrets)
-    # See: .forgejo/workflows/deploy.yml
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: ${POSTGRES_DB:?required}
     volumes:
-      - api-data:/app/data
-    ports:
-      - "8000:8000"  # Exposed for Caddy reverse proxy
+      - postgres-data:/var/lib/postgresql/data
     networks:
       - cheapa-network
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-    stop_grace_period: 30s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    labels:
-      - "com.superdeploy.project=cheapa"
-      - "com.superdeploy.service=api"
-      - "com.superdeploy.release=${RELEASE_VERSION:-unknown}"
-      - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
-      - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Dashboard Service
-  # ═══════════════════════════════════════════════════════════════════════════
-  dashboard:
-    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/dashboard:${DASHBOARD_IMAGE_TAG:-latest}
-    container_name: cheapa-dashboard
-    restart: unless-stopped
-    # Environment variables injected via Forgejo workflow (from GitHub Secrets)
-    # See: .forgejo/workflows/deploy.yml
-    ports:
-      - "3000:3000"  # Exposed for Caddy reverse proxy
-    networks:
-      - cheapa-network
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     deploy:
       resources:
         limits:
           memory: 512M
-          cpus: '0.25'
+          cpus: '0.5'
         reservations:
-          memory: 128M
+          memory: 256M
     stop_grace_period: 30s
     logging:
       driver: json-file
@@ -102,43 +60,36 @@ services:
         max-file: "3"
     labels:
       - "com.superdeploy.project=cheapa"
-      - "com.superdeploy.service=dashboard"
-      - "com.superdeploy.release=${RELEASE_VERSION:-unknown}"
-      - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
-      - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
+      - "com.superdeploy.service=postgres"
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # Background Services (Celery Workers)
+  # RabbitMQ (Project-Specific)
   # ═══════════════════════════════════════════════════════════════════════════
-  services:
-    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/services:${SERVICES_IMAGE_TAG:-latest}
-    container_name: cheapa-services
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: cheapa-rabbitmq
     restart: unless-stopped
-    # Environment variables injected via Forgejo workflow (from GitHub Secrets)
-    # See: .forgejo/workflows/deploy.yml
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?required}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?required}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
     networks:
       - cheapa-network
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "ps aux | grep -v grep | grep celery || exit 1"]
-      interval: 60s
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
       start_period: 30s
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 512M
           cpus: '0.5'
         reservations:
           memory: 256M
-    stop_grace_period: 60s
+    stop_grace_period: 30s
     logging:
       driver: json-file
       options:
@@ -146,7 +97,39 @@ services:
         max-file: "3"
     labels:
       - "com.superdeploy.project=cheapa"
-      - "com.superdeploy.service=services"
-      - "com.superdeploy.release=${RELEASE_VERSION:-unknown}"
-      - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
-      - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
+      - "com.superdeploy.service=rabbitmq"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Redis (Project-Specific)
+  # ═══════════════════════════════════════════════════════════════════════════
+  redis:
+    image: redis:7-alpine
+    container_name: cheapa-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?required}
+    volumes:
+      - redis-data:/data
+    networks:
+      - cheapa-network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --pass $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+    stop_grace_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.superdeploy.project=cheapa"
+      - "com.superdeploy.service=redis"

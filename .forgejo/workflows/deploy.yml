@@ -324,7 +324,31 @@ jobs:
           
           echo "✅ Migration verified"
 
-      - name: Deploy services (selective, zero-downtime attempt)
+      - name: Deploy core services (always)
+        run: |
+          PROJECT="${{ github.event.inputs.project }}"
+          cd /opt/superdeploy/projects/${PROJECT}/compose
+          
+          echo "🔧 Deploying core services (postgres, rabbitmq, redis)..."
+          
+          # Load env
+          set -a
+          source /opt/superdeploy/.env
+          set +a
+          
+          export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
+          export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
+          export POSTGRES_DB="${{ secrets.POSTGRES_DB }}"
+          export RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
+          export RABBITMQ_PASSWORD="${{ secrets.RABBITMQ_PASSWORD }}"
+          export REDIS_PASSWORD="${{ secrets.REDIS_PASSWORD }}"
+          
+          # Deploy core services (always)
+          docker compose -f docker-compose.core.yml up -d
+          
+          echo "✅ Core services deployed!"
+      
+      - name: Deploy app services (selective)
         run: |
           PROJECT="${{ github.event.inputs.project }}"
           cd /opt/superdeploy/projects/${PROJECT}/compose
@@ -354,22 +378,12 @@ jobs:
           # Parse services
           IFS=',' read -ra SERVICE_ARRAY <<< "$SERVICES"
           
-          echo "Deploying ${PROJECT}: ${SERVICE_ARRAY[@]}"
+          echo "Deploying ${PROJECT} apps: ${SERVICE_ARRAY[@]}"
           
-          # Load ALL env files for docker-compose
-          set -a
-          [ -f env/postgres.env ] && source env/postgres.env
-          [ -f env/rabbitmq.env ] && source env/rabbitmq.env
-          [ -f env/redis.env ] && source env/redis.env
-          [ -f env/api.env ] && source env/api.env
-          [ -f env/dashboard.env ] && source env/dashboard.env
-          [ -f env/services.env ] && source env/services.env
-          set +a
-          
-          # Deploy app services only (core services managed by Ansible/systemd)
+          # Deploy app services only
           docker compose -f docker-compose.apps.yml up -d --no-deps "${SERVICE_ARRAY[@]}"
           
-          echo "✅ Services deployed!"
+          echo "✅ App services deployed!"
 
       - name: ⏳ Wait for services to be healthy
         run: |
