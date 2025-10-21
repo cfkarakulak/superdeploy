@@ -1,1 +1,1 @@
-superdeploy_cli
+cli
