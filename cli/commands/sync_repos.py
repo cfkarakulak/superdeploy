@@ -133,8 +133,8 @@ def sync_repos(project, env_dir, env_file):
             for service in services:
                 console.print(f"  • {github_org}/{service}")
 
-            # Prepare secrets
-            secrets = {
+            # Prepare core secrets (these take precedence)
+            core_secrets = {
                 "POSTGRES_USER": f"{project}_user",
                 "POSTGRES_PASSWORD": passwords.get("POSTGRES_PASSWORD"),
                 "POSTGRES_DB": f"{project}_db",
@@ -149,13 +149,40 @@ def sync_repos(project, env_dir, env_file):
                 "REDIS_PORT": "6379",
             }
 
+            # Check for app-repos and merge with app .env files
+            app_repos_dir = project_root.parent / "app-repos"
+            
             # Sync to all services
             console.print("\n[cyan]🔄 Syncing secrets...[/cyan]")
             for service in services:
                 repo = f"{github_org}/{service}"
                 console.print(f"\n  [bold]{repo}[/bold]")
 
-                for key, value in secrets.items():
+                # Start with core secrets
+                final_secrets = core_secrets.copy()
+                
+                # Check if app .env exists
+                service_env = app_repos_dir / service / ".env" if app_repos_dir.exists() else None
+                if service_env and service_env.exists():
+                    console.print(f"    [dim]📄 Merging with {service}/.env[/dim]")
+                    try:
+                        app_env_vars = dotenv_values(service_env)
+                        
+                        # Merge: app vars first, then core secrets override
+                        for key, value in app_env_vars.items():
+                            if value and not value.startswith("#"):
+                                final_secrets[key] = value
+                        
+                        # Override with core secrets (they take precedence)
+                        final_secrets.update(core_secrets)
+                        
+                        console.print(f"    [dim]✓ Merged {len(app_env_vars)} app vars + {len(core_secrets)} core secrets[/dim]")
+                    except Exception as e:
+                        console.print(f"    [yellow]⚠[/yellow] Could not read app .env: {e}")
+
+                # Sync all secrets
+                synced_count = 0
+                for key, value in final_secrets.items():
                     if value is None:
                         console.print(f"    [yellow]⚠[/yellow] {key}: missing value")
                         continue
@@ -166,37 +193,16 @@ def sync_repos(project, env_dir, env_file):
                             check=True,
                             capture_output=True,
                         )
-                        console.print(f"    [green]✓[/green] {key}")
+                        synced_count += 1
                     except subprocess.CalledProcessError as e:
                         console.print(f"    [red]✗[/red] {key}: {e.stderr.decode()}")
                     except Exception as e:
                         console.print(f"    [red]✗[/red] {key}: {e}")
+                
+                console.print(f"    [green]✓[/green] Synced {synced_count} secrets")
 
-            console.print("\n[green]✅ Core secrets (DB/Queue/Cache) synced![/green]")
-
-            # Now check for app-specific .env files
-            app_repos_dir = project_root.parent / "app-repos"
-            if app_repos_dir.exists():
-                console.print("\n[cyan]📦 Auto-discovered app-repos directory:[/cyan]")
-                console.print(f"  {app_repos_dir}")
-
-                # Look for .env files matching services
-                for service in services:
-                    service_env = app_repos_dir / service / ".env"
-                    if service_env.exists():
-                        env_files_to_sync.append(service_env)
-                        console.print(f"  • {service}/.env found")
-
-                if not env_files_to_sync:
-                    console.print("  [dim]No .env files found in app-repos[/dim]")
-            else:
-                console.print(
-                    f"\n[dim]Tip: Create {app_repos_dir} with service .env files for app-specific secrets[/dim]"
-                )
-
-            # If no app-specific env files, we're done
-            if not env_files_to_sync:
-                return
+            console.print("\n[green]✅ All secrets synced![/green]")
+            return
 
         except Exception as e:
             console.print(f"[red]❌ Error loading passwords: {e}[/red]")
@@ -235,7 +241,9 @@ def sync_repos(project, env_dir, env_file):
 
     # Sync each file
     console.print("\n[cyan]🔄 Syncing app-specific secrets...[/cyan]")
-    console.print("[dim]Note: Core secrets (DB/Queue/Cache) are skipped to avoid conflicts[/dim]")
+    console.print(
+        "[dim]Note: Core secrets (DB/Queue/Cache) are skipped to avoid conflicts[/dim]"
+    )
 
     for env_path, repo in env_to_repo.items():
         console.print(f"\n  [bold]{repo}[/bold]")
