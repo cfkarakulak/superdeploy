@@ -395,10 +395,9 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
 
             sync_cmd = [
                 "superdeploy",
-                "sync",
+                "sync:infra",
                 "-p",
                 project,
-                "--skip-forgejo",  # Forgejo already has secrets via Ansible
             ]
 
             result = subprocess.run(
