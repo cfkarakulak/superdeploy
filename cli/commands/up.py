@@ -235,9 +235,6 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
             update_ips_in_env(project_root, env_file_path)
             progress.advance(task1)
 
-            # Reload env with new IPs
-            env = load_env()
-
             console.print("[green]✅ VMs provisioned![/green]")
 
             # Generate inventory
@@ -255,6 +252,9 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
                 time.sleep(1)
                 progress.advance(task_wait)
             console.print("[green]✅ VMs ready![/green]")
+
+    # Reload env (in case IPs changed from Terraform)
+    env = load_env()
 
     # Ansible (outside progress context to avoid output mixing)
     if not skip_ansible:
