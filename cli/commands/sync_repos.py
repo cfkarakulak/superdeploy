@@ -166,20 +166,25 @@ def sync_repos(env_mappings, core_secrets):
         # Always write merged environment file to superdeploy project directory
         repo_name = repo.split("/")[-1]  # Extract repo name from owner/repo
 
-        # Find superdeploy project directory (look for .passwords.yml or config.yml)
-        project_path = None
-        current_path = env_path.parent
-        for _ in range(5):  # Max 5 levels up
-            if (current_path / ".passwords.yml").exists() or (
-                current_path / "config.yml"
-            ).exists():
-                project_path = current_path
-                break
-            current_path = current_path.parent
+        # Use core secrets directory as project directory
+        if core_secrets_dict:
+            # Use the directory where core secrets file is located
+            project_path = Path(core_secrets).parent
+        else:
+            # Fallback: find superdeploy project directory
+            project_path = None
+            current_path = env_path.parent
+            for _ in range(5):  # Max 5 levels up
+                if (current_path / ".passwords.yml").exists() or (
+                    current_path / "config.yml"
+                ).exists():
+                    project_path = current_path
+                    break
+                current_path = current_path.parent
 
-        if not project_path:
-            # Fallback: create in same directory as .env
-            project_path = env_path.parent
+            if not project_path:
+                # Fallback: create in same directory as .env
+                project_path = env_path.parent
 
         merged_file = project_path / f"merged_environment_{repo_name}.yml"
         try:
@@ -197,6 +202,7 @@ def sync_repos(env_mappings, core_secrets):
                     default_flow_style=False,
                 )
             console.print(f"    [dim]📝 Merged environment: {merged_file}[/dim]")
+            console.print(f"    [dim]📁 Project directory: {project_path}[/dim]")
         except Exception as e:
             console.print(f"    [yellow]⚠[/yellow] Could not write merged file: {e}")
 

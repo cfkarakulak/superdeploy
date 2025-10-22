@@ -306,17 +306,26 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
             # GitHub - Push superdeploy repo as backup
             github_token = env.get("GITHUB_TOKEN")
             if github_token and github_token != "your-github-token":
+                # Add or update GitHub remote
                 try:
                     subprocess.run(
-                        ["git", "remote", "remove", "github"], capture_output=True
+                        ["git", "remote", "remove", "github"], 
+                        capture_output=True,
+                        cwd=project_root,
                     )
                 except:
                     pass
 
-                run_command(
-                    f"git remote add github https://{github_token}@github.com/cfkarakulak/superdeploy.git",
-                    cwd=project_root,
-                )
+                try:
+                    subprocess.run(
+                        ["git", "remote", "add", "github", f"https://{github_token}@github.com/cfkarakulak/superdeploy.git"],
+                        check=False,  # Don't fail if remote exists
+                        capture_output=True,
+                        cwd=project_root,
+                    )
+                except:
+                    pass
+                
                 run_command("git push -u github master", cwd=project_root)
                 console.print("[green]✅ Superdeploy backed up to GitHub![/green]")
 
