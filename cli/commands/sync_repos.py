@@ -26,12 +26,7 @@ console = Console()
     "-c",
     help="YAML file with core secrets (e.g., DB passwords) - these take precedence",
 )
-@click.option(
-    "--project-dir",
-    "-p",
-    help="SuperDeploy project directory (where merged files will be created)",
-)
-def sync_repos(env_mappings, core_secrets, project_dir):
+def sync_repos(env_mappings, core_secrets):
     """
     Sync secrets to GitHub repositories (100% project-agnostic)
     
@@ -171,25 +166,20 @@ def sync_repos(env_mappings, core_secrets, project_dir):
         # Always write merged environment file to superdeploy project directory
         repo_name = repo.split("/")[-1]  # Extract repo name from owner/repo
 
-        # Determine project directory for merged files
-        if project_dir:
-            # Use specified project directory
-            project_path = Path(project_dir).expanduser().resolve()
-        else:
-            # Auto-detect: find superdeploy project directory
-            project_path = None
-            current_path = env_path.parent
-            for _ in range(5):  # Max 5 levels up
-                if (current_path / ".passwords.yml").exists() or (
-                    current_path / "config.yml"
-                ).exists():
-                    project_path = current_path
-                    break
-                current_path = current_path.parent
+        # Find superdeploy project directory (look for .passwords.yml or config.yml)
+        project_path = None
+        current_path = env_path.parent
+        for _ in range(5):  # Max 5 levels up
+            if (current_path / ".passwords.yml").exists() or (
+                current_path / "config.yml"
+            ).exists():
+                project_path = current_path
+                break
+            current_path = current_path.parent
 
-            if not project_path:
-                # Fallback: create in same directory as .env
-                project_path = env_path.parent
+        if not project_path:
+            # Fallback: create in same directory as .env
+            project_path = env_path.parent
 
         merged_file = project_path / f"merged_environment_{repo_name}.yml"
         try:
