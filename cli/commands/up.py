@@ -343,8 +343,10 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
 
             # Reload env again in case IPs changed late
             env = load_env()
-            
-            console.print(f"[dim]DEBUG: CORE_EXTERNAL_IP = {env['CORE_EXTERNAL_IP']}[/dim]")
+
+            console.print(
+                f"[dim]DEBUG: CORE_EXTERNAL_IP = {env['CORE_EXTERNAL_IP']}[/dim]"
+            )
 
             # Wait until Forgejo is reachable
             forgejo_host = env["CORE_EXTERNAL_IP"]
@@ -374,41 +376,36 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
                 f"http://{env['FORGEJO_ADMIN_USER']}:{encoded_pass}"
                 f"@{env['CORE_EXTERNAL_IP']}:3001/{env['FORGEJO_ORG']}/{repo_name}.git"
             )
+
+            console.print(
+                f"[dim]DEBUG: Forgejo URL = {forgejo_url.replace(encoded_pass, '***')}[/dim]"
+            )
+
+            # Force update Forgejo remote
+            subprocess.run(
+                ["git", "remote", "remove", "forgejo"],
+                capture_output=True,
+                cwd=project_root,
+            )
             
-            console.print(f"[dim]DEBUG: Forgejo URL = {forgejo_url.replace(encoded_pass, '***')}[/dim]")
-
-            # Add or update Forgejo remote
-            try:
-                # Try to update existing remote first
-                subprocess.run(
-                    ["git", "remote", "set-url", "forgejo", forgejo_url],
-                    capture_output=True,
-                    cwd=project_root,
-                    check=True,
-                )
-            except Exception:
-                # If remote doesn't exist, add it
-                try:
-                    subprocess.run(
-                        ["git", "remote", "add", "forgejo", forgejo_url],
-                        capture_output=True,
-                        cwd=project_root,
-                        check=True,
-                    )
-                except Exception:
-                    pass
-
-            # Verify remote points to the correct host
-            try:
-                remotes_out = subprocess.run(
-                    ["git", "remote", "-v"],
-                    capture_output=True,
-                    text=True,
-                    cwd=project_root,
-                ).stdout
-                console.print(f"[dim]{remotes_out}[/dim]")
-            except Exception:
-                pass
+            result = subprocess.run(
+                ["git", "remote", "add", "forgejo", forgejo_url],
+                capture_output=True,
+                text=True,
+                cwd=project_root,
+            )
+            
+            if result.returncode != 0:
+                console.print(f"[yellow]⚠️  Failed to add Forgejo remote: {result.stderr}[/yellow]")
+            
+            # Verify remote
+            remotes_result = subprocess.run(
+                ["git", "remote", "-v"],
+                capture_output=True,
+                text=True,
+                cwd=project_root,
+            )
+            console.print(f"[dim]Git remotes:\n{remotes_result.stdout}[/dim]")
 
             # Push workflows to Forgejo
             try:
