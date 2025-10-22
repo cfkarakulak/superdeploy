@@ -80,7 +80,7 @@ def down(project, yes, keep_infra):
         else:
             console.print("  • [dim]No VMs found[/dim]")
 
-        if not keep_network:
+        if not keep_infra:
             console.print("  • [cyan]VPC Network & Firewall Rules[/cyan]")
 
     except Exception as e:
@@ -150,7 +150,7 @@ def down(project, yes, keep_infra):
         run_command("./terraform-wrapper.sh destroy -auto-approve", cwd=terraform_dir)
 
     # Optionally destroy network
-    if not keep_network:
+    if not keep_infra:
         console.print("\n[cyan]🗑️  Destroying VPC network...[/cyan]")
         try:
             terraform_dir = project_root / "shared" / "terraform"
