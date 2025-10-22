@@ -49,7 +49,7 @@ jobs:
         id: decrypt
         run: |
           echo "${{ env.ENV_BUNDLE }}" | base64 -d > /tmp/encrypted.age
-          age -d -i ~/.age/key.txt /tmp/encrypted.age > /tmp/decrypted.env
+          age -d -i /opt/forgejo-runner/.age/key.txt /tmp/encrypted.age > /tmp/decrypted.env
           rm /tmp/encrypted.age
           echo "env_file=/tmp/decrypted.env" >> $GITHUB_OUTPUT
       
