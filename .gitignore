@@ -16,8 +16,8 @@ projects/*/compose/env/*.env
 projects/*/.passwords.yml
 .passwords.yml
 
-# Merged secrets (temporary files for debugging)
-projects/*/.merged-secrets-*.yml
+# Merged environment files (contains all secrets)
+merged_environment_*.yml
 
 # Python
 __pycache__/

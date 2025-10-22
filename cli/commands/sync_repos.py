@@ -19,19 +19,14 @@ console = Console()
     "env_mappings",
     multiple=True,
     required=True,
-    help="Env file to repo mapping: path/to/.env:owner/repo OR just path/to/.env",
+    help="Env file to repo mapping: path/to/.env:owner/repo",
 )
 @click.option(
     "--core-secrets",
     "-c",
     help="YAML file with core secrets (e.g., DB passwords) - these take precedence",
 )
-@click.option(
-    "--output-dir",
-    "-o",
-    help="Directory to write merged secrets files (for debugging)",
-)
-def sync_repos(env_mappings, core_secrets, output_dir):
+def sync_repos(env_mappings, core_secrets):
     """
     Sync secrets to GitHub repositories (100% project-agnostic)
     
@@ -51,10 +46,6 @@ def sync_repos(env_mappings, core_secrets, output_dir):
       superdeploy sync:repos \\
         -e ~/api/.env:myorg/api \\
         -c ~/superdeploy/projects/myproject/.passwords.yml
-      
-      # Auto-detect repo from directory name
-      superdeploy sync:repos -e ~/app-repos/api/.env
-      # → Syncs to: {GITHUB_ORG}/api
     
     \b
     Core Secrets File Format (.passwords.yml):
@@ -79,8 +70,6 @@ def sync_repos(env_mappings, core_secrets, output_dir):
       ✗ No hardcoded paths
       ✗ No assumptions about your stack!
     """
-    from cli.utils import load_env
-
     console.print(
         Panel.fit(
             "[bold cyan]🔄 Repository Secrets Sync[/bold cyan]\n\n"
@@ -89,38 +78,17 @@ def sync_repos(env_mappings, core_secrets, output_dir):
         )
     )
 
-    # Load infrastructure env for GitHub org (optional)
-    try:
-        infra_env = load_env()
-        default_github_org = infra_env.get("GITHUB_ORG")
-    except:
-        default_github_org = None
-
-    # Parse env mappings
+    # Parse env mappings (format: path:owner/repo)
     env_to_repo = {}
     for mapping in env_mappings:
-        if ":" in mapping:
-            # Explicit mapping: path:owner/repo
-            env_path, repo = mapping.split(":", 1)
-            env_path = Path(env_path).expanduser().resolve()
-            env_to_repo[env_path] = repo
-        else:
-            # Auto-detect repo from directory name
-            env_path = Path(mapping).expanduser().resolve()
-            repo_name = env_path.parent.name
-            
-            if default_github_org:
-                repo = f"{default_github_org}/{repo_name}"
-            else:
-                console.print(
-                    f"[red]❌ Cannot auto-detect repo for {env_path}[/red]"
-                )
-                console.print(
-                    "[yellow]Hint: Either set GITHUB_ORG in .env or use explicit mapping: path:owner/repo[/yellow]"
-                )
-                raise SystemExit(1)
-            
-            env_to_repo[env_path] = repo
+        if ":" not in mapping:
+            console.print(f"[red]❌ Invalid mapping format: {mapping}[/red]")
+            console.print("[yellow]Expected format: path/to/.env:owner/repo[/yellow]")
+            raise SystemExit(1)
+        
+        env_path, repo = mapping.split(":", 1)
+        env_path = Path(env_path).expanduser().resolve()
+        env_to_repo[env_path] = repo
 
     # Validate all env files exist
     for env_path in env_to_repo.keys():
@@ -133,9 +101,11 @@ def sync_repos(env_mappings, core_secrets, output_dir):
     if core_secrets:
         core_secrets_path = Path(core_secrets).expanduser().resolve()
         if not core_secrets_path.exists():
-            console.print(f"[red]❌ Core secrets file not found: {core_secrets_path}[/red]")
+            console.print(
+                f"[red]❌ Core secrets file not found: {core_secrets_path}[/red]"
+            )
             raise SystemExit(1)
-        
+
         try:
             with open(core_secrets_path) as f:
                 core_data = yaml.safe_load(f)
@@ -144,23 +114,16 @@ def sync_repos(env_mappings, core_secrets, output_dir):
                     core_secrets_dict = core_data["passwords"]
                 else:
                     core_secrets_dict = core_data
-            
-            console.print(f"\n[cyan]📦 Core secrets loaded from:[/cyan]")
+
+            console.print("\n[cyan]📦 Core secrets loaded from:[/cyan]")
             console.print(f"  {core_secrets_path}")
             console.print(f"  [dim]Found {len(core_secrets_dict)} core secrets[/dim]")
         except Exception as e:
             console.print(f"[red]❌ Error loading core secrets: {e}[/red]")
             raise SystemExit(1)
 
-    # Setup output directory for merged files
-    if output_dir:
-        output_path = Path(output_dir).expanduser().resolve()
-        output_path.mkdir(parents=True, exist_ok=True)
-    else:
-        output_path = None
-
     # Sync each env file to its repo
-    console.print(f"\n[cyan]📦 Target repositories:[/cyan]")
+    console.print("\n[cyan]📦 Target repositories:[/cyan]")
     for env_path, repo in env_to_repo.items():
         console.print(f"  • {env_path.name} → {repo}")
 
@@ -172,19 +135,21 @@ def sync_repos(env_mappings, core_secrets, output_dir):
         # Load app env
         try:
             app_env = dotenv_values(env_path)
-            console.print(f"    [dim]📄 Loaded {len(app_env)} vars from {env_path.name}[/dim]")
+            console.print(
+                f"    [dim]📄 Loaded {len(app_env)} vars from {env_path.name}[/dim]"
+            )
         except Exception as e:
             console.print(f"    [red]✗[/red] Failed to load env: {e}")
             continue
 
         # Merge: app env first, then core secrets override
         final_secrets = {}
-        
+
         # Add app env vars
         for key, value in app_env.items():
             if value and not value.startswith("#"):
                 final_secrets[key] = value
-        
+
         # Override with core secrets (they take precedence)
         if core_secrets_dict:
             overridden = []
@@ -192,34 +157,39 @@ def sync_repos(env_mappings, core_secrets, output_dir):
                 if key in final_secrets:
                     overridden.append(key)
                 final_secrets[key] = value
-            
-            if overridden:
-                console.print(f"    [dim]🔄 Overridden {len(overridden)} keys with core secrets[/dim]")
 
-        # Write merged secrets to file (for debugging)
-        if output_path:
-            merged_file = output_path / f".merged-{env_path.stem}.yml"
-            try:
-                with open(merged_file, "w") as f:
-                    yaml.dump(
-                        {
-                            "repo": repo,
-                            "merged_at": datetime.now().isoformat(),
-                            "source_env": str(env_path),
-                            "core_secrets_used": bool(core_secrets_dict),
-                            "secrets": {k: v for k, v in final_secrets.items() if v},
-                        },
-                        f,
-                        default_flow_style=False,
-                    )
-                console.print(f"    [dim]📝 Merged secrets: {merged_file}[/dim]")
-            except Exception as e:
-                console.print(f"    [yellow]⚠[/yellow] Could not write merged file: {e}")
+            if overridden:
+                console.print(
+                    f"    [dim]🔄 Overridden {len(overridden)} keys with core secrets[/dim]"
+                )
+
+        # Always write merged environment file
+        repo_name = repo.split("/")[-1]  # Extract repo name from owner/repo
+        merged_file = env_path.parent / f"merged_environment_{repo_name}.yml"
+        try:
+            with open(merged_file, "w") as f:
+                yaml.dump(
+                    {
+                        "repo": repo,
+                        "merged_at": datetime.now().isoformat(),
+                        "source_env": str(env_path),
+                        "core_secrets_used": bool(core_secrets_dict),
+                        "total_secrets": len(final_secrets),
+                        "secrets": {k: v for k, v in final_secrets.items() if v},
+                    },
+                    f,
+                    default_flow_style=False,
+                )
+            console.print(f"    [dim]📝 Merged environment: {merged_file}[/dim]")
+        except Exception as e:
+            console.print(
+                f"    [yellow]⚠[/yellow] Could not write merged file: {e}"
+            )
 
         # Sync all secrets
         console.print(f"    [cyan]Syncing {len(final_secrets)} secrets...[/cyan]")
         synced_count = 0
-        
+
         for key, value in final_secrets.items():
             if value is None or value == "":
                 console.print(f"      [yellow]⚠[/yellow] {key}: empty value")
