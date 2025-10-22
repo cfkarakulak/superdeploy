@@ -1,8 +1,6 @@
 name: Deploy Service
 
 on:
-  repository_dispatch:
-    types: [deploy]
   workflow_dispatch:
     inputs:
       project:
