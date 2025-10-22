@@ -118,7 +118,7 @@ git push origin production
 
 # 4. Deployment izle
 # GitHub Actions: https://github.com/myprojectio/api/actions
-# Forgejo: http://34.42.105.169:3001/cradexco/superdeploy-app/actions
+# Forgejo: http://CORE_IP:3001/cradexco/superdeploy/actions
 
 # 5. Sonra main'e de merge et
 git checkout main

@@ -344,10 +344,6 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
             # Reload env again in case IPs changed late
             env = load_env()
 
-            console.print(
-                f"[dim]DEBUG: CORE_EXTERNAL_IP = {env['CORE_EXTERNAL_IP']}[/dim]"
-            )
-
             # Wait until Forgejo is reachable
             forgejo_host = env["CORE_EXTERNAL_IP"]
             for _ in range(30):  # up to ~150s
@@ -377,10 +373,6 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
                 f"@{env['CORE_EXTERNAL_IP']}:3001/{env['FORGEJO_ORG']}/{repo_name}.git"
             )
 
-            console.print(
-                f"[dim]DEBUG: Forgejo URL = {forgejo_url.replace(encoded_pass, '***')}[/dim]"
-            )
-
             # Force update Forgejo remote
             subprocess.run(
                 ["git", "remote", "remove", "forgejo"],
@@ -399,15 +391,6 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
                 console.print(
                     f"[yellow]⚠️  Failed to add Forgejo remote: {result.stderr}[/yellow]"
                 )
-
-            # Verify remote
-            remotes_result = subprocess.run(
-                ["git", "remote", "-v"],
-                capture_output=True,
-                text=True,
-                cwd=project_root,
-            )
-            console.print(f"[dim]Git remotes:\n{remotes_result.stdout}[/dim]")
 
             # Push workflows to Forgejo
             try:
