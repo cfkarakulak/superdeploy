@@ -340,7 +340,6 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
             # Push to Forgejo (needed for workflows)
             import urllib.parse
 
-
             encoded_pass = urllib.parse.quote(env["FORGEJO_ADMIN_PASSWORD"])
             forgejo_url = f"http://{env['FORGEJO_ADMIN_USER']}:{encoded_pass}@{env['CORE_EXTERNAL_IP']}:3001/{env['FORGEJO_ORG']}/{env['REPO_SUPERDEPLOY']}.git"
 
