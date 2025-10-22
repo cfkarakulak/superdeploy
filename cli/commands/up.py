@@ -287,7 +287,8 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
   -e "GRAFANA_ADMIN_PASSWORD={env["GRAFANA_ADMIN_PASSWORD"]}" \
   -e "SMTP_USERNAME={env.get("SMTP_USERNAME", "")}" \
   -e "SMTP_PASSWORD={env.get("SMTP_PASSWORD", "")}" \
-  -e "ALERT_EMAIL={env.get("ALERT_EMAIL", "")}"
+  -e "ALERT_EMAIL={env.get("ALERT_EMAIL", "")}" \
+  -e "project_name={project}"
 """
 
         run_command(ansible_cmd)

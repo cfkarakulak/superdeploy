@@ -234,21 +234,18 @@
     group: superdeploy
     mode: '0644'
 
-- name: Register runner automatically (with project labels)
+- name: Register runner automatically (project-agnostic, org-level)
   shell: |
     cd /opt/forgejo-runner
     /usr/local/bin/forgejo-runner register \
       --instance http://localhost:3001 \
       --token "{{ runner_token }}" \
-      --name "core-runner" \
-      --labels "self-hosted,core,linux,docker" \
+      --name "{{ project_name }}-runner" \
+      --labels "self-hosted,{{ project_name }},linux,docker" \
       --no-interactive
   become_user: superdeploy
   when: not runner_registered.stat.exists and runner_token is defined
   register: runner_register_result
-  
-  # Note: To add more projects, register additional runners with different labels:
-  # --labels "self-hosted,core,linux,docker,projectb"
 
 - name: Display runner registration result
   debug:

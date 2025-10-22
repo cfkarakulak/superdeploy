@@ -30,42 +30,51 @@ Proje: cheapa
 
 ## 🔄 Forgejo Yapısı
 
-### Her Proje = Ayrı Forgejo Instance
+### Tek Forgejo Instance - Org-Based İzolasyon
 
-**ÖNEMLI:** Her proje kendi Forgejo instance'ına sahiptir!
+**ÖNEMLI:** Tek Forgejo instance tüm projeleri yönetir!
 
 ```bash
-# Cheapa projesi
-http://34.44.228.225:3001  # Forgejo for cheapa
-├── cradexco/superdeploy-app (deployment workflows)
-├── API deployment workflows
-├── Dashboard deployment workflows
-└── Services deployment workflows
-
-# Başka bir proje (örnek: myapp)
-http://34.44.228.225:3002  # Forgejo for myapp  
-├── cradexco/superdeploy-app (deployment workflows)
-├── API deployment workflows
-└── Frontend deployment workflows
+# Tek Forgejo Instance
+http://34.44.228.225:3001
+├── Organization: cradexco (shared infrastructure)
+│   └── superdeploy-app (deployment workflows)
+├── Organization: cheapa (cheapa project)
+│   ├── api (app code - GitHub mirror)
+│   ├── dashboard (app code - GitHub mirror)
+│   └── services (app code - GitHub mirror)
+└── Organization: myapp (myapp project)
+    ├── api (app code - GitHub mirror)
+    └── frontend (app code - GitHub mirror)
 ```
 
-### Forgejo Runner
+### Forgejo Runner - Project-Specific
 
-**Her proje için ayrı runner:**
+**Her proje için ayrı runner (aynı Forgejo instance'ı kullanır):**
 
 ```bash
 # Cheapa runner
-cheapa-runner → Sadece cheapa projesi için çalışır
-├── Labels: [self-hosted, core, cheapa]
+cheapa-runner → Sadece cheapa org'u için çalışır
+├── Labels: [self-hosted, cheapa, linux, docker]
 ├── Çalıştırır: cheapa-api, cheapa-dashboard, cheapa-services
-└── Erişir: cheapa-postgres, cheapa-rabbitmq, cheapa-redis
+├── Erişir: cheapa-postgres, cheapa-rabbitmq, cheapa-redis
+└── Workflow filter: runs-on: [self-hosted, cheapa]
 
 # MyApp runner  
-myapp-runner → Sadece myapp projesi için çalışır
-├── Labels: [self-hosted, core, myapp]
+myapp-runner → Sadece myapp org'u için çalışır
+├── Labels: [self-hosted, myapp, linux, docker]
 ├── Çalıştırır: myapp-api, myapp-frontend
-└── Erişir: myapp-postgres, myapp-redis
+├── Erişir: myapp-postgres, myapp-redis
+└── Workflow filter: runs-on: [self-hosted, myapp]
 ```
+
+### Avantajlar
+
+✅ **Tek bakım noktası:** Tek Forgejo instance  
+✅ **Org-level izolasyon:** Her proje kendi organization'ı  
+✅ **Runner-level izolasyon:** Label filtering ile deployment ayrımı  
+✅ **Daha az resource:** Tek DB, tek web server  
+✅ **Merkezi yönetim:** Tüm projeler tek arayüzden
 
 ## 📊 Network İzolasyonu
 
