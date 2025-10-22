@@ -143,7 +143,7 @@ nano .env  # veya vim, code, vb.
 
 ```bash
 # GCP
-GCP_PROJECT=galvanic-camp-475519-d6
+GCP_PROJECT=your-gcp-project-id
 GCP_REGION=us-central1
 GCP_ZONE=us-central1-a
 
@@ -152,30 +152,26 @@ SSH_KEY_PATH=~/.ssh/superdeploy_deploy
 SSH_PUBLIC_KEY_PATH=~/.ssh/superdeploy_deploy.pub
 
 # Docker Hub
-DOCKER_USERNAME=c100394
+DOCKER_USERNAME=your-dockerhub-username
 DOCKER_TOKEN=dckr_pat_XXXXX...
 
-# GitHub (kendi repolarını yaz)
-GITHUB_REPO_API=cheapaio/api
-GITHUB_REPO_DASHBOARD=cheapaio/dashboard
-GITHUB_REPO_SERVICES=cheapaio/services
+# GitHub
+GITHUB_ORG=your-github-org
 GITHUB_TOKEN=ghp_XXXXX...  # GitHub Personal Access Token
 
-# Database & Queue
-POSTGRES_PASSWORD=$(openssl rand -base64 32)
-RABBITMQ_PASSWORD=$(openssl rand -base64 32)
-REDIS_PASSWORD=$(openssl rand -base64 32)
-API_SECRET_KEY=$(openssl rand -hex 32)
-
 # Email
-ALERT_EMAIL=cradexco@gmail.com
+ALERT_EMAIL=your-email@gmail.com
+SMTP_PASSWORD=your-gmail-app-password
 
 # Forgejo
-FORGEJO_ORG=cradexco
+FORGEJO_ORG=your-org-name
 FORGEJO_ADMIN_PASSWORD=$(openssl rand -base64 24)
 ```
 
-**Not:** `openssl rand` komutları random şifreler üretir. Manuel de girebilirsin.
+**Not:** 
+- `GITHUB_ORG`: GitHub organizasyon adın (örn: `cheapaio`)
+- `SMTP_PASSWORD`: Gmail App Password (16 haneli)
+- Database/Queue şifreleri `superdeploy init` ile otomatik oluşturulacak
 
 ---
 
@@ -197,15 +193,79 @@ superdeploy --version
 
 ---
 
-## 🏗️ Adım 7: Infrastructure'ı Ayağa Kaldır
+## 🏗️ Adım 7: Proje Oluştur
+
+**İlk önce projeyi initialize et:**
+
+```bash
+superdeploy init -p myproject
+```
+
+### **Interactive Sorular:**
+
+```
+Add services for this project:
+  Services: api,dashboard,services
+
+Network subnet:
+  Use auto-assigned subnet? [Y/n]: Y
+
+GitHub organization:
+  GitHub org name [myprojectio]: myprojectio
+
+Database configuration:
+  Generate secure passwords? [Y/n]: Y
+
+Enable monitoring? [Y/n]: Y
+
+Domain (optional):
+  Domain [myproject.example.com]: 
+```
+
+### **Sonuç:**
+
+✅ `/opt/apps/myproject/` klasörü oluşturuldu  
+✅ Docker Compose dosyaları generate edildi  
+✅ Güvenli şifreler oluşturuldu (`.passwords.yml`)  
+✅ GitHub secret komutları gösterildi
+
+---
+
+## 🔐 Adım 8: GitHub Secrets Ekle
+
+`superdeploy init` sonunda gösterilen komutları çalıştır:
+
+```bash
+# Her servis için (örnek: api)
+gh secret set POSTGRES_USER -b "myproject_user" -R myprojectio/api
+gh secret set POSTGRES_PASSWORD -b "GENERATED_PASSWORD" -R myprojectio/api
+gh secret set POSTGRES_DB -b "myproject_db" -R myprojectio/api
+gh secret set POSTGRES_HOST -b "postgres" -R myprojectio/api
+gh secret set POSTGRES_PORT -b "5432" -R myprojectio/api
+
+gh secret set RABBITMQ_USER -b "myproject_user" -R myprojectio/api
+gh secret set RABBITMQ_PASSWORD -b "GENERATED_PASSWORD" -R myprojectio/api
+gh secret set RABBITMQ_HOST -b "rabbitmq" -R myprojectio/api
+gh secret set RABBITMQ_PORT -b "5672" -R myprojectio/api
+
+gh secret set REDIS_PASSWORD -b "GENERATED_PASSWORD" -R myprojectio/api
+gh secret set REDIS_HOST -b "redis" -R myprojectio/api
+gh secret set REDIS_PORT -b "6379" -R myprojectio/api
+
+# Dashboard ve services için de tekrarla
+```
+
+**Not:** Şifreler `/opt/apps/myproject/.passwords.yml` dosyasında
+
+---
+
+## 🚀 Adım 9: Infrastructure'ı Deploy Et
 
 **Tek komutla tüm sistem ayağa kalkacak!**
 
 ```bash
-superdeploy up -p cheapa
+superdeploy up -p myproject
 ```
-
-**Not:** Her komut artık `--project` (veya `-p`) parametresi gerektiriyor.
 
 ### **Bu Komut Ne Yapar?**
 
@@ -214,7 +274,7 @@ superdeploy up -p cheapa
 [2/8] 📝 IP adreslerini .env'e yazar
 [3/8] 🔧 Ansible inventory hazırlar
 [4/8] 🧹 SSH known_hosts temizler
-[5/8] 🚀 Ansible playbook çalıştırır (Docker, Forgejo, Postgres, RabbitMQ kurulur)
+[5/8] 🚀 Ansible playbook çalıştırır (Docker, Forgejo, monitoring kurulur)
 [6/8] 🔐 Forgejo PAT oluşturur
 [7/8] 🔄 GitHub secrets'ları sync eder
 [8/8] ✅ Tamamlandı!
@@ -224,29 +284,7 @@ superdeploy up -p cheapa
 
 ---
 
-## 📧 Adım 8: SMTP Secrets Ekle (GitHub)
-
-Email bildirimleri için SMTP credentials eklemen gerekiyor:
-
-```bash
-# API repo
-gh secret set SMTP_USERNAME --repo cheapaio/api --body "cradexco@gmail.com"
-gh secret set SMTP_PASSWORD --repo cheapaio/api --body "ajjb ydtw ptpr rflw"
-
-# Dashboard repo
-gh secret set SMTP_USERNAME --repo cheapaio/dashboard --body "cradexco@gmail.com"
-gh secret set SMTP_PASSWORD --repo cheapaio/dashboard --body "ajjb ydtw ptpr rflw"
-
-# Services repo
-gh secret set SMTP_USERNAME --repo cheapaio/services --body "cradexco@gmail.com"
-gh secret set SMTP_PASSWORD --repo cheapaio/services --body "ajjb ydtw ptpr rflw"
-```
-
-**Not:** Gmail SMTP credentials `.env` dosyasında tanımlı. `superdeploy sync` ile otomatik GitHub/Forgejo'ya aktarılır.
-
----
-
-## ✅ Adım 9: İlk Deployment'ı Test Et
+## ✅ Adım 10: İlk Deployment'ı Test Et
 
 ```bash
 cd ../app-repos/api

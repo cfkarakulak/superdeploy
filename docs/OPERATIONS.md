@@ -8,7 +8,7 @@ Bu döküman, sistemi kurduktan sonra **günlük kullanımda** ihtiyaç duyacağ
 
 ```bash
 # Sistem durumu
-superdeploy status -p cheapa
+superdeploy status -p myproject
 
 # Yeni deployment
 git push origin production
@@ -17,14 +17,14 @@ git push origin production
 superdeploy rollback -a api v42
 
 # Logs
-superdeploy logs -p cheapa -a api --tail 100
+superdeploy logs -p myproject -a api --tail 100
 
 # Secrets yönetimi
 superdeploy env show
-superdeploy sync -p cheapa
+superdeploy sync -p myproject
 
 # Infrastructure
-superdeploy destroy -p cheapa
+superdeploy down -p myproject
 ```
 
 ---
@@ -34,7 +34,7 @@ superdeploy destroy -p cheapa
 ### **Tüm Servislerin Durumu**
 
 ```bash
-superdeploy status -p cheapa
+superdeploy status -p myproject
 ```
 
 **Çıktı:**
@@ -45,11 +45,11 @@ superdeploy status -p cheapa
 
 Infrastructure Status:
   ✅ GCP Project: galvanic-camp-475519-d6
-  ✅ Core VM: cheapa-core (RUNNING)
+  ✅ Core VM: myproject-core (RUNNING)
   ✅ External IP: 34.42.105.169
   ✅ Internal IP: 10.0.0.5
 
-Core Services (Project: cheapa):
+Core Services (Project: myproject):
   ✅ PostgreSQL: healthy (5432)
   ✅ RabbitMQ: healthy (5672)
   ✅ Redis: healthy (6379)
@@ -117,7 +117,7 @@ git merge hotfix/critical-bug
 git push origin production
 
 # 4. Deployment izle
-# GitHub Actions: https://github.com/cheapaio/api/actions
+# GitHub Actions: https://github.com/myprojectio/api/actions
 # Forgejo: http://34.42.105.169:3001/cradexco/superdeploy-app/actions
 
 # 5. Sonra main'e de merge et
@@ -130,7 +130,7 @@ git push origin main
 
 ```bash
 # 1. Hangi versiyonlar var?
-superdeploy releases -p cheapa -a api
+superdeploy releases -p myproject -a api
 
 # Çıktı:
 # v45  2025-10-21 17:30  abc123  CURRENT
@@ -156,26 +156,26 @@ superdeploy rollback -a api v43
 
 ```bash
 # Son 100 satır
-superdeploy logs -p cheapa -a api --tail 100
+superdeploy logs -p myproject -a api --tail 100
 
 # Real-time takip (Ctrl+C ile çık)
-superdeploy logs -p cheapa -a api --follow
+superdeploy logs -p myproject -a api --follow
 
 # Belirli bir zaman aralığı
-superdeploy logs -p cheapa -a api --since "30m"
+superdeploy logs -p myproject -a api --since "30m"
 
 # Error logları filtrele
-superdeploy logs -p cheapa -a api --tail 500 | grep ERROR
+superdeploy logs -p myproject -a api --tail 500 | grep ERROR
 ```
 
 ### **Database Logs**
 
 ```bash
 # PostgreSQL logs
-superdeploy logs -p cheapa -s postgres --tail 100
+superdeploy logs -p myproject -s postgres --tail 100
 
 # RabbitMQ logs
-superdeploy logs -p cheapa -s rabbitmq --tail 100
+superdeploy logs -p myproject -s rabbitmq --tail 100
 ```
 
 ### **VM'ye SSH ile Bağlanma**
@@ -191,10 +191,10 @@ ssh -i ~/.ssh/superdeploy_deploy superdeploy@34.42.105.169
 docker ps
 
 # API container'ına gir
-docker exec -it cheapa-api bash
+docker exec -it myproject-api bash
 
 # Logs
-docker logs cheapa-api --tail 100
+docker logs myproject-api --tail 100
 ```
 
 ---
@@ -225,10 +225,10 @@ superdeploy env show --no-mask
 nano superdeploy/.env
 
 # 2. Yeni değerleri GitHub'a sync et
-superdeploy sync -p cheapa
+superdeploy sync -p myproject
 
 # 3. Servisleri restart et (yeni env'ler yüklensin)
-superdeploy restart -p cheapa -a api
+superdeploy restart -p myproject -a api
 ```
 
 ### **Yeni Bir Secret Ekleme**
@@ -238,14 +238,14 @@ superdeploy restart -p cheapa -a api
 echo "NEW_API_KEY=abc123xyz" >> superdeploy/.env
 
 # 2. Sync et
-superdeploy sync -p cheapa
+superdeploy sync -p myproject
 
 # 3. docker-compose.apps.yml'e ekle (eğer container'da kullanılacaksa)
 # environment:
 #   NEW_API_KEY: ${NEW_API_KEY}
 
 # 4. Redeploy (git push veya manuel)
-superdeploy restart -p cheapa -a api
+superdeploy restart -p myproject -a api
 ```
 
 ---
@@ -260,7 +260,7 @@ superdeploy restart -p cheapa -a api
 
 # Manuel
 ssh superdeploy@34.42.105.169
-cd /opt/superdeploy/projects/cheapa/compose
+cd /opt/superdeploy/projects/myproject/compose
 docker compose run --rm api alembic upgrade head
 ```
 
@@ -269,7 +269,7 @@ docker compose run --rm api alembic upgrade head
 ```bash
 # PostgreSQL dump al
 ssh superdeploy@34.42.105.169
-docker exec cheapa-postgres pg_dump -U superdeploy superdeploy_db > backup_$(date +%Y%m%d).sql
+docker exec myproject-postgres pg_dump -U superdeploy superdeploy_db > backup_$(date +%Y%m%d).sql
 
 # Local'e indir
 scp -i ~/.ssh/superdeploy_deploy superdeploy@34.42.105.169:backup_*.sql ./
@@ -283,7 +283,7 @@ scp -i ~/.ssh/superdeploy_deploy backup_20251021.sql superdeploy@34.42.105.169:~
 
 # Restore et
 ssh superdeploy@34.42.105.169
-cat backup_20251021.sql | docker exec -i cheapa-postgres psql -U superdeploy superdeploy_db
+cat backup_20251021.sql | docker exec -i myproject-postgres psql -U superdeploy superdeploy_db
 ```
 
 ---
@@ -294,14 +294,14 @@ cat backup_20251021.sql | docker exec -i cheapa-postgres psql -U superdeploy sup
 
 ```bash
 # Tek bir service
-superdeploy restart -p cheapa -a api
+superdeploy restart -p myproject -a api
 
 # Tüm app services
-superdeploy restart -p cheapa --all
+superdeploy restart -p myproject --all
 
 # Core services (PostgreSQL, RabbitMQ, vb.)
 ssh superdeploy@34.42.105.169
-cd /opt/superdeploy/projects/cheapa/compose
+cd /opt/superdeploy/projects/myproject/compose
 docker compose -f docker-compose.core.yml restart postgres
 ```
 
@@ -310,7 +310,7 @@ docker compose -f docker-compose.core.yml restart postgres
 ```bash
 # Birden fazla worker instance çalıştır
 ssh superdeploy@34.42.105.169
-cd /opt/superdeploy/projects/cheapa/compose
+cd /opt/superdeploy/projects/myproject/compose
 docker compose -f docker-compose.apps.yml up -d --scale services=3
 ```
 
@@ -333,16 +333,16 @@ docker volume prune -f
 
 ```bash
 # 1. superdeploy up komutu otomatik günceller
-superdeploy up -p cheapa
+superdeploy up -p myproject
 
 # Veya sadece sync:
-superdeploy sync -p cheapa
+superdeploy sync -p myproject
 
 # 2. Yeni IP'yi kontrol et
-superdeploy status -p cheapa
+superdeploy status -p myproject
 
 # 3. GitHub secrets güncellenmiş mi kontrol et
-gh secret list --repo cheapaio/api | grep FORGEJO_BASE_URL
+gh secret list --repo myprojectio/api | grep FORGEJO_BASE_URL
 
 # 4. Test deployment
 cd app-repos/api
@@ -364,15 +364,15 @@ ssh superdeploy@34.42.105.169
 docker ps -a
 
 # 3. Core services'i başlat
-cd /opt/superdeploy/projects/cheapa/compose
+cd /opt/superdeploy/projects/myproject/compose
 docker compose -f docker-compose.core.yml up -d
 
 # 4. App services'i başlat
 docker compose -f docker-compose.apps.yml up -d
 
 # 5. Logs kontrol et
-docker logs cheapa-postgres --tail 100
-docker logs cheapa-api --tail 100
+docker logs myproject-postgres --tail 100
+docker logs myproject-api --tail 100
 ```
 
 ### **PostgreSQL Şifresi Unutuldu**
@@ -435,13 +435,13 @@ curl http://34.42.105.169:8000/health
 
 # PostgreSQL
 ssh superdeploy@34.42.105.169
-docker exec cheapa-postgres pg_isready -U superdeploy
+docker exec myproject-postgres pg_isready -U superdeploy
 
 # RabbitMQ
-docker exec cheapa-rabbitmq rabbitmq-diagnostics ping
+docker exec myproject-rabbitmq rabbitmq-diagnostics ping
 
 # Redis
-docker exec cheapa-redis redis-cli ping
+docker exec myproject-redis redis-cli ping
 ```
 
 ### **Email Notification Test**
@@ -491,7 +491,7 @@ curl https://yourdomain.com/health
 ### **Tüm Infrastructure'ı Sil**
 
 ```bash
-superdeploy destroy -p cheapa
+superdeploy destroy -p myproject
 # Confirm? (y/n): y
 
 # Bu komut:
@@ -504,7 +504,7 @@ superdeploy destroy -p cheapa
 
 ```bash
 ssh superdeploy@34.42.105.169
-cd /opt/superdeploy/projects/cheapa/compose
+cd /opt/superdeploy/projects/myproject/compose
 docker compose -f docker-compose.apps.yml stop services
 docker compose -f docker-compose.apps.yml rm -f services
 ```

@@ -92,7 +92,7 @@
 
 - name: Create projects base directory
   file:
-    path: /opt/superdeploy/projects
+    path: /opt/apps
     state: directory
     owner: superdeploy
     group: superdeploy

@@ -37,7 +37,7 @@ def restart(project, app, environment):
     ssh_key = os.path.expanduser(env_vars["SSH_KEY_PATH"])
 
     # Project-specific compose directory
-    restart_cmd = f"cd /opt/superdeploy/projects/{project}/compose && docker compose -f docker-compose.apps.yml restart {app}"
+    restart_cmd = f"cd /opt/apps/{project}/compose && docker compose -f docker-compose.apps.yml restart {app}"
 
     try:
         result = ssh_command(

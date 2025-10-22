@@ -84,7 +84,7 @@ def _create_project_deploy_playbook(ansible_dir):
   become: yes
   vars:
     project_name: "{{ project_name }}"
-    project_path: "/opt/superdeploy/projects/{{ project_name }}"
+    project_path: "/opt/apps/{{ project_name }}"
   
   tasks:
     - name: Create project directories

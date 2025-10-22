@@ -50,7 +50,7 @@ def scale(project, scale_spec, environment):
     ssh_key = os.path.expanduser(env_vars["SSH_KEY_PATH"])
 
     # Project-specific compose directory
-    scale_cmd = f"cd /opt/superdeploy/projects/{project}/compose && docker compose -f docker-compose.apps.yml up -d --scale {app}={replicas} --no-recreate"
+    scale_cmd = f"cd /opt/apps/{project}/compose && docker compose -f docker-compose.apps.yml up -d --scale {app}={replicas} --no-recreate"
 
     try:
         result = ssh_command(

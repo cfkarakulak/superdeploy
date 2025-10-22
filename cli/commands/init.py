@@ -95,11 +95,10 @@ def init(project, yes, subnet, services, no_interactive):
     elif interactive:
         # Interactive service selection
         console.print("\n[bold]Add services for this project:[/bold]")
-        console.print("  [dim]Enter service names (comma-separated, e.g., api,dashboard,worker)[/dim]")
-        services_input = Prompt.ask(
-            "  Services", 
-            default="api,dashboard,services"
+        console.print(
+            "  [dim]Enter service names (comma-separated, e.g., api,dashboard,worker)[/dim]"
         )
+        services_input = Prompt.ask("  Services", default="api,dashboard,services")
         selected_services = [s.strip() for s in services_input.split(",")]
     else:
         # Default services for non-interactive mode
@@ -266,7 +265,9 @@ def init(project, yes, subnet, services, no_interactive):
         # Show for first service only (others will be same)
         if selected_services:
             service = selected_services[0]
-            console.print(f"\n   # For each service repository ({', '.join(selected_services)}):")
+            console.print(
+                f"\n   # For each service repository ({', '.join(selected_services)}):"
+            )
             console.print(f"   # Example for '{service}':")
             console.print(
                 f'   [dim]gh secret set POSTGRES_USER -b "{project}_user" -R {github_org}/{service}[/dim]'
@@ -312,7 +313,7 @@ def init(project, yes, subnet, services, no_interactive):
     else:
         if selected_services:
             service = selected_services[0]
-            console.print(f"\n   # For each service repository:")
+            console.print("\n   # For each service repository:")
             console.print(
                 f"   [dim]gh secret set POSTGRES_PASSWORD -R {github_org}/{service}[/dim]"
             )

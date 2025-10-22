@@ -65,7 +65,7 @@ scrape_configs:
   # ═══════════════════════════════════════════════════════════════════════════
   # PROJECT-SPECIFIC TARGETS (File-Based Service Discovery)
   # ═══════════════════════════════════════════════════════════════════════════
-  # Each project writes its own /opt/superdeploy/projects/<project>/prometheus/targets.yml
+  # Each project writes its own /opt/apps/<project>/prometheus/targets.yml
   # Prometheus automatically discovers and scrapes them
   
   - job_name: 'project-services'

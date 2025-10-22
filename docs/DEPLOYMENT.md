@@ -15,7 +15,7 @@ Bu döküman, **bir kod değişikliğinin production'a nasıl çıktığını** 
                     │ (HTTPS + GitHub Token)
                     ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│ 2. GITHUB (github.com/cheapaio/api)                              │
+│ 2. GITHUB (github.com/myprojectio/api)                              │
 │                                                                  │
 │  • Webhook tetiklenir (.github/workflows/deploy.yml)            │
 │  • GitHub Actions runner başlatılır                             │
@@ -88,7 +88,7 @@ Bu döküman, **bir kod değişikliğinin production'a nasıl çıktığını** 
 │                                                                  │
 │  Step 4: Generate App .env Files                                │
 │    → Source: Forgejo Secrets (set by superdeploy sync)         │
-│    → Output: /opt/superdeploy/projects/cheapa/compose/.env.apps│
+│    → Output: /opt/apps/myproject/compose/.env.apps│
 │    → Contains: POSTGRES_HOST, POSTGRES_PASSWORD, etc.          │
 │                                                                  │
 │  Step 5: Pull Docker Images                                     │
@@ -241,7 +241,7 @@ Server: smtp.gmail.com
 GCP_PROJECT=galvanic-camp-475519-d6
 GCP_REGION=us-central1
 GCP_ZONE=us-central1-a
-VM_CORE_NAME=cheapa-core
+VM_CORE_NAME=myproject-core
 VM_CORE_MACHINE_TYPE=e2-medium
 
 # Ansible tarafından kullanılır
@@ -385,7 +385,7 @@ superdeploy sync --skip-forgejo
 superdeploy rollback -a api v42
 
 # Logs kontrol et
-superdeploy logs -p cheapa -a api --tail 100
+superdeploy logs -p myproject -a api --tail 100
 ```
 
 ### **"Migration failed"**
@@ -395,7 +395,7 @@ superdeploy logs -p cheapa -a api --tail 100
 ```bash
 # Manuel migration
 ssh superdeploy@[IP]
-cd /opt/superdeploy/projects/cheapa/compose
+cd /opt/apps/myproject/compose
 docker compose run --rm api alembic downgrade -1
 docker compose run --rm api alembic upgrade head
 ```
