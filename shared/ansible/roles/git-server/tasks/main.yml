@@ -107,6 +107,39 @@
 # App repos (API, Storefront, Services) are on GitHub, NOT Forgejo!
 # Forgejo only has superdeploy for deployment orchestration
 
+# =============================================================================
+# INSTALL NODE.JS (for Actions runner)
+# =============================================================================
+# actions/checkout and other common actions require Node.js
+- name: Install dependencies for Node.js setup
+  apt:
+    name: ['ca-certificates', 'curl', 'gnupg']
+    state: present
+    update_cache: yes
+
+- name: Create directory for apt keyrings
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Add Node.js GPG key
+  get_url:
+    url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+    dest: /etc/apt/keyrings/nodesource.asc
+    mode: '0644'
+
+- name: Add Node.js repository
+  apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_20.x nodistro main"
+    state: present
+    update_cache: yes
+
+- name: Install Node.js
+  apt:
+    name: nodejs
+    state: present
+
 - name: Download Forgejo Actions runner
   get_url:
     url: "https://code.forgejo.org/forgejo/runner/releases/download/v5.0.1/forgejo-runner-5.0.1-linux-amd64"
