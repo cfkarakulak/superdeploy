@@ -1,6 +1,8 @@
-# SuperDeploy Orchestrator
+# SuperDeploy
 
-Bu repo **sadece deployment orkestrasyonu** için kullanılır. Uygulama kodları GitHub'da tutulur.
+Bu repo **deployment orkestrasyonu** içindir. Uygulama kodları GitHub'da tutulur.
+
+**Repo:** `cradexco/superdeploy` (Forgejo'da tek repo)
 
 ## Mimari
 
@@ -13,7 +15,7 @@ GitHub (Source of Truth)
     ↓ Trigger Forgejo
     ↓
 Forgejo (Deployment Only)
-└── superdeploy/orchestrator
+└── cradexco/superdeploy
     └── .forgejo/workflows/deploy.yml
         ↓ Parametreli workflow
         ↓ runs-on: [self-hosted, {project}]
@@ -38,7 +40,7 @@ Forgejo (Deployment Only)
 curl -X POST \
   -H "Authorization: token YOUR_PAT" \
   -H "Content-Type: application/json" \
-  "http://forgejo:3001/api/v1/repos/superdeploy/orchestrator/dispatches" \
+  "http://34.44.228.225:3001/api/v1/repos/cradexco/superdeploy/dispatches" \
   -d '{
     "event_type": "deploy",
     "client_payload": {

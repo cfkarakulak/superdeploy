@@ -37,8 +37,9 @@ Proje: cheapa
 ```bash
 # Tek Forgejo Instance (SADECE DEPLOYMENT)
 http://34.44.228.225:3001
-└── Organization: superdeploy
-    └── orchestrator (parametreli deployment workflow)
+└── Organization: cradexco
+    └── superdeploy (parametreli deployment workflow)
+        └── .forgejo/workflows/deploy.yml
 
 # GitHub (SOURCE OF TRUTH - APP CODE)
 ├── Organization: cheapaio
@@ -50,7 +51,10 @@ http://34.44.228.225:3001
     └── frontend (app code + secrets + GitHub Actions)
 ```
 
-**ÖNEMLİ:** Forgejo'da uygulama kodu YOK! Sadece deployment orkestrasyonu var.
+**ÖNEMLİ:** 
+- Forgejo'da **sadece 1 repo**: `cradexco/superdeploy`
+- Uygulama kodu YOK! Sadece deployment workflow var
+- Tüm projeler aynı workflow'u kullanır (parametreli)
 
 ### Forgejo Runner - Project-Specific
 
@@ -152,14 +156,17 @@ API_SECRET_KEY=myapp_api_secret
 ### 2. GitHub → Trigger Forgejo
 ```bash
 # GitHub Actions continues...
-6. POST http://34.44.228.225:3001/api/v1/repos/superdeploy/orchestrator/dispatches
+6. POST http://34.44.228.225:3001/api/v1/repos/cradexco/superdeploy/dispatches
    {
-     "project": "cheapa",
-     "service": "api",
-     "image": "ghcr.io/cheapaio/api@sha256:abc123",
-     "env_bundle": "AGE_ENCRYPTED_BASE64",
-     "git_sha": "abc123",
-     "git_ref": "production"
+     "event_type": "deploy",
+     "client_payload": {
+       "project": "cheapa",
+       "service": "api",
+       "image": "ghcr.io/cheapaio/api@sha256:abc123",
+       "env_bundle": "AGE_ENCRYPTED_BASE64",
+       "git_sha": "abc123",
+       "git_ref": "production"
+     }
    }
 ```
 

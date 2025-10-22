@@ -1,6 +1,8 @@
-name: Deploy Service (Orchestrator)
+name: Deploy Service
 
 on:
+  repository_dispatch:
+    types: [deploy]
   workflow_dispatch:
     inputs:
       project:
@@ -31,19 +33,24 @@ on:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, ${{ inputs.project }}]
+    runs-on: [self-hosted, ${{ github.event.client_payload.project || inputs.project }}]
+    
+    env:
+      PROJECT: ${{ github.event.client_payload.project || inputs.project }}
+      SERVICE: ${{ github.event.client_payload.service || inputs.service }}
+      IMAGE: ${{ github.event.client_payload.image || inputs.image }}
+      ENV_BUNDLE: ${{ github.event.client_payload.env_bundle || inputs.env_bundle }}
+      GIT_SHA: ${{ github.event.client_payload.git_sha || inputs.git_sha }}
+      GIT_REF: ${{ github.event.client_payload.git_ref || inputs.git_ref }}
     
     steps:
-      - name: Checkout orchestrator repo
+      - name: Checkout superdeploy repo
         uses: actions/checkout@v4
-        with:
-          repository: superdeploy/orchestrator
-          ref: master
       
       - name: Decrypt environment bundle
         id: decrypt
         run: |
-          echo "${{ inputs.env_bundle }}" | base64 -d > /tmp/encrypted.age
+          echo "${{ env.ENV_BUNDLE }}" | base64 -d > /tmp/encrypted.age
           age -d -i ~/.age/key.txt /tmp/encrypted.age > /tmp/decrypted.env
           rm /tmp/encrypted.age
           echo "env_file=/tmp/decrypted.env" >> $GITHUB_OUTPUT
@@ -54,48 +61,37 @@ jobs:
           source /tmp/decrypted.env
           set +a
           
-          # Export for docker compose
-          export PROJECT=${{ inputs.project }}
-          export SERVICE=${{ inputs.service }}
-          export IMAGE=${{ inputs.image }}
-          export GIT_SHA=${{ inputs.git_sha }}
-          export GIT_REF=${{ inputs.git_ref }}
-          
           # Save to GitHub env for next steps
           cat /tmp/decrypted.env >> $GITHUB_ENV
-          echo "PROJECT=${{ inputs.project }}" >> $GITHUB_ENV
-          echo "SERVICE=${{ inputs.service }}" >> $GITHUB_ENV
-          echo "IMAGE=${{ inputs.image }}" >> $GITHUB_ENV
-          echo "GIT_SHA=${{ inputs.git_sha }}" >> $GITHUB_ENV
       
       - name: Generate docker-compose for service
         run: |
-          mkdir -p /opt/apps/${{ inputs.project }}/compose
+          mkdir -p /opt/apps/${{ env.PROJECT }}/compose
           
           # Generate compose file from template
-          cat > /opt/apps/${{ inputs.project }}/compose/docker-compose-${{ inputs.service }}.yml <<EOF
+          cat > /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml <<EOF
           version: '3.8'
           
           networks:
-            ${{ inputs.project }}-network:
+            ${{ env.PROJECT }}-network:
               external: true
           
           services:
-            ${{ inputs.project }}-${{ inputs.service }}:
-              image: ${{ inputs.image }}
-              container_name: ${{ inputs.project }}-${{ inputs.service }}
+            ${{ env.PROJECT }}-${{ env.SERVICE }}:
+              image: ${{ env.IMAGE }}
+              container_name: ${{ env.PROJECT }}-${{ env.SERVICE }}
               restart: unless-stopped
               networks:
-                - ${{ inputs.project }}-network
+                - ${{ env.PROJECT }}-network
               environment:
                 # All env vars from decrypted bundle
           $(cat /tmp/decrypted.env | sed 's/^/        /')
               labels:
-                com.superdeploy.project: "${{ inputs.project }}"
-                com.superdeploy.service: "${{ inputs.service }}"
+                com.superdeploy.project: "${{ env.PROJECT }}"
+                com.superdeploy.service: "${{ env.SERVICE }}"
                 com.superdeploy.release: "v\$(date +%Y%m%d-%H%M%S)"
-                com.superdeploy.git.sha: "${{ inputs.git_sha }}"
-                com.superdeploy.git.ref: "${{ inputs.git_ref }}"
+                com.superdeploy.git.sha: "${{ env.GIT_SHA }}"
+                com.superdeploy.git.ref: "${{ env.GIT_REF }}"
                 com.superdeploy.deployed.at: "\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
               healthcheck:
                 test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -107,25 +103,25 @@ jobs:
       
       - name: Deploy service
         run: |
-          cd /opt/apps/${{ inputs.project }}/compose
+          cd /opt/apps/${{ env.PROJECT }}/compose
           
           # Pull latest image
-          docker pull ${{ inputs.image }}
+          docker pull ${{ env.IMAGE }}
           
           # Deploy with zero-downtime
-          docker compose -f docker-compose-${{ inputs.service }}.yml up -d --wait
+          docker compose -f docker-compose-${{ env.SERVICE }}.yml up -d --wait
           
           # Wait for health check
-          timeout 120 bash -c 'until docker inspect --format="{{.State.Health.Status}}" ${{ inputs.project }}-${{ inputs.service }} | grep -q "healthy"; do sleep 2; done' || {
+          timeout 120 bash -c 'until docker inspect --format="{{.State.Health.Status}}" ${{ env.PROJECT }}-${{ env.SERVICE }} | grep -q "healthy"; do sleep 2; done' || {
             echo "❌ Health check failed!"
-            docker logs ${{ inputs.project }}-${{ inputs.service }} --tail 50
+            docker logs ${{ env.PROJECT }}-${{ env.SERVICE }} --tail 50
             exit 1
           }
       
       - name: Cleanup old images
         run: |
           # Keep last 3 images
-          docker images ghcr.io/${{ github.repository_owner }}/${{ inputs.service }} --format "{{.ID}}" | tail -n +4 | xargs -r docker rmi || true
+          docker images ghcr.io/*/${{ env.SERVICE }} --format "{{.ID}}" | tail -n +4 | xargs -r docker rmi || true
       
       - name: Clean up secrets
         if: always()
@@ -146,5 +142,5 @@ jobs:
           fi
           
           # Send email notification
-          echo "Deployment $STATUS: ${{ inputs.project }}/${{ inputs.service }} @ ${{ inputs.git_sha }}" | \
+          echo "Deployment $STATUS: ${{ env.PROJECT }}/${{ env.SERVICE }} @ ${{ env.GIT_SHA }}" | \
             mail -s "[$EMOJI] Deployment $STATUS" $ALERT_EMAIL || true
