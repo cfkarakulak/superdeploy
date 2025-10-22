@@ -229,10 +229,6 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
             # Apply
             run_command("./terraform-wrapper.sh apply -auto-approve", cwd=terraform_dir)
             progress.advance(task1)
-
-            # Update IPs
-            env_file_path = project_root / ".env"
-            update_ips_in_env(project_root, env_file_path)
             progress.advance(task1)
 
             console.print("[green]✅ VMs provisioned![/green]")
@@ -252,6 +248,10 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
                 time.sleep(1)
                 progress.advance(task_wait)
             console.print("[green]✅ VMs ready![/green]")
+
+    # Update IPs from Terraform (even if skipped, read current state)
+    env_file_path = project_root / ".env"
+    update_ips_in_env(project_root, env_file_path)
 
     # Reload env (in case IPs changed from Terraform)
     env = load_env()
@@ -339,6 +339,11 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
 
             # Push to Forgejo (needed for workflows)
             import urllib.parse
+
+            # Debug: Print current IP
+            console.print(
+                f"[dim]DEBUG: Using CORE_EXTERNAL_IP={env.get('CORE_EXTERNAL_IP')}[/dim]"
+            )
 
             encoded_pass = urllib.parse.quote(env["FORGEJO_ADMIN_PASSWORD"])
             forgejo_url = f"http://{env['FORGEJO_ADMIN_USER']}:{encoded_pass}@{env['CORE_EXTERNAL_IP']}:3001/{env['FORGEJO_ORG']}/{env['REPO_SUPERDEPLOY']}.git"
