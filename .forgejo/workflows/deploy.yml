@@ -31,15 +31,15 @@ on:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, ${{ github.event.client_payload.project || inputs.project }}]
+    runs-on: [self-hosted, linux]
     
     env:
-      PROJECT: ${{ github.event.client_payload.project || inputs.project }}
-      SERVICE: ${{ github.event.client_payload.service || inputs.service }}
-      IMAGE: ${{ github.event.client_payload.image || inputs.image }}
-      ENV_BUNDLE: ${{ github.event.client_payload.env_bundle || inputs.env_bundle }}
-      GIT_SHA: ${{ github.event.client_payload.git_sha || inputs.git_sha }}
-      GIT_REF: ${{ github.event.client_payload.git_ref || inputs.git_ref }}
+      PROJECT: ${{ inputs.project }}
+      SERVICE: ${{ inputs.service }}
+      IMAGE: ${{ inputs.image }}
+      ENV_BUNDLE: ${{ inputs.env_bundle }}
+      GIT_SHA: ${{ inputs.git_sha }}
+      GIT_REF: ${{ inputs.git_ref }}
     
     steps:
       - name: Checkout superdeploy repo
