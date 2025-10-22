@@ -387,17 +387,19 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
                 capture_output=True,
                 cwd=project_root,
             )
-            
+
             result = subprocess.run(
                 ["git", "remote", "add", "forgejo", forgejo_url],
                 capture_output=True,
                 text=True,
                 cwd=project_root,
             )
-            
+
             if result.returncode != 0:
-                console.print(f"[yellow]⚠️  Failed to add Forgejo remote: {result.stderr}[/yellow]")
-            
+                console.print(
+                    f"[yellow]⚠️  Failed to add Forgejo remote: {result.stderr}[/yellow]"
+                )
+
             # Verify remote
             remotes_result = subprocess.run(
                 ["git", "remote", "-v"],
@@ -434,8 +436,6 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
 
         # Direct sync call with proper error handling
         try:
-            import subprocess
-
             sync_cmd = [
                 "superdeploy",
                 "sync:infra",
