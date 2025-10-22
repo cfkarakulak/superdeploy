@@ -119,7 +119,6 @@ def sync_infra(project):
 
     # Determine which repos to sync to
     # Read from project config if exists (local)
-    from pathlib import Path
     from cli.utils import get_project_root
     import yaml
 

@@ -100,10 +100,11 @@ def sync_repos(project, env_dir, env_file):
     else:
         # Default: Use project's .passwords.yml (local)
         from cli.utils import get_project_root
+
         project_root = get_project_root()
         project_dir = project_root / "projects" / project
         passwords_file = project_dir / ".passwords.yml"
-        
+
         if not passwords_file.exists():
             console.print(f"[red]❌ No .passwords.yml found at {passwords_file}[/red]")
             console.print(
@@ -113,7 +114,10 @@ def sync_repos(project, env_dir, env_file):
 
         # Load passwords and sync to all services
         try:
-            passwords = yaml.safe_load(passwords_file.read_text())
+            passwords_data = yaml.safe_load(passwords_file.read_text())
+            
+            # Extract passwords dict (they're nested under 'passwords' key)
+            passwords = passwords_data.get("passwords", {})
 
             # Get services from project config
             project_config = project_dir / "config.yml"

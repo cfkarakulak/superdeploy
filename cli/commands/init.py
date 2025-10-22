@@ -20,9 +20,10 @@ console = Console()
 def get_used_subnets():
     """Get list of subnets already in use by other projects"""
     used_subnets = []
-    
+
     # Use local projects directory
     from cli.utils import get_project_root
+
     project_root = get_project_root()
     projects_dir = project_root / "projects"
 
@@ -83,10 +84,11 @@ def init(project, yes, subnet, services, no_interactive):
 
     # Use local projects directory
     from cli.utils import get_project_root
+
     project_root = get_project_root()
     projects_dir = project_root / "projects"
     project_dir = projects_dir / project
-    
+
     # Check if project already exists
     if project_dir.exists():
         console.print(f"[red]❌ Project '{project}' already exists![/red]")
