@@ -136,6 +136,15 @@
         - '80'
         - '443'
 
+    - name: Allow Forgejo HTTP (3001) and SSH (2222)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - '3001'
+        - '2222'
+
     - name: Allow API direct access
       ufw:
         rule: allow

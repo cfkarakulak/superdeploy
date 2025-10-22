@@ -348,11 +348,18 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
             forgejo_host = env["CORE_EXTERNAL_IP"]
             for _ in range(30):  # up to ~150s
                 try:
-                    reachable = subprocess.run(
-                        ["bash", "-lc", f"curl -sSf -m 3 http://{forgejo_host}:3001/ >/dev/null"],
-                        capture_output=True,
-                        cwd=project_root,
-                    ).returncode == 0
+                    reachable = (
+                        subprocess.run(
+                            [
+                                "bash",
+                                "-lc",
+                                f"curl -sSf -m 3 http://{forgejo_host}:3001/ >/dev/null",
+                            ],
+                            capture_output=True,
+                            cwd=project_root,
+                        ).returncode
+                        == 0
+                    )
                     if reachable:
                         break
                 except Exception:
@@ -390,7 +397,10 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
             # Verify remote points to the correct host
             try:
                 remotes_out = subprocess.run(
-                    ["git", "remote", "-v"], capture_output=True, text=True, cwd=project_root
+                    ["git", "remote", "-v"],
+                    capture_output=True,
+                    text=True,
+                    cwd=project_root,
                 ).stdout
                 console.print(f"[dim]{remotes_out}[/dim]")
             except Exception:
