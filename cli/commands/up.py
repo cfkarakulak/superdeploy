@@ -233,13 +233,6 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
 
             console.print("[green]✅ VMs provisioned![/green]")
 
-            # Generate inventory
-            ansible_dir = project_root / "shared" / "ansible"
-            generate_ansible_inventory(env, ansible_dir)
-
-            # Clean SSH
-            clean_ssh_known_hosts(env)
-
             # Wait for VMs
             task_wait = progress.add_task(
                 "[yellow]Waiting for VMs to be ready (120s)...", total=120
@@ -255,6 +248,13 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
 
     # Reload env (in case IPs changed from Terraform)
     env = load_env()
+
+    # Generate inventory with NEW IPs
+    ansible_dir = project_root / "shared" / "ansible"
+    generate_ansible_inventory(env, ansible_dir)
+
+    # Clean SSH known_hosts with NEW IPs
+    clean_ssh_known_hosts(env)
 
     # Ansible (outside progress context to avoid output mixing)
     if not skip_ansible:
