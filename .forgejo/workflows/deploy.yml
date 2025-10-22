@@ -62,10 +62,10 @@ jobs:
           # Save to GitHub env for next steps
           cat /tmp/decrypted.env >> $GITHUB_ENV
       
-      - name: Login to GitHub Container Registry
+      - name: Login to Docker Hub
         run: |
-          # Login using GitHub PAT from Forgejo secrets
-          echo "${{ secrets.GITHUB_PAT }}" | docker login ghcr.io -u cheapaio --password-stdin
+          # Login using Docker Hub credentials from Forgejo secrets
+          echo "${{ secrets.DOCKER_TOKEN }}" | docker login docker.io -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
       
       - name: Generate docker-compose for service
         run: |
