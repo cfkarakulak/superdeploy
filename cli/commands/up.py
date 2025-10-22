@@ -288,6 +288,8 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
   -e "SMTP_USERNAME={env.get("SMTP_USERNAME", "")}" \
   -e "SMTP_PASSWORD={env.get("SMTP_PASSWORD", "")}" \
   -e "ALERT_EMAIL={env.get("ALERT_EMAIL", "")}" \
+  -e "DOCKER_USERNAME={env.get("DOCKER_USERNAME", "")}" \
+  -e "DOCKER_TOKEN={env.get("DOCKER_TOKEN", "")}" \
   -e "project_name={project}"
 """
 

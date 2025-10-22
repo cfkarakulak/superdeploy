@@ -102,6 +102,39 @@
   when: repo_create_result is defined
 
 # =============================================================================
+# ADD FORGEJO SECRETS (Docker Hub credentials)
+# =============================================================================
+- name: Add DOCKER_USERNAME secret to Forgejo
+  uri:
+    url: "http://localhost:3001/api/v1/repos/{{ FORGEJO_ORG }}/{{ REPO_SUPERDEPLOY }}/actions/secrets/DOCKER_USERNAME"
+    method: PUT
+    body_format: json
+    body:
+      data: "{{ DOCKER_USERNAME }}"
+    status_code: [201, 204]
+    force_basic_auth: yes
+    url_username: "{{ FORGEJO_ADMIN_USER }}"
+    url_password: "{{ FORGEJO_ADMIN_PASSWORD }}"
+  register: docker_username_secret
+
+- name: Add DOCKER_TOKEN secret to Forgejo
+  uri:
+    url: "http://localhost:3001/api/v1/repos/{{ FORGEJO_ORG }}/{{ REPO_SUPERDEPLOY }}/actions/secrets/DOCKER_TOKEN"
+    method: PUT
+    body_format: json
+    body:
+      data: "{{ DOCKER_TOKEN }}"
+    status_code: [201, 204]
+    force_basic_auth: yes
+    url_username: "{{ FORGEJO_ADMIN_USER }}"
+    url_password: "{{ FORGEJO_ADMIN_PASSWORD }}"
+  register: docker_token_secret
+
+- name: Display secrets creation result
+  debug:
+    msg: "Docker Hub secrets added to Forgejo repository"
+
+# =============================================================================
 # CREATE SERVICE REPOSITORIES
 # =============================================================================
 # App repos (API, Storefront, Services) are on GitHub, NOT Forgejo!
