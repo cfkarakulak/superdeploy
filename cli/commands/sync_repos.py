@@ -115,7 +115,7 @@ def sync_repos(project, env_dir, env_file):
         # Load passwords and sync to all services
         try:
             passwords_data = yaml.safe_load(passwords_file.read_text())
-            
+
             # Extract passwords dict (they're nested under 'passwords' key)
             passwords = passwords_data.get("passwords", {})
 
@@ -172,8 +172,29 @@ def sync_repos(project, env_dir, env_file):
                     except Exception as e:
                         console.print(f"    [red]✗[/red] {key}: {e}")
 
-            console.print("\n[green]✅ Repository secrets synced![/green]")
-            return
+            console.print("\n[green]✅ Core secrets (DB/Queue/Cache) synced![/green]")
+            
+            # Now check for app-specific .env files
+            app_repos_dir = project_root.parent / "app-repos"
+            if app_repos_dir.exists():
+                console.print(f"\n[cyan]📦 Auto-discovered app-repos directory:[/cyan]")
+                console.print(f"  {app_repos_dir}")
+                
+                # Look for .env files matching services
+                for service in services:
+                    service_env = app_repos_dir / service / ".env"
+                    if service_env.exists():
+                        env_files_to_sync.append(service_env)
+                        console.print(f"  • {service}/.env found")
+                
+                if not env_files_to_sync:
+                    console.print("  [dim]No .env files found in app-repos[/dim]")
+            else:
+                console.print(f"\n[dim]Tip: Create {app_repos_dir} with service .env files for app-specific secrets[/dim]")
+            
+            # If no app-specific env files, we're done
+            if not env_files_to_sync:
+                return
 
         except Exception as e:
             console.print(f"[red]❌ Error loading passwords: {e}[/red]")

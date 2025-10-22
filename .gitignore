@@ -12,6 +12,10 @@ projects/*/secrets.env
 projects/*/compose/env/*.env
 !projects/*/compose/env/*.env.example
 
+# Generated passwords (NEVER commit!)
+projects/*/.passwords.yml
+.passwords.yml
+
 # Python
 __pycache__/
 *.py[cod]
