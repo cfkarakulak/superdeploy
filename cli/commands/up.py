@@ -343,6 +343,8 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
 
             # Reload env again in case IPs changed late
             env = load_env()
+            
+            console.print(f"[dim]DEBUG: CORE_EXTERNAL_IP = {env['CORE_EXTERNAL_IP']}[/dim]")
 
             # Wait until Forgejo is reachable
             forgejo_host = env["CORE_EXTERNAL_IP"]
@@ -372,6 +374,8 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
                 f"http://{env['FORGEJO_ADMIN_USER']}:{encoded_pass}"
                 f"@{env['CORE_EXTERNAL_IP']}:3001/{env['FORGEJO_ORG']}/{repo_name}.git"
             )
+            
+            console.print(f"[dim]DEBUG: Forgejo URL = {forgejo_url.replace(encoded_pass, '***')}[/dim]")
 
             # Add or update Forgejo remote
             try:
