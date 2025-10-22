@@ -13,6 +13,8 @@ from cli.commands import (
     init,
     up,
     sync,
+    sync_infra,
+    sync_repos,
     status,
     logs,
     run_cmd,
@@ -67,6 +69,8 @@ cli.add_command(init.init)
 cli.add_command(up.up)
 cli.add_command(down.down)
 cli.add_command(sync.sync)
+cli.add_command(sync_infra.sync_infra, name="sync:infra")
+cli.add_command(sync_repos.sync_repos, name="sync:repos")
 cli.add_command(status.status)
 cli.add_command(logs.logs)
 cli.add_command(run_cmd.run)
