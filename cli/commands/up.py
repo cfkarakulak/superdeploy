@@ -309,7 +309,7 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
                 # Add or update GitHub remote
                 try:
                     subprocess.run(
-                        ["git", "remote", "remove", "github"], 
+                        ["git", "remote", "remove", "github"],
                         capture_output=True,
                         cwd=project_root,
                     )
@@ -318,14 +318,20 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
 
                 try:
                     subprocess.run(
-                        ["git", "remote", "add", "github", f"https://{github_token}@github.com/cfkarakulak/superdeploy.git"],
+                        [
+                            "git",
+                            "remote",
+                            "add",
+                            "github",
+                            f"https://{github_token}@github.com/cfkarakulak/superdeploy.git",
+                        ],
                         check=False,  # Don't fail if remote exists
                         capture_output=True,
                         cwd=project_root,
                     )
                 except:
                     pass
-                
+
                 run_command("git push -u github master", cwd=project_root)
                 console.print("[green]✅ Superdeploy backed up to GitHub![/green]")
 
@@ -337,6 +343,7 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
             encoded_pass = urllib.parse.quote(env["FORGEJO_ADMIN_PASSWORD"])
             forgejo_url = f"http://{env['FORGEJO_ADMIN_USER']}:{encoded_pass}@{env['CORE_EXTERNAL_IP']}:3001/{env['FORGEJO_ORG']}/{env['REPO_SUPERDEPLOY']}.git"
 
+            # Add or update Forgejo remote
             try:
                 subprocess.run(
                     ["git", "remote", "remove", "forgejo"],
@@ -346,7 +353,15 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
             except:
                 pass
 
-            run_command(f"git remote add forgejo {forgejo_url}", cwd=project_root)
+            try:
+                subprocess.run(
+                    ["git", "remote", "add", "forgejo", forgejo_url],
+                    check=False,  # Don't fail if remote exists
+                    capture_output=True,
+                    cwd=project_root,
+                )
+            except:
+                pass
 
             # Push workflows to Forgejo
             try:
