@@ -173,25 +173,27 @@ def sync_repos(project, env_dir, env_file):
                         console.print(f"    [red]✗[/red] {key}: {e}")
 
             console.print("\n[green]✅ Core secrets (DB/Queue/Cache) synced![/green]")
-            
+
             # Now check for app-specific .env files
             app_repos_dir = project_root.parent / "app-repos"
             if app_repos_dir.exists():
-                console.print(f"\n[cyan]📦 Auto-discovered app-repos directory:[/cyan]")
+                console.print("\n[cyan]📦 Auto-discovered app-repos directory:[/cyan]")
                 console.print(f"  {app_repos_dir}")
-                
+
                 # Look for .env files matching services
                 for service in services:
                     service_env = app_repos_dir / service / ".env"
                     if service_env.exists():
                         env_files_to_sync.append(service_env)
                         console.print(f"  • {service}/.env found")
-                
+
                 if not env_files_to_sync:
                     console.print("  [dim]No .env files found in app-repos[/dim]")
             else:
-                console.print(f"\n[dim]Tip: Create {app_repos_dir} with service .env files for app-specific secrets[/dim]")
-            
+                console.print(
+                    f"\n[dim]Tip: Create {app_repos_dir} with service .env files for app-specific secrets[/dim]"
+                )
+
             # If no app-specific env files, we're done
             if not env_files_to_sync:
                 return
@@ -215,8 +217,25 @@ def sync_repos(project, env_dir, env_file):
         env_to_repo[env_path] = f"{github_org}/{repo_name}"
         console.print(f"  • {env_path.name} → {github_org}/{repo_name}")
 
+    # Define core secrets that should NOT be overwritten from app .env
+    CORE_SECRETS = {
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_DB",
+        "POSTGRES_HOST",
+        "POSTGRES_PORT",
+        "RABBITMQ_USER",
+        "RABBITMQ_PASSWORD",
+        "RABBITMQ_HOST",
+        "RABBITMQ_PORT",
+        "REDIS_PASSWORD",
+        "REDIS_HOST",
+        "REDIS_PORT",
+    }
+
     # Sync each file
-    console.print("\n[cyan]🔄 Syncing secrets...[/cyan]")
+    console.print("\n[cyan]🔄 Syncing app-specific secrets...[/cyan]")
+    console.print("[dim]Note: Core secrets (DB/Queue/Cache) are skipped to avoid conflicts[/dim]")
 
     for env_path, repo in env_to_repo.items():
         console.print(f"\n  [bold]{repo}[/bold]")
@@ -228,9 +247,15 @@ def sync_repos(project, env_dir, env_file):
             console.print(f"    [red]✗[/red] Failed to load: {e}")
             continue
 
-        # Sync each secret
+        # Sync each secret (skip core secrets)
+        skipped = []
         for key, value in env_vars.items():
             if not value or value.startswith("#"):
+                continue
+
+            # Skip core secrets - they're managed by .passwords.yml
+            if key in CORE_SECRETS:
+                skipped.append(key)
                 continue
 
             try:
@@ -244,5 +269,10 @@ def sync_repos(project, env_dir, env_file):
                 console.print(f"    [red]✗[/red] {key}: {e.stderr.decode()}")
             except Exception as e:
                 console.print(f"    [red]✗[/red] {key}: {e}")
+
+        if skipped:
+            console.print(
+                f"    [dim]⊘ Skipped core secrets: {', '.join(skipped)}[/dim]"
+            )
 
     console.print("\n[green]✅ Repository secrets synced![/green]")
