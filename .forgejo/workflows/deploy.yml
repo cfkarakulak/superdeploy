@@ -1,469 +1,150 @@
-name: Deploy Application
+name: Deploy Service (Orchestrator)
 
 on:
   workflow_dispatch:
     inputs:
-      title:
-        description: 'Workflow title (auto-generated from GitHub)'
-        required: false
-        default: 'Deploy Application'
       project:
-        description: 'Project name (cheapa, projectb, etc.)'
+        description: 'Project name (e.g., cheapa, myapp)'
         required: true
-        default: 'cheapa'
-      environment:
-        description: 'Environment (prod|staging)'
+        type: string
+      service:
+        description: 'Service name (e.g., api, dashboard, services)'
         required: true
-        default: 'prod'
-        type: choice
-        options:
-          - prod
-          - staging
-      services:
-        description: 'Services to deploy (comma-separated: api,dashboard,services)'
+        type: string
+      image:
+        description: 'Docker image with tag (e.g., ghcr.io/cheapaio/api:abc123)'
         required: true
-        default: 'api'
-      image_tags:
-        description: 'JSON: {"api":"abc123","dashboard":"def456","services":"ghi789"}'
+        type: string
+      env_bundle:
+        description: 'AGE-encrypted environment variables bundle'
         required: true
-      encrypted_env:
-        description: 'Encrypted environment variables (base64 of AGE-encrypted .env)'
+        type: string
+      git_sha:
+        description: 'Git commit SHA (for tracking)'
+        required: true
+        type: string
+      git_ref:
+        description: 'Git ref (branch/tag)'
         required: false
-        default: ''
-      migrate:
-        description: 'Run DB migrations (true/false)'
-        required: false
-        default: 'false'
-        type: choice
-        options:
-          - 'false'
-          - 'true'
+        default: 'production'
+        type: string
 
 jobs:
   deploy:
-    runs-on: [self-hosted, core, linux, docker]  # Generic runner labels
-    
-    env:
-      PROJECT: ${{ github.event.inputs.project }}
-      ENVIRONMENT: ${{ github.event.inputs.environment }}
-      SERVICES: ${{ github.event.inputs.services }}
-      IMAGE_TAGS: ${{ github.event.inputs.image_tags }}
-      MIGRATE: ${{ github.event.inputs.migrate }}
+    runs-on: [self-hosted, ${{ inputs.project }}]
     
     steps:
-      - name: ${{ github.event.inputs.title || 'Deploy Application' }}
-        run: |
-          echo "═══════════════════════════════════════════════════════════════"
-          echo "  ${{ github.event.inputs.title || 'Deploy Application' }}"
-          echo "═══════════════════════════════════════════════════════════════"
-          echo ""
-          echo "📋 Deployment Info:"
-          echo "  Project: ${{ github.event.inputs.project }}"
-          echo "  Environment: ${{ github.event.inputs.environment }}"
-          echo "  Services: ${{ github.event.inputs.services }}"
-          echo ""
-
-      - name: Checkout superdeploy code
-        run: |
-          cd /opt/superdeploy
-          git config --global --add safe.directory /opt/superdeploy
-          git fetch origin
-          git reset --hard origin/master
-          echo "✅ Superdeploy code updated"
-
-      - name: Decrypt environment variables
+      - name: Checkout orchestrator repo
+        uses: actions/checkout@v4
+        with:
+          repository: superdeploy/orchestrator
+          ref: master
+      
+      - name: Decrypt environment bundle
         id: decrypt
         run: |
-          set +x  # Disable echo for security
-          
-          ENCRYPTED_ENV="${{ github.event.inputs.encrypted_env }}"
-          
-          if [ -n "$ENCRYPTED_ENV" ] && [ "$ENCRYPTED_ENV" != "" ]; then
-            echo "🔐 Decrypting environment variables..."
-            
-            # Decode base64 and decrypt with AGE private key
-            echo "$ENCRYPTED_ENV" | base64 -d | age -d -i /opt/forgejo-runner/.age/key.txt > /opt/superdeploy/.env.decrypted 2>/dev/null
-            
-            if [ $? -eq 0 ]; then
-              echo "✅ Environment decrypted successfully"
-              echo "env_file=/opt/superdeploy/.env.decrypted" >> $GITHUB_OUTPUT
-            else
-              echo "❌ Failed to decrypt environment"
-              echo "env_file=" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "⚠️  No encrypted environment provided, using Forgejo secrets fallback"
-            echo "env_file=" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Parse inputs
-        id: parse
-        run: |
-          # Parse JSON image_tags
-          echo "$IMAGE_TAGS" > /tmp/image_tags.json
-          
-          # Extract tags for each service
-          API_TAG=$(jq -r '.api // "latest"' /tmp/image_tags.json)
-          DASHBOARD_TAG=$(jq -r '.dashboard // "latest"' /tmp/image_tags.json)
-          SERVICES_TAG=$(jq -r '.services // "latest"' /tmp/image_tags.json)
-          
-          echo "api_tag=$API_TAG" >> $GITHUB_OUTPUT
-          echo "dashboard_tag=$DASHBOARD_TAG" >> $GITHUB_OUTPUT
-          echo "services_tag=$SERVICES_TAG" >> $GITHUB_OUTPUT
-          
-          echo "📋 Parsed tags:"
-          echo "  API: $API_TAG"
-          echo "  Dashboard: $DASHBOARD_TAG"
-          echo "  Services: $SERVICES_TAG"
-
-      - name: Save decrypted environment to project directory
-        if: steps.decrypt.outputs.env_file != ''
-        run: |
-          PROJECT="${{ github.event.inputs.project }}"
-          ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
-          PROJECT_DIR="/opt/apps/${PROJECT}"
-          
-          # Ensure project directory exists
-          if [ ! -d "$PROJECT_DIR" ]; then
-            echo "❌ Project '${PROJECT}' not initialized!"
-            echo "Run: superdeploy init -p ${PROJECT}"
-            exit 1
-          fi
-          
-          # Copy decrypted env to project directory
-          cp "$ENV_FILE" "${PROJECT_DIR}/compose/.env"
-          
-          # Set proper permissions
-          chmod 600 "${PROJECT_DIR}/compose/.env"
-          chown superdeploy:superdeploy "${PROJECT_DIR}/compose/.env"
-          
-          echo "✅ Environment saved to ${PROJECT_DIR}/compose/.env"
-
-      - name: Verify project setup
-        run: |
-          PROJECT="${{ github.event.inputs.project }}"
-          PROJECT_DIR="/opt/apps/${PROJECT}"
-          
-          if [ ! -d "$PROJECT_DIR" ]; then
-            echo "❌ Project '${PROJECT}' not found!"
-            echo "Please initialize project first: superdeploy init -p ${PROJECT}"
-            exit 1
-          fi
-          
-          # Check for compose files
-          if [ ! -f "${PROJECT_DIR}/compose/docker-compose.core.yml" ]; then
-            echo "❌ Missing docker-compose.core.yml"
-            exit 1
-          fi
-          
-          if [ ! -f "${PROJECT_DIR}/compose/docker-compose.apps.yml" ]; then
-            echo "❌ Missing docker-compose.apps.yml"
-            exit 1
-          fi
-          
-          cd "${PROJECT_DIR}/compose"
-          echo "✅ Project '${PROJECT}' is properly configured"
-
-      - name: Pull images (selective)
-        run: |
-          PROJECT="${{ github.event.inputs.project }}"
-          cd /opt/apps/${PROJECT}/compose
-          
-          # Load infrastructure env
-          set -a
-          source /opt/superdeploy/.env
-          set +a
-          
-          # Set image tags
-          export API_IMAGE_TAG="${{ steps.parse.outputs.api_tag }}"
-          export DASHBOARD_IMAGE_TAG="${{ steps.parse.outputs.dashboard_tag }}"
-          export SERVICES_IMAGE_TAG="${{ steps.parse.outputs.services_tag }}"
-          
-          # Ensure DOCKER_REGISTRY is set
-          export DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
-          
-          # GitHub must provide encrypted env (no fallback)
-          ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
-          
-          if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
-            echo "📥 Loading decrypted environment from GitHub"
-            set -a
-            source "$ENV_FILE"
-            set +a
-          else
-            echo "❌ No environment provided from GitHub!"
-            echo "Cannot proceed without credentials"
-            exit 1
-          fi
-          
-          # Deployment timestamp
-          export DEPLOY_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          
-          # Parse services to deploy
-          IFS=',' read -ra SERVICE_ARRAY <<< "$SERVICES"
-          
-          echo "📥 Pulling images for: ${SERVICE_ARRAY[@]}"
-          
-          # Pull only specified services
-          for service in "${SERVICE_ARRAY[@]}"; do
-            service=$(echo $service | xargs)  # trim whitespace
-            echo "Pulling $service..."
-            docker compose pull $service || echo "⚠️  Failed to pull $service"
-          done
-          
-          echo "✅ Images pulled!"
-
-      - name: Run DB migrations (optional)
-        if: ${{ github.event.inputs.migrate == 'true' }}
-        timeout-minutes: 10
-        run: |
-          PROJECT="${{ github.event.inputs.project }}"
-          cd /opt/apps/${PROJECT}/compose
-          
-          echo "🔄 Running database migrations..."
-          echo "⚠️  Migration failure will STOP deployment"
-          
-          # Load env for compose
-          set -a
-          source /opt/superdeploy/.env
-          set +a
-          
-          # Load env from GitHub
-          ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
-          if [ -f "$ENV_FILE" ]; then
-            set -a
-            source "$ENV_FILE"
-            set +a
-          fi
-          
-          # Run migrations with timeout and error handling
-          if docker compose -f docker-compose.core.yml -f docker-compose.apps.yml \
-             run --rm api alembic upgrade head; then
-            echo "✅ Migrations completed successfully"
-          else
-            echo "❌ MIGRATION FAILED!"
-            echo "⚠️  Deployment will be aborted"
-            echo "📋 Manual rollback may be required"
-            exit 1
-          fi
-          
-          # Verify migration was successful
-          echo "🔍 Verifying migration..."
-          docker compose -f docker-compose.core.yml -f docker-compose.apps.yml \
-            run --rm api alembic current || {
-            echo "❌ Migration verification failed"
-            exit 1
-          }
-          
-          echo "✅ Migration verified"
-
-      - name: Deploy core services (always)
-        run: |
-          PROJECT="${{ github.event.inputs.project }}"
-          cd /opt/apps/${PROJECT}/compose
-          
-          echo "🔧 Deploying core services (postgres, rabbitmq, redis)..."
-          
-          # Load decrypted env from GitHub (MUST have project-specific creds)
-          ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
-          
-          if [ -z "$ENV_FILE" ] || [ ! -f "$ENV_FILE" ]; then
-            echo "❌ No environment file provided from GitHub!"
-            echo "Core services need project-specific credentials"
-            exit 1
-          fi
-          
-          # Load ALL credentials from GitHub
-          set -a
-          source "$ENV_FILE"
-          set +a
-          
-          # Verify required vars
-          if [ -z "$POSTGRES_PASSWORD" ] || [ -z "$RABBITMQ_PASSWORD" ] || [ -z "$REDIS_PASSWORD" ]; then
-            echo "❌ Missing required credentials in environment file"
-            exit 1
-          fi
-          
-          # Deploy core services (always)
-          docker compose -f docker-compose.core.yml up -d
-          
-          echo "✅ Core services deployed!"
+          echo "${{ inputs.env_bundle }}" | base64 -d > /tmp/encrypted.age
+          age -d -i ~/.age/key.txt /tmp/encrypted.age > /tmp/decrypted.env
+          rm /tmp/encrypted.age
+          echo "env_file=/tmp/decrypted.env" >> $GITHUB_OUTPUT
       
-      - name: Deploy app services (selective)
+      - name: Load environment variables
         run: |
-          PROJECT="${{ github.event.inputs.project }}"
-          cd /opt/apps/${PROJECT}/compose
-          
-          # Load decrypted env from GitHub (contains ALL app+infra vars)
-          ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
-          
-          if [ -z "$ENV_FILE" ] || [ ! -f "$ENV_FILE" ]; then
-            echo "❌ No environment file provided from GitHub!"
-            exit 1
-          fi
-          
-          # Load ALL vars from GitHub
           set -a
-          source "$ENV_FILE"
-          source /opt/superdeploy/.env  # For infra vars (IPs, etc)
+          source /tmp/decrypted.env
           set +a
           
-          # Set image tags from parsed inputs
-          export API_IMAGE_TAG="${{ steps.parse.outputs.api_tag }}"
-          export DASHBOARD_IMAGE_TAG="${{ steps.parse.outputs.dashboard_tag }}"
-          export SERVICES_IMAGE_TAG="${{ steps.parse.outputs.services_tag }}"
+          # Export for docker compose
+          export PROJECT=${{ inputs.project }}
+          export SERVICE=${{ inputs.service }}
+          export IMAGE=${{ inputs.image }}
+          export GIT_SHA=${{ inputs.git_sha }}
+          export GIT_REF=${{ inputs.git_ref }}
           
-          # Add deployment metadata
-          export DEPLOY_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          export GIT_SHA="${{ github.sha }}"
-          export RELEASE_VERSION="v$(date +%Y%m%d)-${GITHUB_RUN_NUMBER:-1}"
-          
-          # Parse services
-          IFS=',' read -ra SERVICE_ARRAY <<< "$SERVICES"
-          
-          echo "Deploying ${PROJECT} apps: ${SERVICE_ARRAY[@]}"
-          
-          # Deploy app services only
-          docker compose -f docker-compose.apps.yml up -d --no-deps "${SERVICE_ARRAY[@]}"
-          
-          echo "✅ App services deployed!"
-
-      - name: ⏳ Wait for services to be healthy
+          # Save to GitHub env for next steps
+          cat /tmp/decrypted.env >> $GITHUB_ENV
+          echo "PROJECT=${{ inputs.project }}" >> $GITHUB_ENV
+          echo "SERVICE=${{ inputs.service }}" >> $GITHUB_ENV
+          echo "IMAGE=${{ inputs.image }}" >> $GITHUB_ENV
+          echo "GIT_SHA=${{ inputs.git_sha }}" >> $GITHUB_ENV
+      
+      - name: Generate docker-compose for service
         run: |
-          PROJECT="${{ github.event.inputs.project }}"
-          cd /opt/apps/${PROJECT}/compose
+          mkdir -p /opt/apps/${{ inputs.project }}/compose
           
-          echo "Waiting for services to be healthy..."
-          sleep 10
+          # Generate compose file from template
+          cat > /opt/apps/${{ inputs.project }}/compose/docker-compose-${{ inputs.service }}.yml <<EOF
+          version: '3.8'
           
-          docker compose -f docker-compose.apps.yml ps
-          echo "✅ Services should be healthy!"
-
-      - name: Health checks
+          networks:
+            ${{ inputs.project }}-network:
+              external: true
+          
+          services:
+            ${{ inputs.project }}-${{ inputs.service }}:
+              image: ${{ inputs.image }}
+              container_name: ${{ inputs.project }}-${{ inputs.service }}
+              restart: unless-stopped
+              networks:
+                - ${{ inputs.project }}-network
+              environment:
+                # All env vars from decrypted bundle
+          $(cat /tmp/decrypted.env | sed 's/^/        /')
+              labels:
+                com.superdeploy.project: "${{ inputs.project }}"
+                com.superdeploy.service: "${{ inputs.service }}"
+                com.superdeploy.release: "v\$(date +%Y%m%d-%H%M%S)"
+                com.superdeploy.git.sha: "${{ inputs.git_sha }}"
+                com.superdeploy.git.ref: "${{ inputs.git_ref }}"
+                com.superdeploy.deployed.at: "\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+                start_period: 40s
+          EOF
+      
+      - name: Deploy service
         run: |
-          PROJECT="${{ github.event.inputs.project }}"
-          echo "Running health checks for project: ${PROJECT}..."
+          cd /opt/apps/${{ inputs.project }}/compose
           
-          # PostgreSQL
-          docker exec ${PROJECT}-postgres pg_isready && \
-            echo "✅ PostgreSQL healthy" || echo "❌ PostgreSQL unhealthy"
+          # Pull latest image
+          docker pull ${{ inputs.image }}
           
-          # RabbitMQ (if exists)
-          if docker ps --format '{{.Names}}' | grep -q "^${PROJECT}-rabbitmq$"; then
-            docker exec ${PROJECT}-rabbitmq rabbitmq-diagnostics ping && \
-              echo "✅ RabbitMQ healthy" || echo "❌ RabbitMQ unhealthy"
-          fi
+          # Deploy with zero-downtime
+          docker compose -f docker-compose-${{ inputs.service }}.yml up -d --wait
           
-          # Redis (if exists)
-          if docker ps --format '{{.Names}}' | grep -q "^${PROJECT}-redis$"; then
-            docker exec ${PROJECT}-redis redis-cli ping && \
-              echo "✅ Redis healthy" || echo "❌ Redis unhealthy"
-          fi
-          
-          # API health endpoint (if exists)
-          if docker ps --format '{{.Names}}' | grep -q "^${PROJECT}-api$"; then
-            curl -f http://localhost:8000/health 2>/dev/null && \
-              echo "✅ API healthy" || echo "⚠️  API health check skipped (no endpoint)"
-          fi
-
-      - name: Show deployment status
-        run: |
-          PROJECT="${{ github.event.inputs.project }}"
-          cd /opt/apps/${PROJECT}/compose
-          
-          echo "════════════════════════════════════════════════════════"
-          echo "         🎉 DEPLOYMENT COMPLETE! 🎉                    "
-          echo "════════════════════════════════════════════════════════"
-          echo ""
-          echo "Project: ${PROJECT}"
-          echo "Environment: ${{ env.ENVIRONMENT }}"
-          echo "Services: ${{ env.SERVICES }}"
-          echo ""
-          docker compose -f docker-compose.apps.yml ps
-          echo ""
-          echo "🌐 Services are available at: http://$(curl -s ifconfig.me)"
-
-      - name: Send deployment notification
-        if: always()
-        run: |
-          set -x  # Enable debug output
-          
-          # Determine deployment status
-          if [ "${{ job.status }}" = "success" ]; then
-            STATUS="✅ SUCCESS"
-          else
-            STATUS="❌ FAILED"
-          fi
-          
-          # Get deployed image tags
-          API_TAG="${{ steps.parse.outputs.api_tag }}"
-          DASHBOARD_TAG="${{ steps.parse.outputs.dashboard_tag }}"
-          SERVICES_TAG="${{ steps.parse.outputs.services_tag }}"
-          
-          # Get external IP
-          EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "unknown")
-          
-          # Email config (from Forgejo Secrets)
-          ENV_NAME="${{ env.ENVIRONMENT }}"
-          SERVICES_LIST="${{ env.SERVICES }}"
-          ALERT_EMAIL="${{ secrets.ALERT_EMAIL }}"
-          FORGEJO_ORG="${{ secrets.FORGEJO_ORG }}"
-          WORKFLOW_TITLE="${{ github.event.inputs.title }}"
-          SUBJECT="[${STATUS}] ${WORKFLOW_TITLE}"
-          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          
-          # Debug: Print email config
-          echo "DEBUG: Email Configuration"
-          echo "  ALERT_EMAIL=${ALERT_EMAIL}"
-          echo "  SUBJECT=${SUBJECT}"
-          echo "  STATUS=${STATUS}"
-          
-          # Install mailutils if not present
-          if ! command -v mail &> /dev/null; then
-            echo "Installing mailutils..."
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update -qq && apt-get install -y mailutils postfix 2>&1 | grep -v "^Get:" || {
-              echo "⚠️  Failed to install mailutils - email will be skipped"
-              echo "✅ Deployment notification: ${STATUS} (email disabled)"
-              exit 0
-            }
-          fi
-          
-          # Send email
-          {
-            echo "SuperDeploy Deployment Notification"
-            echo ""
-            echo "Status = ${STATUS}"
-            echo "Environment = ${ENV_NAME}"
-            echo "Services = ${SERVICES_LIST}"
-            echo "Timestamp = ${TIMESTAMP}"
-            echo ""
-            echo "Deployed Images ="
-            echo "  API = ${API_TAG}"
-            echo "  Dashboard = ${DASHBOARD_TAG}"
-            echo "  Services = ${SERVICES_TAG}"
-            echo ""
-            echo "Access URLs ="
-            echo "  Dashboard = http://${EXTERNAL_IP}"
-            echo "  API = http://${EXTERNAL_IP}:8000"
-            echo "  Forgejo = http://${EXTERNAL_IP}:3001"
-            echo ""
-            echo "Logs = http://${EXTERNAL_IP}:3001/${FORGEJO_ORG}/superdeploy-app/actions"
-          } | mail -s "$SUBJECT" "$ALERT_EMAIL" 2>&1 && {
-            echo "✅ Email sent to $ALERT_EMAIL"
-          } || {
-            echo "⚠️  Email send failed (not critical)"
+          # Wait for health check
+          timeout 120 bash -c 'until docker inspect --format="{{.State.Health.Status}}" ${{ inputs.project }}-${{ inputs.service }} | grep -q "healthy"; do sleep 2; done' || {
+            echo "❌ Health check failed!"
+            docker logs ${{ inputs.project }}-${{ inputs.service }} --tail 50
+            exit 1
           }
-          
-          echo "✅ Notification complete"
-
-      - name: 🧹 Cleanup decrypted env (security)
+      
+      - name: Cleanup old images
+        run: |
+          # Keep last 3 images
+          docker images ghcr.io/${{ github.repository_owner }}/${{ inputs.service }} --format "{{.ID}}" | tail -n +4 | xargs -r docker rmi || true
+      
+      - name: Clean up secrets
         if: always()
         run: |
-          ENV_FILE="${{ steps.decrypt.outputs.env_file }}"
-          if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
-            echo "🔒 Securely deleting decrypted env file..."
-            shred -u "$ENV_FILE" 2>/dev/null || rm -f "$ENV_FILE"
-            echo "✅ Decrypted env removed"
+          rm -f /tmp/decrypted.env
+          rm -f /tmp/encrypted.age
+      
+      - name: Send notification
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" == "success" ]; then
+            EMOJI="✅"
+            COLOR="good"
+          else
+            EMOJI="❌"
+            COLOR="danger"
           fi
-
+          
+          # Send email notification
+          echo "Deployment $STATUS: ${{ inputs.project }}/${{ inputs.service }} @ ${{ inputs.git_sha }}" | \
+            mail -s "[$EMOJI] Deployment $STATUS" $ALERT_EMAIL || true

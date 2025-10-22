@@ -35,18 +35,22 @@ Proje: cheapa
 **ÖNEMLI:** Tek Forgejo instance tüm projeleri yönetir!
 
 ```bash
-# Tek Forgejo Instance
+# Tek Forgejo Instance (SADECE DEPLOYMENT)
 http://34.44.228.225:3001
-├── Organization: cradexco (shared infrastructure)
-│   └── superdeploy-app (deployment workflows)
-├── Organization: cheapa (cheapa project)
-│   ├── api (app code - GitHub mirror)
-│   ├── dashboard (app code - GitHub mirror)
-│   └── services (app code - GitHub mirror)
-└── Organization: myapp (myapp project)
-    ├── api (app code - GitHub mirror)
-    └── frontend (app code - GitHub mirror)
+└── Organization: superdeploy
+    └── orchestrator (parametreli deployment workflow)
+
+# GitHub (SOURCE OF TRUTH - APP CODE)
+├── Organization: cheapaio
+│   ├── api (app code + secrets + GitHub Actions)
+│   ├── dashboard (app code + secrets + GitHub Actions)
+│   └── services (app code + secrets + GitHub Actions)
+└── Organization: myorg
+    ├── api (app code + secrets + GitHub Actions)
+    └── frontend (app code + secrets + GitHub Actions)
 ```
+
+**ÖNEMLİ:** Forgejo'da uygulama kodu YOK! Sadece deployment orkestrasyonu var.
 
 ### Forgejo Runner - Project-Specific
 
@@ -135,25 +139,42 @@ API_SECRET_KEY=myapp_api_secret
 
 ## 🚀 Deployment Akışı
 
-### 1. GitHub → Forgejo Trigger
+### 1. GitHub → Build & Push
 ```bash
 # GitHub Actions (cheapaio/api)
-1. Build Docker image
-2. Push to registry  
-3. Encrypt environment variables (AGE)
-4. Trigger Forgejo workflow
-   POST http://34.44.228.225:3001/api/v1/repos/cradexco/superdeploy-app/dispatches
+1. Checkout code
+2. Build Docker image
+3. Push to GHCR (ghcr.io/cheapaio/api:sha-abc123)
+4. Get image digest (immutable)
+5. Encrypt environment variables (AGE)
 ```
 
-### 2. Forgejo Workflow Execution
+### 2. GitHub → Trigger Forgejo
+```bash
+# GitHub Actions continues...
+6. POST http://34.44.228.225:3001/api/v1/repos/superdeploy/orchestrator/dispatches
+   {
+     "project": "cheapa",
+     "service": "api",
+     "image": "ghcr.io/cheapaio/api@sha256:abc123",
+     "env_bundle": "AGE_ENCRYPTED_BASE64",
+     "git_sha": "abc123",
+     "git_ref": "production"
+   }
+```
+
+### 3. Forgejo Workflow Execution
 ```bash
 # Forgejo Runner (cheapa-runner)
-1. Receive encrypted payload from GitHub
-2. Decrypt environment variables (AGE)
-3. Generate docker-compose.yml for cheapa
-4. Deploy: docker compose up cheapa-api
-5. Health check: curl cheapa-api:8000/health
-6. Send notification email
+# runs-on: [self-hosted, cheapa]
+1. Receive parameters from GitHub
+2. Decrypt environment bundle (AGE)
+3. Generate docker-compose-api.yml
+4. Pull image: docker pull ghcr.io/cheapaio/api@sha256:abc123
+5. Deploy: docker compose up -d --wait
+6. Health check: wait for container healthy
+7. Cleanup: remove decrypted env
+8. Send notification email
 ```
 
 ### 3. Service Discovery
