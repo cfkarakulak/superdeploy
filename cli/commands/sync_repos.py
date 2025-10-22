@@ -3,6 +3,7 @@
 import click
 import subprocess
 from pathlib import Path
+from datetime import datetime
 from rich.console import Console
 from rich.panel import Panel
 from dotenv import dotenv_values
@@ -151,7 +152,7 @@ def sync_repos(project, env_dir, env_file):
 
             # Check for app-repos and merge with app .env files
             app_repos_dir = project_root.parent / "app-repos"
-            
+
             # Sync to all services
             console.print("\n[cyan]🔄 Syncing secrets...[/cyan]")
             for service in services:
@@ -160,31 +161,52 @@ def sync_repos(project, env_dir, env_file):
 
                 # Start with core secrets
                 final_secrets = core_secrets.copy()
-                
+
                 # Check if app .env exists
-                service_env = app_repos_dir / service / ".env" if app_repos_dir.exists() else None
+                service_env = (
+                    app_repos_dir / service / ".env" if app_repos_dir.exists() else None
+                )
                 if service_env and service_env.exists():
                     console.print(f"    [dim]📄 Merging with {service}/.env[/dim]")
                     try:
                         app_env_vars = dotenv_values(service_env)
-                        
+
                         # Merge: app vars first, then core secrets override
                         for key, value in app_env_vars.items():
                             if value and not value.startswith("#"):
                                 final_secrets[key] = value
-                        
+
                         # Override with core secrets (they take precedence)
                         final_secrets.update(core_secrets)
-                        
-                        console.print(f"    [dim]✓ Merged {len(app_env_vars)} app vars + {len(core_secrets)} core secrets[/dim]")
-                    except Exception as e:
-                        console.print(f"    [yellow]⚠[/yellow] Could not read app .env: {e}")
 
-                # Sync all secrets
+                        console.print(
+                            f"    [dim]✓ Merged {len(app_env_vars)} app vars + {len(core_secrets)} core secrets[/dim]"
+                        )
+                    except Exception as e:
+                        console.print(
+                            f"    [yellow]⚠[/yellow] Could not read app .env: {e}"
+                        )
+
+                # Write merged secrets to a temp file for visibility
+                merged_file = project_dir / f".merged-secrets-{service}.yml"
+                try:
+                    import yaml
+                    with open(merged_file, 'w') as f:
+                        yaml.dump({
+                            'service': service,
+                            'merged_at': datetime.now().isoformat(),
+                            'secrets': {k: v for k, v in final_secrets.items() if v}
+                        }, f, default_flow_style=False)
+                    console.print(f"    [dim]📝 Merged secrets written to: {merged_file.name}[/dim]")
+                except Exception as e:
+                    console.print(f"    [yellow]⚠[/yellow] Could not write merged file: {e}")
+
+                # Sync all secrets (with progress)
+                console.print(f"    [cyan]Syncing {len(final_secrets)} secrets...[/cyan]")
                 synced_count = 0
                 for key, value in final_secrets.items():
                     if value is None:
-                        console.print(f"    [yellow]⚠[/yellow] {key}: missing value")
+                        console.print(f"      [yellow]⚠[/yellow] {key}: missing value")
                         continue
 
                     try:
@@ -193,13 +215,14 @@ def sync_repos(project, env_dir, env_file):
                             check=True,
                             capture_output=True,
                         )
+                        console.print(f"      [green]✓[/green] {key}")
                         synced_count += 1
                     except subprocess.CalledProcessError as e:
-                        console.print(f"    [red]✗[/red] {key}: {e.stderr.decode()}")
+                        console.print(f"      [red]✗[/red] {key}: {e.stderr.decode()}")
                     except Exception as e:
-                        console.print(f"    [red]✗[/red] {key}: {e}")
-                
-                console.print(f"    [green]✓[/green] Synced {synced_count} secrets")
+                        console.print(f"      [red]✗[/red] {key}: {e}")
+
+                console.print(f"    [green]✓[/green] Synced {synced_count}/{len(final_secrets)} secrets")
 
             console.print("\n[green]✅ All secrets synced![/green]")
             return
