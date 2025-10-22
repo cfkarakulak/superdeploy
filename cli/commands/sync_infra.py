@@ -51,7 +51,7 @@ def create_forgejo_pat(env):
 
         if response.status_code == 201:
             token = response.json()["sha1"]
-            console.print(f"[green]✓[/green] Forgejo PAT created")
+            console.print("[green]✓[/green] Forgejo PAT created")
             return token
         else:
             console.print(f"[red]✗[/red] Failed: {response.text}")
@@ -67,7 +67,7 @@ def create_forgejo_pat(env):
 def sync_infra(project):
     """
     Sync infrastructure secrets to GitHub repositories
-    
+
     This syncs ONLY infrastructure-level secrets:
     - FORGEJO_BASE_URL
     - FORGEJO_PAT
@@ -75,9 +75,9 @@ def sync_infra(project):
     - CORE_EXTERNAL_IP
     - DOCKER_USERNAME
     - DOCKER_TOKEN
-    
+
     These are needed for GitHub Actions to trigger Forgejo deployments.
-    
+
     \b
     Example:
       superdeploy sync:infra -p myproject
@@ -116,15 +116,18 @@ def sync_infra(project):
 
     # Get GitHub org and repos
     github_org = env.get("GITHUB_ORG", f"{project}io")
-    
+
     # Determine which repos to sync to
-    # Read from project config if exists
+    # Read from project config if exists (local)
     from pathlib import Path
+    from cli.utils import get_project_root
     import yaml
-    
-    project_config = Path(f"/opt/apps/{project}/config.yml")
+
+    project_root = get_project_root()
+    project_dir = project_root / "projects" / project
+    project_config = project_dir / "config.yml"
     services = ["api", "dashboard", "services"]  # Default
-    
+
     if project_config.exists():
         try:
             config = yaml.safe_load(project_config.read_text())
@@ -132,7 +135,7 @@ def sync_infra(project):
         except:
             pass
 
-    console.print(f"\n[cyan]📦 Target repositories:[/cyan]")
+    console.print("\n[cyan]📦 Target repositories:[/cyan]")
     for service in services:
         console.print(f"  • {github_org}/{service}")
 
@@ -150,7 +153,7 @@ def sync_infra(project):
     if not forgejo_pat:
         console.print("[red]❌ Failed to create Forgejo PAT[/red]")
         raise SystemExit(1)
-    console.print(f"[green]✓[/green] PAT created")
+    console.print("[green]✓[/green] PAT created")
 
     # Step 3: Sync to GitHub
     console.print("\n[cyan]3️⃣ Syncing to GitHub repositories...[/cyan]")
@@ -185,4 +188,3 @@ def sync_infra(project):
     console.print(
         "\n[dim]Next: Run 'superdeploy sync:repos' to sync app-specific secrets[/dim]"
     )
-

@@ -20,7 +20,11 @@ console = Console()
 def get_used_subnets():
     """Get list of subnets already in use by other projects"""
     used_subnets = []
-    projects_dir = Path("/opt/apps")
+    
+    # Use local projects directory
+    from cli.utils import get_project_root
+    project_root = get_project_root()
+    projects_dir = project_root / "projects"
 
     if projects_dir.exists():
         for project_dir in projects_dir.iterdir():
@@ -77,8 +81,13 @@ def init(project, yes, subnet, services, no_interactive):
     console.print(f"\n[bold cyan]🎯 Creating new project: {project}[/bold cyan]")
     console.print("━" * 40)
 
+    # Use local projects directory
+    from cli.utils import get_project_root
+    project_root = get_project_root()
+    projects_dir = project_root / "projects"
+    project_dir = projects_dir / project
+    
     # Check if project already exists
-    project_dir = Path(f"/opt/apps/{project}")
     if project_dir.exists():
         console.print(f"[red]❌ Project '{project}' already exists![/red]")
         return
@@ -326,7 +335,7 @@ def init(project, yes, subnet, services, no_interactive):
 
     if passwords:
         console.print(
-            f"\n   [dim]Generated passwords saved in: /opt/apps/{project}/.passwords.yml[/dim]"
+            f"\n   [dim]Generated passwords saved in: {project_dir}/.passwords.yml[/dim]"
         )
 
     console.print("\n2. Push your code:")

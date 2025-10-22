@@ -5,7 +5,6 @@ import subprocess
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 from dotenv import dotenv_values
 from cli.utils import load_env
 
@@ -28,29 +27,29 @@ console = Console()
 def sync_repos(project, env_dir, env_file):
     """
     Sync app-specific secrets to GitHub repositories
-    
+
     This syncs app-level secrets like:
     - POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
     - RABBITMQ_USER, RABBITMQ_PASSWORD
     - REDIS_PASSWORD
     - APP_SECRET_KEY
     - etc.
-    
+
     You can provide either:
     - A directory containing .env files (--env-dir)
     - Specific .env files (--env-file, multiple allowed)
-    
+
     The command will auto-detect which repo each .env belongs to
     based on the directory name or explicit mapping.
-    
+
     \b
     Examples:
       # Auto-discover from directory
       superdeploy sync:repos -p myproject -d ~/app-repos
-      
+
       # Specific files
       superdeploy sync:repos -p myproject -e ~/app-repos/api/.env -e ~/app-repos/dashboard/.env
-      
+
       # Use project's .passwords.yml
       superdeploy sync:repos -p myproject
     """
@@ -99,12 +98,14 @@ def sync_repos(project, env_dir, env_file):
                     env_files_to_sync.append(env_path)
 
     else:
-        # Default: Use project's .passwords.yml
-        passwords_file = Path(f"/opt/apps/{project}/.passwords.yml")
+        # Default: Use project's .passwords.yml (local)
+        from cli.utils import get_project_root
+        project_root = get_project_root()
+        project_dir = project_root / "projects" / project
+        passwords_file = project_dir / ".passwords.yml"
+        
         if not passwords_file.exists():
-            console.print(
-                f"[red]❌ No .passwords.yml found at {passwords_file}[/red]"
-            )
+            console.print(f"[red]❌ No .passwords.yml found at {passwords_file}[/red]")
             console.print(
                 "[yellow]Hint: Provide --env-dir or --env-file, or run 'superdeploy init' first[/yellow]"
             )
@@ -113,18 +114,18 @@ def sync_repos(project, env_dir, env_file):
         # Load passwords and sync to all services
         try:
             passwords = yaml.safe_load(passwords_file.read_text())
-            
+
             # Get services from project config
-            project_config = Path(f"/opt/apps/{project}/config.yml")
+            project_config = project_dir / "config.yml"
             services = ["api", "dashboard", "services"]  # Default
-            
+
             if project_config.exists():
                 config = yaml.safe_load(project_config.read_text())
                 services = config.get("services", services)
 
-            console.print(f"\n[cyan]📦 Using generated passwords from:[/cyan]")
+            console.print("\n[cyan]📦 Using generated passwords from:[/cyan]")
             console.print(f"  {passwords_file}")
-            console.print(f"\n[cyan]📦 Target repositories:[/cyan]")
+            console.print("\n[cyan]📦 Target repositories:[/cyan]")
             for service in services:
                 console.print(f"  • {github_org}/{service}")
 
@@ -220,4 +221,3 @@ def sync_repos(project, env_dir, env_file):
                 console.print(f"    [red]✗[/red] {key}: {e}")
 
     console.print("\n[green]✅ Repository secrets synced![/green]")
-
