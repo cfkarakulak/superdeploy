@@ -186,7 +186,7 @@ jobs:
               echo "  API = http://${EXTERNAL_IP}:8000"
               echo "  Forgejo = http://${EXTERNAL_IP}:3001"
               echo ""
-              echo "Logs = http://${EXTERNAL_IP}:3001/${FORGEJO_ORG}/superdeploy-app/actions"
+              echo "Logs = http://${EXTERNAL_IP}:3001/${FORGEJO_ORG}/superdeploy/actions"
             } | mail -s "[${STATUS}] SuperDeploy - Core Services Deployed" "$ALERT_EMAIL"
             echo "📧 Email sent to $ALERT_EMAIL"
           else

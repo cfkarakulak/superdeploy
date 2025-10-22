@@ -105,7 +105,7 @@
 # CREATE SERVICE REPOSITORIES
 # =============================================================================
 # App repos (API, Storefront, Services) are on GitHub, NOT Forgejo!
-# Forgejo only has superdeploy-app for deployment orchestration
+# Forgejo only has superdeploy for deployment orchestration
 
 - name: Download Forgejo Actions runner
   get_url:
