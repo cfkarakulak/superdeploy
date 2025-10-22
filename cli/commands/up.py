@@ -350,23 +350,24 @@ ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,in
 
             # Add or update Forgejo remote
             try:
+                # Try to update existing remote first
                 subprocess.run(
-                    ["git", "remote", "remove", "forgejo"],
+                    ["git", "remote", "set-url", "forgejo", forgejo_url],
                     capture_output=True,
                     cwd=project_root,
+                    check=True,
                 )
             except:
-                pass
-
-            try:
-                subprocess.run(
-                    ["git", "remote", "add", "forgejo", forgejo_url],
-                    check=False,  # Don't fail if remote exists
-                    capture_output=True,
-                    cwd=project_root,
-                )
-            except:
-                pass
+                # If remote doesn't exist, add it
+                try:
+                    subprocess.run(
+                        ["git", "remote", "add", "forgejo", forgejo_url],
+                        capture_output=True,
+                        cwd=project_root,
+                        check=True,
+                    )
+                except:
+                    pass
 
             # Push workflows to Forgejo
             try:
