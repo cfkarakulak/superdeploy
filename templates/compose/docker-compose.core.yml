@@ -8,11 +8,7 @@
 networks:
   {{PROJECT}}-network:
     name: {{PROJECT}}-network
-    driver: bridge
-    ipam:
-      driver: default
-      config:
-        - subnet: {{SUBNET}}
+    external: true
 
 volumes:
   postgres-data:
