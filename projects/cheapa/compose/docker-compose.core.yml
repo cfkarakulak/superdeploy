@@ -12,7 +12,7 @@ networks:
     ipam:
       driver: default
       config:
-        - subnet: 172.30.0.0/24
+        - subnet: 172.21.0.0/24
 
 volumes:
   postgres-data:
@@ -106,12 +106,14 @@ services:
     container_name: cheapa-redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD:?required}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
     volumes:
       - redis-data:/data
     networks:
       - cheapa-network
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli --pass $$REDIS_PASSWORD ping | grep PONG"]
+      test: ["CMD-SHELL", "redis-cli --pass $${REDIS_PASSWORD} ping | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
