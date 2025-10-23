@@ -233,6 +233,27 @@ jobs:
           echo "📋 Final compose file (ports section):"
           grep -A2 "ports:" "$COMPOSE_FILE"
       
+      - name: Create networks first
+        run: |
+          set -ex
+          echo "🌐 Creating networks..."
+          
+          # Create project network if it doesn't exist
+          if ! docker network ls | grep -q "${{ env.PROJECT }}-network"; then
+            docker network create ${{ env.PROJECT }}-network
+            echo "✅ Network created: ${{ env.PROJECT }}-network"
+          else
+            echo "✅ Network already exists: ${{ env.PROJECT }}-network"
+          fi
+          
+          # Ensure superdeploy-proxy network exists (for Caddy)
+          if ! docker network ls | grep -q "superdeploy-proxy"; then
+            docker network create superdeploy-proxy
+            echo "✅ Network created: superdeploy-proxy"
+          else
+            echo "✅ Network already exists: superdeploy-proxy"
+          fi
+      
       - name: Deploy core services first
         run: |
           set -ex  # Enable verbose mode and exit on error
@@ -349,23 +370,6 @@ jobs:
           echo "📋 Compose file:"
           cat docker-compose-${{ env.SERVICE }}.yml
           
-          # Create project network if it doesn't exist
-          echo "🌐 Creating/checking network: ${{ env.PROJECT }}-network"
-          if ! docker network ls | grep -q "${{ env.PROJECT }}-network"; then
-            docker network create ${{ env.PROJECT }}-network
-            echo "✅ Network created: ${{ env.PROJECT }}-network"
-          else
-            echo "✅ Network already exists: ${{ env.PROJECT }}-network"
-          fi
-          
-          # Ensure superdeploy-proxy network exists (for Caddy)
-          if ! docker network ls | grep -q "superdeploy-proxy"; then
-            docker network create superdeploy-proxy
-            echo "✅ Network created: superdeploy-proxy"
-          else
-            echo "✅ Network already exists: superdeploy-proxy"
-          fi
-          
           # Pull latest image with retry
           echo "📥 Pulling image: ${{ env.IMAGE }}"
           MAX_RETRIES=3
@@ -435,11 +439,24 @@ jobs:
             
             cd /opt/apps/${{ env.PROJECT }}/compose
             
-            # Update compose file with old image
-            sed -i "s|image:.*|image: $ROLLBACK_IMAGE|g" docker-compose-${{ env.SERVICE }}.yml
+            # Pull old image
+            docker pull "$ROLLBACK_IMAGE" || echo "⚠️  Could not pull rollback image"
             
-            # Redeploy old version
-            docker compose -f docker-compose-${{ env.SERVICE }}.yml up -d --wait
+            # Stop current container
+            docker stop ${{ env.PROJECT }}-${{ env.SERVICE }} || true
+            docker rm ${{ env.PROJECT }}-${{ env.SERVICE }} || true
+            
+            # Start with old image using docker run (bypass compose validation)
+            docker run -d \
+              --name ${{ env.PROJECT }}-${{ env.SERVICE }} \
+              --network ${{ env.PROJECT }}-network \
+              --network superdeploy-proxy \
+              --env-file /tmp/decrypted.env \
+              --restart unless-stopped \
+              --label com.superdeploy.project="${{ env.PROJECT }}" \
+              --label com.superdeploy.service="${{ env.SERVICE }}" \
+              --label com.superdeploy.rollback="true" \
+              "$ROLLBACK_IMAGE"
             
             echo "✅ Rollback complete!"
             echo "📧 Sending rollback notification..."
