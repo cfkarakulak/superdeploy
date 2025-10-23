@@ -259,11 +259,23 @@ jobs:
           set -ex  # Enable verbose mode and exit on error
           echo "🔧 Checking for core services..."
           
-          # Deploy core services (PostgreSQL, RabbitMQ, Redis) if not running
+          # Read core services from config.yml dynamically
+          CONFIG_FILE="/opt/superdeploy/projects/${{ env.PROJECT }}/config.yml"
+          CORE_SERVICES=$(python3 -c "
+import yaml
+with open('$CONFIG_FILE', 'r') as f:
+    config = yaml.safe_load(f)
+    services = list(config.get('core_services', {}).keys())
+    print(', '.join(services) if services else 'none')
+" 2>/dev/null || echo "postgres, rabbitmq, redis")
+          
+          echo "📦 Core services from config: $CORE_SERVICES"
+          
+          # Deploy core services if compose file exists
           CORE_COMPOSE="/opt/superdeploy/projects/${{ env.PROJECT }}/compose/docker-compose.core.yml"
           
           if [ -f "$CORE_COMPOSE" ]; then
-            echo "📦 Deploying core services (PostgreSQL, RabbitMQ, Redis)..."
+            echo "📦 Deploying core services: $CORE_SERVICES"
             cd /opt/superdeploy/projects/${{ env.PROJECT }}/compose
             
             echo "📂 Current directory: $(pwd)"
