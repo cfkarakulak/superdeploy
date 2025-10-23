@@ -14,6 +14,11 @@ Modern, Python-based CLI for deploying production applications on your own infra
 - 🎯 **Heroku-like UX** - Familiar commands (`up`, `logs`, `scale`, `rollback`)
 - 🔄 **Auto-sync** - Secrets sync from local `.env` to GitHub/Forgejo
 - 📊 **Interactive Setup** - Wizard-style configuration
+- 🌍 **Multi-Environment** - Production, staging, and development environments
+- 📈 **Metrics & Monitoring** - Track deployments, uptime, and resource usage
+- 💾 **Backup & Restore** - Automated database and configuration backups
+- 🔄 **Auto-Rollback** - Automatic rollback on deployment failures
+- ✅ **Config Validation** - Validate before deploy to catch errors early
 
 ---
 
@@ -38,19 +43,20 @@ source venv/bin/activate
 ### 2. Initialize Configuration
 
 ```bash
-superdeploy init
+superdeploy init -p myproject
 ```
 
 This will:
 - Detect your GCP project
 - Generate secure passwords
 - Create SSH keys
-- Setup `.env` file
+- Setup project configuration
+- Validate configuration
 
 ### 3. Deploy Infrastructure
 
 ```bash
-superdeploy up
+superdeploy up -p myproject
 ```
 
 This will (~10 minutes):
@@ -62,13 +68,14 @@ This will (~10 minutes):
 ### 4. Sync Secrets
 
 ```bash
-superdeploy sync
+superdeploy sync -p myproject
 ```
 
 This will:
 - 🔑 Fetch AGE public key from VM
 - 🎫 Create Forgejo PAT
 - 📤 Push ALL secrets to GitHub (using `gh` CLI)
+- 🔐 Configure multi-environment secrets
 
 **DONE!** Now just push to GitHub:
 
@@ -85,38 +92,48 @@ Deployment auto-triggers! 🎉
 ### Setup & Deployment
 
 ```bash
-superdeploy init          # Interactive wizard
-superdeploy up            # Deploy infrastructure  
-superdeploy sync          # Sync secrets to GitHub
-superdeploy doctor        # Health check
+superdeploy init -p myproject         # Interactive wizard
+superdeploy up -p myproject           # Deploy infrastructure  
+superdeploy sync -p myproject         # Sync secrets to GitHub
+superdeploy validate -p myproject     # Validate configuration
+superdeploy doctor                    # Health check
 ```
 
 ### Daily Operations
 
 ```bash
-superdeploy status                    # Show infrastructure status
-superdeploy logs -a api -f            # Watch logs (follow)
-superdeploy run api "python manage.py migrate"  # Run commands
-superdeploy scale api=3               # Scale service
-superdeploy restart api               # Restart service
+superdeploy status -p myproject                    # Show infrastructure status
+superdeploy logs -p myproject -a api -f            # Watch logs (follow)
+superdeploy run -p myproject -a api "python manage.py migrate"  # Run commands
+superdeploy scale -p myproject -a api --replicas 3 # Scale service
+superdeploy restart -p myproject -a api            # Restart service
+superdeploy metrics -p myproject                   # Show metrics & stats
 ```
 
 ### Configuration
 
 ```bash
-superdeploy config                    # List all config
-superdeploy config:set KEY=VAL        # Set config var
-superdeploy config:get KEY            # Get config var
-superdeploy config:unset KEY          # Unset config var
+superdeploy config -p myproject                    # List all config
+superdeploy config:set -p myproject KEY=VAL        # Set config var
+superdeploy config:get -p myproject KEY            # Get config var
+superdeploy config:unset -p myproject KEY          # Unset config var
 ```
 
 ### Deployment & Rollback
 
 ```bash
-superdeploy deploy -a api -e production    # Trigger deployment
-superdeploy releases -a api                 # List releases
-superdeploy rollback v42 -a api             # Rollback to v42
-superdeploy promote abc123 -a api           # Promote staging → prod
+superdeploy deploy -p myproject -a api -e production    # Deploy to production
+superdeploy deploy -p myproject -a api -e staging       # Deploy to staging
+superdeploy promote -p myproject -a api                 # Promote staging → prod
+superdeploy releases -p myproject -a api                # List releases
+superdeploy rollback -p myproject -a api v42            # Rollback to v42
+```
+
+### Backup & Restore
+
+```bash
+superdeploy backup -p myproject                    # Backup database & configs
+superdeploy backup -p myproject -o /path/to/backup # Custom backup location
 ```
 
 ---
@@ -307,10 +324,16 @@ superdeploy rollback v41 -a api
 
 ## 📖 Documentation
 
+### Getting Started
 - **[QUICKSTART.md](QUICKSTART.md)** - 12-minute E2E guide
-- **[docs/SETUP-INITIAL.md](docs/SETUP-INITIAL.md)** - First-time setup
-- **[docs/SETUP-PER-APP.md](docs/SETUP-PER-APP.md)** - Per-app configuration
-- **[docs/PAAS-IMPROVEMENT-PROPOSAL.md](docs/PAAS-IMPROVEMENT-PROPOSAL.md)** - Future roadmap
+- **[docs/SETUP.md](docs/SETUP.md)** - First-time setup
+- **[docs/SYNC-WORKFLOW.md](docs/SYNC-WORKFLOW.md)** - 🔄 When to sync secrets? (Important!)
+
+### Operations
+- **[docs/OPERATIONS.md](docs/OPERATIONS.md)** - Daily operations & troubleshooting
+- **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Deployment flow details
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture
+- **[docs/OVERVIEW.md](docs/OVERVIEW.md)** - High-level overview
 
 ---
 
@@ -327,6 +350,17 @@ MIT
 ---
 
 ## 🎉 What's New
+
+### v2.0.0 - Production Ready
+
+- ✨ **Multi-Environment Support** - Deploy to production, staging, or development
+- ✨ **Promote Command** - Safely promote staging → production
+- ✨ **Backup & Restore** - Database and config backups
+- ✨ **Metrics & Monitoring** - Deployment stats and resource usage
+- ✨ **Auto-Rollback** - Automatic rollback on deployment failure
+- ✨ **Config Validation** - Validate project configuration before deploy
+- ⚡ **Performance** - Age binary caching, retry logic, better health checks
+- 🔐 **Enhanced Security** - No hardcoded values, full isolation between projects
 
 ### v1.0.0 - Python CLI
 
