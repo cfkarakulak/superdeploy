@@ -98,6 +98,25 @@
     group: superdeploy
     mode: '0755'
 
+- name: Sync project files to VM
+  synchronize:
+    src: "{{ playbook_dir }}/../../projects/"
+    dest: /opt/superdeploy/projects/
+    delete: no
+    recursive: yes
+    rsync_opts:
+      - "--exclude=.git*"
+      - "--exclude=*.log"
+      - "--exclude=.passwords.yml"
+      - "--exclude=merged_environment_*.yml"
+
+- name: Fix ownership of project files
+  file:
+    path: /opt/superdeploy/projects
+    owner: superdeploy
+    group: superdeploy
+    recurse: yes
+
 - name: Reload Caddy config (pick up new routes)
   shell: docker exec superdeploy-caddy caddy reload --config /etc/caddy/Caddyfile
   ignore_errors: yes
