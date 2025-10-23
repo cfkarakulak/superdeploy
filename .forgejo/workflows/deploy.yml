@@ -72,30 +72,27 @@ jobs:
           mkdir -p /opt/apps/${{ env.PROJECT }}/compose
           
           # Generate compose file from template
-          cat > /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml <<EOF
+          cat > /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml <<'EOF'
           version: '3.8'
           
           networks:
-            ${{ env.PROJECT }}-network:
+            PROJECT_NETWORK:
               external: true
           
           services:
-            ${{ env.PROJECT }}-${{ env.SERVICE }}:
-              image: ${{ env.IMAGE }}
-              container_name: ${{ env.PROJECT }}-${{ env.SERVICE }}
+            SERVICE_NAME:
+              image: IMAGE_PLACEHOLDER
+              container_name: CONTAINER_NAME
               restart: unless-stopped
               networks:
-                - ${{ env.PROJECT }}-network
-              environment:
-                # All env vars from decrypted bundle
-          $(cat /tmp/decrypted.env | sed 's/^/        /')
+                - PROJECT_NETWORK
+              env_file:
+                - /tmp/decrypted.env
               labels:
-                com.superdeploy.project: "${{ env.PROJECT }}"
-                com.superdeploy.service: "${{ env.SERVICE }}"
-                com.superdeploy.release: "v\$(date +%Y%m%d-%H%M%S)"
-                com.superdeploy.git.sha: "${{ env.GIT_SHA }}"
-                com.superdeploy.git.ref: "${{ env.GIT_REF }}"
-                com.superdeploy.deployed.at: "\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                com.superdeploy.project: "PROJECT_PLACEHOLDER"
+                com.superdeploy.service: "SERVICE_PLACEHOLDER"
+                com.superdeploy.git.sha: "GIT_SHA_PLACEHOLDER"
+                com.superdeploy.git.ref: "GIT_REF_PLACEHOLDER"
               healthcheck:
                 test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
                 interval: 30s
@@ -103,6 +100,16 @@ jobs:
                 retries: 3
                 start_period: 40s
           EOF
+          
+          # Replace placeholders
+          sed -i "s|PROJECT_NETWORK|${{ env.PROJECT }}-network|g" /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml
+          sed -i "s|SERVICE_NAME|${{ env.PROJECT }}-${{ env.SERVICE }}|g" /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml
+          sed -i "s|CONTAINER_NAME|${{ env.PROJECT }}-${{ env.SERVICE }}|g" /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml
+          sed -i "s|IMAGE_PLACEHOLDER|${{ env.IMAGE }}|g" /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml
+          sed -i "s|PROJECT_PLACEHOLDER|${{ env.PROJECT }}|g" /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml
+          sed -i "s|SERVICE_PLACEHOLDER|${{ env.SERVICE }}|g" /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml
+          sed -i "s|GIT_SHA_PLACEHOLDER|${{ env.GIT_SHA }}|g" /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml
+          sed -i "s|GIT_REF_PLACEHOLDER|${{ env.GIT_REF }}|g" /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml
       
       - name: Deploy service
         run: |
