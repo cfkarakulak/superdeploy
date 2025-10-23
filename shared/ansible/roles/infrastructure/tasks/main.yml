@@ -111,6 +111,7 @@
     path: "{{ playbook_dir }}/../../projects"
   register: projects_dir
   delegate_to: localhost
+  become: no
 
 - name: Sync project files to VM (compose files only, no secrets)
   synchronize:
