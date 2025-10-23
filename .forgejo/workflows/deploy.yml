@@ -146,19 +146,19 @@ jobs:
               ;;
           esac
           
-          # Replace placeholders (using @ as delimiter to avoid conflicts)
+          # Replace placeholders (using # as delimiter to avoid conflicts with URLs)
           COMPOSE_FILE="/opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml"
           
-          sed -i "s@PROJECT_NETWORK@${{ env.PROJECT }}-network@g" "$COMPOSE_FILE"
-          sed -i "s@SERVICE_NAME@${{ env.PROJECT }}-${{ env.SERVICE }}@g" "$COMPOSE_FILE"
-          sed -i "s@CONTAINER_NAME@${{ env.PROJECT }}-${{ env.SERVICE }}@g" "$COMPOSE_FILE"
-          sed -i "s@IMAGE_PLACEHOLDER@${{ env.IMAGE }}@g" "$COMPOSE_FILE"
-          sed -i "s@PROJECT_PLACEHOLDER@${{ env.PROJECT }}@g" "$COMPOSE_FILE"
-          sed -i "s@SERVICE_PLACEHOLDER@${{ env.SERVICE }}@g" "$COMPOSE_FILE"
-          sed -i "s@GIT_SHA_PLACEHOLDER@${{ env.GIT_SHA }}@g" "$COMPOSE_FILE"
-          sed -i "s@GIT_REF_PLACEHOLDER@${{ env.GIT_REF }}@g" "$COMPOSE_FILE"
-          sed -i "s@PORT_PLACEHOLDER@${EXTERNAL_PORT}@g" "$COMPOSE_FILE"
-          sed -i "s@INTERNAL_PORT_PLACEHOLDER@${INTERNAL_PORT}@g" "$COMPOSE_FILE"
+          sed -i "s#PROJECT_NETWORK#${{ env.PROJECT }}-network#g" "$COMPOSE_FILE"
+          sed -i "s#SERVICE_NAME#${{ env.PROJECT }}-${{ env.SERVICE }}#g" "$COMPOSE_FILE"
+          sed -i "s#CONTAINER_NAME#${{ env.PROJECT }}-${{ env.SERVICE }}#g" "$COMPOSE_FILE"
+          sed -i "s#IMAGE_PLACEHOLDER#${{ env.IMAGE }}#g" "$COMPOSE_FILE"
+          sed -i "s#PROJECT_PLACEHOLDER#${{ env.PROJECT }}#g" "$COMPOSE_FILE"
+          sed -i "s#SERVICE_PLACEHOLDER#${{ env.SERVICE }}#g" "$COMPOSE_FILE"
+          sed -i "s#GIT_SHA_PLACEHOLDER#${{ env.GIT_SHA }}#g" "$COMPOSE_FILE"
+          sed -i "s#GIT_REF_PLACEHOLDER#${{ env.GIT_REF }}#g" "$COMPOSE_FILE"
+          sed -i "s#PORT_PLACEHOLDER#${EXTERNAL_PORT}#g" "$COMPOSE_FILE"
+          sed -i "s#INTERNAL_PORT_PLACEHOLDER#${INTERNAL_PORT}#g" "$COMPOSE_FILE"
           
           echo "✅ Generated compose file with ports: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
       
