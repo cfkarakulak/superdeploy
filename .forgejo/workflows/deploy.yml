@@ -261,13 +261,14 @@ jobs:
           
           # Read core services from config.yml dynamically
           CONFIG_FILE="/opt/superdeploy/projects/${{ env.PROJECT }}/config.yml"
-          CORE_SERVICES=$(python3 -c "
+          CORE_SERVICES=$(python3 <<PYEOF 2>/dev/null || echo "postgres, rabbitmq, redis"
 import yaml
-with open('$CONFIG_FILE', 'r') as f:
+with open("$CONFIG_FILE", "r") as f:
     config = yaml.safe_load(f)
-    services = list(config.get('core_services', {}).keys())
-    print(', '.join(services) if services else 'none')
-" 2>/dev/null || echo "postgres, rabbitmq, redis")
+    services = list(config.get("core_services", {}).keys())
+    print(", ".join(services) if services else "none")
+PYEOF
+)
           
           echo "📦 Core services from config: $CORE_SERVICES"
           

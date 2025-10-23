@@ -203,7 +203,7 @@ def init(project, yes, subnet, services, no_interactive):
         # Every service gets dynamically assigned ports
         port_assignments[service] = {
             "external": base_external_port + (idx * 10),  # 8000, 8010, 8020...
-            "internal": base_internal_port  # Always 8000 inside container
+            "internal": base_internal_port,  # Always 8000 inside container
         }
 
     # Template context
