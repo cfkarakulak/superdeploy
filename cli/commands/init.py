@@ -199,7 +199,7 @@ def init(project, yes, subnet, services, no_interactive):
     # Build port assignments dynamically (generic!)
     port_assignments = {}
     base_port = 8000
-    
+
     for idx, service in enumerate(selected_services):
         # Smart port assignment
         if service == "dashboard":
@@ -208,11 +208,8 @@ def init(project, yes, subnet, services, no_interactive):
             port_assignments[service] = {"external": 8000, "internal": 8000}
         else:
             # Auto-assign ports for other services
-            port_assignments[service] = {
-                "external": 9000 + idx,
-                "internal": 8000
-            }
-    
+            port_assignments[service] = {"external": 9000 + idx, "internal": 8000}
+
     # Template context
     context = {
         "PROJECT": project,
@@ -241,10 +238,28 @@ def init(project, yes, subnet, services, no_interactive):
     # Copy and render templates
     template_dir = Path(__file__).parent.parent.parent / "templates"
 
-    # Render docker-compose.core.yml
-    core_template = template_dir / "compose" / "docker-compose.core.yml"
+    # Render docker-compose.core.yml from Jinja2 template
+    core_template = template_dir / "docker-compose.core.yml.j2"
     core_output = compose_dir / "docker-compose.core.yml"
-    core_output.write_text(render_template(core_template, context))
+
+    # Build core services context from config
+    core_services_context = {
+        "PROJECT_NAME": project,
+        "CORE_SERVICES": {
+            "postgres": {
+                "version": context["POSTGRES_VERSION"],
+                "user": f"{project}_user",
+                "database": f"{project}_db",
+            },
+            "rabbitmq": {
+                "version": context["RABBITMQ_VERSION"],
+                "user": f"{project}_user",
+            },
+            "redis": {"version": context["REDIS_VERSION"]},
+        },
+    }
+
+    core_output.write_text(render_template(core_template, core_services_context))
 
     # Render docker-compose.apps.yml
     apps_template = template_dir / "compose" / "docker-compose.apps.yml"

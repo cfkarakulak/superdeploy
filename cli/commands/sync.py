@@ -76,17 +76,34 @@ def create_forgejo_pat(env):
 def set_github_repo_secrets(repo, secrets):
     """Set GitHub repository secrets using gh CLI"""
     console.print(f"[dim]Setting repository secrets for {repo}...[/dim]")
+    
+    success_count = 0
+    fail_count = 0
 
     for key, value in secrets.items():
+        # Skip empty values
+        if not value or value == "":
+            console.print(f"  [dim]⊘[/dim] {key} (empty, skipped)")
+            continue
+            
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ["gh", "secret", "set", key, "-b", value, "-R", repo],
                 check=True,
                 capture_output=True,
+                text=True,
             )
             console.print(f"  [green]✓[/green] {key}")
+            success_count += 1
         except subprocess.CalledProcessError as e:
-            console.print(f"  [red]✗[/red] {key}: {e.stderr.decode()}")
+            error_msg = e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            console.print(f"  [red]✗[/red] {key}: {error_msg}")
+            fail_count += 1
+        except Exception as e:
+            console.print(f"  [red]✗[/red] {key}: {str(e)}")
+            fail_count += 1
+    
+    console.print(f"[dim]  → {success_count} success, {fail_count} failed[/dim]")
 
 
 def create_github_environment(repo, env_name):
@@ -127,17 +144,39 @@ def create_github_environment(repo, env_name):
 def set_github_env_secrets(repo, env_name, secrets):
     """Set GitHub environment secrets using gh CLI"""
     console.print(f"[dim]Setting environment secrets for {repo} ({env_name})...[/dim]")
+    
+    success_count = 0
+    fail_count = 0
 
     for key, value in secrets.items():
+        # Skip empty values (GitHub doesn't accept empty secrets)
+        if not value or value == "":
+            console.print(f"  [dim]⊘[/dim] {key} (empty, skipped)")
+            continue
+            
+        console.print(f"  [dim]→ Setting {key}...[/dim]", end="")
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ["gh", "secret", "set", key, "-b", value, "-e", env_name, "-R", repo],
                 check=True,
                 capture_output=True,
+                text=True,
+                timeout=30,
             )
-            console.print(f"  [green]✓[/green] {key}")
+            console.print(f"\r  [green]✓[/green] {key}                    ")
+            success_count += 1
+        except subprocess.TimeoutExpired:
+            console.print(f"\r  [red]✗[/red] {key}: timeout (30s)")
+            fail_count += 1
         except subprocess.CalledProcessError as e:
-            console.print(f"  [red]✗[/red] {key}: {e.stderr.decode()}")
+            error_msg = e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            console.print(f"\r  [red]✗[/red] {key}: {error_msg[:50]}")
+            fail_count += 1
+        except Exception as e:
+            console.print(f"\r  [red]✗[/red] {key}: {str(e)[:50]}")
+            fail_count += 1
+    
+    console.print(f"[dim]  → {success_count} success, {fail_count} failed[/dim]")
 
 
 def sync_forgejo_secrets(env, forgejo_pat, project_env=None):
@@ -207,7 +246,17 @@ def sync_forgejo_secrets(env, forgejo_pat, project_env=None):
         if key.endswith("_SECRET_KEY") or key == "PROXY_REGISTRY_API_KEY":
             secrets[key] = value
 
+    success_count = 0
+    fail_count = 0
+    skip_count = 0
+    
     for key, value in secrets.items():
+        # Skip empty values (Forgejo returns 422 for empty secrets)
+        if not value or value == "":
+            console.print(f"  [dim]⊘[/dim] {key} (empty, skipped)")
+            skip_count += 1
+            continue
+            
         try:
             response = requests.put(
                 f"{forgejo_url}/api/v1/repos/{org}/{repo}/actions/secrets/{key}",
@@ -216,16 +265,19 @@ def sync_forgejo_secrets(env, forgejo_pat, project_env=None):
                     "Content-Type": "application/json",
                 },
                 json={"data": value},
-                timeout=10,
+                timeout=3,  # Fast timeout - Forgejo should respond quickly
             )
             if response.status_code in [200, 201, 204]:
                 console.print(f"  [green]✓[/green] {key}")
+                success_count += 1
             else:
                 console.print(f"  [yellow]⚠[/yellow] {key}: {response.status_code}")
+                fail_count += 1
         except Exception as e:
-            console.print(f"  [red]✗[/red] {key}: {e}")
-
-    console.print("[green]✅ Forgejo secrets synced![/green]")
+            console.print(f"  [red]✗[/red] {key}: {str(e)[:50]}")
+            fail_count += 1
+    
+    console.print(f"\n[green]✅ Forgejo secrets synced: {success_count} success, {fail_count} failed, {skip_count} skipped[/green]")
 
 
 @click.command()
@@ -288,17 +340,38 @@ def sync(project, skip_forgejo, skip_github, env_file):
         else:
             console.print(f"[yellow]⚠️  Skipped (not found): {env_path}[/yellow]")
 
-    # Load project-specific secrets (OPTIONAL - if exists)
-    secrets_file = project_path / "secrets.env"
+    # Load project-specific secrets from .passwords.yml (auto-generated by init)
+    passwords_file = project_path / ".passwords.yml"
     project_secrets = {}
 
+    if passwords_file.exists():
+        import yaml
+        with open(passwords_file) as f:
+            passwords_data = yaml.safe_load(f)
+            if passwords_data and "passwords" in passwords_data:
+                project_secrets = passwords_data["passwords"]
+                console.print(f"[dim]✓ Loaded project passwords: {passwords_file}[/dim]")
+    
+    # Also load secrets.env if exists (for custom secrets)
+    secrets_file = project_path / "secrets.env"
     if secrets_file.exists():
-        project_secrets = dotenv_values(secrets_file)
-        console.print(f"[dim]✓ Loaded project secrets: {secrets_file}[/dim]")
+        from dotenv import dotenv_values
+        custom_secrets = dotenv_values(secrets_file)
+        project_secrets.update(custom_secrets)
+        console.print(f"[dim]✓ Loaded custom secrets: {secrets_file}[/dim]")
 
-    # Merge all: infra → project → additional
+    # Merge all: infra → project passwords → custom secrets → additional
     env.update(project_secrets)
     env.update(additional_envs)
+    
+    # Auto-generate missing required secrets based on project name
+    project_name = project
+    if "POSTGRES_USER" not in env or not env["POSTGRES_USER"]:
+        env["POSTGRES_USER"] = f"{project_name}_user"
+    if "POSTGRES_DB" not in env or not env["POSTGRES_DB"]:
+        env["POSTGRES_DB"] = f"{project_name}_db"
+    if "RABBITMQ_USER" not in env or not env["RABBITMQ_USER"]:
+        env["RABBITMQ_USER"] = f"{project_name}_user"
 
     # Validate required vars
     required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH"]
@@ -354,21 +427,27 @@ def sync(project, skip_forgejo, skip_github, env_file):
             forgejo_pat = create_forgejo_pat(env)
 
             if forgejo_pat:
-                # Update .env file
-                env_file_path = env.get("ENV_FILE_PATH", ".env")
-                with open(env_file_path, "r") as f:
-                    lines = f.readlines()
+                # Update .env file (use absolute path)
+                import pathlib
+                env_file_path = pathlib.Path(__file__).parent.parent.parent / ".env"
+                
+                if not env_file_path.exists():
+                    console.print(f"[red]✗[/red] .env not found at {env_file_path}")
+                else:
+                    with open(env_file_path, "r") as f:
+                        lines = f.readlines()
 
-                with open(env_file_path, "w") as f:
-                    for line in lines:
-                        if line.startswith("FORGEJO_PAT="):
-                            f.write(f"FORGEJO_PAT={forgejo_pat}\n")
-                        else:
-                            f.write(line)
+                    with open(env_file_path, "w") as f:
+                        for line in lines:
+                            if line.startswith("FORGEJO_PAT="):
+                                f.write(f"FORGEJO_PAT={forgejo_pat}\n")
+                            else:
+                                f.write(line)
+
+                    console.print(f"[green]✅ Forgejo PAT saved to {env_file_path}[/green]")
 
                 # Update env dict so it's used in GitHub secrets sync
                 env["FORGEJO_PAT"] = forgejo_pat
-                console.print("[green]✅ Forgejo PAT saved to .env[/green]")
 
         progress.advance(task2)
 
@@ -383,18 +462,16 @@ def sync(project, skip_forgejo, skip_github, env_file):
             console.print("[yellow]⚠️  Skipping GitHub secrets sync[/yellow]")
             return
 
-        # Step 3: Sync to GitHub
-        task3 = progress.add_task(
-            "[cyan]Syncing secrets to GitHub...", total=len(repos)
+    # Step 3: Sync to GitHub (outside progress bar for better visibility)
+    console.print("\n[bold cyan]📤 Syncing secrets to GitHub repositories...[/bold cyan]")
+    
+    for app_name, repo in repos.items():
+        console.print(
+            f"\n[bold cyan]━━━ {app_name.upper()} ({repo}) ━━━[/bold cyan]"
         )
 
-        for app_name, repo in repos.items():
-            console.print(
-                f"\n[bold cyan]━━━ {app_name.upper()} ({repo}) ━━━[/bold cyan]"
-            )
-
-            # Repository secrets (infrastructure/build related)
-            repo_secrets = {
+        # Repository secrets (infrastructure/build related)
+        repo_secrets = {
                 "AGE_PUBLIC_KEY": age_public_key,
                 "FORGEJO_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:3001",
                 "FORGEJO_ORG": env["FORGEJO_ORG"],
@@ -404,24 +481,24 @@ def sync(project, skip_forgejo, skip_github, env_file):
                 "DOCKER_USERNAME": env["DOCKER_USERNAME"],
                 "DOCKER_TOKEN": env["DOCKER_TOKEN"],
                 "CORE_EXTERNAL_IP": env["CORE_EXTERNAL_IP"],  # For API_BASE_URL construction
-            }
+        }
 
-            set_github_repo_secrets(repo, repo_secrets)
+        set_github_repo_secrets(repo, repo_secrets)
 
-            # Environment-specific secrets (production & staging)
-            for env_name in ["production", "staging"]:
-                console.print(f"\n[dim]Configuring {env_name} environment...[/dim]")
+        # Environment-specific secrets (production & staging)
+        for env_name in ["production", "staging"]:
+            console.print(f"\n[dim]Configuring {env_name} environment...[/dim]")
 
-                # Create environment
-                if not create_github_environment(repo, env_name):
-                    console.print(f"[yellow]⚠️  Skipping {env_name} secrets[/yellow]")
-                    continue
+            # Create environment
+            if not create_github_environment(repo, env_name):
+                console.print(f"[yellow]⚠️  Skipping {env_name} secrets[/yellow]")
+                continue
 
-                # Environment secrets - merge infrastructure + project secrets
-                merged_env = {**env, **project_secrets}
+            # Environment secrets - merge infrastructure + project secrets
+            merged_env = {**env, **project_secrets}
 
-                # Base secrets (common for all services)
-                env_secrets = {
+            # Base secrets (common for all services)
+            env_secrets = {
                     "POSTGRES_HOST": merged_env.get(
                         "POSTGRES_HOST", env["CORE_INTERNAL_IP"]
                     ),
@@ -442,26 +519,24 @@ def sync(project, skip_forgejo, skip_github, env_file):
                     "PUBLIC_URL": f"http://{env['CORE_EXTERNAL_IP']}",
                     "SENTRY_DSN": merged_env.get("SENTRY_DSN", ""),  # Optional
                     "LOG_LEVEL": "DEBUG" if env_name == "staging" else "INFO",
-                    "SMTP_USERNAME": env.get("SMTP_USERNAME", ""),
-                    "SMTP_PASSWORD": env.get("SMTP_PASSWORD", ""),
-                }
-                
-                # Add service-specific secrets (generic pattern, no hardcoding!)
-                service_upper = app_name.upper()
-                service_secret_key = f"{service_upper}_SECRET_KEY"
-                if service_secret_key in merged_env:
-                    env_secrets[service_secret_key] = merged_env[service_secret_key]
-                
-                # Add APP_TITLE for branding
-                env_secrets["APP_TITLE"] = f"{project.title()} {app_name.title()}"
-                
-                # Add PROXY_REGISTRY_API_KEY if exists
-                if "PROXY_REGISTRY_API_KEY" in merged_env:
-                    env_secrets["PROXY_REGISTRY_API_KEY"] = merged_env["PROXY_REGISTRY_API_KEY"]
+                "SMTP_USERNAME": env.get("SMTP_USERNAME", ""),
+                "SMTP_PASSWORD": env.get("SMTP_PASSWORD", ""),
+            }
+            
+            # Add service-specific secrets (generic pattern, no hardcoding!)
+            service_upper = app_name.upper()
+            service_secret_key = f"{service_upper}_SECRET_KEY"
+            if service_secret_key in merged_env:
+                env_secrets[service_secret_key] = merged_env[service_secret_key]
+            
+            # Add APP_TITLE for branding
+            env_secrets["APP_TITLE"] = f"{project.title()} {app_name.title()}"
+            
+            # Add PROXY_REGISTRY_API_KEY if exists
+            if "PROXY_REGISTRY_API_KEY" in merged_env:
+                env_secrets["PROXY_REGISTRY_API_KEY"] = merged_env["PROXY_REGISTRY_API_KEY"]
 
-                set_github_env_secrets(repo, env_name, env_secrets)
-
-            progress.advance(task3)
+            set_github_env_secrets(repo, env_name, env_secrets)
 
     console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
     console.print("[bold green]🎉 Sync Complete![/bold green]")
