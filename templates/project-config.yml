@@ -29,10 +29,19 @@ core_services:
   redis:
     version: "{{REDIS_VERSION|default('7-alpine')}}"
 
-# Port Assignments
+# Port Assignments (External:Internal)
+# External: Port exposed on host (e.g., 8000, 3002, 9000)
+# Internal: Port inside container (e.g., 8000, 3000, 8000)
 ports:
-  api: {{API_PORT|default(8000)}}
-  dashboard: {{DASHBOARD_PORT|default(3000)}}
+  api:
+    external: {{API_EXTERNAL_PORT|default(8000)}}
+    internal: {{API_INTERNAL_PORT|default(8000)}}
+  dashboard:
+    external: {{DASHBOARD_EXTERNAL_PORT|default(3002)}}
+    internal: {{DASHBOARD_INTERNAL_PORT|default(3000)}}
+  services:
+    external: {{SERVICES_EXTERNAL_PORT|default(9000)}}
+    internal: {{SERVICES_INTERNAL_PORT|default(8000)}}
   
 # Monitoring
 monitoring:

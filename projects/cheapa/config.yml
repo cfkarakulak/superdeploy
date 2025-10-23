@@ -33,10 +33,17 @@ core_services:
   redis:
     version: "7-alpine"
 
-# Port Assignments
+# Port Assignments (External:Internal)
 ports:
-  api: 8000
-  dashboard: 3000
+  api:
+    external: 8000
+    internal: 8000
+  dashboard:
+    external: 3002
+    internal: 3000
+  services:
+    external: 9000
+    internal: 8000
   
 # Monitoring
 monitoring:
