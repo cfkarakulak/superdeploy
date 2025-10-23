@@ -59,8 +59,8 @@ jobs:
           source /tmp/decrypted.env
           set +a
           
-          # Save to GitHub env for next steps
-          cat /tmp/decrypted.env >> $GITHUB_ENV
+          # Save to GitHub env for next steps (filter out comments and empty lines)
+          grep -v '^#' /tmp/decrypted.env | grep -v '^$' >> $GITHUB_ENV
       
       - name: Login to Docker Hub
         run: |
