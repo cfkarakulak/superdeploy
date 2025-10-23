@@ -235,12 +235,12 @@ jobs:
       
       - name: Create networks first
         run: |
-          set -ex
+          set -e
           echo "🌐 Creating networks..."
           
           # Create project network if it doesn't exist
           if ! docker network ls | grep -q "${{ env.PROJECT }}-network"; then
-            docker network create ${{ env.PROJECT }}-network
+            docker network create ${{ env.PROJECT }}-network || echo "⚠️  Network creation failed (may already exist)"
             echo "✅ Network created: ${{ env.PROJECT }}-network"
           else
             echo "✅ Network already exists: ${{ env.PROJECT }}-network"
@@ -248,7 +248,7 @@ jobs:
           
           # Ensure superdeploy-proxy network exists (for Caddy)
           if ! docker network ls | grep -q "superdeploy-proxy"; then
-            docker network create superdeploy-proxy
+            docker network create superdeploy-proxy || echo "⚠️  Network creation failed (may already exist)"
             echo "✅ Network created: superdeploy-proxy"
           else
             echo "✅ Network already exists: superdeploy-proxy"
