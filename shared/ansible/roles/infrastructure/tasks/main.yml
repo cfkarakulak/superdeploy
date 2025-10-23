@@ -98,7 +98,15 @@
     group: superdeploy
     mode: '0755'
 
-- name: Sync project files to VM
+- name: Create superdeploy projects directory
+  file:
+    path: /opt/superdeploy/projects
+    state: directory
+    owner: superdeploy
+    group: superdeploy
+    mode: '0755'
+
+- name: Sync project files to VM (compose files only, no secrets)
   synchronize:
     src: "{{ playbook_dir }}/../../projects/"
     dest: /opt/superdeploy/projects/
@@ -108,7 +116,11 @@
       - "--exclude=.git*"
       - "--exclude=*.log"
       - "--exclude=.passwords.yml"
+      - "--exclude=*.passwords.yml"
       - "--exclude=merged_environment_*.yml"
+      - "--exclude=secrets.env"
+      - "--exclude=.env"
+      - "--exclude=data/"
 
 - name: Fix ownership of project files
   file:
