@@ -16,10 +16,8 @@ volumes:
   api-data:
     name: cheapa-api-data
 
-
   dashboard-data:
     name: cheapa-dashboard-data
-
 
   services-data:
     name: cheapa-services-data
@@ -38,7 +36,7 @@ services:
     volumes:
       - api-data:/app/data
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     networks:
       - cheapa-network
     healthcheck:
@@ -67,37 +65,34 @@ services:
       - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
       - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
 
-
-
   # ═══════════════════════════════════════════════════════════════════════════
-  # Dashboard Service
+  # DASHBOARD Service
   # ═══════════════════════════════════════════════════════════════════════════
   dashboard:
     image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/dashboard:${DASHBOARD_IMAGE_TAG:-latest}
     container_name: cheapa-dashboard
     restart: unless-stopped
     # Environment variables injected via Forgejo workflow (from GitHub Secrets)
+    volumes:
+      - dashboard-data:/app/data
     ports:
-      - "3000:3000"
+      - "${DASHBOARD_PORT:-3002}:3000"
     networks:
       - cheapa-network
-    depends_on:
-      api:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 40s
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1G
           cpus: '0.5'
         reservations:
-          memory: 128M
-    stop_grace_period: 10s
+          memory: 256M
+    stop_grace_period: 30s
     logging:
       driver: json-file
       options:
@@ -110,26 +105,26 @@ services:
       - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
       - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
 
-
-
   # ═══════════════════════════════════════════════════════════════════════════
-  # Background Services (Celery Workers)
+  # SERVICES Service
   # ═══════════════════════════════════════════════════════════════════════════
   services:
     image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/services:${SERVICES_IMAGE_TAG:-latest}
     container_name: cheapa-services
     restart: unless-stopped
     # Environment variables injected via Forgejo workflow (from GitHub Secrets)
+    volumes:
+      - services-data:/app/data
+    ports:
+      - "${SERVICES_PORT:-9002}:8000"
     networks:
       - cheapa-network
-    # Core services (postgres, rabbitmq, redis) are in docker-compose.core.yml
-    # No direct depends_on as they're in separate compose files
     healthcheck:
-      test: ["CMD-SHELL", "ps aux | grep -v grep | grep celery || exit 1"]
-      interval: 60s
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 40s
     deploy:
       resources:
         limits:
@@ -137,7 +132,7 @@ services:
           cpus: '0.5'
         reservations:
           memory: 256M
-    stop_grace_period: 60s
+    stop_grace_period: 30s
     logging:
       driver: json-file
       options:

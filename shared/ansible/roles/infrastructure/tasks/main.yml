@@ -106,6 +106,12 @@
     group: superdeploy
     mode: '0755'
 
+- name: Check if projects directory exists locally
+  stat:
+    path: "{{ playbook_dir }}/../../projects"
+  register: projects_dir
+  delegate_to: localhost
+
 - name: Sync project files to VM (compose files only, no secrets)
   synchronize:
     src: "{{ playbook_dir }}/../../projects/"
@@ -121,6 +127,7 @@
       - "--exclude=secrets.env"
       - "--exclude=.env"
       - "--exclude=data/"
+  when: projects_dir.stat.exists and projects_dir.stat.isdir
 
 - name: Fix ownership of project files
   file:
