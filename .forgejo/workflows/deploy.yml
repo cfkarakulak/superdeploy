@@ -100,19 +100,19 @@ jobs:
           CONFIG_FILE="/opt/superdeploy/projects/${{ env.PROJECT }}/config.yml"
           
           if [ -f "$CONFIG_FILE" ]; then
-            # Use Python to parse YAML - write script to file to avoid YAML parsing conflicts
-            cat > /tmp/parse_config.py << 'EOF'
-import yaml, sys
-config = yaml.safe_load(open(sys.argv[1]))
-ports = config.get('ports', {}).get(sys.argv[2], {})
-print(f"{ports.get('external', 8080)} {ports.get('internal', 8080)}")
-EOF
+            # Use helper script to parse YAML config
+            PARSER_SCRIPT="${GITHUB_WORKSPACE}/.forgejo/scripts/parse_config.py"
             
-            read EXTERNAL_PORT INTERNAL_PORT <<< $(python3 /tmp/parse_config.py "$CONFIG_FILE" "${{ env.SERVICE }}")
-            
-            echo "external_port=${EXTERNAL_PORT}" >> $GITHUB_OUTPUT
-            echo "internal_port=${INTERNAL_PORT}" >> $GITHUB_OUTPUT
-            echo "✅ Loaded ports from config: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
+            if [ -f "$PARSER_SCRIPT" ]; then
+              read EXTERNAL_PORT INTERNAL_PORT <<< $(python3 "$PARSER_SCRIPT" "$CONFIG_FILE" "${{ env.SERVICE }}")
+              echo "external_port=${EXTERNAL_PORT}" >> $GITHUB_OUTPUT
+              echo "internal_port=${INTERNAL_PORT}" >> $GITHUB_OUTPUT
+              echo "✅ Loaded ports from config: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
+            else
+              echo "⚠️  Parser script not found, using defaults"
+              echo "external_port=8080" >> $GITHUB_OUTPUT
+              echo "internal_port=8080" >> $GITHUB_OUTPUT
+            fi
           else
             echo "⚠️  Config file not found, using defaults"
             echo "external_port=8080" >> $GITHUB_OUTPUT
