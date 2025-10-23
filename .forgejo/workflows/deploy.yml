@@ -110,7 +110,7 @@ jobs:
               networks:
                 - PROJECT_NETWORK
               ports:
-                - "PORT_PLACEHOLDER:INTERNAL_PORT_PLACEHOLDER"
+                - "{{EXTERNAL_PORT}}:{{INTERNAL_PORT}}"
               env_file:
                 - /tmp/decrypted.env
               labels:
@@ -119,7 +119,7 @@ jobs:
                 com.superdeploy.git.sha: "GIT_SHA_PLACEHOLDER"
                 com.superdeploy.git.ref: "GIT_REF_PLACEHOLDER"
               healthcheck:
-                test: ["CMD", "curl", "-f", "http://localhost:INTERNAL_PORT_PLACEHOLDER/health"]
+                test: ["CMD", "curl", "-f", "http://localhost:{{INTERNAL_PORT}}/health"]
                 interval: 30s
                 timeout: 10s
                 retries: 3
@@ -157,10 +157,12 @@ jobs:
           sed -i "s#SERVICE_PLACEHOLDER#${{ env.SERVICE }}#g" "$COMPOSE_FILE"
           sed -i "s#GIT_SHA_PLACEHOLDER#${{ env.GIT_SHA }}#g" "$COMPOSE_FILE"
           sed -i "s#GIT_REF_PLACEHOLDER#${{ env.GIT_REF }}#g" "$COMPOSE_FILE"
-          sed -i "s#PORT_PLACEHOLDER#${EXTERNAL_PORT}#g" "$COMPOSE_FILE"
-          sed -i "s#INTERNAL_PORT_PLACEHOLDER#${INTERNAL_PORT}#g" "$COMPOSE_FILE"
+          sed -i "s#{{EXTERNAL_PORT}}#${EXTERNAL_PORT}#g" "$COMPOSE_FILE"
+          sed -i "s#{{INTERNAL_PORT}}#${INTERNAL_PORT}#g" "$COMPOSE_FILE"
           
           echo "✅ Generated compose file with ports: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
+          echo "📋 Final compose file (ports section):"
+          grep -A2 "ports:" "$COMPOSE_FILE"
       
       - name: Deploy core services first
         run: |
