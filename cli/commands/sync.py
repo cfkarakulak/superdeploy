@@ -185,10 +185,9 @@ def sync_forgejo_secrets(env, forgejo_pat, project_env=None):
         "RABBITMQ_PASSWORD": merged_env.get("RABBITMQ_PASSWORD", ""),
         "RABBITMQ_PORT": "5672",
         "REDIS_HOST": merged_env.get("REDIS_HOST", env.get("CORE_INTERNAL_IP", "")),
+        "REDIS_PORT": "6379",
         "REDIS_PASSWORD": merged_env.get("REDIS_PASSWORD", ""),
-        # App Config
-        "API_SECRET_KEY": merged_env.get("API_SECRET_KEY", ""),
-        "API_DEBUG": "false",
+        # App Config (generic, no hardcoded service names)
         "API_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:8000",
         "PUBLIC_URL": f"http://{env['CORE_EXTERNAL_IP']}",
         "SENTRY_DSN": merged_env.get("SENTRY_DSN", ""),  # Optional
@@ -200,7 +199,13 @@ def sync_forgejo_secrets(env, forgejo_pat, project_env=None):
         # Notifications
         "ALERT_EMAIL": env.get("ALERT_EMAIL", ""),  # Optional
         "FORGEJO_ORG": env["FORGEJO_ORG"],
+        "REPO_SUPERDEPLOY": env.get("REPO_SUPERDEPLOY", "superdeploy"),
     }
+    
+    # Add service-specific secrets dynamically (no hardcoding!)
+    for key, value in merged_env.items():
+        if key.endswith("_SECRET_KEY") or key == "PROXY_REGISTRY_API_KEY":
+            secrets[key] = value
 
     for key, value in secrets.items():
         try:
@@ -391,7 +396,9 @@ def sync(project, skip_forgejo, skip_github, env_file):
                 "AGE_PUBLIC_KEY": age_public_key,
                 "FORGEJO_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:3001",
                 "FORGEJO_ORG": env["FORGEJO_ORG"],
+                "FORGEJO_REPO": env.get("REPO_SUPERDEPLOY", "superdeploy"),
                 "FORGEJO_PAT": forgejo_pat,
+                "PROJECT_NAME": project,  # ✅ Generic project name
                 "DOCKER_USERNAME": env["DOCKER_USERNAME"],
                 "DOCKER_TOKEN": env["DOCKER_TOKEN"],
             }
@@ -410,6 +417,7 @@ def sync(project, skip_forgejo, skip_github, env_file):
                 # Environment secrets - merge infrastructure + project secrets
                 merged_env = {**env, **project_secrets}
 
+                # Base secrets (common for all services)
                 env_secrets = {
                     "POSTGRES_HOST": merged_env.get(
                         "POSTGRES_HOST", env["CORE_INTERNAL_IP"]
@@ -425,15 +433,28 @@ def sync(project, skip_forgejo, skip_github, env_file):
                     "RABBITMQ_PASSWORD": merged_env.get("RABBITMQ_PASSWORD", ""),
                     "RABBITMQ_PORT": "5672",
                     "REDIS_HOST": merged_env.get("REDIS_HOST", env["CORE_INTERNAL_IP"]),
+                    "REDIS_PORT": "6379",
                     "REDIS_PASSWORD": merged_env.get("REDIS_PASSWORD", ""),
-                    "API_SECRET_KEY": merged_env.get("API_SECRET_KEY", ""),
-                    "API_DEBUG": "true" if env_name == "staging" else "false",
                     "API_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:8000",
                     "PUBLIC_URL": f"http://{env['CORE_EXTERNAL_IP']}",
                     "SENTRY_DSN": merged_env.get("SENTRY_DSN", ""),  # Optional
+                    "LOG_LEVEL": "DEBUG" if env_name == "staging" else "INFO",
                     "SMTP_USERNAME": env.get("SMTP_USERNAME", ""),
                     "SMTP_PASSWORD": env.get("SMTP_PASSWORD", ""),
                 }
+                
+                # Add service-specific secrets (generic pattern, no hardcoding!)
+                service_upper = app_name.upper()
+                service_secret_key = f"{service_upper}_SECRET_KEY"
+                if service_secret_key in merged_env:
+                    env_secrets[service_secret_key] = merged_env[service_secret_key]
+                
+                # Add APP_TITLE for branding
+                env_secrets["APP_TITLE"] = f"{project.title()} {app_name.title()}"
+                
+                # Add PROXY_REGISTRY_API_KEY if exists
+                if "PROXY_REGISTRY_API_KEY" in merged_env:
+                    env_secrets["PROXY_REGISTRY_API_KEY"] = merged_env["PROXY_REGISTRY_API_KEY"]
 
                 set_github_env_secrets(repo, env_name, env_secrets)
 
