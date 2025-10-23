@@ -208,24 +208,8 @@ def sync_forgejo_secrets(env, forgejo_pat, project_env=None):
     if project_env:
         merged_env.update(project_env)
 
+    # Build secrets dynamically from config.yml (NO HARDCODING!)
     secrets = {
-        # Core Services (from project secrets)
-        "POSTGRES_HOST": merged_env.get(
-            "POSTGRES_HOST", env.get("CORE_INTERNAL_IP", "")
-        ),
-        "POSTGRES_USER": merged_env.get("POSTGRES_USER", ""),
-        "POSTGRES_PASSWORD": merged_env.get("POSTGRES_PASSWORD", ""),
-        "POSTGRES_DB": merged_env.get("POSTGRES_DB", ""),
-        "POSTGRES_PORT": "5432",
-        "RABBITMQ_HOST": merged_env.get(
-            "RABBITMQ_HOST", env.get("CORE_INTERNAL_IP", "")
-        ),
-        "RABBITMQ_USER": merged_env.get("RABBITMQ_USER", ""),
-        "RABBITMQ_PASSWORD": merged_env.get("RABBITMQ_PASSWORD", ""),
-        "RABBITMQ_PORT": "5672",
-        "REDIS_HOST": merged_env.get("REDIS_HOST", env.get("CORE_INTERNAL_IP", "")),
-        "REDIS_PORT": "6379",
-        "REDIS_PASSWORD": merged_env.get("REDIS_PASSWORD", ""),
         # App Config (generic, no hardcoded service names)
         "API_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:8000",
         "PUBLIC_URL": f"http://{env['CORE_EXTERNAL_IP']}",
@@ -240,6 +224,20 @@ def sync_forgejo_secrets(env, forgejo_pat, project_env=None):
         "FORGEJO_ORG": env["FORGEJO_ORG"],
         "REPO_SUPERDEPLOY": env.get("REPO_SUPERDEPLOY", "superdeploy"),
     }
+    
+    # Add core service secrets dynamically (read from merged_env)
+    # This supports ANY core service (postgres, rabbitmq, redis, memcached, etc.)
+    core_service_patterns = {
+        "postgres": {"host": "POSTGRES_HOST", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "db": "POSTGRES_DB", "port": "POSTGRES_PORT"},
+        "rabbitmq": {"host": "RABBITMQ_HOST", "user": "RABBITMQ_USER", "password": "RABBITMQ_PASSWORD", "port": "RABBITMQ_PORT"},
+        "redis": {"host": "REDIS_HOST", "password": "REDIS_PASSWORD", "port": "REDIS_PORT"},
+        "memcached": {"host": "MEMCACHED_HOST", "port": "MEMCACHED_PORT"},
+    }
+    
+    for service, fields in core_service_patterns.items():
+        for field_key, env_key in fields.items():
+            if env_key in merged_env:
+                secrets[env_key] = merged_env[env_key]
     
     # Add service-specific secrets dynamically (no hardcoding!)
     for key, value in merged_env.items():
@@ -497,31 +495,21 @@ def sync(project, skip_forgejo, skip_github, env_file):
             # Environment secrets - merge infrastructure + project secrets
             merged_env = {**env, **project_secrets}
 
-            # Base secrets (common for all services)
+            # Base secrets (common for all services) - DYNAMIC!
             env_secrets = {
-                    "POSTGRES_HOST": merged_env.get(
-                        "POSTGRES_HOST", env["CORE_INTERNAL_IP"]
-                    ),
-                    "POSTGRES_USER": merged_env.get("POSTGRES_USER", ""),
-                    "POSTGRES_PASSWORD": merged_env.get("POSTGRES_PASSWORD", ""),
-                    "POSTGRES_DB": merged_env.get("POSTGRES_DB", ""),
-                    "POSTGRES_PORT": "5432",
-                    "RABBITMQ_HOST": merged_env.get(
-                        "RABBITMQ_HOST", env["CORE_INTERNAL_IP"]
-                    ),
-                    "RABBITMQ_USER": merged_env.get("RABBITMQ_USER", ""),
-                    "RABBITMQ_PASSWORD": merged_env.get("RABBITMQ_PASSWORD", ""),
-                    "RABBITMQ_PORT": "5672",
-                    "REDIS_HOST": merged_env.get("REDIS_HOST", env["CORE_INTERNAL_IP"]),
-                    "REDIS_PORT": "6379",
-                    "REDIS_PASSWORD": merged_env.get("REDIS_PASSWORD", ""),
-                    "API_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:8000",
-                    "PUBLIC_URL": f"http://{env['CORE_EXTERNAL_IP']}",
-                    "SENTRY_DSN": merged_env.get("SENTRY_DSN", ""),  # Optional
-                    "LOG_LEVEL": "DEBUG" if env_name == "staging" else "INFO",
+                "API_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:8000",
+                "PUBLIC_URL": f"http://{env['CORE_EXTERNAL_IP']}",
+                "SENTRY_DSN": merged_env.get("SENTRY_DSN", ""),  # Optional
+                "LOG_LEVEL": "DEBUG" if env_name == "staging" else "INFO",
                 "SMTP_USERNAME": env.get("SMTP_USERNAME", ""),
                 "SMTP_PASSWORD": env.get("SMTP_PASSWORD", ""),
             }
+            
+            # Add core service secrets dynamically (NO HARDCODING!)
+            for service, fields in core_service_patterns.items():
+                for field_key, env_key in fields.items():
+                    if env_key in merged_env:
+                        env_secrets[env_key] = merged_env[env_key]
             
             # Add service-specific secrets (generic pattern, no hardcoding!)
             service_upper = app_name.upper()
