@@ -295,8 +295,9 @@ jobs:
           fi
       
       - name: Register service with Caddy
+        continue-on-error: true
         run: |
-          set -ex
+          set -e
           echo "🌐 Registering ${{ env.SERVICE }} with Caddy reverse proxy..."
           
           # Get ports from config
@@ -465,6 +466,7 @@ jobs:
           fi
       
       - name: Cleanup old images
+        continue-on-error: true
         run: |
           # Keep last 3 images
           docker images ghcr.io/*/${{ env.SERVICE }} --format "{{.ID}}" | tail -n +4 | xargs -r docker rmi || true
