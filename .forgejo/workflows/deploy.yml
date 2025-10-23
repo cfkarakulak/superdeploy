@@ -101,6 +101,8 @@ jobs:
           networks:
             PROJECT_NETWORK:
               external: true
+            superdeploy-proxy:
+              external: true
           
           services:
             SERVICE_NAME:
@@ -109,6 +111,7 @@ jobs:
               restart: unless-stopped
               networks:
                 - PROJECT_NETWORK
+                - superdeploy-proxy
               ports:
                 - "{{EXTERNAL_PORT}}:{{INTERNAL_PORT}}"
               env_file:
@@ -196,6 +199,28 @@ jobs:
             echo "📂 Listing /opt/superdeploy/projects/${{ env.PROJECT }}:"
             ls -la /opt/superdeploy/projects/${{ env.PROJECT }}/ || echo "Directory not found"
           fi
+      
+      - name: Register service with Caddy (if dashboard)
+        if: ${{ env.SERVICE == 'dashboard' }}
+        run: |
+          set -ex
+          echo "🌐 Registering dashboard with Caddy reverse proxy..."
+          
+          # Create Caddy routes directory if not exists
+          mkdir -p /opt/superdeploy/shared/caddy/routes
+          
+          # Generate Caddy route for this project
+          cat > /opt/superdeploy/shared/caddy/routes/${{ env.PROJECT }}.caddy <<EOF
+          # Auto-generated route for ${{ env.PROJECT }} project
+          :80 {
+            reverse_proxy ${{ env.PROJECT }}-dashboard:3000
+          }
+          EOF
+          
+          # Reload Caddy to pick up new route
+          docker exec superdeploy-caddy caddy reload --config /etc/caddy/Caddyfile || echo "Caddy reload failed (may not be running yet)"
+          
+          echo "✅ Dashboard registered with Caddy on port 80"
       
       - name: Deploy service
         run: |
