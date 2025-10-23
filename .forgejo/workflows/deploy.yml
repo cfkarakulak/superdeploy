@@ -115,6 +115,9 @@ jobs:
         run: |
           cd /opt/apps/${{ env.PROJECT }}/compose
           
+          # Create project network if it doesn't exist
+          docker network create ${{ env.PROJECT }}-network 2>/dev/null || true
+          
           # Pull latest image
           docker pull ${{ env.IMAGE }}
           
