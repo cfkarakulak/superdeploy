@@ -113,6 +113,11 @@
   delegate_to: localhost
   become: no
 
+- name: Fail if projects directory doesn't exist
+  fail:
+    msg: "Projects directory not found at {{ playbook_dir }}/../../projects - run 'superdeploy init' first!"
+  when: not projects_dir.stat.exists
+
 - name: Sync project files to VM (compose files only, no secrets)
   synchronize:
     src: "{{ playbook_dir }}/../../projects/"
@@ -128,7 +133,7 @@
       - "--exclude=secrets.env"
       - "--exclude=.env"
       - "--exclude=data/"
-  when: projects_dir.stat.exists and projects_dir.stat.isdir
+  when: projects_dir.stat.exists
 
 - name: Fix ownership of project files
   file:
