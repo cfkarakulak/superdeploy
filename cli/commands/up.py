@@ -416,10 +416,10 @@ SUPERDEPLOY_ROOT={project_root} ansible-playbook -i inventories/dev.ini playbook
     # Auto-sync GitHub secrets (unless --skip-sync flag)
     if not skip_sync:
         console.print(
-            "\n[bold cyan]🔄 Auto-syncing GitHub secrets (new IPs)...[/bold cyan]"
+            "\n[bold cyan]🔄 Starting async GitHub secrets sync...[/bold cyan]"
         )
 
-        # Direct sync call with proper error handling
+        # Run sync in background (async)
         try:
             sync_cmd = [
                 "superdeploy",
@@ -428,20 +428,33 @@ SUPERDEPLOY_ROOT={project_root} ansible-playbook -i inventories/dev.ini playbook
                 project,
             ]
 
-            result = subprocess.run(
-                sync_cmd, capture_output=True, text=True, timeout=180
-            )
-
-            if result.returncode == 0:
-                console.print("[green]✅ GitHub secrets synced![/green]")
-            else:
-                console.print(
-                    "[yellow]⚠️  Sync had issues (check output above)[/yellow]"
-                )
-                if result.stderr:
-                    console.print(f"[dim]{result.stderr[:500]}[/dim]")
+            # Start sync process in background
+            import threading
+            
+            def run_sync():
+                try:
+                    result = subprocess.run(
+                        sync_cmd, 
+                        capture_output=True, 
+                        text=True, 
+                        timeout=300,
+                        input="y\n"  # Auto-confirm
+                    )
+                    if result.returncode == 0:
+                        console.print("[green]✅ GitHub secrets synced in background![/green]")
+                    else:
+                        console.print("[yellow]⚠️  Sync had issues (run manually if needed)[/yellow]")
+                except Exception as e:
+                    console.print(f"[yellow]⚠️  Background sync failed: {e}[/yellow]")
+            
+            sync_thread = threading.Thread(target=run_sync, daemon=True)
+            sync_thread.start()
+            
+            console.print("[dim]Sync running in background... (check logs above when complete)[/dim]")
+            console.print(f"[dim]Or run manually: superdeploy sync -p {project}[/dim]")
+            
         except Exception as e:
-            console.print(f"[yellow]⚠️  Sync failed: {e}[/yellow]")
+            console.print(f"[yellow]⚠️  Could not start sync: {e}[/yellow]")
             console.print(
                 f"[dim]Run 'superdeploy sync -p {project}' manually to update GitHub secrets[/dim]"
             )
