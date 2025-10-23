@@ -48,24 +48,47 @@ jobs:
       - name: Decrypt environment bundle
         id: decrypt
         run: |
+          set -ex  # Enable verbose mode and exit on error
+          echo "🔐 Decrypting environment bundle..."
           echo "${{ env.ENV_BUNDLE }}" | base64 -d > /tmp/encrypted.age
+          echo "✅ Base64 decoded successfully"
+          
           age -d -i /opt/forgejo-runner/.age/key.txt /tmp/encrypted.age > /tmp/decrypted.env
+          echo "✅ AGE decryption successful"
+          
+          echo "📋 Decrypted env file contents (first 5 lines, masked):"
+          head -5 /tmp/decrypted.env | sed 's/=.*/=***MASKED***/g'
+          
           rm /tmp/encrypted.age
           echo "env_file=/tmp/decrypted.env" >> $GITHUB_OUTPUT
+          echo "✅ Decrypt step completed"
       
       - name: Load environment variables
         run: |
+          set -ex  # Enable verbose mode and exit on error
+          echo "📥 Loading environment variables..."
+          
           set -a
           source /tmp/decrypted.env
           set +a
           
+          echo "✅ Environment sourced successfully"
+          
           # Save to GitHub env for next steps (filter out comments and empty lines)
           grep -v '^#' /tmp/decrypted.env | grep -v '^$' >> $GITHUB_ENV
+          
+          echo "📊 Total env vars loaded: $(grep -v '^#' /tmp/decrypted.env | grep -v '^$' | wc -l)"
+          echo "✅ Load env step completed"
       
       - name: Login to Docker Hub
         run: |
+          set -ex  # Enable verbose mode and exit on error
+          echo "🐳 Logging in to Docker Hub..."
+          
           # Login using Docker Hub credentials from Forgejo secrets
           echo "${{ secrets.DOCKER_TOKEN }}" | docker login docker.io -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+          
+          echo "✅ Docker Hub login successful"
       
       - name: Generate docker-compose for service
         run: |
@@ -113,6 +136,9 @@ jobs:
       
       - name: Deploy core services first
         run: |
+          set -ex  # Enable verbose mode and exit on error
+          echo "🔧 Checking for core services..."
+          
           # Deploy core services (PostgreSQL, RabbitMQ, Redis) if not running
           CORE_COMPOSE="/opt/superdeploy/projects/${{ env.PROJECT }}/compose/docker-compose.core.yml"
           
@@ -120,33 +146,65 @@ jobs:
             echo "📦 Deploying core services (PostgreSQL, RabbitMQ, Redis)..."
             cd /opt/superdeploy/projects/${{ env.PROJECT }}/compose
             
+            echo "📂 Current directory: $(pwd)"
+            echo "📋 Files in directory:"
+            ls -la
+            
             # Load environment variables from decrypted file (skip comments and empty lines)
             export $(grep -v '^#' /tmp/decrypted.env | grep -v '^$' | xargs)
             
+            echo "🐳 Starting core services..."
             # Deploy core services
             docker compose -f docker-compose.core.yml up -d --wait
             
+            echo "📊 Core services status:"
+            docker compose -f docker-compose.core.yml ps
+            
             echo "✅ Core services deployed!"
           else
-            echo "⚠️  No core services compose file found, skipping..."
+            echo "⚠️  No core services compose file found at: $CORE_COMPOSE"
+            echo "📂 Listing /opt/superdeploy/projects/${{ env.PROJECT }}:"
+            ls -la /opt/superdeploy/projects/${{ env.PROJECT }}/ || echo "Directory not found"
           fi
       
       - name: Deploy service
         run: |
+          set -ex  # Enable verbose mode and exit on error
+          echo "🚀 Deploying service: ${{ env.SERVICE }}"
+          
           cd /opt/apps/${{ env.PROJECT }}/compose
           
+          echo "📂 Current directory: $(pwd)"
+          echo "📋 Compose file:"
+          cat docker-compose-${{ env.SERVICE }}.yml
+          
+          # Create project network if it doesn't exist
+          echo "🌐 Creating/checking network: ${{ env.PROJECT }}-network"
+          docker network create ${{ env.PROJECT }}-network 2>/dev/null || echo "Network already exists"
+          
           # Pull latest image
+          echo "📥 Pulling image: ${{ env.IMAGE }}"
           docker pull ${{ env.IMAGE }}
           
           # Deploy with zero-downtime
+          echo "🐳 Starting service container..."
           docker compose -f docker-compose-${{ env.SERVICE }}.yml up -d --wait
           
+          echo "📊 Container status:"
+          docker ps -a --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
+          
           # Wait for health check
-          timeout 120 bash -c 'until docker inspect --format="{{.State.Health.Status}}" ${{ env.PROJECT }}-${{ env.SERVICE }} | grep -q "healthy"; do sleep 2; done' || {
+          echo "🏥 Waiting for health check..."
+          timeout 120 bash -c 'until docker inspect --format="{{.State.Health.Status}}" ${{ env.PROJECT }}-${{ env.SERVICE }} | grep -q "healthy"; do echo "Waiting for health check... ($(docker inspect --format="{{.State.Health.Status}}" ${{ env.PROJECT }}-${{ env.SERVICE }}))"; sleep 2; done' || {
             echo "❌ Health check failed!"
-            docker logs ${{ env.PROJECT }}-${{ env.SERVICE }} --tail 50
+            echo "📋 Container logs (last 100 lines):"
+            docker logs ${{ env.PROJECT }}-${{ env.SERVICE }} --tail 100
+            echo "📊 Container inspect:"
+            docker inspect ${{ env.PROJECT }}-${{ env.SERVICE }}
             exit 1
           }
+          
+          echo "✅ Service deployed and healthy!"
       
       - name: Cleanup old images
         run: |
