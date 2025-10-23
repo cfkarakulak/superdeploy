@@ -133,7 +133,7 @@ jobs:
               INTERNAL_PORT=8000
               ;;
             dashboard)
-              EXTERNAL_PORT=80
+              EXTERNAL_PORT=3000
               INTERNAL_PORT=3000
               ;;
             services)
