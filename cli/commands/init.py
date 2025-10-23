@@ -163,9 +163,9 @@ def init(project, yes, subnet, services, no_interactive):
         if project_domain == f"{project}.example.com":
             project_domain = ""  # Don't save example domain
 
-    # Port assignments
-    api_port = 8000 + len(used_subnets) * 10  # Offset ports by project
-    dashboard_port = 3000 + len(used_subnets) * 10
+    # Dynamic port assignments (no hardcoded service names!)
+    base_external_port = 8000 + len(used_subnets) * 100  # Offset by 100 per project
+    base_internal_port = 8000
 
     # Summary
     console.print("\n[bold cyan]📋 Summary:[/bold cyan]")
@@ -196,19 +196,15 @@ def init(project, yes, subnet, services, no_interactive):
     # Create project structure
     console.print("\n[dim]Creating project structure...[/dim]")
 
-    # Build port assignments dynamically (generic!)
+    # Build port assignments dynamically (TRULY GENERIC - NO HARDCODED SERVICE NAMES!)
     port_assignments = {}
-    base_port = 8000
 
     for idx, service in enumerate(selected_services):
-        # Smart port assignment
-        if service == "dashboard":
-            port_assignments[service] = {"external": 3002, "internal": 3000}
-        elif service == "api":
-            port_assignments[service] = {"external": 8000, "internal": 8000}
-        else:
-            # Auto-assign ports for other services
-            port_assignments[service] = {"external": 9000 + idx, "internal": 8000}
+        # Every service gets dynamically assigned ports
+        port_assignments[service] = {
+            "external": base_external_port + (idx * 10),  # 8000, 8010, 8020...
+            "internal": base_internal_port  # Always 8000 inside container
+        }
 
     # Template context
     context = {
