@@ -111,12 +111,29 @@ jobs:
           sed -i "s|GIT_SHA_PLACEHOLDER|${{ env.GIT_SHA }}|g" /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml
           sed -i "s|GIT_REF_PLACEHOLDER|${{ env.GIT_REF }}|g" /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml
       
+      - name: Deploy core services first
+        run: |
+          # Deploy core services (PostgreSQL, RabbitMQ, Redis) if not running
+          CORE_COMPOSE="/opt/superdeploy/projects/${{ env.PROJECT }}/compose/docker-compose.core.yml"
+          
+          if [ -f "$CORE_COMPOSE" ]; then
+            echo "📦 Deploying core services (PostgreSQL, RabbitMQ, Redis)..."
+            cd /opt/superdeploy/projects/${{ env.PROJECT }}/compose
+            
+            # Load environment variables from decrypted file
+            export $(cat /tmp/decrypted.env | xargs)
+            
+            # Deploy core services
+            docker compose -f docker-compose.core.yml up -d --wait
+            
+            echo "✅ Core services deployed!"
+          else
+            echo "⚠️  No core services compose file found, skipping..."
+          fi
+      
       - name: Deploy service
         run: |
           cd /opt/apps/${{ env.PROJECT }}/compose
-          
-          # Create project network if it doesn't exist
-          docker network create ${{ env.PROJECT }}-network 2>/dev/null || true
           
           # Pull latest image
           docker pull ${{ env.IMAGE }}
