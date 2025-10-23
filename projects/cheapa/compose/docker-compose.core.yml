@@ -15,8 +15,6 @@ volumes:
     name: cheapa-postgres-data
   rabbitmq-data:
     name: cheapa-rabbitmq-data
-  redis-data:
-    name: cheapa-redis-data
 
 services:
   # ═══════════════════════════════════════════════════════════════════════════
@@ -94,37 +92,3 @@ services:
       - "com.superdeploy.project=cheapa"
       - "com.superdeploy.service=rabbitmq"
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Redis (Project-Specific)
-  # ═══════════════════════════════════════════════════════════════════════════
-  redis:
-    image: redis:7-alpine
-    container_name: cheapa-redis
-    restart: unless-stopped
-    command: redis-server
-    volumes:
-      - redis-data:/data
-    networks:
-      - cheapa-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.25'
-        reservations:
-          memory: 128M
-    stop_grace_period: 10s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    labels:
-      - "com.superdeploy.project=cheapa"
-      - "com.superdeploy.service=redis"
