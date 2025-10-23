@@ -366,6 +366,8 @@ def sync(project, skip_forgejo, skip_github, env_file):
                         else:
                             f.write(line)
 
+                # Update env dict so it's used in GitHub secrets sync
+                env["FORGEJO_PAT"] = forgejo_pat
                 console.print("[green]✅ Forgejo PAT saved to .env[/green]")
 
         progress.advance(task2)

@@ -423,7 +423,7 @@ SUPERDEPLOY_ROOT={project_root} ansible-playbook -i inventories/dev.ini playbook
         try:
             sync_cmd = [
                 "superdeploy",
-                "sync:infra",
+                "sync",
                 "-p",
                 project,
             ]
@@ -443,9 +443,9 @@ SUPERDEPLOY_ROOT={project_root} ansible-playbook -i inventories/dev.ini playbook
         except Exception as e:
             console.print(f"[yellow]⚠️  Sync failed: {e}[/yellow]")
             console.print(
-                f"[dim]Run 'superdeploy sync:infra -p {project}' manually to update GitHub secrets[/dim]"
+                f"[dim]Run 'superdeploy sync -p {project}' manually to update GitHub secrets[/dim]"
             )
     else:
         console.print(
-            f"\n[yellow]Note:[/yellow] Run [bold cyan]superdeploy sync:infra -p {project}[/bold cyan] to configure GitHub secrets"
+            f"\n[yellow]Note:[/yellow] Run [bold cyan]superdeploy sync -p {project}[/bold cyan] to configure GitHub secrets"
         )
