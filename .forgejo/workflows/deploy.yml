@@ -477,6 +477,7 @@ jobs:
       
       - name: Send notification
         if: always()
+        continue-on-error: true
         run: |
           STATUS="${{ job.status }}"
           if [ "$STATUS" == "success" ]; then
@@ -487,6 +488,10 @@ jobs:
             COLOR="danger"
           fi
           
-          # Send email notification
-          echo "Deployment $STATUS: ${{ env.PROJECT }}/${{ env.SERVICE }} @ ${{ env.GIT_SHA }}" | \
-            mail -s "[$EMOJI] Deployment $STATUS" $ALERT_EMAIL || true
+          # Send email notification (optional, may not be configured)
+          if command -v mail &> /dev/null && [ -n "${{ secrets.ALERT_EMAIL }}" ]; then
+            echo "Deployment $STATUS: ${{ env.PROJECT }}/${{ env.SERVICE }} @ ${{ env.GIT_SHA }}" | \
+              mail -s "[$EMOJI] Deployment $STATUS" ${{ secrets.ALERT_EMAIL }} || true
+          else
+            echo "📧 Email notification skipped (mail not configured)"
+          fi
