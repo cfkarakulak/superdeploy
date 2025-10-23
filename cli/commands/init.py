@@ -196,6 +196,23 @@ def init(project, yes, subnet, services, no_interactive):
     # Create project structure
     console.print("\n[dim]Creating project structure...[/dim]")
 
+    # Build port assignments dynamically (generic!)
+    port_assignments = {}
+    base_port = 8000
+    
+    for idx, service in enumerate(selected_services):
+        # Smart port assignment
+        if service == "dashboard":
+            port_assignments[service] = {"external": 3002, "internal": 3000}
+        elif service == "api":
+            port_assignments[service] = {"external": 8000, "internal": 8000}
+        else:
+            # Auto-assign ports for other services
+            port_assignments[service] = {
+                "external": 9000 + idx,
+                "internal": 8000
+            }
+    
     # Template context
     context = {
         "PROJECT": project,
@@ -204,16 +221,10 @@ def init(project, yes, subnet, services, no_interactive):
         "UPDATED_AT": datetime.now().isoformat(),
         "SUBNET": project_subnet,
         "SERVICES_LIST": selected_services,  # For Jinja2 templates
+        "PORTS": port_assignments,  # Generic port mapping
         "POSTGRES_VERSION": "15-alpine",
         "RABBITMQ_VERSION": "3.12-management-alpine",
         "REDIS_VERSION": "7-alpine",
-        # Port assignments (External:Internal)
-        "API_EXTERNAL_PORT": 8000,
-        "API_INTERNAL_PORT": 8000,
-        "DASHBOARD_EXTERNAL_PORT": 3002,
-        "DASHBOARD_INTERNAL_PORT": 3000,
-        "SERVICES_EXTERNAL_PORT": 9000,
-        "SERVICES_INTERNAL_PORT": 8000,
         "MONITORING_ENABLED": enable_monitoring,
         "PROMETHEUS_TARGET": enable_monitoring,
         "DOMAIN": project_domain,

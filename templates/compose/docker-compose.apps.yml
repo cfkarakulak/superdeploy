@@ -12,37 +12,29 @@ networks:
     name: {{PROJECT}}-network
 
 volumes:
-{% if 'api' in SERVICES_LIST %}
-  api-data:
-    name: {{PROJECT}}-api-data
-{% endif %}
-{% if 'dashboard' in SERVICES_LIST %}
-  dashboard-data:
-    name: {{PROJECT}}-dashboard-data
-{% endif %}
-{% if 'services' in SERVICES_LIST %}
-  services-data:
-    name: {{PROJECT}}-services-data
-{% endif %}
+{% for service in SERVICES_LIST %}
+  {{service}}-data:
+    name: {{PROJECT}}-{{service}}-data
+{% endfor %}
 
 services:
-{% if 'api' in SERVICES_LIST %}
+{% for service in SERVICES_LIST %}
   # ═══════════════════════════════════════════════════════════════════════════
-  # API Service
+  # {{service|upper}} Service
   # ═══════════════════════════════════════════════════════════════════════════
-  api:
-    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/api:${API_IMAGE_TAG:-latest}
-    container_name: {{PROJECT}}-api
+  {{service}}:
+    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/{{service}}:${{'{'}}{{service|upper}}_IMAGE_TAG:-latest{{'}'}}
+    container_name: {{PROJECT}}-{{service}}
     restart: unless-stopped
     # Environment variables injected via Forgejo workflow (from GitHub Secrets)
     volumes:
-      - api-data:/app/data
+      - {{service}}-data:/app/data
     ports:
-      - "{{API_PORT|default(8000)}}:8000"
+      - "${{'{'}}{{service|upper}}_PORT:-{{PORTS[service].external|default(8000)}}{{'}'}}:{{PORTS[service].internal|default(8000)}}"
     networks:
       - {{PROJECT}}-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:{{PORTS[service].internal|default(8000)}}/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -62,91 +54,8 @@ services:
         max-file: "3"
     labels:
       - "com.superdeploy.project={{PROJECT}}"
-      - "com.superdeploy.service=api"
+      - "com.superdeploy.service={{service}}"
       - "com.superdeploy.release=${RELEASE_VERSION:-unknown}"
       - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
       - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
-{% endif %}
-
-{% if 'dashboard' in SERVICES_LIST %}
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Dashboard Service
-  # ═══════════════════════════════════════════════════════════════════════════
-  dashboard:
-    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/dashboard:${DASHBOARD_IMAGE_TAG:-latest}
-    container_name: {{PROJECT}}-dashboard
-    restart: unless-stopped
-    # Environment variables injected via Forgejo workflow (from GitHub Secrets)
-    ports:
-      - "{{DASHBOARD_PORT|default(3000)}}:3000"
-    networks:
-      - {{PROJECT}}-network
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-        reservations:
-          memory: 128M
-    stop_grace_period: 10s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    labels:
-      - "com.superdeploy.project={{PROJECT}}"
-      - "com.superdeploy.service=dashboard"
-      - "com.superdeploy.release=${RELEASE_VERSION:-unknown}"
-      - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
-      - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
-{% endif %}
-
-{% if 'services' in SERVICES_LIST %}
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Background Services (Celery Workers)
-  # ═══════════════════════════════════════════════════════════════════════════
-  services:
-    image: ${DOCKER_REGISTRY}/${DOCKER_ORG}/services:${SERVICES_IMAGE_TAG:-latest}
-    container_name: {{PROJECT}}-services
-    restart: unless-stopped
-    # Environment variables injected via Forgejo workflow (from GitHub Secrets)
-    networks:
-      - {{PROJECT}}-network
-    # Core services (postgres, rabbitmq, redis) are in docker-compose.core.yml
-    # No direct depends_on as they're in separate compose files
-    healthcheck:
-      test: ["CMD-SHELL", "ps aux | grep -v grep | grep celery || exit 1"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-    stop_grace_period: 60s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    labels:
-      - "com.superdeploy.project={{PROJECT}}"
-      - "com.superdeploy.service=services"
-      - "com.superdeploy.release=${RELEASE_VERSION:-unknown}"
-      - "com.superdeploy.git.sha=${GIT_SHA:-unknown}"
-      - "com.superdeploy.deployed.at=${DEPLOY_TIMESTAMP:-unknown}"
-{% endif %}
+{% endfor %}
