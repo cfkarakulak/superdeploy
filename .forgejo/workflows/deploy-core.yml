@@ -79,9 +79,9 @@ jobs:
 
       - name: 🐳 Prepare docker-compose.yml
         run: |
-          # Copy template to compose directory
+          # Use project-specific core services compose file
           mkdir -p /opt/superdeploy/compose
-          cp /opt/superdeploy/compose/docker-compose.yml.template /opt/superdeploy/compose/docker-compose.yml
+          cp /opt/superdeploy/projects/${{ env.PROJECT }}/compose/docker-compose.core.yml /opt/superdeploy/compose/docker-compose.yml
           
           echo "✅ docker-compose.yml ready"
 
