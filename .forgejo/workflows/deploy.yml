@@ -120,8 +120,8 @@ jobs:
             echo "📦 Deploying core services (PostgreSQL, RabbitMQ, Redis)..."
             cd /opt/superdeploy/projects/${{ env.PROJECT }}/compose
             
-            # Load environment variables from decrypted file
-            export $(cat /tmp/decrypted.env | xargs)
+            # Load environment variables from decrypted file (skip comments and empty lines)
+            export $(grep -v '^#' /tmp/decrypted.env | grep -v '^$' | xargs)
             
             # Deploy core services
             docker compose -f docker-compose.core.yml up -d --wait
