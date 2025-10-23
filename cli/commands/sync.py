@@ -401,6 +401,7 @@ def sync(project, skip_forgejo, skip_github, env_file):
                 "PROJECT_NAME": project,  # ✅ Generic project name
                 "DOCKER_USERNAME": env["DOCKER_USERNAME"],
                 "DOCKER_TOKEN": env["DOCKER_TOKEN"],
+                "CORE_EXTERNAL_IP": env["CORE_EXTERNAL_IP"],  # For API_BASE_URL construction
             }
 
             set_github_repo_secrets(repo, repo_secrets)
