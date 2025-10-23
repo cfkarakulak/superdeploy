@@ -103,13 +103,30 @@ jobs:
             # Use helper script to parse YAML config
             PARSER_SCRIPT="${GITHUB_WORKSPACE}/.forgejo/scripts/parse_config.py"
             
+            echo "🔍 Debug: CONFIG_FILE=$CONFIG_FILE"
+            echo "🔍 Debug: PARSER_SCRIPT=$PARSER_SCRIPT"
+            echo "🔍 Debug: SERVICE=${{ env.SERVICE }}"
+            echo "🔍 Debug: GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+            
             if [ -f "$PARSER_SCRIPT" ]; then
-              read EXTERNAL_PORT INTERNAL_PORT <<< $(python3 "$PARSER_SCRIPT" "$CONFIG_FILE" "${{ env.SERVICE }}")
+              echo "✅ Parser script found"
+              PORTS_OUTPUT=$(python3 "$PARSER_SCRIPT" "$CONFIG_FILE" "${{ env.SERVICE }}" 2>&1)
+              echo "🔍 Debug: PORTS_OUTPUT='$PORTS_OUTPUT'"
+              
+              read EXTERNAL_PORT INTERNAL_PORT <<< "$PORTS_OUTPUT"
+              
+              echo "🔍 Debug: EXTERNAL_PORT='$EXTERNAL_PORT'"
+              echo "🔍 Debug: INTERNAL_PORT='$INTERNAL_PORT'"
+              
+              # Fallback to defaults if empty
+              EXTERNAL_PORT=${EXTERNAL_PORT:-8080}
+              INTERNAL_PORT=${INTERNAL_PORT:-8080}
+              
               echo "external_port=${EXTERNAL_PORT}" >> $GITHUB_OUTPUT
               echo "internal_port=${INTERNAL_PORT}" >> $GITHUB_OUTPUT
               echo "✅ Loaded ports from config: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
             else
-              echo "⚠️  Parser script not found, using defaults"
+              echo "⚠️  Parser script not found at: $PARSER_SCRIPT"
               echo "external_port=8080" >> $GITHUB_OUTPUT
               echo "internal_port=8080" >> $GITHUB_OUTPUT
             fi
