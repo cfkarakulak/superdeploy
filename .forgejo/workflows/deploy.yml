@@ -100,19 +100,30 @@ jobs:
           CONFIG_FILE="/opt/superdeploy/projects/${{ env.PROJECT }}/config.yml"
           
           if [ -f "$CONFIG_FILE" ]; then
-            # Extract ports using yq (if available) or fallback to grep/awk
-            if command -v yq &> /dev/null; then
-              EXTERNAL_PORT=$(yq eval ".ports.${{ env.SERVICE }}.external" "$CONFIG_FILE")
-              INTERNAL_PORT=$(yq eval ".ports.${{ env.SERVICE }}.internal" "$CONFIG_FILE")
-            else
-              # Fallback: simple grep/awk parsing
-              EXTERNAL_PORT=$(grep -A2 "^  ${{ env.SERVICE }}:" "$CONFIG_FILE" | grep "external:" | awk '{print $2}')
-              INTERNAL_PORT=$(grep -A2 "^  ${{ env.SERVICE }}:" "$CONFIG_FILE" | grep "internal:" | awk '{print $2}')
-            fi
+            # Use Python to parse YAML (more reliable than grep/awk)
+            read EXTERNAL_PORT INTERNAL_PORT <<< $(python3 -c "
+import yaml
+import sys
+
+try:
+    with open('$CONFIG_FILE', 'r') as f:
+        config = yaml.safe_load(f)
+    
+    service = '${{ env.SERVICE }}'
+    ports = config.get('ports', {}).get(service, {})
+    
+    external = ports.get('external', 8080)
+    internal = ports.get('internal', 8080)
+    
+    print(f'{external} {internal}')
+except Exception as e:
+    print('8080 8080', file=sys.stderr)
+    sys.exit(1)
+")
             
             echo "external_port=${EXTERNAL_PORT}" >> $GITHUB_OUTPUT
             echo "internal_port=${INTERNAL_PORT}" >> $GITHUB_OUTPUT
-            echo "✅ Loaded ports: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
+            echo "✅ Loaded ports from config: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
           else
             echo "⚠️  Config file not found, using defaults"
             echo "external_port=8080" >> $GITHUB_OUTPUT
