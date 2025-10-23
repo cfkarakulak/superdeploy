@@ -27,6 +27,10 @@ from cli.commands import (
     releases,
     down,
     project,
+    promote,
+    backup,
+    validate,
+    metrics,
 )
 
 console = Console()
@@ -83,6 +87,10 @@ cli.add_command(env.env_group)
 cli.add_command(releases.releases)
 cli.add_command(releases.rollback)
 cli.add_command(project.project)
+cli.add_command(promote.promote)
+cli.add_command(backup.backup)
+cli.add_command(validate.validate)
+cli.add_command(metrics.metrics)
 
 
 if __name__ == "__main__":

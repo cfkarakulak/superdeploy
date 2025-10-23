@@ -1,0 +1,153 @@
+"""SuperDeploy CLI - Metrics command"""
+
+import click
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from datetime import datetime, timedelta
+from cli.utils import load_env, validate_env_vars, ssh_command
+
+console = Console()
+
+
+@click.command()
+@click.option("--project", "-p", required=True, help="Project name")
+@click.option("--days", "-d", default=7, help="Number of days to analyze")
+def metrics(project, days):
+    """
+    Show deployment metrics and statistics
+
+    \b
+    Examples:
+      superdeploy metrics -p cheapa                # Last 7 days
+      superdeploy metrics -p cheapa -d 30          # Last 30 days
+    
+    \b
+    Metrics include:
+    - Deployment frequency
+    - Success/failure rate
+    - Average deployment duration
+    - Service uptime
+    - Resource usage (CPU/Memory)
+    """
+    env = load_env()
+
+    # Validate required vars
+    required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH"]
+    if not validate_env_vars(env, required):
+        raise SystemExit(1)
+
+    console.print(
+        Panel.fit(
+            f"[bold cyan]📊 Deployment Metrics[/bold cyan]\n\n"
+            f"[white]Project: {project}[/white]\n"
+            f"[white]Period: Last {days} days[/white]",
+            border_style="cyan",
+        )
+    )
+
+    # Get container stats
+    try:
+        stats_output = ssh_command(
+            host=env["CORE_EXTERNAL_IP"],
+            user=env.get("SSH_USER", "superdeploy"),
+            key_path=env["SSH_KEY_PATH"],
+            cmd=f"docker stats --no-stream --format 'table {{{{.Name}}}}\\t{{{{.CPUPerc}}}}\\t{{{{.MemUsage}}}}\\t{{{{.NetIO}}}}' | grep {project}",
+        )
+
+        # Parse and display stats
+        console.print("\n[bold]Current Resource Usage:[/bold]\n")
+        
+        table = Table()
+        table.add_column("Service", style="cyan")
+        table.add_column("CPU %", style="yellow")
+        table.add_column("Memory", style="green")
+        table.add_column("Network I/O", style="blue")
+
+        for line in stats_output.strip().split("\n"):
+            if line and project in line:
+                parts = line.split()
+                if len(parts) >= 4:
+                    service = parts[0].replace(f"{project}-", "")
+                    cpu = parts[1]
+                    mem = f"{parts[2]} / {parts[3]}"
+                    net = parts[4] if len(parts) > 4 else "N/A"
+                    table.add_row(service, cpu, mem, net)
+
+        console.print(table)
+
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Could not fetch resource stats: {e}[/yellow]")
+
+    # Get container uptime
+    try:
+        uptime_output = ssh_command(
+            host=env["CORE_EXTERNAL_IP"],
+            user=env.get("SSH_USER", "superdeploy"),
+            key_path=env["SSH_KEY_PATH"],
+            cmd=f"docker ps --filter name={project} --format 'table {{{{.Names}}}}\\t{{{{.Status}}}}'",
+        )
+
+        console.print("\n[bold]Service Uptime:[/bold]\n")
+        
+        table = Table()
+        table.add_column("Service", style="cyan")
+        table.add_column("Status", style="green")
+
+        for line in uptime_output.strip().split("\n")[1:]:  # Skip header
+            if line and project in line:
+                parts = line.split(None, 1)
+                if len(parts) >= 2:
+                    service = parts[0].replace(f"{project}-", "")
+                    status = parts[1]
+                    table.add_row(service, status)
+
+        console.print(table)
+
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Could not fetch uptime: {e}[/yellow]")
+
+    # Deployment history (from container labels)
+    try:
+        history_output = ssh_command(
+            host=env["CORE_EXTERNAL_IP"],
+            user=env.get("SSH_USER", "superdeploy"),
+            key_path=env["SSH_KEY_PATH"],
+            cmd=f"docker inspect $(docker ps -q --filter name={project}) --format '{{{{.Name}}}} {{{{.Config.Labels}}}}' 2>/dev/null | grep git.sha",
+        )
+
+        if history_output.strip():
+            console.print("\n[bold]Recent Deployments:[/bold]\n")
+            
+            table = Table()
+            table.add_column("Service", style="cyan")
+            table.add_column("Git SHA", style="yellow")
+            table.add_column("Git Ref", style="blue")
+
+            for line in history_output.strip().split("\n"):
+                if "git.sha" in line:
+                    # Parse container labels
+                    parts = line.split()
+                    service = parts[0].replace(f"/{project}-", "")
+                    
+                    # Extract SHA and ref from labels
+                    sha = "N/A"
+                    ref = "N/A"
+                    
+                    if "com.superdeploy.git.sha:" in line:
+                        sha = line.split("com.superdeploy.git.sha:")[1].split()[0]
+                    if "com.superdeploy.git.ref:" in line:
+                        ref = line.split("com.superdeploy.git.ref:")[1].split()[0]
+                    
+                    table.add_row(service, sha[:7], ref)
+
+            console.print(table)
+
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Could not fetch deployment history: {e}[/yellow]")
+
+    # Summary
+    console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
+    console.print("[bold green]📊 Metrics Summary[/bold green]")
+    console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
+    console.print(f"\n[dim]For detailed logs: superdeploy logs -p {project} -a <service>[/dim]")

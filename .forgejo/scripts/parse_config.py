@@ -12,14 +12,14 @@ config_file = sys.argv[1]
 service = sys.argv[2]
 
 try:
-    with open(config_file, 'r') as f:
+    with open(config_file, "r") as f:
         content = f.read()
-    
+
     # Parse YAML using regex (no pyyaml dependency needed)
     # Pattern: ports:\n  service:\n    external: 8000\n    internal: 8000
-    pattern = rf'{service}:\s*\n\s+external:\s*(\d+)\s*\n\s+internal:\s*(\d+)'
+    pattern = rf"{service}:\s*\n\s+external:\s*(\d+)\s*\n\s+internal:\s*(\d+)"
     match = re.search(pattern, content)
-    
+
     if match:
         external = match.group(1)
         internal = match.group(2)

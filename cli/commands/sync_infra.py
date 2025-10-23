@@ -159,11 +159,15 @@ def sync_infra(project):
 
     infra_secrets = {
         "FORGEJO_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:3001",
+        "FORGEJO_URL": f"http://{env['CORE_EXTERNAL_IP']}:3001",
         "FORGEJO_PAT": forgejo_pat,
         "AGE_PUBLIC_KEY": age_public_key,
         "CORE_EXTERNAL_IP": env["CORE_EXTERNAL_IP"],
         "DOCKER_USERNAME": env["DOCKER_USERNAME"],
         "DOCKER_TOKEN": env["DOCKER_TOKEN"],
+        "PROJECT": project,
+        "FORGEJO_ORG": env.get("FORGEJO_ORG", "cradexco"),
+        "FORGEJO_REPO": env.get("REPO_SUPERDEPLOY", "superdeploy"),
     }
 
     for service in services:

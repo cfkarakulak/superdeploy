@@ -13,7 +13,14 @@ console = Console()
 @click.command()
 @click.option("--project", "-p", required=True, help="Project name")
 @click.option("-a", "--app", help="App name (api, dashboard, services, or 'all')")
-@click.option("-e", "--env", "environment", default="production", help="Environment")
+@click.option(
+    "-e",
+    "--env",
+    "environment",
+    default="production",
+    type=click.Choice(["production", "staging", "development"]),
+    help="Environment (production, staging, development)",
+)
 @click.option("-t", "--tag", help="Image tag (default: latest)")
 @click.option("--migrate", is_flag=True, help="Run DB migrations")
 def deploy(project, app, environment, tag, migrate):
@@ -22,10 +29,11 @@ def deploy(project, app, environment, tag, migrate):
 
     \b
     Examples:
-      superdeploy deploy -a api                    # Deploy API (latest)
-      superdeploy deploy -a api -t abc123          # Deploy specific tag
-      superdeploy deploy -a all                    # Deploy all services
-      superdeploy deploy -a api --migrate          # Deploy + migrate
+      superdeploy deploy -p cheapa -a api                    # Deploy API (production)
+      superdeploy deploy -p cheapa -a api -e staging         # Deploy to staging
+      superdeploy deploy -p cheapa -a api -t abc123          # Deploy specific tag
+      superdeploy deploy -p cheapa -a all                    # Deploy all services
+      superdeploy deploy -p cheapa -a api --migrate          # Deploy + migrate
     """
     env = load_env()
 
@@ -84,23 +92,53 @@ def deploy(project, app, environment, tag, migrate):
         "Content-Type": "application/json",
     }
 
-    try:
-        console.print("[cyan]📡 Calling Forgejo API...[/cyan]")
+    # Retry logic for API calls
+    max_retries = 3
+    retry_delay = 2
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            console.print(f"[cyan]📡 Calling Forgejo API... (attempt {attempt}/{max_retries})[/cyan]")
 
-        response = requests.post(
-            workflow_url, json=payload, headers=headers, timeout=10
-        )
-
-        if response.status_code == 204:
-            console.print("[green]✅ Deployment triggered successfully![/green]")
-            console.print(
-                f"\n[cyan]Monitor:[/cyan] {forgejo_url}/{env['FORGEJO_ORG']}/{env['REPO_SUPERDEPLOY']}/actions"
+            response = requests.post(
+                workflow_url, json=payload, headers=headers, timeout=10
             )
-        else:
-            console.print(f"[red]❌ API call failed: {response.status_code}[/red]")
-            console.print(f"[dim]{response.text}[/dim]")
-            raise SystemExit(1)
 
-    except requests.exceptions.RequestException as e:
-        console.print(f"[red]❌ Request failed: {e}[/red]")
-        raise SystemExit(1)
+            if response.status_code == 204:
+                console.print("[green]✅ Deployment triggered successfully![/green]")
+                console.print(
+                    f"\n[cyan]Monitor:[/cyan] {forgejo_url}/{env['FORGEJO_ORG']}/{env['REPO_SUPERDEPLOY']}/actions"
+                )
+                break
+            else:
+                console.print(f"[red]❌ API call failed: {response.status_code}[/red]")
+                console.print(f"[dim]{response.text}[/dim]")
+                
+                if attempt < max_retries:
+                    console.print(f"[yellow]⏳ Retrying in {retry_delay}s...[/yellow]")
+                    import time
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    raise SystemExit(1)
+
+        except requests.exceptions.Timeout:
+            console.print(f"[yellow]⚠️  Request timeout[/yellow]")
+            if attempt < max_retries:
+                console.print(f"[yellow]⏳ Retrying in {retry_delay}s...[/yellow]")
+                import time
+                time.sleep(retry_delay)
+                retry_delay *= 2
+            else:
+                console.print("[red]❌ Max retries exceeded[/red]")
+                raise SystemExit(1)
+                
+        except requests.exceptions.RequestException as e:
+            console.print(f"[red]❌ Request failed: {e}[/red]")
+            if attempt < max_retries:
+                console.print(f"[yellow]⏳ Retrying in {retry_delay}s...[/yellow]")
+                import time
+                time.sleep(retry_delay)
+                retry_delay *= 2
+            else:
+                raise SystemExit(1)
