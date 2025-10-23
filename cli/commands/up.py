@@ -264,7 +264,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
 
         ansible_cmd = f"""
 cd {ansible_dir} && \
-ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,infrastructure,git-server \
+SUPERDEPLOY_ROOT={project_root} ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,infrastructure,git-server \
   -e "core_external_ip={env["CORE_EXTERNAL_IP"]}" \
   -e "core_internal_ip={env["CORE_INTERNAL_IP"]}" \
   -e "scrape_external_ip={env.get("SCRAPE_EXTERNAL_IP", "")}" \

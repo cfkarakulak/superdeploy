@@ -106,21 +106,25 @@
     group: superdeploy
     mode: '0755'
 
+- name: Get superdeploy root directory
+  set_fact:
+    superdeploy_root: "{{ lookup('env', 'SUPERDEPLOY_ROOT') | default(playbook_dir + '/../..', true) }}"
+
 - name: Check if projects directory exists locally
   stat:
-    path: "{{ playbook_dir }}/../../../projects"
+    path: "{{ superdeploy_root }}/projects"
   register: projects_dir
   delegate_to: localhost
   become: no
 
 - name: Fail if projects directory doesn't exist
   fail:
-    msg: "Projects directory not found at {{ playbook_dir }}/../../../projects - run 'superdeploy init' first!"
+    msg: "Projects directory not found at {{ superdeploy_root }}/projects - run 'superdeploy init' first!"
   when: not projects_dir.stat.exists
 
 - name: Sync project files to VM (compose files only, no secrets)
   synchronize:
-    src: "{{ playbook_dir }}/../../../projects/"
+    src: "{{ superdeploy_root }}/projects/"
     dest: /opt/superdeploy/projects/
     delete: no
     recursive: yes
