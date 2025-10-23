@@ -200,27 +200,56 @@ jobs:
             ls -la /opt/superdeploy/projects/${{ env.PROJECT }}/ || echo "Directory not found"
           fi
       
-      - name: Register service with Caddy (if dashboard)
-        if: ${{ env.SERVICE == 'dashboard' }}
+      - name: Register service with Caddy
         run: |
           set -ex
-          echo "🌐 Registering dashboard with Caddy reverse proxy..."
+          echo "🌐 Registering ${{ env.SERVICE }} with Caddy reverse proxy..."
           
           # Create Caddy routes directory if not exists
           mkdir -p /opt/superdeploy/shared/caddy/routes
           
-          # Generate Caddy route for this project
-          cat > /opt/superdeploy/shared/caddy/routes/${{ env.PROJECT }}.caddy <<EOF
-          # Auto-generated route for ${{ env.PROJECT }} project
+          # Determine service-specific route configuration
+          case "${{ env.SERVICE }}" in
+            dashboard)
+              # Dashboard gets root domain (port 80)
+              cat > /opt/superdeploy/shared/caddy/routes/${{ env.PROJECT }}-dashboard.caddy <<EOF
+          # Auto-generated route for ${{ env.PROJECT }} dashboard
           :80 {
             reverse_proxy ${{ env.PROJECT }}-dashboard:3000
           }
           EOF
+              echo "✅ Dashboard registered on :80"
+              ;;
+            
+            api)
+              # API gets its own port route
+              cat > /opt/superdeploy/shared/caddy/routes/${{ env.PROJECT }}-api.caddy <<EOF
+          # Auto-generated route for ${{ env.PROJECT }} API
+          :8000 {
+            reverse_proxy ${{ env.PROJECT }}-api:8000
+          }
+          EOF
+              echo "✅ API registered on :8000"
+              ;;
+            
+            services)
+              # Services gets its own port route
+              cat > /opt/superdeploy/shared/caddy/routes/${{ env.PROJECT }}-services.caddy <<EOF
+          # Auto-generated route for ${{ env.PROJECT }} services
+          :9000 {
+            reverse_proxy ${{ env.PROJECT }}-services:8000
+          }
+          EOF
+              echo "✅ Services registered on :9000"
+              ;;
+            
+            *)
+              echo "⚠️  Unknown service type, skipping Caddy registration"
+              ;;
+          esac
           
-          # Reload Caddy to pick up new route
-          docker exec superdeploy-caddy caddy reload --config /etc/caddy/Caddyfile || echo "Caddy reload failed (may not be running yet)"
-          
-          echo "✅ Dashboard registered with Caddy on port 80"
+          # Reload Caddy to pick up new routes
+          docker exec superdeploy-caddy caddy reload --config /etc/caddy/Caddyfile || echo "⚠️  Caddy reload failed (may not be running yet)"
       
       - name: Deploy service
         run: |
