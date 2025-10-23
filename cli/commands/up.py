@@ -429,7 +429,7 @@ SUPERDEPLOY_ROOT={project_root} ansible-playbook -i inventories/dev.ini playbook
             ]
 
             result = subprocess.run(
-                sync_cmd, capture_output=True, text=True, timeout=60
+                sync_cmd, capture_output=True, text=True, timeout=180
             )
 
             if result.returncode == 0:
