@@ -101,17 +101,19 @@ jobs:
           
           if [ -f "$CONFIG_FILE" ]; then
             # Use Python to parse YAML (more reliable than grep/awk)
-            read EXTERNAL_PORT INTERNAL_PORT <<< $(python3 -c "
+            # Create temporary Python script to avoid YAML parsing issues
+            cat > /tmp/parse_config.py <<'PYTHON_SCRIPT'
 import yaml
 import sys
 
 try:
-    with open('$CONFIG_FILE', 'r') as f:
+    config_file = sys.argv[1]
+    service = sys.argv[2]
+    
+    with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
     
-    service = '${{ env.SERVICE }}'
     ports = config.get('ports', {}).get(service, {})
-    
     external = ports.get('external', 8080)
     internal = ports.get('internal', 8080)
     
@@ -119,7 +121,9 @@ try:
 except Exception as e:
     print('8080 8080', file=sys.stderr)
     sys.exit(1)
-")
+PYTHON_SCRIPT
+            
+            read EXTERNAL_PORT INTERNAL_PORT <<< $(python3 /tmp/parse_config.py "$CONFIG_FILE" "${{ env.SERVICE }}")
             
             echo "external_port=${EXTERNAL_PORT}" >> $GITHUB_OUTPUT
             echo "internal_port=${INTERNAL_PORT}" >> $GITHUB_OUTPUT
