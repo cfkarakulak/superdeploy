@@ -328,7 +328,7 @@ def sync(project, skip_forgejo, skip_github, env_file):
         project_config = yaml.safe_load(f)
 
     # GitHub repos from project config
-    repos = project_config.get("repositories", {})
+    repos = project_config.get("github", {}).get("repositories", {})
 
     with Progress(
         SpinnerColumn(),
