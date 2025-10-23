@@ -8,11 +8,7 @@
 networks:
   cheapa-network:
     name: cheapa-network
-    driver: bridge
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.20.0.0/24
+    external: true
 
 volumes:
   postgres-data:
