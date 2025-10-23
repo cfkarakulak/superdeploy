@@ -108,19 +108,19 @@
 
 - name: Check if projects directory exists locally
   stat:
-    path: "{{ playbook_dir }}/../../projects"
+    path: "{{ playbook_dir }}/../../../projects"
   register: projects_dir
   delegate_to: localhost
   become: no
 
 - name: Fail if projects directory doesn't exist
   fail:
-    msg: "Projects directory not found at {{ playbook_dir }}/../../projects - run 'superdeploy init' first!"
+    msg: "Projects directory not found at {{ playbook_dir }}/../../../projects - run 'superdeploy init' first!"
   when: not projects_dir.stat.exists
 
 - name: Sync project files to VM (compose files only, no secrets)
   synchronize:
-    src: "{{ playbook_dir }}/../../projects/"
+    src: "{{ playbook_dir }}/../../../projects/"
     dest: /opt/superdeploy/projects/
     delete: no
     recursive: yes
