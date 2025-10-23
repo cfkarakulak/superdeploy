@@ -101,7 +101,7 @@ services:
     image: redis:{{REDIS_VERSION|default('7-alpine')}}
     container_name: {{PROJECT}}-redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD:?required}
+    command: redis-server
     volumes:
       - redis-data:/data
     networks:
