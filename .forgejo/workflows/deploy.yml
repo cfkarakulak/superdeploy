@@ -68,6 +68,18 @@ jobs:
           set -ex  # Enable verbose mode and exit on error
           echo "📥 Loading environment variables..."
           
+          # Check if decrypted env file exists
+          if [ ! -f /tmp/decrypted.env ]; then
+            echo "❌ Decrypted env file not found!"
+            exit 1
+          fi
+          
+          # Check if file is not empty
+          if [ ! -s /tmp/decrypted.env ]; then
+            echo "❌ Decrypted env file is empty!"
+            exit 1
+          fi
+          
           set -a
           source /tmp/decrypted.env
           set +a
@@ -85,10 +97,21 @@ jobs:
           set -ex  # Enable verbose mode and exit on error
           echo "🐳 Logging in to Docker Hub..."
           
+          # Check if credentials exist
+          if [ -z "${{ secrets.DOCKER_USERNAME }}" ] || [ -z "${{ secrets.DOCKER_TOKEN }}" ]; then
+            echo "❌ Docker Hub credentials not found in secrets!"
+            exit 1
+          fi
+          
           # Login using Docker Hub credentials from Forgejo secrets
           echo "${{ secrets.DOCKER_TOKEN }}" | docker login docker.io -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
           
-          echo "✅ Docker Hub login successful"
+          if [ $? -eq 0 ]; then
+            echo "✅ Docker Hub login successful"
+          else
+            echo "❌ Docker Hub login failed!"
+            exit 1
+          fi
       
       - name: Load project configuration
         id: config
@@ -138,7 +161,16 @@ jobs:
       
       - name: Generate docker-compose for service
         run: |
+          set -e  # Exit on error
+          
+          # Create directory structure
           mkdir -p /opt/apps/${{ env.PROJECT }}/compose
+          
+          # Verify directory was created
+          if [ ! -d "/opt/apps/${{ env.PROJECT }}/compose" ]; then
+            echo "❌ Failed to create compose directory"
+            exit 1
+          fi
           
           # Use ports from config
           EXTERNAL_PORT="${{ steps.config.outputs.external_port }}"
@@ -216,7 +248,14 @@ jobs:
             ls -la
             
             # Load environment variables from decrypted file (skip comments and empty lines)
-            export $(grep -v '^#' /tmp/decrypted.env | grep -v '^$' | xargs)
+            if [ -f /tmp/decrypted.env ]; then
+              set -a
+              source /tmp/decrypted.env
+              set +a
+              echo "✅ Environment variables loaded for core services"
+            else
+              echo "⚠️  No decrypted env file found, using defaults"
+            fi
             
             echo "🐳 Starting core services..."
             # Deploy core services
@@ -244,6 +283,13 @@ jobs:
           # Create Caddy routes directory if not exists
           mkdir -p /opt/superdeploy/shared/caddy/routes
           
+          # Check if Caddy is running
+          if ! docker ps | grep -q superdeploy-caddy; then
+            echo "⚠️  Caddy not running, skipping route registration"
+            echo "   Routes will be loaded when Caddy starts"
+            exit 0
+          fi
+          
           # Generate Caddy route based on service type
           if [ "${{ env.SERVICE }}" == "dashboard" ]; then
             # Dashboard gets root domain (port 80)
@@ -269,8 +315,15 @@ jobs:
             echo "✅ ${{ env.SERVICE }} registered: :${EXTERNAL_PORT} → ${{ env.PROJECT }}-${{ env.SERVICE }}:${INTERNAL_PORT}"
           fi
           
-          # Reload Caddy to pick up new routes
-          docker exec superdeploy-caddy caddy reload --config /etc/caddy/Caddyfile || echo "⚠️  Caddy reload failed (may not be running yet)"
+          # Restart Caddy to pick up new routes (reload doesn't work with volume mounts)
+          echo "🔄 Restarting Caddy to load new routes..."
+          docker restart superdeploy-caddy
+          
+          # Wait for Caddy to be ready
+          sleep 3
+          
+          # Verify route is loaded
+          docker exec superdeploy-caddy caddy list-modules --packages | grep -q http.handlers.reverse_proxy && echo "✅ Caddy restarted successfully" || echo "⚠️  Caddy may not be ready yet"
       
       - name: Backup current deployment
         id: backup
@@ -296,11 +349,41 @@ jobs:
           
           # Create project network if it doesn't exist
           echo "🌐 Creating/checking network: ${{ env.PROJECT }}-network"
-          docker network create ${{ env.PROJECT }}-network 2>/dev/null || echo "Network already exists"
+          if ! docker network ls | grep -q "${{ env.PROJECT }}-network"; then
+            docker network create ${{ env.PROJECT }}-network
+            echo "✅ Network created: ${{ env.PROJECT }}-network"
+          else
+            echo "✅ Network already exists: ${{ env.PROJECT }}-network"
+          fi
           
-          # Pull latest image
+          # Ensure superdeploy-proxy network exists (for Caddy)
+          if ! docker network ls | grep -q "superdeploy-proxy"; then
+            docker network create superdeploy-proxy
+            echo "✅ Network created: superdeploy-proxy"
+          else
+            echo "✅ Network already exists: superdeploy-proxy"
+          fi
+          
+          # Pull latest image with retry
           echo "📥 Pulling image: ${{ env.IMAGE }}"
-          docker pull ${{ env.IMAGE }}
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if docker pull ${{ env.IMAGE }}; then
+              echo "✅ Image pulled successfully"
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "⚠️  Pull failed, retrying ($RETRY_COUNT/$MAX_RETRIES)..."
+                sleep 5
+              else
+                echo "❌ Failed to pull image after $MAX_RETRIES attempts"
+                exit 1
+              fi
+            fi
+          done
           
           # Deploy with zero-downtime
           echo "🐳 Starting service container..."
