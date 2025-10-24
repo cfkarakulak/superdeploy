@@ -1,0 +1,52 @@
+---
+# Verify addon health after deployment
+# This task checks if the addon is healthy based on its healthcheck definition
+
+- name: Display health check configuration
+  debug:
+    msg:
+      - "Running health check for {{ addon_name }}"
+      - "Command: {{ addon_metadata.healthcheck.command | default('not specified') }}"
+      - "Timeout: {{ addon_health_check_timeout }}s"
+    verbosity: 1
+
+- name: Wait for addon to be healthy (HTTP check)
+  uri:
+    url: "{{ addon_metadata.healthcheck.url }}"
+    status_code: "{{ addon_metadata.healthcheck.status_code | default(200) }}"
+    timeout: "{{ addon_metadata.healthcheck.timeout | default('5s') | regex_replace('s$', '') | int }}"
+  register: health_result
+  until: health_result.status == (addon_metadata.healthcheck.status_code | default(200))
+  retries: "{{ addon_health_check_retries }}"
+  delay: "{{ addon_health_check_delay }}"
+  when:
+    - addon_metadata.healthcheck.url is defined
+  ignore_errors: yes
+
+- name: Wait for addon to be healthy (command check)
+  shell: "{{ addon_metadata.healthcheck.command }}"
+  args:
+    chdir: "{{ addon_deployment_path }}"
+  register: health_result
+  until: health_result.rc == 0
+  retries: "{{ addon_health_check_retries }}"
+  delay: "{{ addon_health_check_delay }}"
+  changed_when: false
+  when:
+    - addon_metadata.healthcheck.command is defined
+    - addon_metadata.healthcheck.url is not defined
+  ignore_errors: yes
+
+- name: Display health check result
+  debug:
+    msg: "{{ addon_name }} health check: {{ 'PASSED' if health_result is succeeded else 'FAILED' }}"
+
+- name: Warn if health check failed
+  debug:
+    msg: |
+      [ADDON-DEPLOYER] WARNING: Health check failed for {{ addon_name }}
+        - The addon may not be fully operational
+        - Check logs: docker logs {{ project_name }}-{{ addon_name }}
+        - Check status: docker ps -a | grep {{ addon_name }}
+        - Deployment will continue, but manual verification is recommended
+  when: health_result is failed

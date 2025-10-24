@@ -1,0 +1,54 @@
+---
+# Default variables for system/base role
+
+# User and group configuration
+superdeploy_user: "superdeploy"
+superdeploy_group: "superdeploy"
+
+# Base directories to create
+base_directories:
+  - /opt/superdeploy
+  - /opt/superdeploy/compose
+  - /opt/superdeploy/logs
+  - /opt/superdeploy/data
+  - /opt/backups
+  - /opt/backups/postgres
+  - /opt/backups/forgejo
+
+# Swap configuration
+swap_size_mb: 2048
+swap_file_path: /swapfile
+swap_swappiness: 10
+swap_cache_pressure: 50
+
+# Essential packages to install
+essential_packages:
+  - curl
+  - wget
+  - git
+  - unzip
+  - htop
+  - vim
+  - ufw
+  - chrony
+  - rsync
+  - python3-pip
+  - mailutils
+  - postfix
+  - software-properties-common
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+
+# Chrony NTP servers
+chrony_ntp_servers:
+  - "pool 0.debian.pool.ntp.org iburst"
+  - "pool 1.debian.pool.ntp.org iburst"
+  - "pool 2.debian.pool.ntp.org iburst"
+  - "pool 3.debian.pool.ntp.org iburst"
+
+# Postfix configuration
+postfix_mailname: "superdeploy.local"
+postfix_inet_interfaces: "loopback-only"
+postfix_mydestination: "$myhostname, localhost.$mydomain, localhost"

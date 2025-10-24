@@ -1,0 +1,106 @@
+# Shared Monitoring Addon
+# Provides Grafana and Prometheus for all projects
+
+name: monitoring
+description: Shared Grafana and Prometheus monitoring for all projects
+version: "latest"
+category: monitoring
+
+# This is a special "shared" addon - only one instance across all projects
+shared: true
+
+# Environment variables this addon provides
+env_vars:
+  - name: GRAFANA_URL
+    description: Grafana dashboard URL
+    default: "http://${MONITORING_HOST}:3000"
+    required: true
+    secret: false
+    
+  - name: GRAFANA_ADMIN_USER
+    description: Grafana admin username
+    default: "admin"
+    required: true
+    secret: false
+    
+  - name: GRAFANA_ADMIN_PASSWORD
+    description: Grafana admin password
+    required: true
+    secret: true
+    generate: true
+    
+  - name: PROMETHEUS_URL
+    description: Prometheus server URL
+    default: "http://${MONITORING_HOST}:9090"
+    required: true
+    secret: false
+    
+  - name: PROMETHEUS_RETENTION
+    description: Prometheus data retention period
+    default: "15d"
+    required: false
+    secret: false
+    
+  - name: MONITORING_HOST
+    description: Monitoring server hostname or IP
+    default: "monitoring"
+    required: true
+    secret: false
+
+# Docker compose configuration
+compose:
+  volumes:
+    - grafana-data
+    - prometheus-data
+    - prometheus-config
+    - grafana-provisioning
+  ports:
+    - "3000:3000"  # Grafana
+    - "9090:9090"  # Prometheus
+  networks:
+    - monitoring-network
+
+# Resource requirements
+resources:
+  memory: 2G
+  cpu: 1.0
+  disk: 50G
+
+# Health checks
+healthcheck:
+  grafana:
+    command: "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 40s
+  prometheus:
+    command: "wget --no-verbose --tries=1 --spider http://localhost:9090/-/healthy || exit 1"
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 30s
+
+# Dependencies (other addons required)
+requires: []
+
+# Conflicts (cannot coexist with)
+conflicts: []
+
+# Monitoring configuration
+monitoring:
+  enabled: false  # Monitoring doesn't monitor itself
+  
+# Prometheus scrape configuration
+prometheus:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+  
+# Grafana configuration
+grafana:
+  default_theme: dark
+  allow_sign_up: false
+  anonymous_enabled: false
+  org_name: SuperDeploy
+  org_role: Viewer

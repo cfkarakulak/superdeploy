@@ -1,0 +1,112 @@
+---
+# Monitoring Addon Deployment Tasks
+# Deploys Prometheus and Grafana for project monitoring
+
+- name: Create {{ addon_name }} directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0755'
+  loop:
+    - "{{ addon_base_path }}/{{ addon_name }}"
+    - "{{ addon_base_path }}/{{ addon_name }}/prometheus"
+    - "{{ addon_base_path }}/{{ addon_name }}/grafana"
+    - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning"
+    - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/datasources"
+    - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/dashboards"
+
+- name: Generate Prometheus configuration
+  template:
+    src: "{{ addon_path }}/prometheus.yml.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/prometheus/prometheus.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+
+- name: Generate Grafana datasource provisioning
+  template:
+    src: "{{ addon_path }}/grafana-datasources.yml.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/datasources/datasources.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+
+- name: Generate Grafana dashboard provisioning
+  template:
+    src: "{{ addon_path }}/grafana-dashboards.yml.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/dashboards/dashboards.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+
+- name: Render {{ addon_name }} docker-compose.yml
+  template:
+    src: "{{ addon_path }}/compose.yml.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/docker-compose.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+
+- name: Render {{ addon_name }} environment file
+  template:
+    src: "{{ addon_path }}/templates/monitoring.env.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/.env"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0600'
+  when: addon_path is defined and addon_path | length > 0
+
+- name: Start {{ addon_name }} services
+  community.docker.docker_compose:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: present
+    pull: true
+  become_user: "{{ superdeploy_user }}"
+  register: monitoring_compose_result
+
+- name: Wait for Prometheus to be ready
+  wait_for:
+    host: localhost
+    port: "{{ PROMETHEUS_PORT | default(9090) }}"
+    delay: 5
+    timeout: 60
+    state: started
+  when: monitoring_compose_result.changed
+
+- name: Wait for Grafana to be ready
+  wait_for:
+    host: localhost
+    port: "{{ GRAFANA_PORT | default(3000) }}"
+    delay: 5
+    timeout: 60
+    state: started
+  when: monitoring_compose_result.changed
+
+- name: Verify Prometheus is accessible
+  uri:
+    url: "http://localhost:{{ PROMETHEUS_PORT | default(9090) }}/-/healthy"
+    status_code: 200
+  register: prometheus_health
+  until: prometheus_health.status == 200
+  retries: 10
+  delay: 3
+  failed_when: prometheus_health.status != 200
+
+- name: Verify Grafana is accessible
+  uri:
+    url: "http://localhost:{{ GRAFANA_PORT | default(3000) }}/api/health"
+    status_code: 200
+  register: grafana_health
+  until: grafana_health.status == 200
+  retries: 10
+  delay: 3
+  failed_when: grafana_health.status != 200
+
+- name: Display {{ addon_name }} deployment status
+  debug:
+    msg:
+      - "Grafana URL: http://{{ ansible_host }}:{{ GRAFANA_PORT | default(3000) }}"
+      - "Prometheus URL: http://{{ ansible_host }}:{{ PROMETHEUS_PORT | default(9090) }}"
+      - "Grafana Admin User: {{ GRAFANA_ADMIN_USER }}"

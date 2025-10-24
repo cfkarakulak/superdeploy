@@ -1,0 +1,209 @@
+---
+# =============================================================================
+# Shared Monitoring Deployment - Addon-Based Architecture
+# =============================================================================
+# This role deploys shared Grafana and Prometheus for all projects
+# Uses the monitoring addon with dynamic project datasource provisioning
+
+- name: Create monitoring base directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: superdeploy
+    group: superdeploy
+    mode: '0755'
+  loop:
+    - "/opt/superdeploy/monitoring"
+    - "/opt/superdeploy/monitoring/prometheus"
+    - "/opt/superdeploy/monitoring/grafana"
+    - "/opt/superdeploy/monitoring/grafana/provisioning"
+    - "/opt/superdeploy/monitoring/grafana/provisioning/datasources"
+    - "/opt/superdeploy/monitoring/grafana/provisioning/dashboards"
+    - "/opt/superdeploy/monitoring/grafana/dashboards"
+  tags:
+    - monitoring
+    - setup
+
+- name: Create monitoring network
+  docker_network:
+    name: superdeploy-monitoring-network
+    state: present
+  become_user: superdeploy
+  tags:
+    - monitoring
+    - network
+
+- name: Create monitoring volumes
+  docker_volume:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - superdeploy-prometheus-data
+    - superdeploy-grafana-data
+  tags:
+    - monitoring
+    - volumes
+
+# =============================================================================
+# Generate Prometheus Configuration
+# =============================================================================
+
+- name: Generate Prometheus configuration for all projects
+  template:
+    src: "{{ superdeploy_root }}/addons/monitoring/prometheus.yml.j2"
+    dest: "/opt/superdeploy/monitoring/prometheus/prometheus.yml"
+    owner: superdeploy
+    group: superdeploy
+    mode: '0644'
+  vars:
+    projects: "{{ monitored_projects | default([]) }}"
+  notify: reload prometheus
+  tags:
+    - monitoring
+    - prometheus
+    - config
+
+# =============================================================================
+# Generate Grafana Datasource Provisioning
+# =============================================================================
+
+- name: Generate Grafana datasource provisioning for all projects
+  template:
+    src: "{{ superdeploy_root }}/addons/monitoring/grafana-datasources.yml.j2"
+    dest: "/opt/superdeploy/monitoring/grafana/provisioning/datasources/datasources.yml"
+    owner: superdeploy
+    group: superdeploy
+    mode: '0644'
+  vars:
+    projects: "{{ monitored_projects | default([]) }}"
+  notify: restart grafana
+  tags:
+    - monitoring
+    - grafana
+    - datasources
+
+# =============================================================================
+# Generate Grafana Dashboard Provisioning
+# =============================================================================
+
+- name: Generate Grafana dashboard provisioning
+  template:
+    src: "{{ superdeploy_root }}/addons/monitoring/grafana-dashboards.yml.j2"
+    dest: "/opt/superdeploy/monitoring/grafana/provisioning/dashboards/dashboards.yml"
+    owner: superdeploy
+    group: superdeploy
+    mode: '0644'
+  notify: restart grafana
+  tags:
+    - monitoring
+    - grafana
+    - dashboards
+
+# =============================================================================
+# Deploy Monitoring Containers
+# =============================================================================
+
+- name: Deploy Prometheus container
+  docker_container:
+    name: superdeploy-prometheus
+    image: "prom/prometheus:{{ prometheus_version | default('latest') }}"
+    state: started
+    restart_policy: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time={{ prometheus_retention | default("15d") }}'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - "superdeploy-prometheus-data:/prometheus"
+      - "/opt/superdeploy/monitoring/prometheus:/etc/prometheus:ro"
+    networks:
+      - name: superdeploy-monitoring-network
+    published_ports:
+      - "9090:9090"
+    labels:
+      service: "prometheus"
+      type: "monitoring"
+  tags:
+    - monitoring
+    - prometheus
+    - deploy
+
+- name: Deploy Grafana container
+  docker_container:
+    name: superdeploy-grafana
+    image: "grafana/grafana:{{ grafana_version | default('latest') }}"
+    state: started
+    restart_policy: unless-stopped
+    env:
+      GF_SECURITY_ADMIN_USER: "{{ grafana_admin_user | default('admin') }}"
+      GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_DEFAULT_THEME: "dark"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ORG_NAME: "SuperDeploy"
+      GF_ORG_ROLE: "Viewer"
+      GF_PATHS_PROVISIONING: "/etc/grafana/provisioning"
+    volumes:
+      - "superdeploy-grafana-data:/var/lib/grafana"
+      - "/opt/superdeploy/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro"
+      - "/opt/superdeploy/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro"
+    networks:
+      - name: superdeploy-monitoring-network
+    published_ports:
+      - "3000:3000"
+    labels:
+      service: "grafana"
+      type: "monitoring"
+  tags:
+    - monitoring
+    - grafana
+    - deploy
+
+# =============================================================================
+# Health Checks
+# =============================================================================
+
+- name: Wait for Prometheus to be ready
+  uri:
+    url: "http://localhost:9090/-/healthy"
+    status_code: 200
+  register: prometheus_health
+  until: prometheus_health.status == 200
+  retries: 10
+  delay: 3
+  tags:
+    - monitoring
+    - prometheus
+    - healthcheck
+
+- name: Wait for Grafana to be ready
+  uri:
+    url: "http://localhost:3000/api/health"
+    status_code: 200
+  register: grafana_health
+  until: grafana_health.status == 200
+  retries: 10
+  delay: 3
+  tags:
+    - monitoring
+    - grafana
+    - healthcheck
+
+# =============================================================================
+# Display Status
+# =============================================================================
+
+- name: Display monitoring URLs
+  debug:
+    msg:
+      - "✅ Shared monitoring deployed successfully"
+      - "Grafana URL: http://{{ ansible_host }}:3000"
+      - "Prometheus URL: http://{{ ansible_host }}:9090"
+      - "Grafana Admin User: {{ grafana_admin_user | default('admin') }}"
+      - "Monitored Projects: {{ monitored_projects | map(attribute='project') | join(', ') if monitored_projects is defined else 'None' }}"
+  tags:
+    - monitoring
+    - info

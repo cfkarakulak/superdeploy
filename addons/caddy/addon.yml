@@ -1,0 +1,86 @@
+# Caddy Addon Metadata
+name: caddy
+description: Caddy reverse proxy with automatic HTTPS
+version: "2-alpine"
+category: proxy
+
+# Environment variables this addon provides
+env_vars:
+  - name: CADDY_DOMAIN
+    description: Primary domain for the project
+    default: "${PROJECT}.example.com"
+    required: true
+    secret: false
+    
+  - name: CADDY_EMAIL
+    description: Email for Let's Encrypt certificate notifications
+    default: "admin@example.com"
+    required: true
+    secret: false
+    
+  - name: CADDY_HTTP_PORT
+    description: HTTP port for Caddy
+    default: "80"
+    required: true
+    secret: false
+    
+  - name: CADDY_HTTPS_PORT
+    description: HTTPS port for Caddy
+    default: "443"
+    required: true
+    secret: false
+    
+  - name: CADDY_ADMIN_PORT
+    description: Caddy admin API port
+    default: "2019"
+    required: false
+    secret: false
+    
+  - name: CADDY_TLS_MODE
+    description: TLS mode (auto, internal, off)
+    default: "auto"
+    required: true
+    secret: false
+
+# Docker compose configuration
+compose:
+  volumes:
+    - caddy-data
+    - caddy-config
+  ports:
+    - "80:80"
+    - "443:443"
+    - "2019:2019"
+  networks:
+    - project-network
+  expose:
+    - "80"
+    - "443"
+    - "2019"
+
+# Resource requirements
+resources:
+  memory: 128M
+  cpu: 0.1
+  disk: 1G
+
+# Health check
+healthcheck:
+  command: "wget --no-verbose --tries=1 --spider http://localhost:2019/config/ || exit 1"
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 10s
+
+# Dependencies (other addons required)
+requires: []
+
+# Conflicts (cannot coexist with)
+conflicts:
+  - nginx
+
+# Tags for monitoring
+monitoring:
+  enabled: true
+  metrics_port: 2019
+  dashboard: caddy-overview.json

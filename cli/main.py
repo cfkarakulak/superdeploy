@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.commands import (
     init,
+    generate,
     up,
     sync,
     sync_infra,
@@ -70,6 +71,7 @@ def cli(ctx):
 
 # Register commands
 cli.add_command(init.init)
+cli.add_command(generate.generate)
 cli.add_command(up.up)
 cli.add_command(down.down)
 cli.add_command(sync.sync)

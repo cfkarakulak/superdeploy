@@ -10,8 +10,10 @@ from cli.utils import (
     load_env,
     run_command,
     get_project_root,
+    get_project_path,
     validate_env_vars,
 )
+from cli.ansible_utils import parse_project_config, build_ansible_command
 
 console = Console()
 
@@ -203,8 +205,13 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
     if not check_prerequisites():
         raise SystemExit(1)
 
-    env = load_env()
     project_root = get_project_root()
+
+    # Load project config using shared utility
+    project_config = parse_project_config(project, project_root)
+    console.print("[dim]✓ Loaded project config[/dim]")
+
+    env = load_env()
 
     # Validate required vars
     required = ["GCP_PROJECT_ID", "GCP_REGION", "SSH_KEY_PATH"]
@@ -262,36 +269,59 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync):
 
         ansible_dir = project_root / "shared" / "ansible"
 
-        ansible_cmd = f"""
-cd {ansible_dir} && \
-SUPERDEPLOY_ROOT={project_root} ansible-playbook -i inventories/dev.ini playbooks/site.yml --tags system-base,infrastructure,git-server \
-  -e "core_external_ip={env["CORE_EXTERNAL_IP"]}" \
-  -e "core_internal_ip={env["CORE_INTERNAL_IP"]}" \
-  -e "scrape_external_ip={env.get("SCRAPE_EXTERNAL_IP", "")}" \
-  -e "scrape_internal_ip={env.get("SCRAPE_INTERNAL_IP", "")}" \
-  -e "proxy_external_ip={env.get("PROXY_EXTERNAL_IP", "")}" \
-  -e "proxy_internal_ip={env.get("PROXY_INTERNAL_IP", "")}" \
-  -e "FORGEJO_ADMIN_USER={env["FORGEJO_ADMIN_USER"]}" \
-  -e "FORGEJO_ADMIN_PASSWORD={env["FORGEJO_ADMIN_PASSWORD"]}" \
-  -e "FORGEJO_ADMIN_EMAIL={env["FORGEJO_ADMIN_EMAIL"]}" \
-  -e "FORGEJO_ORG={env["FORGEJO_ORG"]}" \
-  -e "REPO_SUPERDEPLOY={env["REPO_SUPERDEPLOY"]}" \
-  -e "forgejo_admin_user={env["FORGEJO_ADMIN_USER"]}" \
-  -e "forgejo_admin_password={env["FORGEJO_ADMIN_PASSWORD"]}" \
-  -e "forgejo_admin_email={env["FORGEJO_ADMIN_EMAIL"]}" \
-  -e "forgejo_org={env["FORGEJO_ORG"]}" \
-  -e "forgejo_db_name=forgejo" \
-  -e "forgejo_db_user=forgejo" \
-  -e "forgejo_db_password={env["FORGEJO_DB_PASSWORD"]}" \
-  -e "GRAFANA_ADMIN_USER={env["GRAFANA_ADMIN_USER"]}" \
-  -e "GRAFANA_ADMIN_PASSWORD={env["GRAFANA_ADMIN_PASSWORD"]}" \
-  -e "SMTP_USERNAME={env.get("SMTP_USERNAME", "")}" \
-  -e "SMTP_PASSWORD={env.get("SMTP_PASSWORD", "")}" \
-  -e "ALERT_EMAIL={env.get("ALERT_EMAIL", "")}" \
-  -e "DOCKER_USERNAME={env.get("DOCKER_USERNAME", "")}" \
-  -e "DOCKER_TOKEN={env.get("DOCKER_TOKEN", "")}" \
-  -e "project_name={project}"
-"""
+        # Prepare environment variables for Ansible
+        # Get values from project config (NO HARDCODING!)
+        forgejo_config = project_config.get("infrastructure", {}).get("forgejo", {})
+        forgejo_org = forgejo_config.get("org", "")
+        forgejo_admin_user = forgejo_config.get("admin_user", "admin")
+        forgejo_admin_email = forgejo_config.get("admin_email", f"admin@{project}.local")
+        
+        # Load generated passwords from .passwords.yml
+        project_path = get_project_path(project)
+        passwords_file = project_path / ".passwords.yml"
+        generated_passwords = {}
+        
+        if passwords_file.exists():
+            import yaml
+            with open(passwords_file) as f:
+                passwords_data = yaml.safe_load(f)
+                if passwords_data and "passwords" in passwords_data:
+                    # Flatten the nested structure
+                    for addon_name, addon_passwords in passwords_data["passwords"].items():
+                        for var_name, var_data in addon_passwords.items():
+                            if isinstance(var_data, dict):
+                                generated_passwords[var_name] = var_data.get("value", "")
+                            else:
+                                generated_passwords[var_name] = var_data
+        
+        ansible_env_vars = {
+            "core_external_ip": env["CORE_EXTERNAL_IP"],
+            "core_internal_ip": env["CORE_INTERNAL_IP"],
+            "FORGEJO_ADMIN_USER": forgejo_admin_user,
+            "FORGEJO_ADMIN_PASSWORD": generated_passwords.get("FORGEJO_ADMIN_PASSWORD", ""),
+            "FORGEJO_ADMIN_EMAIL": forgejo_admin_email,
+            "FORGEJO_ORG": forgejo_org,
+            "REPO_SUPERDEPLOY": env.get("REPO_SUPERDEPLOY", "superdeploy"),
+            "forgejo_admin_user": forgejo_admin_user,
+            "forgejo_admin_password": generated_passwords.get("FORGEJO_ADMIN_PASSWORD", ""),
+            "forgejo_admin_email": forgejo_admin_email,
+            "forgejo_org": forgejo_org,
+            "forgejo_db_name": forgejo_config.get("db_name", "forgejo"),
+            "forgejo_db_user": forgejo_config.get("db_user", "forgejo"),
+            "forgejo_db_password": generated_passwords.get("FORGEJO_DB_PASSWORD", ""),
+            "DOCKER_USERNAME": env.get("DOCKER_USERNAME", ""),
+            "DOCKER_TOKEN": env.get("DOCKER_TOKEN", ""),
+            "superdeploy_root": str(project_root),
+        }
+
+        # Build Ansible command using shared utility
+        ansible_cmd = build_ansible_command(
+            ansible_dir=ansible_dir,
+            project_root=project_root,
+            project_config=project_config,
+            env_vars=ansible_env_vars,
+            tags="foundation,addons,project",
+        )
 
         run_command(ansible_cmd)
         console.print("[green]✅ Services configured![/green]")
@@ -415,11 +445,9 @@ SUPERDEPLOY_ROOT={project_root} ansible-playbook -i inventories/dev.ini playbook
 
     # Auto-sync GitHub secrets (unless --skip-sync flag)
     if not skip_sync:
-        console.print(
-            "\n[bold cyan]🔄 Starting async GitHub secrets sync...[/bold cyan]"
-        )
+        console.print("\n[bold cyan]🔄 Syncing GitHub secrets...[/bold cyan]")
 
-        # Run sync in background (async)
+        # Run sync synchronously
         try:
             sync_cmd = [
                 "superdeploy",
@@ -428,33 +456,23 @@ SUPERDEPLOY_ROOT={project_root} ansible-playbook -i inventories/dev.ini playbook
                 project,
             ]
 
-            # Start sync process in background
-            import threading
-            
-            def run_sync():
-                try:
-                    result = subprocess.run(
-                        sync_cmd, 
-                        capture_output=True, 
-                        text=True, 
-                        timeout=300,
-                        input="y\n"  # Auto-confirm
-                    )
-                    if result.returncode == 0:
-                        console.print("[green]✅ GitHub secrets synced in background![/green]")
-                    else:
-                        console.print("[yellow]⚠️  Sync had issues (run manually if needed)[/yellow]")
-                except Exception as e:
-                    console.print(f"[yellow]⚠️  Background sync failed: {e}[/yellow]")
-            
-            sync_thread = threading.Thread(target=run_sync, daemon=True)
-            sync_thread.start()
-            
-            console.print("[dim]Sync running in background... (check logs above when complete)[/dim]")
-            console.print(f"[dim]Or run manually: superdeploy sync -p {project}[/dim]")
-            
+            result = subprocess.run(
+                sync_cmd,
+                cwd=project_root,
+            )
+
+            if result.returncode == 0:
+                console.print("[green]✅ GitHub secrets synced![/green]")
+            else:
+                console.print(
+                    "[yellow]⚠️  Sync had issues (check output above)[/yellow]"
+                )
+                console.print(
+                    f"[dim]Or run manually: superdeploy sync -p {project}[/dim]"
+                )
+
         except Exception as e:
-            console.print(f"[yellow]⚠️  Could not start sync: {e}[/yellow]")
+            console.print(f"[yellow]⚠️  Sync failed: {e}[/yellow]")
             console.print(
                 f"[dim]Run 'superdeploy sync -p {project}' manually to update GitHub secrets[/dim]"
             )

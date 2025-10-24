@@ -3,47 +3,102 @@
 # Run with: ansible-playbook -i inventories/dev.ini playbooks/site.yml
 #
 # Tag usage:
-#   --tags system-base       : Setup base system (docker, firewall, swap, etc)
-#   --tags app-deployment    : Deploy application services (API, DB, Queue, etc)
-#   --tags git-server        : Deploy Forgejo Git server
-#   No tags                  : Full deployment
+#   --tags system           : Setup base system (packages, users, directories)
+#   --tags docker           : Install and configure Docker
+#   --tags security         : Configure firewall and security hardening
+#   --tags monitoring-agent : Install system monitoring agents
+#   --tags addons           : Deploy infrastructure addons (Forgejo, databases, etc)
+#   --tags project          : Deploy project applications
+#   No tags                 : Full deployment
 
-- name: Setup Base System Infrastructure
+# ============================================================================
+# PHASE 1: System Foundation
+# ============================================================================
+
+- name: Setup Base System
   hosts: core
   become: yes
   roles:
-    - role: system-base
+    - role: system/base
   tags:
+    - system
     - system-base
-    - full-core
+    - foundation
 
-- name: Apply Security Hardening
-  hosts: all
+- name: Install and Configure Docker
+  hosts: core
   become: yes
   roles:
-    - role: hardening
-      when: lookup('env', 'ENABLE_HARDENING') | default('false') == 'true'
+    - role: system/docker
   tags:
-    - hardening
+    - system
+    - docker
+    - foundation
+
+- name: Configure Security and Firewall
+  hosts: core
+  become: yes
+  roles:
+    - role: system/security
+  tags:
+    - system
     - security
-    - full-core
+    - firewall
+    - foundation
 
-- name: Deploy Infrastructure (Shared + Projects)
+- name: Install System Monitoring Agent
   hosts: core
   become: yes
   roles:
-    - role: infrastructure
+    - role: system/monitoring-agent
   tags:
+    - system
+    - monitoring-agent
+    - foundation
+
+# ============================================================================
+# PHASE 2: Addon Deployment
+# ============================================================================
+
+- name: Deploy Infrastructure Addons
+  hosts: core
+  become: yes
+  roles:
+    - role: orchestration/addon-deployer
+      vars:
+        project_name: "{{ project_name }}"
+        project_config: "{{ project_config }}"
+        addons_base_path: "/opt/superdeploy/projects/{{ project_name }}/addons"
+        enabled_addons: "{{ project_config.addons.keys() | list if project_config.addons is defined else [] }}"
+        addon_configs: "{{ project_config.addons | default({}) }}"
+        project_secrets: "{{ project_secrets | default({}) }}"
+  tags:
+    - addons
     - infrastructure
-    - full-core
 
-- name: Deploy Git Server (Forgejo)
+# ============================================================================
+# PHASE 3: Project Deployment
+# ============================================================================
+
+- name: Deploy Project Applications
   hosts: core
   become: yes
   roles:
-    - role: git-server
+    - role: orchestration/project-deployer
+      vars:
+        project_name: "{{ project_name }}"
+        project_config: "{{ project_config }}"
+        project_base_path: "/opt/superdeploy/projects/{{ project_name }}"
+        apps: "{{ project_config.apps | default({}) }}"
+        network_subnet: "{{ project_config.network.subnet | default('172.20.0.0/24') }}"
+        monitoring_enabled: "{{ project_config.monitoring.enabled | default(false) }}"
   tags:
-    - git-server
+    - project
+    - applications
+
+# ============================================================================
+# PHASE 4: Verification
+# ============================================================================
 
 - name: Verify deployment
   hosts: all

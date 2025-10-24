@@ -1,0 +1,79 @@
+# MongoDB Addon Metadata
+name: mongodb
+description: MongoDB NoSQL document database
+version: "7.0"
+category: database
+
+# Environment variables this addon provides
+env_vars:
+  - name: MONGODB_HOST
+    description: MongoDB hostname
+    default: "${CORE_INTERNAL_IP}"
+    required: true
+    secret: false
+    
+  - name: MONGODB_PORT
+    description: MongoDB port
+    default: "27017"
+    required: true
+    secret: false
+    
+  - name: MONGODB_USERNAME
+    description: Database username
+    default: "${PROJECT}_user"
+    required: true
+    secret: false
+    
+  - name: MONGODB_PASSWORD
+    description: Database password
+    required: true
+    secret: true
+    generate: true
+    
+  - name: MONGODB_DATABASE
+    description: Database name
+    default: "${PROJECT}_db"
+    required: true
+    secret: false
+    
+  - name: MONGODB_ROOT_PASSWORD
+    description: Root password for MongoDB admin
+    required: true
+    secret: true
+    generate: true
+
+# Docker compose configuration
+compose:
+  volumes:
+    - mongodb-data
+  ports: []
+  networks:
+    - project-network
+  expose:
+    - "27017"
+
+# Resource requirements
+resources:
+  memory: 512M
+  cpu: 0.5
+  disk: 10G
+
+# Health check
+healthcheck:
+  command: "mongosh --eval 'db.runCommand({ ping: 1 })' --quiet"
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+
+# Dependencies (other addons required)
+requires: []
+
+# Conflicts (cannot coexist with)
+conflicts: []
+
+# Tags for monitoring
+monitoring:
+  enabled: true
+  metrics_port: 9216
+  dashboard: mongodb-overview.json

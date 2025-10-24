@@ -1,0 +1,26 @@
+---
+# Default variables for addon-deployer role
+
+# Base path where addons are located (source)
+addons_source_path: "{{ playbook_dir }}/../../../addons"
+
+# Base path where addon data will be deployed (target)
+addons_base_path: "/opt/superdeploy/projects/{{ project_name }}/addons"
+
+# User and group for file ownership
+superdeploy_user: "superdeploy"
+superdeploy_group: "superdeploy"
+
+# List of enabled addons (empty by default, should be provided by project config)
+enabled_addons: []
+
+# Addon configuration from project.yml (should be provided)
+addon_configs: {}
+
+# Project secrets (should be provided from .passwords.yml)
+project_secrets: {}
+
+# Timeout for health checks (seconds)
+addon_health_check_timeout: 300
+addon_health_check_retries: 30
+addon_health_check_delay: 10

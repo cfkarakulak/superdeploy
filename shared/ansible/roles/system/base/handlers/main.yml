@@ -1,0 +1,12 @@
+---
+# Handlers for system/base role
+
+- name: Restart chrony
+  systemd:
+    name: chrony
+    state: restarted
+
+- name: Restart postfix
+  systemd:
+    name: postfix
+    state: restarted

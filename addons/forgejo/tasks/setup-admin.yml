@@ -1,0 +1,105 @@
+---
+# Forgejo Admin Setup Tasks
+# Creates admin user and organization/repository using Forgejo API
+
+- name: Wait for Forgejo API to be fully ready
+  uri:
+    url: "http://localhost:{{ FORGEJO_PORT }}/api/v1/version"
+    status_code: 200
+    timeout: 5
+  register: api_check
+  until: api_check.status == 200
+  retries: 20
+  delay: 3
+
+- name: Create admin user via Forgejo CLI
+  shell: |
+    docker exec -u 1000:1000 {{ project_name }}-forgejo \
+      forgejo admin user create \
+      --username "{{ FORGEJO_ADMIN_USER }}" \
+      --password "{{ FORGEJO_ADMIN_PASSWORD }}" \
+      --email "{{ FORGEJO_ADMIN_EMAIL }}" \
+      --admin \
+      --must-change-password=false
+  register: admin_create_result
+  failed_when: 
+    - admin_create_result.rc != 0
+    - "'already exists' not in admin_create_result.stderr"
+    - "'is reserved' not in admin_create_result.stderr"
+  changed_when: 
+    - admin_create_result.rc == 0
+    - "'already exists' not in admin_create_result.stderr"
+
+- name: Display admin user creation result
+  debug:
+    msg: "Admin user '{{ FORGEJO_ADMIN_USER }}' {{ 'created successfully' if admin_create_result.changed else 'already exists' }}"
+
+- name: Create organization
+  uri:
+    url: "http://localhost:{{ FORGEJO_PORT }}/api/v1/orgs"
+    method: POST
+    user: "{{ FORGEJO_ADMIN_USER }}"
+    password: "{{ FORGEJO_ADMIN_PASSWORD }}"
+    force_basic_auth: yes
+    body_format: json
+    body:
+      username: "{{ FORGEJO_ORG }}"
+      full_name: "{{ FORGEJO_ORG }}"
+      description: "Organization for {{ project_name }} project"
+      visibility: "private"
+    status_code: [201, 422]
+    timeout: 10
+  register: org_create_result
+  failed_when: false
+
+- name: Display organization creation result
+  debug:
+    msg: "Organization '{{ FORGEJO_ORG }}' {{ 'created successfully' if org_create_result.status == 201 else 'already exists' }}"
+
+- name: Create repository in organization
+  uri:
+    url: "http://localhost:{{ FORGEJO_PORT }}/api/v1/org/{{ FORGEJO_ORG }}/repos"
+    method: POST
+    user: "{{ FORGEJO_ADMIN_USER }}"
+    password: "{{ FORGEJO_ADMIN_PASSWORD }}"
+    force_basic_auth: yes
+    body_format: json
+    body:
+      name: "{{ FORGEJO_REPO }}"
+      description: "Repository for {{ project_name }} project"
+      private: true
+      auto_init: true
+      default_branch: "main"
+    status_code: [201, 409, 422]
+    timeout: 10
+  register: repo_create_result
+  failed_when: false
+
+- name: Display repository creation result
+  debug:
+    msg: "Repository '{{ FORGEJO_ORG }}/{{ FORGEJO_REPO }}' {{ 'created successfully' if repo_create_result.status == 201 else 'already exists' }}"
+
+- name: Enable Actions for repository
+  uri:
+    url: "http://localhost:{{ FORGEJO_PORT }}/api/v1/repos/{{ FORGEJO_ORG }}/{{ FORGEJO_REPO }}"
+    method: PATCH
+    user: "{{ FORGEJO_ADMIN_USER }}"
+    password: "{{ FORGEJO_ADMIN_PASSWORD }}"
+    force_basic_auth: yes
+    body_format: json
+    body:
+      has_actions: true
+    status_code: [200, 422]
+    timeout: 10
+  register: actions_enable_result
+  failed_when: false
+
+- name: Display Forgejo setup summary
+  debug:
+    msg:
+      - "Forgejo setup completed successfully!"
+      - "Admin User: {{ FORGEJO_ADMIN_USER }}"
+      - "Organization: {{ FORGEJO_ORG }}"
+      - "Repository: {{ FORGEJO_ORG }}/{{ FORGEJO_REPO }}"
+      - "Web URL: http://{{ FORGEJO_DOMAIN }}:{{ FORGEJO_PORT }}"
+      - "Git Clone: http://{{ FORGEJO_DOMAIN }}:{{ FORGEJO_PORT }}/{{ FORGEJO_ORG }}/{{ FORGEJO_REPO }}.git"

@@ -1,0 +1,153 @@
+---
+# UFW Firewall Configuration
+
+- name: Reset UFW to defaults
+  ufw:
+    state: reset
+
+- name: Set UFW default policies
+  ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: 'incoming', policy: 'deny' }
+    - { direction: 'outgoing', policy: 'allow' }
+
+- name: Allow SSH (rate-limited)
+  ufw:
+    rule: limit
+    port: '22'
+    proto: tcp
+    comment: 'SSH (rate-limited)'
+
+- name: Allow HTTP
+  ufw:
+    rule: allow
+    port: '80'
+    proto: tcp
+    comment: 'HTTP'
+
+- name: Allow HTTPS
+  ufw:
+    rule: allow
+    port: '443'
+    proto: tcp
+    comment: 'HTTPS'
+
+- name: Collect Forgejo port from project configuration
+  set_fact:
+    forgejo_port: "{{ project_config.infrastructure.forgejo.port | default(3001) }}"
+  when: project_config is defined and project_config.infrastructure is defined and project_config.infrastructure.forgejo is defined
+
+- name: Allow Forgejo port
+  ufw:
+    rule: allow
+    port: "{{ forgejo_port }}"
+    proto: tcp
+    comment: "Forgejo web interface"
+  when: forgejo_port is defined
+
+- name: Collect application ports from project configuration
+  set_fact:
+    app_ports: "{{ project_config.apps | dict2items | map(attribute='value.port') | list }}"
+  when: project_config is defined and project_config.apps is defined
+
+- name: Allow application ports
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    comment: "Application port"
+  loop: "{{ app_ports }}"
+  when: app_ports is defined and app_ports | length > 0
+
+- name: Collect addon ports from project configuration
+  set_fact:
+    addon_ports: []
+  when: project_config is defined
+
+- name: Add PostgreSQL port if enabled
+  set_fact:
+    addon_ports: "{{ addon_ports + [project_config.core_services.postgres.port | default(5432)] }}"
+  when: 
+    - project_config is defined
+    - project_config.core_services is defined
+    - project_config.core_services.postgres is defined
+    - project_config.core_services.postgres.port is defined
+
+- name: Add Redis port if enabled
+  set_fact:
+    addon_ports: "{{ addon_ports + [project_config.core_services.redis.port | default(6379)] }}"
+  when: 
+    - project_config is defined
+    - project_config.core_services is defined
+    - project_config.core_services.redis is defined
+    - project_config.core_services.redis.port is defined
+
+- name: Add RabbitMQ port if enabled
+  set_fact:
+    addon_ports: "{{ addon_ports + [project_config.core_services.rabbitmq.port | default(5672)] }}"
+  when: 
+    - project_config is defined
+    - project_config.core_services is defined
+    - project_config.core_services.rabbitmq is defined
+    - project_config.core_services.rabbitmq.port is defined
+
+- name: Add RabbitMQ management port if enabled
+  set_fact:
+    addon_ports: "{{ addon_ports + [project_config.core_services.rabbitmq.management_port | default(15672)] }}"
+  when: 
+    - project_config is defined
+    - project_config.core_services is defined
+    - project_config.core_services.rabbitmq is defined
+    - project_config.core_services.rabbitmq.management_port is defined
+
+- name: Add MongoDB port if enabled
+  set_fact:
+    addon_ports: "{{ addon_ports + [project_config.core_services.mongodb.port | default(27017)] }}"
+  when: 
+    - project_config is defined
+    - project_config.core_services is defined
+    - project_config.core_services.mongodb is defined
+    - project_config.core_services.mongodb.port is defined
+
+- name: Add Prometheus port if monitoring enabled
+  set_fact:
+    addon_ports: "{{ addon_ports + [project_config.monitoring.prometheus_port | default(9090)] }}"
+  when: 
+    - project_config is defined
+    - project_config.monitoring is defined
+    - project_config.monitoring.enabled | default(false) | bool
+    - project_config.monitoring.prometheus_port is defined
+
+- name: Add Grafana port if monitoring enabled
+  set_fact:
+    addon_ports: "{{ addon_ports + [project_config.monitoring.grafana_port | default(3000)] }}"
+  when: 
+    - project_config is defined
+    - project_config.monitoring is defined
+    - project_config.monitoring.enabled | default(false) | bool
+    - project_config.monitoring.grafana_port is defined
+
+- name: Allow addon ports
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    comment: "Addon service port"
+  loop: "{{ addon_ports }}"
+  when: addon_ports is defined and addon_ports | length > 0
+
+- name: Allow additional ports from configuration
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    comment: "Additional port from configuration"
+  loop: "{{ firewall_additional_ports }}"
+  when: firewall_additional_ports is defined and firewall_additional_ports | length > 0
+
+- name: Enable UFW
+  ufw:
+    state: enabled
+    policy: deny

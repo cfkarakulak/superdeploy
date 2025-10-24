@@ -416,10 +416,14 @@ def sync(project, skip_forgejo, skip_github, env_file):
     # Load project config
     import yaml
 
-    config_file = project_path / "config.yml"
+    # Try project.yml first (new format), fallback to config.yml (old format)
+    config_file = project_path / "project.yml"
     if not config_file.exists():
-        console.print(f"[red]✗[/red] Project config not found: {config_file}")
-        console.print(f"[yellow]Create config.yml for project '{project}'[/yellow]")
+        config_file = project_path / "config.yml"
+    
+    if not config_file.exists():
+        console.print(f"[red]✗[/red] Project config not found: {project_path}/project.yml")
+        console.print(f"[yellow]Create project.yml for project '{project}'[/yellow]")
         raise SystemExit(1)
 
     with open(config_file) as f:

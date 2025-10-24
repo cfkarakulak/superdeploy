@@ -5,7 +5,8 @@ import click
 import subprocess
 from rich.console import Console
 from rich.panel import Panel
-from cli.utils import load_env, ssh_command, validate_env_vars
+from cli.utils import load_env, ssh_command, validate_env_vars, get_project_root
+from cli.ansible_utils import parse_project_config
 
 console = Console()
 
@@ -109,30 +110,26 @@ def sync_infra(project):
         "GITHUB_ORG",
     ]
 
-    missing = validate_env_vars(env, required)
-    if missing:
-        console.print(f"[red]❌ Missing env vars: {', '.join(missing)}[/red]")
+    if not validate_env_vars(env, required):
         raise SystemExit(1)
 
-    # Get GitHub org and repos
-    github_org = env.get("GITHUB_ORG", f"{project}io")
-
-    # Determine which repos to sync to
-    # Read from project config if exists (local)
-    from cli.utils import get_project_root
-    import yaml
-
+    # Get GitHub org and repos from project config
     project_root = get_project_root()
-    project_dir = project_root / "projects" / project
-    project_config = project_dir / "config.yml"
-    services = ["api", "dashboard", "services"]  # Default
 
-    if project_config.exists():
-        try:
-            config = yaml.safe_load(project_config.read_text())
-            services = config.get("services", services)
-        except:
-            pass
+    # Parse project configuration
+    try:
+        project_config = parse_project_config(project, project_root)
+        github_org = project_config.get("github", {}).get(
+            "organization", f"{project}io"
+        )
+        # Get service names from apps configuration
+        services = list(project_config.get("apps", {}).keys())
+        if not services:
+            services = ["api", "dashboard", "services"]  # Default fallback
+    except SystemExit:
+        # If project config doesn't exist, use defaults
+        github_org = env.get("GITHUB_ORG", f"{project}io")
+        services = ["api", "dashboard", "services"]
 
     console.print("\n[cyan]📦 Target repositories:[/cyan]")
     for service in services:
@@ -166,7 +163,7 @@ def sync_infra(project):
         "DOCKER_USERNAME": env["DOCKER_USERNAME"],
         "DOCKER_TOKEN": env["DOCKER_TOKEN"],
         "PROJECT": project,
-        "FORGEJO_ORG": env.get("FORGEJO_ORG", "cradexco"),
+        "FORGEJO_ORG": env.get("FORGEJO_ORG"),
         "FORGEJO_REPO": env.get("REPO_SUPERDEPLOY", "superdeploy"),
     }
 

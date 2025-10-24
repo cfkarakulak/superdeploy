@@ -1,0 +1,114 @@
+---
+# Deploy application services from project.yml apps section
+
+- name: Validate apps configuration
+  assert:
+    that:
+      - apps is defined
+      - apps is mapping
+    fail_msg: |
+      [PROJECT-DEPLOYER] ERROR: Invalid apps configuration
+        - Expected: apps to be defined as a dictionary
+        - Found: apps={{ apps | default('undefined') }}
+        - Fix: Ensure project.yml contains an 'apps' section with application definitions
+    quiet: true
+
+- name: Display applications to deploy
+  debug:
+    msg: "Deploying {{ apps | length }} application(s): {{ apps.keys() | list | join(', ') }}"
+  when: apps | length > 0
+
+- name: Skip deployment if no apps defined
+  debug:
+    msg: "No applications defined in project configuration, skipping app deployment"
+  when: apps | length == 0
+
+- name: Create Docker network for project
+  docker_network:
+    name: "{{ network_name }}"
+    driver: bridge
+    ipam_config:
+      - subnet: "{{ network_subnet }}"
+    state: present
+  become_user: "{{ superdeploy_user }}"
+  when: apps | length > 0
+
+- name: Generate docker-compose file for applications
+  template:
+    src: "docker-compose.apps.yml.j2"
+    dest: "{{ project_base_path }}/compose/docker-compose.apps.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0644'
+  when: apps | length > 0
+
+- name: Create application environment files
+  template:
+    src: "app.env.j2"
+    dest: "{{ project_base_path }}/data/{{ item.key }}/.env"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0600'
+  loop: "{{ apps | dict2items }}"
+  when: apps | length > 0
+
+- name: Pull application images
+  docker_compose:
+    project_src: "{{ project_base_path }}/compose"
+    project_name: "{{ compose_project_name }}"
+    files:
+      - docker-compose.apps.yml
+    pull: true
+    state: present
+  become_user: "{{ superdeploy_user }}"
+  when: apps | length > 0
+  register: pull_result
+  ignore_errors: true
+
+- name: Display pull result
+  debug:
+    msg: "Application images pulled successfully"
+    verbosity: 1
+  when: 
+    - apps | length > 0
+    - pull_result is succeeded
+
+- name: Start application services
+  docker_compose:
+    project_src: "{{ project_base_path }}/compose"
+    project_name: "{{ compose_project_name }}"
+    files:
+      - docker-compose.apps.yml
+    state: present
+    restarted: true
+  become_user: "{{ superdeploy_user }}"
+  when: apps | length > 0
+  register: deploy_result
+
+- name: Display deployment result
+  debug:
+    msg: "Applications deployed successfully: {{ apps.keys() | list | join(', ') }}"
+  when: 
+    - apps | length > 0
+    - deploy_result is succeeded
+
+- name: Wait for application services to be healthy
+  uri:
+    url: "http://localhost:{{ item.value.port }}/health"
+    status_code: 200
+    timeout: 5
+  register: health_check
+  until: health_check.status == 200
+  retries: 10
+  delay: 5
+  loop: "{{ apps | dict2items }}"
+  when: 
+    - apps | length > 0
+    - item.value.port is defined
+  ignore_errors: true
+
+- name: Display health check results
+  debug:
+    msg: "Health checks completed for applications"
+    verbosity: 1
+  when: apps | length > 0

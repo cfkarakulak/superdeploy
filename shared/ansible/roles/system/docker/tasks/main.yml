@@ -1,0 +1,65 @@
+---
+# Docker installation and configuration
+
+- name: Validate Docker configuration variables
+  assert:
+    that:
+      - docker_log_driver is defined
+      - docker_log_max_size is defined
+      - docker_log_max_file is defined
+      - docker_storage_driver is defined
+      - docker_userland_proxy is defined
+      - docker_users is defined
+      - docker_users | length > 0
+    fail_msg: |
+      [system/docker] ERROR: Missing required Docker configuration variables
+        - Expected: docker_log_driver, docker_log_max_size, docker_log_max_file, docker_storage_driver, docker_userland_proxy, docker_users
+        - Found: Variables are not properly defined
+        - Fix: Ensure all Docker configuration variables are set in defaults/main.yml or host vars
+        - Docs: See shared/ansible/roles/system/docker/defaults/main.yml for required variables
+
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/debian/gpg
+    state: present
+
+- name: Add Docker repository
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+    state: present
+
+- name: Install Docker packages
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+    update_cache: yes
+  retries: 5
+  delay: 10
+  register: docker_install
+  until: docker_install is success
+
+- name: Configure Docker daemon
+  template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart-docker
+
+- name: Start and enable Docker service
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: Add users to docker group
+  user:
+    name: "{{ item }}"
+    groups: docker
+    append: yes
+  loop: "{{ docker_users }}"

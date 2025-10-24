@@ -201,6 +201,36 @@ superdeploy --version
 superdeploy init -p myproject
 ```
 
+### **Init Komutu Ne Yapar?**
+
+`init` komutu, yeni bir proje için gerekli tüm konfigürasyon dosyalarını ve yapılandırmayı oluşturur:
+
+**1. Proje Yapısı Oluşturulur:**
+```bash
+projects/myproject/
+├── project.yml              # Proje konfigürasyonu
+├── .passwords.yml           # Otomatik oluşturulan güvenli şifreler
+└── compose/                 # Docker Compose dosyaları (up sonrası)
+```
+
+**2. Güvenli Şifreler Oluşturulur:**
+- Her servis için benzersiz, 32 karakterlik güvenli şifreler
+- Kriptografik olarak güvenli rastgele üretim
+- `projects/myproject/.passwords.yml` dosyasına kaydedilir
+
+**3. Proje Konfigürasyonu (project.yml):**
+- VM konfigürasyonu (core services)
+- Addon tanımları (Forgejo, PostgreSQL, Redis, RabbitMQ, vb.)
+- Uygulama servisleri (api, dashboard, services)
+- Network ayarları
+- Monitoring konfigürasyonu
+
+**4. .env.superdeploy Dosyaları Oluşturulur:**
+- Her uygulama repository'si için ayrı dosya
+- Infrastructure bağlantı bilgileri (DB, Queue, Cache)
+- Otomatik oluşturulan şifreler dahil edilir
+- Yerel `.env` dosyaları **ASLA değiştirilmez**
+
 ### **Interactive Sorular:**
 
 ```
@@ -224,38 +254,68 @@ Domain (optional):
 
 ### **Sonuç:**
 
-✅ `/opt/apps/myproject/` klasörü oluşturuldu  
-✅ Docker Compose dosyaları generate edildi  
+✅ `projects/myproject/` klasörü oluşturuldu  
+✅ `project.yml` konfigürasyon dosyası hazırlandı  
 ✅ Güvenli şifreler oluşturuldu (`.passwords.yml`)  
-✅ GitHub secret komutları gösterildi
+✅ `.env.superdeploy` dosyaları her uygulama için oluşturuldu  
+✅ Sistem deployment için hazır
+
+**Önemli:** `init` komutu sadece konfigürasyon dosyalarını oluşturur. Infrastructure'ı deploy etmek için `superdeploy up` komutunu kullanmalısın.
 
 ---
 
-## 🔐 Adım 8: GitHub Secrets Ekle
+## 🔐 Adım 8: .env.superdeploy Dosyalarını Oluştur
 
-`superdeploy init` sonunda gösterilen komutları çalıştır:
+`superdeploy init` komutu, her uygulama repository'si için `.env.superdeploy` dosyalarını otomatik olarak oluşturur.
+
+### **Ne Oluşturulur?**
 
 ```bash
-# Her servis için (örnek: api)
-gh secret set POSTGRES_USER -b "myproject_user" -R myprojectio/api
-gh secret set POSTGRES_PASSWORD -b "GENERATED_PASSWORD" -R myprojectio/api
-gh secret set POSTGRES_DB -b "myproject_db" -R myprojectio/api
-gh secret set POSTGRES_HOST -b "postgres" -R myprojectio/api
-gh secret set POSTGRES_PORT -b "5432" -R myprojectio/api
-
-gh secret set RABBITMQ_USER -b "myproject_user" -R myprojectio/api
-gh secret set RABBITMQ_PASSWORD -b "GENERATED_PASSWORD" -R myprojectio/api
-gh secret set RABBITMQ_HOST -b "rabbitmq" -R myprojectio/api
-gh secret set RABBITMQ_PORT -b "5672" -R myprojectio/api
-
-gh secret set REDIS_PASSWORD -b "GENERATED_PASSWORD" -R myprojectio/api
-gh secret set REDIS_HOST -b "redis" -R myprojectio/api
-gh secret set REDIS_PORT -b "6379" -R myprojectio/api
-
-# Dashboard ve services için de tekrarla
+app-repos/
+├── api/.env.superdeploy           # API servisi için production config
+├── dashboard/.env.superdeploy     # Dashboard için production config
+└── services/.env.superdeploy      # Services için production config
 ```
 
-**Not:** Şifreler `/opt/apps/myproject/.passwords.yml` dosyasında
+### **Dosya İçeriği:**
+
+Her `.env.superdeploy` dosyası, o servisin ihtiyaç duyduğu infrastructure bağlantı bilgilerini içerir:
+
+```bash
+# PostgreSQL
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_USER=myproject_user
+POSTGRES_PASSWORD=<otomatik-oluşturulan-şifre>
+POSTGRES_DB=myproject_db
+
+# RabbitMQ
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_PORT=5672
+RABBITMQ_USER=myproject_user
+RABBITMQ_PASSWORD=<otomatik-oluşturulan-şifre>
+
+# Redis
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=<otomatik-oluşturulan-şifre>
+```
+
+### **Önemli Notlar:**
+
+⚠️ **Yerel .env Dosyaları Korunur:**
+- Mevcut `.env` dosyaları **ASLA değiştirilmez**
+- Developer'ların yerel geliştirme ortamları etkilenmez
+- `.env.superdeploy` sadece production deployment için kullanılır
+
+✅ **Otomatik Yönetim:**
+- Bu dosyalar SuperDeploy tarafından yönetilir
+- Manuel düzenleme yapma (her sync'te yeniden oluşturulur)
+- Şifreler `projects/myproject/.passwords.yml` dosyasından gelir
+
+📝 **Git İgnore:**
+- `.env.superdeploy` dosyaları `.gitignore`'a eklenmelidir
+- Production secrets asla Git'e commit edilmemelidir
 
 ---
 
@@ -284,7 +344,208 @@ superdeploy up -p myproject
 
 ---
 
-## ✅ Adım 10: İlk Deployment'ı Test Et
+## 🔄 Adım 10: Secrets'ları Senkronize Et
+
+Infrastructure deploy edildikten sonra, tüm secrets'ları GitHub ve Forgejo'ya otomatik olarak senkronize etmek için `sync` komutunu kullan.
+
+```bash
+superdeploy sync -p myproject
+```
+
+### **Sync Komutu Ne Yapar?**
+
+`sync` komutu, yerel konfigürasyon dosyalarındaki secrets'ları GitHub ve Forgejo repository'lerine dağıtır:
+
+**Kaynak Dosyalar (Öncelik Sırasına Göre):**
+1. **Kullanıcı .env dosyaları** (--env-file ile belirtilen)
+2. **Proje secrets** (`projects/myproject/.passwords.yml`)
+3. **Infrastructure secrets** (`superdeploy/.env`)
+
+**Hedef Konumlar:**
+- **GitHub Repository Secrets:** Infrastructure seviyesi secrets (FORGEJO_PAT, AGE_PUBLIC_KEY, DOCKER_TOKEN)
+- **GitHub Environment Secrets:** Runtime application secrets (POSTGRES_PASSWORD, REDIS_PASSWORD, vb.)
+- **Forgejo Repository Secrets:** GitHub Environment Secrets ile aynı (deployment workflow için)
+
+### **Merge Önceliği:**
+
+Aynı secret birden fazla kaynakta varsa, **en yüksek öncelikli kaynak kazanır**:
+- Kullanıcı tarafından sağlanan .env dosyaları (en yüksek öncelik)
+- Otomatik oluşturulan proje secrets (.passwords.yml)
+- Infrastructure secrets (en düşük öncelik)
+
+### **Örnek Kullanım:**
+
+```bash
+# Tüm secrets'ları sync et
+superdeploy sync -p myproject
+
+# Belirli bir .env dosyası ile sync et (bu değerler öncelikli olur)
+superdeploy sync -p myproject --env-file app-repos/api/.env
+
+# Sadece belirli bir repository için sync et
+superdeploy sync -p myproject --repo api
+```
+
+**Not:** Sync komutu mevcut secrets'ları günceller, silmez. Boş değerler atlanır.
+
+---
+
+## 📝 .env.superdeploy Dosyaları Hakkında
+
+SuperDeploy, uygulama repository'lerinde **iki ayrı .env dosyası** kullanır:
+
+### **1. .env (Yerel Geliştirme)**
+- Developer'ın yerel ortamı için
+- **SuperDeploy tarafından ASLA değiştirilmez**
+- Güvenle düzenleyebilirsin
+- Git'e commit edilmez (.gitignore'da)
+
+### **2. .env.superdeploy (Production Override)**
+- SuperDeploy tarafından otomatik oluşturulur
+- Production deployment için gerekli değerleri içerir
+- Infrastructure bağlantı bilgileri (DB, Queue, Cache)
+- **Manuel olarak düzenlenmemelidir** (her sync'te yeniden oluşturulur)
+
+### **Deployment Sırasında Ne Olur?**
+
+GitHub Actions deployment workflow'u sırasında:
+
+1. Her iki dosya da okunur (.env ve .env.superdeploy)
+2. Değerler birleştirilir
+3. **.env.superdeploy değerleri önceliklidir** (production değerleri kazanır)
+4. Birleştirilmiş değerler şifrelenir ve Forgejo'ya gönderilir
+5. Forgejo runner şifreyi çözer ve container'ları başlatır
+
+### **Dosya Konumları:**
+
+```
+app-repos/
+└── api/
+    ├── .env                    # Yerel dev (ASLA değiştirilmez)
+    ├── .env.superdeploy        # Production (otomatik oluşturulur)
+    └── .github/workflows/
+        └── deploy.yml          # Her iki dosyayı birleştirir
+```
+
+### **Örnek İçerik:**
+
+**.env (Yerel Geliştirme):**
+```bash
+# Developer'ın yerel PostgreSQL'i
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=dev_user
+POSTGRES_PASSWORD=dev_password
+POSTGRES_DB=myapp_dev
+
+# Yerel Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+```
+
+**.env.superdeploy (Production):**
+```bash
+# Production PostgreSQL (SuperDeploy tarafından yönetilir)
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_USER=myproject_user
+POSTGRES_PASSWORD=<otomatik-oluşturulan-güvenli-şifre>
+POSTGRES_DB=myproject_db
+
+# Production Redis
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=<otomatik-oluşturulan-güvenli-şifre>
+```
+
+**Deployment'ta Kullanılan Değerler:**
+- `POSTGRES_HOST`: `postgres` (production değeri kazanır)
+- `POSTGRES_PASSWORD`: Güvenli şifre (production değeri kazanır)
+- Diğer tüm production değerleri .env.superdeploy'dan gelir
+
+### **Neden Bu Yaklaşım?**
+
+✅ **Güvenlik:** Yerel .env'e production secrets karışmaz  
+✅ **Esneklik:** Developer yerel ortamını özgürce yapılandırabilir  
+✅ **Otomatizasyon:** Production config otomatik yönetilir  
+✅ **Hata Önleme:** Yanlışlıkla production secrets commit edilmez
+
+---
+
+## 🔐 Otomatik Oluşturulan Şifreler
+
+`superdeploy init` komutu çalıştırıldığında, tüm servisler için **güvenli, rastgele şifreler** otomatik olarak oluşturulur.
+
+### **Şifrelerin Saklandığı Yer:**
+
+```bash
+projects/myproject/.passwords.yml
+```
+
+### **Örnek İçerik:**
+
+```yaml
+passwords:
+  POSTGRES_PASSWORD: "xK9mP2nQ7vL4wR8sT3yU6zB1cD5eF0gH"
+  RABBITMQ_PASSWORD: "aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1uV"
+  REDIS_PASSWORD: "wX2yZ3aB4cD5eF6gH7iJ8kL9mN0oP1qR"
+  MONGODB_PASSWORD: "sT2uV3wX4yZ5aB6cD7eF8gH9iJ0kL1mN"
+  FORGEJO_ADMIN_PASSWORD: "oP2qR3sT4uV5wX6yZ7aB8cD9eF0gH1iJ"
+```
+
+### **Şifre Özellikleri:**
+
+- **Uzunluk:** 32 karakter
+- **Karakter Seti:** Büyük/küçük harf, rakam
+- **Güvenlik:** Kriptografik olarak güvenli rastgele üretim
+- **Benzersizlik:** Her servis için farklı şifre
+
+### **Şifreler Nereye Dağıtılır?**
+
+`superdeploy sync` komutu çalıştırıldığında:
+
+1. **GitHub Repository Secrets** → Infrastructure secrets (FORGEJO_PAT, AGE_KEY)
+2. **GitHub Environment Secrets** → Application secrets (DB, Queue, Cache şifreleri)
+3. **Forgejo Repository Secrets** → Deployment için gerekli secrets
+4. **.env.superdeploy dosyaları** → Her uygulama repository'sinde
+
+### **Şifreleri Manuel Değiştirme:**
+
+Eğer bir şifreyi değiştirmek istersen:
+
+```bash
+# 1. .passwords.yml dosyasını düzenle
+nano projects/myproject/.passwords.yml
+
+# 2. Yeni şifreyi ekle veya mevcut şifreyi değiştir
+# POSTGRES_PASSWORD: "yeni-güvenli-şifre"
+
+# 3. Secrets'ları yeniden sync et
+superdeploy sync -p myproject
+
+# 4. Servisleri yeniden başlat (yeni şifre ile)
+superdeploy restart -p myproject
+```
+
+**Önemli:** Şifre değiştirirken, hem GitHub/Forgejo secrets'larını hem de çalışan container'ları güncellemelisin.
+
+### **Şifre Güvenliği:**
+
+⚠️ **Dikkat Edilmesi Gerekenler:**
+- `.passwords.yml` dosyasını **asla Git'e commit etme**
+- Dosya izinlerini kontrol et: `chmod 600 projects/myproject/.passwords.yml`
+- Düzenli olarak şifreleri rotate et (özellikle production'da)
+- Backup'larını güvenli bir yerde sakla (şifreli)
+
+✅ **SuperDeploy Güvenlik Önlemleri:**
+- Şifreler GitHub/Forgejo'da encrypted secrets olarak saklanır
+- Deployment sırasında AGE encryption kullanılır
+- Container'lar arası iletişimde environment variable'lar kullanılır
+- Log dosyalarında şifreler maskelenir
+
+---
+
+## ✅ Adım 11: İlk Deployment'ı Test Et
 
 ```bash
 cd ../app-repos/api

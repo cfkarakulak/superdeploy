@@ -1,0 +1,73 @@
+# PostgreSQL Addon Metadata
+name: postgres
+description: PostgreSQL relational database
+version: "15-alpine"
+category: database
+
+# Environment variables this addon provides
+env_vars:
+  - name: POSTGRES_HOST
+    description: PostgreSQL hostname
+    default: "${CORE_INTERNAL_IP}"
+    required: true
+    secret: false
+    
+  - name: POSTGRES_PORT
+    description: PostgreSQL port
+    default: "5432"
+    required: true
+    secret: false
+    
+  - name: POSTGRES_USER
+    description: Database username
+    default: "${PROJECT}_user"
+    required: true
+    secret: false
+    
+  - name: POSTGRES_PASSWORD
+    description: Database password
+    required: true
+    secret: true
+    generate: true
+    
+  - name: POSTGRES_DB
+    description: Database name
+    default: "${PROJECT}_db"
+    required: true
+    secret: false
+
+# Docker compose configuration
+compose:
+  volumes:
+    - postgres-data
+  ports: []
+  networks:
+    - project-network
+  expose:
+    - "5432"
+
+# Resource requirements
+resources:
+  memory: 512M
+  cpu: 0.5
+  disk: 10G
+
+# Health check
+healthcheck:
+  command: "pg_isready -U ${POSTGRES_USER}"
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+
+# Dependencies (other addons required)
+requires: []
+
+# Conflicts (cannot coexist with)
+conflicts: []
+
+# Tags for monitoring
+monitoring:
+  enabled: true
+  metrics_port: 9187
+  dashboard: postgres-overview.json

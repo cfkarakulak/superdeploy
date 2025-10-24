@@ -1,0 +1,435 @@
+"""
+Generate deployment files from project config
+"""
+
+import click
+import yaml
+import secrets
+from pathlib import Path
+from datetime import datetime
+from rich.console import Console
+
+console = Console()
+
+
+@click.command()
+@click.option("--project", "-p", required=True, help="Project name")
+def generate(project):
+    """
+    Generate deployment files from project.yml using addon system
+
+    Example:
+        superdeploy generate -p cheapa
+    """
+    console.print(f"\n[bold cyan]🔧 Generating deployment files for: {project}[/bold cyan]")
+    console.print("━" * 40)
+
+    from cli.utils import get_project_root
+    from cli.core.addon_loader import AddonLoader, AddonNotFoundError
+    from cli.core.template_merger import TemplateMerger
+    from cli.core.validator import ValidationEngine, ValidationException
+
+    project_root = get_project_root()
+    project_dir = project_root / "projects" / project
+    config_file = project_dir / "project.yml"
+
+    # Check if config exists
+    if not config_file.exists():
+        console.print(f"[red]❌ Config not found: {config_file}[/red]")
+        console.print(f"[dim]Run: superdeploy init -p {project}[/dim]")
+        return
+
+    # Load config
+    with open(config_file) as f:
+        config = yaml.safe_load(f)
+
+    console.print(f"[dim]✓ Loaded config: {config_file}[/dim]")
+
+    # Validate config
+    if not config.get("apps"):
+        console.print("[red]❌ No apps defined in config![/red]")
+        return
+
+    # Initialize addon system
+    addons_dir = project_root / "addons"
+    addon_loader = AddonLoader(addons_dir)
+    template_merger = TemplateMerger()
+    validator = ValidationEngine(project_root / "projects")
+
+    # Load addons for this project
+    console.print("\n[dim]Loading addons...[/dim]")
+    try:
+        addons = addon_loader.load_addons_for_project(config)
+        console.print(f"[dim]✓ Loaded {len(addons)} addon(s): {', '.join(addons.keys())}[/dim]")
+    except AddonNotFoundError as e:
+        console.print(f"[red]❌ {e}[/red]")
+        return
+    except Exception as e:
+        console.print(f"[red]❌ Error loading addons: {e}[/red]")
+        return
+
+    # Validate configuration
+    console.print("\n[dim]Validating configuration...[/dim]")
+    try:
+        validator.validate_and_raise(config, addons, project)
+        console.print("[dim]✓ Validation passed[/dim]")
+    except ValidationException as e:
+        console.print(f"\n[red]{e}[/red]")
+        console.print("\n[yellow]⚠ Fix validation errors before proceeding[/yellow]")
+        return
+
+    # Create compose directory
+    compose_dir = project_dir / "compose"
+    compose_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate passwords if not exists
+    passwords_file = project_dir / ".passwords.yml"
+    if not passwords_file.exists():
+        console.print("\n[dim]Generating passwords...[/dim]")
+        passwords = generate_passwords(addons)
+
+        # Build GitHub secrets documentation
+        github_secrets_doc = _build_github_secrets_documentation(passwords, config)
+
+        with open(passwords_file, "w") as f:
+            yaml.dump({
+                "generated_at": datetime.now().isoformat(),
+                "project": config.get("project"),
+                "passwords": passwords,
+                "github_secrets": github_secrets_doc,
+                "note": "NEVER commit this file! Add these secrets to GitHub Actions secrets for each app repository.",
+            }, f, default_flow_style=False, sort_keys=False)
+        
+        # Set restrictive permissions on password file
+        passwords_file.chmod(0o600)
+        
+        console.print(f"  [green]✓[/green] Generated: {passwords_file}")
+        
+        # Show summary of generated passwords
+        total_passwords = sum(len(addon_passwords) for addon_passwords in passwords.values())
+        console.print(f"  [dim]Generated {total_passwords} password(s) for {len(passwords)} addon(s)[/dim]")
+
+    # Generate docker-compose.core.yml using addon system
+    console.print("\n[dim]Generating docker-compose files...[/dim]")
+    compose_content = template_merger.merge_compose(addons, config)
+    (compose_dir / "docker-compose.core.yml").write_text(compose_content)
+    console.print(f"  [green]✓[/green] Generated: {compose_dir}/docker-compose.core.yml")
+
+    # Generate docker-compose.apps.yml
+    generate_docker_compose_apps(config, compose_dir)
+    console.print(f"  [green]✓[/green] Generated: {compose_dir}/docker-compose.apps.yml")
+
+    # Generate app deployment files
+    console.print("\n[dim]Generating app deployment files...[/dim]")
+    for app_name, app_config in config["apps"].items():
+        app_path = Path(app_config["path"]).expanduser().resolve()
+
+        if not app_path.exists():
+            console.print(f"  [yellow]⚠[/yellow] {app_name}: Path not found: {app_path}")
+            continue
+
+        # Generate .env.superdeploy using addon system
+        env_content = template_merger.merge_env(addons, config)
+        (app_path / ".env.superdeploy").write_text(env_content)
+
+        # Generate workflow using addon system
+        workflow_dir = app_path / ".github" / "workflows"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        workflow_content = generate_workflow(config, app_name, addons, template_merger)
+        (workflow_dir / "deploy.yml").write_text(workflow_content)
+
+        console.print(f"  [green]✓[/green] {app_name}: {app_path}")
+
+    console.print("\n[green]✅ Generation complete![/green]")
+    console.print(f"\n[bold]📝 Next steps:[/bold]")
+    console.print(f"\n1. Review generated files")
+    console.print(f"\n2. Commit app deployment files:")
+    console.print(f"   [dim]cd <app-repo>[/dim]")
+    console.print(f"   [dim]git add .env.superdeploy .github/[/dim]")
+    console.print(f"   [dim]git commit -m \"Add SuperDeploy config\"[/dim]")
+    console.print(f"\n3. Deploy infrastructure:")
+    console.print(f"   [cyan]superdeploy up -p {project}[/cyan]")
+
+
+def _build_github_secrets_documentation(passwords, config):
+    """
+    Build documentation for GitHub secrets that need to be set.
+    
+    Args:
+        passwords: Dictionary of generated passwords by addon
+        config: Project configuration dictionary
+        
+    Returns:
+        Dictionary with instructions for setting GitHub secrets
+    """
+    project_name = config.get("project")
+    github_org = config.get("github", {}).get("organization", f"{project_name}io")
+    apps = config.get("apps", {})
+    
+    docs = {
+        "instructions": "Use GitHub CLI to set these secrets for each app repository",
+        "example_commands": [],
+        "secrets_by_addon": {}
+    }
+    
+    # Generate example commands for first app
+    if apps:
+        first_app = list(apps.keys())[0]
+        docs["example_commands"].append(f"# Example for {first_app} repository:")
+        
+        for addon_name, addon_passwords in passwords.items():
+            for var_name, var_info in addon_passwords.items():
+                value = var_info['value']
+                description = var_info.get('description', '')
+                
+                docs["example_commands"].append(
+                    f"gh secret set {var_name} -b \"{value}\" -R {github_org}/{first_app}  # {description}"
+                )
+        
+        docs["example_commands"].append("")
+        docs["example_commands"].append("# Repeat for other app repositories:")
+        for app_name in list(apps.keys())[1:]:
+            docs["example_commands"].append(f"# - {github_org}/{app_name}")
+    
+    # Document secrets by addon
+    for addon_name, addon_passwords in passwords.items():
+        docs["secrets_by_addon"][addon_name] = {
+            "secrets": list(addon_passwords.keys()),
+            "values": {
+                var_name: {
+                    "value": var_info['value'],
+                    "description": var_info.get('description', '')
+                }
+                for var_name, var_info in addon_passwords.items()
+            }
+        }
+    
+    return docs
+
+
+def generate_passwords(addons):
+    """
+    Generate passwords for addons that require them.
+    
+    Only generates passwords for environment variables that have both:
+    - secret: true
+    - generate: true
+    
+    Args:
+        addons: Dictionary of loaded addons
+        
+    Returns:
+        Dictionary with addon context and generated passwords
+        Format: {
+            'addon_name': {
+                'VAR_NAME': 'generated_password',
+                ...
+            }
+        }
+    """
+    passwords = {}
+    
+    for addon_name, addon in addons.items():
+        addon_passwords = {}
+        
+        # Check env_vars in metadata for password fields
+        env_vars = addon.metadata.get('env_vars', [])
+        
+        for env_var in env_vars:
+            if isinstance(env_var, dict):
+                # Check if this is a secret that should be generated
+                if env_var.get('secret') and env_var.get('generate'):
+                    var_name = env_var.get('name')
+                    description = env_var.get('description', '')
+                    
+                    if var_name:
+                        # Generate secure password (32 bytes = 43 characters in base64)
+                        addon_passwords[var_name] = {
+                            'value': secrets.token_urlsafe(32),
+                            'description': description
+                        }
+        
+        # Only add addon to passwords if it has any generated passwords
+        if addon_passwords:
+            passwords[addon_name] = addon_passwords
+    
+    return passwords
+
+
+def generate_docker_compose_apps(config, compose_dir):
+    """
+    Generate docker-compose.apps.yml for application services.
+    
+    Args:
+        config: Project configuration dictionary
+        compose_dir: Directory to write compose file to
+    """
+    project_name = config["project"]
+    apps = config.get("apps", {})
+
+    lines = [
+        f"# App Services for {project_name}",
+        f"# Auto-generated by: superdeploy generate",
+        "",
+        "networks:",
+        f"  {project_name}-network:",
+        f"    name: {project_name}-network",
+        "    external: true",
+        "",
+        "services:",
+    ]
+
+    for app_name, app_config in apps.items():
+        port = app_config.get("port", 8000)
+        lines.extend([
+            "",
+            f"  {app_name}:",
+            f"    image: ${{DOCKER_REGISTRY:-docker.io}}/${{DOCKER_ORG}}/{app_name}:${{{app_name.upper()}_TAG}}",
+            f"    container_name: {project_name}-{app_name}",
+            "    restart: unless-stopped",
+            "    ports:",
+            f"      - \"{port}:{port}\"",
+            "    env_file:",
+            f"      - .env.{app_name}",
+            "    networks:",
+            f"      - {project_name}-network",
+        ])
+
+    (compose_dir / "docker-compose.apps.yml").write_text("\n".join(lines))
+
+
+
+
+
+def generate_workflow(config, app_name, addons, template_merger):
+    """
+    Generate GitHub Actions workflow using addon system.
+    
+    Args:
+        config: Project configuration dictionary
+        app_name: Name of the application
+        addons: Dictionary of loaded addons
+        template_merger: TemplateMerger instance
+        
+    Returns:
+        String containing the complete workflow YAML
+    """
+    project_name = config["project"]
+    github_org = config.get("github", {}).get("organization", f"{project_name}io")
+
+    # Build env section using addon system
+    env_vars = template_merger.merge_workflow_env(addons)
+    env_section = "\n".join(env_vars)
+
+    workflow = f"""name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - production
+  workflow_dispatch:
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: {github_org}/{app_name}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{{{ secrets.DOCKER_USERNAME }}}}
+          password: ${{{{ secrets.DOCKER_TOKEN }}}}
+      
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{{{ env.REGISTRY }}}}/${{{{ env.IMAGE_NAME }}}}:${{{{ github.sha }}}}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Install age
+        run: |
+          curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
+          sudo mv age/age /usr/local/bin/
+      
+      - name: Prepare environment bundle
+        id: env_bundle
+        env:
+{env_section}
+        run: |
+          # Merge .env + .env.superdeploy
+          python3 <<'PYEOF'
+import os
+from pathlib import Path
+
+env_vars = {{}}
+
+# Read .env
+if Path('.env').exists():
+    with open('.env') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, value = line.split('=', 1)
+                env_vars[key] = value
+
+# Override with .env.superdeploy
+if Path('.env.superdeploy').exists():
+    with open('.env.superdeploy') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, value = line.split('=', 1)
+                if value.startswith('${{') and value.endswith('}}'):
+                    var_name = value[2:-1]
+                    value = os.environ.get(var_name, '')
+                env_vars[key] = value
+
+# Write merged
+with open('/tmp/app.env', 'w') as f:
+    for key, value in env_vars.items():
+        f.write(f'{{key}}={{value}}\\n')
+PYEOF
+          
+          # Encrypt
+          cat /tmp/app.env | age -r "${{{{ secrets.AGE_PUBLIC_KEY }}}}" | base64 -w 0 > /tmp/encrypted.txt
+          echo "encrypted=$(cat /tmp/encrypted.txt)" >> $GITHUB_OUTPUT
+          rm -f /tmp/app.env /tmp/encrypted.txt
+      
+      - name: Trigger Forgejo deployment
+        run: |
+          curl -X POST \\
+            -H "Authorization: token ${{{{ secrets.FORGEJO_PAT }}}}" \\
+            -H "Content-Type: application/json" \\
+            -d '{{
+              "ref": "master",
+              "inputs": {{
+                "project": "{project_name}",
+                "service": "{app_name}",
+                "image": "${{{{ env.REGISTRY }}}}/${{{{ env.IMAGE_NAME }}}}:${{{{ github.sha }}}}",
+                "env_bundle": "${{{{ steps.env_bundle.outputs.encrypted }}}}",
+                "git_sha": "${{{{ github.sha }}}}"
+              }}
+            }}' \\
+            "${{{{ secrets.FORGEJO_BASE_URL }}}}/api/v1/repos/${{{{ secrets.FORGEJO_ORG }}}}/superdeploy/actions/workflows/deploy.yml/dispatches"
+"""
+
+    return workflow
+
+
+if __name__ == "__main__":
+    generate()

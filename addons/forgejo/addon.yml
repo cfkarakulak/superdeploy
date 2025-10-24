@@ -1,0 +1,131 @@
+# Forgejo Addon Metadata
+name: forgejo
+description: Git server with CI/CD (Forgejo + Actions Runner)
+version: "13"
+category: infrastructure
+
+# Environment variables this addon provides
+env_vars:
+  - name: FORGEJO_PORT
+    description: Forgejo web interface port
+    default: "3001"
+    required: true
+    secret: false
+    
+  - name: FORGEJO_SSH_PORT
+    description: Git SSH access port
+    default: "2222"
+    required: true
+    secret: false
+    
+  - name: FORGEJO_ADMIN_USER
+    description: Forgejo admin username
+    default: "admin"
+    required: true
+    secret: false
+    
+  - name: FORGEJO_ADMIN_PASSWORD
+    description: Forgejo admin password
+    required: true
+    secret: true
+    generate: true
+    
+  - name: FORGEJO_ADMIN_EMAIL
+    description: Forgejo admin email
+    default: "admin@${PROJECT}.local"
+    required: true
+    secret: false
+    
+  - name: FORGEJO_ORG
+    description: Forgejo organization name
+    required: true
+    secret: false
+    
+  - name: FORGEJO_REPO
+    description: Forgejo repository name
+    default: "superdeploy"
+    required: true
+    secret: false
+    
+  - name: FORGEJO_DB_NAME
+    description: PostgreSQL database name
+    default: "forgejo"
+    required: true
+    secret: false
+    
+  - name: FORGEJO_DB_USER
+    description: PostgreSQL database user
+    default: "forgejo"
+    required: true
+    secret: false
+    
+  - name: FORGEJO_DB_PASSWORD
+    description: PostgreSQL database password
+    required: true
+    secret: true
+    generate: true
+    
+  - name: FORGEJO_SECRET_KEY
+    description: Forgejo secret key for encryption
+    required: true
+    secret: true
+    generate: true
+    length: 64
+    
+  - name: FORGEJO_INTERNAL_TOKEN
+    description: Forgejo internal API token
+    required: true
+    secret: true
+    generate: true
+    length: 105
+
+# Docker compose configuration
+compose:
+  volumes:
+    - forgejo-data
+    - forgejo-postgres
+  ports:
+    - "${FORGEJO_PORT}:3000"
+    - "${FORGEJO_SSH_PORT}:22"
+  networks:
+    - forgejo
+  expose: []
+
+# Resource requirements
+resources:
+  memory: 1G
+  cpu: 1.0
+  disk: 20G
+
+# Health check
+healthcheck:
+  command: "curl -f http://localhost:3000 || exit 1"
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+
+# Dependencies (other addons required)
+requires: []
+
+# Conflicts (cannot coexist with)
+conflicts: []
+
+# Special flags
+required: true  # Always deployed
+infrastructure: true  # Core infrastructure component
+
+# Tags for monitoring
+monitoring:
+  enabled: true
+  metrics_port: 3000
+  dashboard: forgejo-overview.json
+
+# Ports exposed
+ports:
+  - name: web
+    default: 3001
+    description: "Forgejo web interface"
+  - name: ssh
+    default: 2222
+    description: "Git SSH access"

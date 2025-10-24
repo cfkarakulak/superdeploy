@@ -1,0 +1,69 @@
+---
+# PostgreSQL Addon Deployment Tasks
+
+- name: Create {{ addon_name }} directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0755'
+  loop:
+    - "{{ addon_base_path }}/{{ addon_name }}"
+    - "{{ addon_base_path }}/{{ addon_name }}/data"
+
+- name: Render {{ addon_name }} docker-compose.yml
+  template:
+    src: "{{ addon_path }}/compose.yml.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/docker-compose.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+
+- name: Render {{ addon_name }} environment file
+  template:
+    src: "{{ addon_path }}/templates/postgres.env.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/.env"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0600'
+  when: addon_path is defined and addon_path | length > 0
+
+- name: Start {{ addon_name }} services
+  community.docker.docker_compose:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: present
+    pull: true
+  become_user: "{{ superdeploy_user }}"
+  register: postgres_compose_result
+
+- name: Wait for {{ addon_name }} to be ready
+  wait_for:
+    host: localhost
+    port: "{{ POSTGRES_PORT | default(5432) }}"
+    delay: 5
+    timeout: 60
+    state: started
+  when: postgres_compose_result.changed
+
+- name: Verify {{ addon_name }} is accessible
+  shell: |
+    docker exec {{ project_name }}-{{ addon_name }} pg_isready -U {{ POSTGRES_USER }}
+  register: postgres_health_check
+  until: postgres_health_check.rc == 0
+  retries: 5
+  delay: 2
+  changed_when: false
+  failed_when: postgres_health_check.rc != 0
+
+- name: Verify {{ addon_name }} database exists
+  shell: |
+    docker exec {{ project_name }}-{{ addon_name }} psql -U {{ POSTGRES_USER }} -lqt | cut -d \| -f 1 | grep -qw {{ POSTGRES_DB }}
+  register: db_check
+  changed_when: false
+  failed_when: false
+
+- name: Display {{ addon_name }} deployment status
+  debug:
+    msg: "PostgreSQL is ready and database '{{ POSTGRES_DB }}' is accessible"
+  when: db_check.rc == 0

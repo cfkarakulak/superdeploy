@@ -19,15 +19,33 @@ services:
 
 # Core Services Configuration
 core_services:
+{% for service in CORE_SERVICES %}
+{% if service == 'postgres' %}
   postgres:
-    version: "{{POSTGRES_VERSION|default('15-alpine')}}"
+    version: "15-alpine"
     user: "{{PROJECT}}_user"
     database: "{{PROJECT}}_db"
+{% elif service == 'rabbitmq' %}
   rabbitmq:
-    version: "{{RABBITMQ_VERSION|default('3.12-management-alpine')}}"
+    version: "3.12-management-alpine"
     user: "{{PROJECT}}_user"
+{% elif service == 'redis' %}
   redis:
-    version: "{{REDIS_VERSION|default('7-alpine')}}"
+    version: "7-alpine"
+{% elif service == 'mongodb' %}
+  mongodb:
+    version: "7-alpine"
+    user: "{{PROJECT}}_user"
+    database: "{{PROJECT}}_db"
+{% elif service == 'elasticsearch' %}
+  elasticsearch:
+    version: "8.11.0"
+{% elif service == 'minio' %}
+  minio:
+    version: "latest"
+    user: "{{PROJECT}}_user"
+{% endif %}
+{% endfor %}
 
 # Port Assignments (External:Internal)
 # External: Port exposed on host (e.g., 8000, 3002, 9000)

@@ -1,0 +1,85 @@
+---
+# MongoDB Addon Deployment Tasks
+
+- name: Create {{ addon_name }} directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0755'
+  loop:
+    - "{{ addon_base_path }}/{{ addon_name }}"
+    - "{{ addon_base_path }}/{{ addon_name }}/data"
+    - "{{ addon_base_path }}/{{ addon_name }}/config"
+
+- name: Render {{ addon_name }} docker-compose.yml
+  template:
+    src: "{{ addon_path }}/compose.yml.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/docker-compose.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+
+- name: Render {{ addon_name }} environment file
+  template:
+    src: "{{ addon_path }}/templates/mongodb.env.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/.env"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0600'
+  when: addon_path is defined and addon_path | length > 0
+
+- name: Start {{ addon_name }} services
+  community.docker.docker_compose:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: present
+    pull: true
+  become_user: "{{ superdeploy_user }}"
+  register: mongodb_compose_result
+
+- name: Wait for {{ addon_name }} to be ready
+  wait_for:
+    host: localhost
+    port: "{{ MONGODB_PORT | default(27017) }}"
+    delay: 5
+    timeout: 60
+    state: started
+  when: mongodb_compose_result.changed
+
+- name: Verify {{ addon_name }} is accessible
+  shell: |
+    docker exec {{ project_name }}-{{ addon_name }} mongosh --eval 'db.runCommand({ ping: 1 })' --quiet
+  register: mongodb_health_check
+  until: mongodb_health_check.rc == 0
+  retries: 5
+  delay: 2
+  changed_when: false
+  failed_when: mongodb_health_check.rc != 0
+
+- name: Create application user in {{ addon_name }}
+  shell: |
+    docker exec {{ project_name }}-{{ addon_name }} mongosh admin \
+      --username admin \
+      --password {{ MONGODB_ROOT_PASSWORD }} \
+      --eval "db.createUser({user: '{{ MONGODB_USER }}', pwd: '{{ MONGODB_PASSWORD }}', roles: [{role: 'readWrite', db: '{{ MONGODB_DB }}'}]})" \
+      --quiet
+  register: user_creation
+  failed_when: false
+  changed_when: "'Successfully added user' in user_creation.stdout"
+
+- name: Verify {{ addon_name }} database access
+  shell: |
+    docker exec {{ project_name }}-{{ addon_name }} mongosh {{ MONGODB_DB }} \
+      --username {{ MONGODB_USER }} \
+      --password {{ MONGODB_PASSWORD }} \
+      --eval "db.runCommand({ ping: 1 })" \
+      --quiet
+  register: db_check
+  changed_when: false
+  failed_when: false
+
+- name: Display {{ addon_name }} deployment status
+  debug:
+    msg: "MongoDB is ready and database '{{ MONGODB_DB }}' is accessible by user '{{ MONGODB_USER }}'"
+  when: db_check.rc == 0

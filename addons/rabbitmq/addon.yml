@@ -1,0 +1,80 @@
+# RabbitMQ Addon Metadata
+name: rabbitmq
+description: RabbitMQ message broker and queue system
+version: "3.12-management-alpine"
+category: queue
+
+# Environment variables this addon provides
+env_vars:
+  - name: RABBITMQ_HOST
+    description: RabbitMQ hostname
+    default: "${CORE_INTERNAL_IP}"
+    required: true
+    secret: false
+    
+  - name: RABBITMQ_PORT
+    description: RabbitMQ AMQP port
+    default: "5672"
+    required: true
+    secret: false
+    
+  - name: RABBITMQ_MANAGEMENT_PORT
+    description: RabbitMQ management UI port
+    default: "15672"
+    required: true
+    secret: false
+    
+  - name: RABBITMQ_DEFAULT_USER
+    description: RabbitMQ default username
+    default: "${PROJECT}_user"
+    required: true
+    secret: false
+    
+  - name: RABBITMQ_DEFAULT_PASS
+    description: RabbitMQ default password
+    required: true
+    secret: true
+    generate: true
+    
+  - name: RABBITMQ_DEFAULT_VHOST
+    description: RabbitMQ default virtual host
+    default: "${PROJECT}_vhost"
+    required: true
+    secret: false
+
+# Docker compose configuration
+compose:
+  volumes:
+    - rabbitmq-data
+  ports: []
+  networks:
+    - project-network
+  expose:
+    - "5672"
+    - "15672"
+
+# Resource requirements
+resources:
+  memory: 512M
+  cpu: 0.5
+  disk: 10G
+
+# Health check
+healthcheck:
+  command: "rabbitmq-diagnostics -q ping"
+  interval: 30s
+  timeout: 10s
+  retries: 5
+  start_period: 60s
+
+# Dependencies (other addons required)
+requires: []
+
+# Conflicts (cannot coexist with)
+conflicts: []
+
+# Tags for monitoring
+monitoring:
+  enabled: true
+  metrics_port: 15692
+  dashboard: rabbitmq-overview.json

@@ -1,0 +1,25 @@
+[Unit]
+Description=Forgejo Actions Runner
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User={{ superdeploy_user }}
+Group={{ superdeploy_group | default(superdeploy_user) }}
+WorkingDirectory={{ addon_base_path }}/{{ addon_name }}/runner
+ExecStart=/usr/local/bin/forgejo-runner daemon --config {{ addon_base_path }}/{{ addon_name }}/runner/config.yml
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ addon_base_path }}/{{ addon_name }}/runner
+
+[Install]
+WantedBy=multi-user.target

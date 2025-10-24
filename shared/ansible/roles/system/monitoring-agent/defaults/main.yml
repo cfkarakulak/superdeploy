@@ -1,0 +1,41 @@
+---
+# Default variables for system/monitoring-agent role
+
+# Node Exporter configuration
+node_exporter_version: "1.7.0"
+node_exporter_user: "node_exporter"
+node_exporter_group: "node_exporter"
+node_exporter_port: 9100
+
+# Installation paths
+node_exporter_bin_path: "/usr/local/bin/node_exporter"
+node_exporter_config_dir: "/etc/node_exporter"
+
+# Systemd service configuration
+node_exporter_service_name: "node_exporter"
+node_exporter_service_enabled: true
+node_exporter_service_state: "started"
+
+# Collector configuration (enable/disable specific collectors)
+node_exporter_enabled_collectors:
+  - systemd
+  - processes
+  - filesystem
+  - diskstats
+  - netdev
+  - meminfo
+  - loadavg
+  - cpu
+
+node_exporter_disabled_collectors:
+  - mdadm
+  - zfs
+  - bcache
+
+# Prometheus endpoint (dynamic from project configuration)
+# This will be set by the playbook based on project.yml
+prometheus_endpoint: ""
+project_name: ""
+
+# Text file collector directory (for custom metrics)
+node_exporter_textfile_dir: "/var/lib/node_exporter/textfile_collector"

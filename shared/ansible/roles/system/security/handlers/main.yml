@@ -1,0 +1,16 @@
+---
+# System security role handlers
+
+- name: Restart SSH
+  systemd:
+    name: sshd
+    state: restarted
+
+- name: Restart fail2ban
+  systemd:
+    name: fail2ban
+    state: restarted
+
+- name: Reload UFW
+  ufw:
+    state: reloaded

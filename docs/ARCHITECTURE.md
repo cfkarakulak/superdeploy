@@ -28,6 +28,181 @@ Proje: cheapa
 └── Services Container - SADECE cheapa için
 ```
 
+## 🔧 Ansible Yapısı ve Addon Sistemi
+
+### Dinamik Konfigürasyon Mimarisi
+
+SuperDeploy, **tamamen dinamik** bir Ansible yapısı kullanır. Tüm konfigürasyonlar `project.yml` dosyasından okunur ve hiçbir hardcoded değer yoktur.
+
+### Ansible Role Katmanları
+
+```bash
+# System Layer (Foundation)
+system/base/              # OS-level setup (packages, users, swap)
+system/docker/            # Docker installation & configuration
+system/security/          # Firewall, SSH hardening
+system/monitoring-agent/  # Node exporter, system metrics
+
+# Orchestration Layer (Deployment)
+orchestration/addon-deployer/    # Generic addon deployment
+orchestration/project-deployer/  # Project-specific deployment
+```
+
+### Addon Sistemi: Template vs Instance Mimarisi
+
+**ÖNEMLİ KAVRAM:** SuperDeploy'da addon'lar **template** (şablon) olarak tanımlanır ve her proje için ayrı **instance** (örnek) olarak deploy edilir.
+
+#### Template Yapısı (superdeploy/addons/)
+
+`superdeploy/addons/` dizini **yeniden kullanılabilir şablonlar** içerir. Bu şablonlar hiçbir projeye özel değildir:
+
+```bash
+superdeploy/addons/          # ŞABLONLAR (Templates)
+├── forgejo/                 # Forgejo şablonu
+│   ├── addon.yml           # Metadata (name, version, ports, dependencies)
+│   ├── env.yml             # Environment variable tanımları
+│   ├── ansible.yml         # Deployment task'ları
+│   ├── compose.yml.j2      # Docker compose şablonu
+│   ├── tasks/              # Ek setup task'ları
+│   │   ├── setup-admin.yml
+│   │   ├── setup-runner.yml
+│   │   └── setup-secrets.yml
+│   └── templates/          # Konfigürasyon şablonları
+│       ├── forgejo.env.j2
+│       └── runner-config.yml.j2
+├── postgres/               # PostgreSQL şablonu
+├── redis/                  # Redis şablonu
+├── rabbitmq/               # RabbitMQ şablonu
+└── mongodb/                # MongoDB şablonu
+```
+
+#### Instance Yapısı (projects/[project-name]/)
+
+Her proje için addon şablonları **proje-spesifik instance'lara** dönüştürülür:
+
+```bash
+projects/cheapa/            # INSTANCE'LAR (Deployed)
+├── project.yml             # Proje konfigürasyonu
+├── .passwords.yml          # Otomatik oluşturulan şifreler
+└── compose/                # Render edilmiş compose dosyaları
+    ├── docker-compose.core.yml    # Addon instance'ları
+    │   ├── cheapa-forgejo         # Forgejo instance
+    │   ├── cheapa-postgres        # PostgreSQL instance
+    │   ├── cheapa-rabbitmq        # RabbitMQ instance
+    │   └── cheapa-redis           # Redis instance
+    └── docker-compose.apps.yml    # Uygulama container'ları
+        ├── cheapa-api
+        ├── cheapa-dashboard
+        └── cheapa-services
+```
+
+#### Forgejo Neden superdeploy/addons/ Dizininde?
+
+**Soru:** Forgejo neden `superdeploy/addons/forgejo/` dizininde? Her projenin kendi Forgejo'su varsa neden proje dizininde değil?
+
+**Cevap:** Forgejo bir **şablon** olarak tanımlanır, **instance** olarak deploy edilir:
+
+1. **Şablon Tanımı:** `superdeploy/addons/forgejo/` dizini Forgejo'nun nasıl kurulacağını tanımlar (hangi portlar, hangi konfigürasyonlar, hangi task'lar)
+
+2. **Instance Oluşturma:** Her proje için bu şablon kullanılarak **proje-spesifik instance** oluşturulur:
+   - `cheapa` projesi → `cheapa-forgejo` container'ı (port 3001)
+   - `myapp` projesi → `myapp-forgejo` container'ı (port 3002)
+   - Her instance tamamen izole, kendi veritabanı ve konfigürasyonu var
+
+3. **Avantajlar:**
+   - ✅ **DRY Prensibi:** Forgejo kurulum mantığı bir kez tanımlanır
+   - ✅ **Tutarlılık:** Tüm projeler aynı Forgejo yapısını kullanır
+   - ✅ **Bakım Kolaylığı:** Forgejo güncellemesi tek yerden yapılır
+   - ✅ **Ölçeklenebilirlik:** Yeni proje eklemek için kod değişikliği gerekmez
+
+#### Addon Instance Oluşturma Süreci
+
+```bash
+# 1. Kullanıcı project.yml'de addon'ları tanımlar
+infrastructure:
+  forgejo:
+    version: "1.21"
+    port: 3001
+    admin_user: "admin"
+
+# 2. addon-deployer role şablonu okur
+- superdeploy/addons/forgejo/addon.yml
+- superdeploy/addons/forgejo/env.yml
+- superdeploy/addons/forgejo/compose.yml.j2
+
+# 3. Project.yml değerleri ile şablon render edilir
+- Container adı: cheapa-forgejo
+- Port: 3001
+- Admin user: admin
+- Network: cheapa-network
+
+# 4. Render edilmiş dosya projects/cheapa/compose/ dizinine yazılır
+projects/cheapa/compose/docker-compose.core.yml
+
+# 5. Docker Compose ile instance deploy edilir
+docker compose -f projects/cheapa/compose/docker-compose.core.yml up -d
+
+# Sonuç: cheapa-forgejo container'ı çalışıyor
+```
+
+**Addon Deployment Akışı:**
+1. `addon-deployer` role addon.yml'i okur
+2. `env.yml` tanımlarını project.yml ile merge eder
+3. `compose.yml.j2` template'ini proje değerleri ile render eder
+4. Render edilmiş dosyayı `projects/[project]/compose/` dizinine yazar
+5. `ansible.yml` deployment task'larını çalıştırır
+6. Health check ile servisin sağlıklı olduğunu doğrular
+
+### Project Configuration (project.yml)
+
+Tüm proje konfigürasyonu tek bir dosyada:
+
+```yaml
+project: "cheapa"
+
+# Infrastructure addons (required)
+infrastructure:
+  forgejo:
+    version: "1.21"
+    port: 3001
+    admin_user: "admin"
+    org: "cheapaio"
+    repo: "superdeploy"
+    ssh_port: 2222
+
+# Service addons (optional)
+addons:
+  postgres:
+    version: "15-alpine"
+    port: 5432
+    user: "cheapa_user"
+    database: "cheapa_db"
+  redis:
+    version: "7-alpine"
+    port: 6379
+  monitoring:
+    enabled: true
+    prometheus_port: 9090
+    grafana_port: 3000
+
+# Application services
+apps:
+  api:
+    path: "/path/to/api"
+    port: 8000
+    vm: "core"
+  dashboard:
+    path: "/path/to/dashboard"
+    port: 8010
+    vm: "core"
+```
+
+**Avantajlar:**
+- ✅ Port değişikliği → Sadece project.yml'i düzenle
+- ✅ Yeni addon → project.yml'e ekle, redeploy
+- ✅ Hiçbir kod değişikliği gerektirmez
+- ✅ Tüm konfigürasyon tek yerde
+
 ## 🔄 Forgejo Yapısı
 
 ### Tek Forgejo Instance - Org-Based İzolasyon
@@ -141,6 +316,152 @@ REDIS_PASSWORD=secure_myapp_redis_pass
 API_SECRET_KEY=myapp_api_secret
 ```
 
+## 🔧 Environment Variable Yönetim Stratejisi
+
+### .env vs .env.superdeploy Ayrımı
+
+SuperDeploy, **local development** ve **production deployment** ortamlarını ayırmak için iki ayrı dosya kullanır:
+
+#### Dosya Yapısı
+
+```bash
+app-repos/api/
+├── .env                    # Local development (GELİŞTİRİCİ TARAFINDAN YÖNETİLİR)
+├── .env.superdeploy        # Production overrides (SUPERDEPLOY TARAFINDAN OLUŞTURULUR)
+├── .env.example            # Template dosya
+└── .github/workflows/
+    └── deploy.yml          # İki dosyayı merge eder
+```
+
+#### .env (Local Development)
+
+**Amaç:** Geliştiricinin local ortamında kullandığı değerler
+
+**Özellikler:**
+- ✅ Geliştirici tarafından manuel olarak düzenlenir
+- ✅ Local veritabanı, local servisler için değerler içerir
+- ✅ **SuperDeploy tarafından ASLA değiştirilmez**
+- ✅ Git'e commit edilmez (.gitignore'da)
+
+**Örnek içerik:**
+```bash
+# Local development environment
+DEBUG=True
+DATABASE_URL=postgresql://localhost:5432/myapp_dev
+REDIS_URL=redis://localhost:6379
+API_KEY=test_key_for_local_dev
+```
+
+#### .env.superdeploy (Production Overrides)
+
+**Amaç:** Production deployment için SuperDeploy tarafından oluşturulan değerler
+
+**Özellikler:**
+- ✅ SuperDeploy tarafından otomatik oluşturulur
+- ✅ Production servis bağlantıları içerir (DB, Redis, RabbitMQ)
+- ✅ `superdeploy sync:repos` komutu ile güncellenir
+- ✅ Git'e commit edilmez (.gitignore'da)
+- ✅ **Manuel düzenlenmemelidir** (her sync'te yeniden oluşturulur)
+
+**Örnek içerik:**
+```bash
+# SuperDeploy generated production overrides
+# DO NOT EDIT MANUALLY - Generated by superdeploy sync:repos
+
+# Database connection (from cheapa-postgres)
+POSTGRES_HOST=${POSTGRES_HOST}
+POSTGRES_PORT=${POSTGRES_PORT}
+POSTGRES_USER=${POSTGRES_USER}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+POSTGRES_DB=${POSTGRES_DB}
+
+# Redis connection (from cheapa-redis)
+REDIS_HOST=${REDIS_HOST}
+REDIS_PORT=${REDIS_PORT}
+REDIS_PASSWORD=${REDIS_PASSWORD}
+
+# RabbitMQ connection (from cheapa-rabbitmq)
+RABBITMQ_HOST=${RABBITMQ_HOST}
+RABBITMQ_PORT=${RABBITMQ_PORT}
+RABBITMQ_USER=${RABBITMQ_USER}
+RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+```
+
+#### Merge Stratejisi (Deployment Sırasında)
+
+GitHub Actions deployment workflow'u iki dosyayı merge eder:
+
+```bash
+# .github/workflows/deploy.yml içinde
+- name: Merge environment files
+  run: |
+    cat .env > merged.env
+    cat .env.superdeploy >> merged.env
+    # .env.superdeploy değerleri .env değerlerini override eder
+```
+
+**Merge Önceliği:**
+1. `.env` dosyası önce okunur (base values)
+2. `.env.superdeploy` dosyası üzerine yazılır (overrides)
+3. Aynı değişken her iki dosyada varsa `.env.superdeploy` kazanır
+
+**Örnek Merge:**
+```bash
+# .env
+DEBUG=True
+DATABASE_URL=postgresql://localhost:5432/myapp_dev
+API_KEY=local_test_key
+
+# .env.superdeploy
+DATABASE_URL=postgresql://cheapa-postgres:5432/cheapa_db
+POSTGRES_PASSWORD=secure_production_pass
+
+# Merged result (deployment'ta kullanılan)
+DEBUG=True                                                    # .env'den
+DATABASE_URL=postgresql://cheapa-postgres:5432/cheapa_db     # .env.superdeploy override
+API_KEY=local_test_key                                       # .env'den
+POSTGRES_PASSWORD=secure_production_pass                     # .env.superdeploy'dan
+```
+
+#### Kullanım Senaryoları
+
+**Senaryo 1: Local Development**
+```bash
+# Geliştirici sadece .env dosyasını düzenler
+vim app-repos/api/.env
+
+# Local'de çalıştır
+cd app-repos/api
+python app.py  # Sadece .env kullanılır
+```
+
+**Senaryo 2: Production Deployment**
+```bash
+# SuperDeploy ile secrets sync
+superdeploy sync:repos -e ~/app-repos/api/.env:cheapaio/api
+
+# .env.superdeploy otomatik oluşturulur
+# GitHub'a push edildiğinde her iki dosya merge edilir
+git push origin production
+```
+
+**Senaryo 3: Production Secret Güncelleme**
+```bash
+# Sadece production secrets'ı güncelle
+superdeploy sync:repos -c ~/superdeploy/projects/cheapa/.passwords.yml
+
+# .env.superdeploy yeniden oluşturulur
+# Local .env dosyası değişmez
+```
+
+#### Avantajlar
+
+✅ **Local Ortam Korunur:** Geliştirici local .env'ini özgürce düzenleyebilir  
+✅ **Production Güvenliği:** Production secrets local'de saklanmaz  
+✅ **Otomatik Senkronizasyon:** SuperDeploy production değerleri otomatik yönetir  
+✅ **Açık Ayrım:** Hangi değerlerin nereden geldiği açıkça belli  
+✅ **Kolay Rollback:** .env.superdeploy silinip yeniden oluşturulabilir
+
 ## 🚀 Deployment Akışı
 
 ### 1. GitHub → Build & Push
@@ -198,40 +519,116 @@ dashboard.cheapa.com → cheapa-dashboard:3000
 
 ## 📁 Dosya Yapısı
 
-### SuperDeploy Repository
+### SuperDeploy Repository (Template ve Instance Ayrımı)
+
 ```
 superdeploy/
 ├── shared/                    # Shared infrastructure
 │   ├── terraform/            # VM provisioning
 │   ├── ansible/              # Configuration management
+│   │   ├── playbooks/
+│   │   │   └── site.yml      # Main orchestration playbook
+│   │   ├── roles/
+│   │   │   ├── system/       # Foundation layer (OS-level)
+│   │   │   │   ├── base/     # System packages, users, directories
+│   │   │   │   ├── docker/   # Docker installation & configuration
+│   │   │   │   ├── security/ # Firewall, hardening, SSH
+│   │   │   │   └── monitoring-agent/ # Node exporter, log forwarding
+│   │   │   └── orchestration/ # Deployment layer
+│   │   │       ├── addon-deployer/    # Generic addon deployment orchestrator
+│   │   │       └── project-deployer/  # Project-specific deployment orchestrator
+│   │   └── inventories/
+│   │       └── dev.ini
 │   └── compose/              # Shared services (Caddy, Prometheus)
-├── projects/                 # Project-specific configs
-│   └── cheapa/
-│       ├── config.yml        # Project metadata
-│       ├── .passwords.yml    # Generated secrets
-│       └── compose/          # Project services
-│           ├── docker-compose.core.yml    # DB, MQ, Redis
-│           ├── docker-compose.apps.yml    # API, Dashboard
-│           └── docker-compose.git.yml     # Forgejo
+│
+├── addons/                   # 🎨 TEMPLATE LAYER (Yeniden kullanılabilir şablonlar)
+│   ├── forgejo/              # Forgejo şablonu
+│   │   ├── addon.yml         # Metadata (name, version, category)
+│   │   ├── ansible.yml       # Deployment tasks
+│   │   ├── compose.yml.j2    # Docker compose ŞABLONU
+│   │   ├── env.yml           # Environment variable tanımları
+│   │   ├── tasks/            # Setup tasks (admin, runner, secrets)
+│   │   └── templates/        # Configuration şablonları
+│   ├── postgres/             # PostgreSQL şablonu
+│   ├── redis/                # Redis şablonu
+│   ├── rabbitmq/             # RabbitMQ şablonu
+│   ├── mongodb/              # MongoDB şablonu
+│   ├── caddy/                # Reverse proxy şablonu
+│   └── monitoring/           # Prometheus + Grafana şablonu
+│
+├── projects/                 # 🚀 INSTANCE LAYER (Deploy edilmiş örnekler)
+│   ├── cheapa/               # Cheapa projesi instance'ları
+│   │   ├── project.yml       # Proje konfigürasyonu (addon parametreleri)
+│   │   ├── .passwords.yml    # Otomatik oluşturulan secrets
+│   │   └── compose/          # Render edilmiş compose dosyaları
+│   │       ├── docker-compose.core.yml    # Addon instance'ları
+│   │       │   # İçerik: cheapa-forgejo, cheapa-postgres, cheapa-redis, cheapa-rabbitmq
+│   │       └── docker-compose.apps.yml    # Uygulama container'ları
+│   │           # İçerik: cheapa-api, cheapa-dashboard, cheapa-services
+│   │
+│   └── myapp/                # MyApp projesi instance'ları
+│       ├── project.yml       # MyApp konfigürasyonu
+│       ├── .passwords.yml    # MyApp secrets
+│       └── compose/          # MyApp compose dosyaları
+│           ├── docker-compose.core.yml    # myapp-forgejo, myapp-postgres, myapp-redis
+│           └── docker-compose.apps.yml    # myapp-api, myapp-frontend
+│
 └── cli/                      # SuperDeploy CLI
+    ├── commands/             # CLI commands
+    └── core/                 # Core functionality (addon loader, validator)
 ```
 
-### App Repositories (GitHub)
+**Template → Instance Dönüşümü:**
+
+```bash
+# TEMPLATE (addons/forgejo/compose.yml.j2)
+services:
+  {{ project_name }}-forgejo:
+    image: codeberg.org/forgejo/forgejo:{{ forgejo_version }}
+    ports:
+      - "{{ forgejo_port }}:3000"
+    networks:
+      - {{ project_name }}-network
+
+# INSTANCE (projects/cheapa/compose/docker-compose.core.yml)
+services:
+  cheapa-forgejo:
+    image: codeberg.org/forgejo/forgejo:1.21
+    ports:
+      - "3001:3000"
+    networks:
+      - cheapa-network
+```
+
+### App Repositories (GitHub) - Environment File Yapısı
+
 ```
 cheapaio/api/
-├── .env                      # App-specific environment
+├── .env                      # 🔧 LOCAL DEVELOPMENT (geliştirici yönetir)
+│                             # Örnek: DEBUG=True, DATABASE_URL=localhost
+├── .env.superdeploy          # 🚀 PRODUCTION OVERRIDES (SuperDeploy oluşturur)
+│                             # Örnek: POSTGRES_HOST=cheapa-postgres
+├── .env.example              # 📝 Template dosya
 ├── Dockerfile
 ├── src/
 └── .github/workflows/
-    └── deploy.yml           # Build → Push → Trigger Forgejo
+    └── deploy.yml            # .env + .env.superdeploy merge eder
 
 cheapaio/dashboard/  
-├── .env                     # App-specific environment
+├── .env                      # 🔧 LOCAL DEVELOPMENT
+├── .env.superdeploy          # 🚀 PRODUCTION OVERRIDES
+├── .env.example              # 📝 Template
 ├── Dockerfile
 ├── src/
 └── .github/workflows/
-    └── deploy.yml          # Build → Push → Trigger Forgejo
+    └── deploy.yml            # .env + .env.superdeploy merge eder
 ```
+
+**Dosya Rolleri:**
+- **addons/**: Şablonlar (template) - Hiçbir projeye özel değil, yeniden kullanılabilir
+- **projects/[name]/**: Instance'lar (deployed) - Proje-spesifik, render edilmiş, çalışan
+- **.env**: Local development - Geliştirici tarafından yönetilir
+- **.env.superdeploy**: Production overrides - SuperDeploy tarafından oluşturulur
 
 ## 🔄 Scaling Yeni Proje
 

@@ -1,0 +1,122 @@
+---
+# System base role - OS-level setup, users, directories, time sync, mail
+
+- name: Validate required variables
+  assert:
+    that:
+      - superdeploy_user is defined
+      - superdeploy_user | length > 0
+      - superdeploy_group is defined
+      - superdeploy_group | length > 0
+      - base_directories is defined
+      - base_directories | length > 0
+      - swap_size_mb is defined
+      - swap_size_mb | int > 0
+      - essential_packages is defined
+      - essential_packages | length > 0
+    fail_msg: |
+      [system/base] ERROR: Missing or invalid required variables
+        - Expected: superdeploy_user, superdeploy_group, base_directories, swap_size_mb, essential_packages
+        - Found: superdeploy_user={{ superdeploy_user | default('UNDEFINED') }}, superdeploy_group={{ superdeploy_group | default('UNDEFINED') }}
+        - Fix: Ensure all required variables are defined in defaults/main.yml or passed as extra vars
+        - Docs: See shared/ansible/roles/system/base/defaults/main.yml for variable definitions
+    success_msg: "All required variables validated successfully"
+
+- name: Wait for dpkg lock to be released
+  shell: |
+    timeout=300
+    while [ $timeout -gt 0 ]; do
+      if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+        echo "Lock released"
+        exit 0
+      fi
+      echo "Waiting for dpkg lock... ($timeout seconds remaining)"
+      sleep 5
+      timeout=$((timeout - 5))
+    done
+    echo "Timeout waiting for dpkg lock"
+    exit 1
+  changed_when: false
+
+- name: Update package cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  retries: 5
+  delay: 10
+  register: apt_update
+  until: apt_update is success
+
+- name: Install essential packages
+  apt:
+    name: "{{ essential_packages }}"
+    state: present
+  retries: 5
+  delay: 10
+  register: apt_install
+  until: apt_install is success
+
+- name: Ensure superdeploy user exists
+  user:
+    name: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    create_home: yes
+    shell: /bin/bash
+    state: present
+
+- name: Configure swap
+  include_tasks: swap.yml
+
+- name: Configure chrony for time synchronization
+  block:
+    - name: Start and enable chrony service
+      systemd:
+        name: chrony
+        state: started
+        enabled: yes
+
+    - name: Configure chrony servers
+      lineinfile:
+        path: /etc/chrony/chrony.conf
+        line: "{{ item }}"
+        state: present
+      loop: "{{ chrony_ntp_servers }}"
+      notify: Restart chrony
+
+- name: Configure Postfix for internet mail (satellite)
+  debconf:
+    name: postfix
+    question: "{{ item.question }}"
+    value: "{{ item.value }}"
+    vtype: "{{ item.vtype }}"
+  loop:
+    - { question: 'postfix/main_mailer_type', value: 'Internet Site', vtype: 'select' }
+    - { question: 'postfix/mailname', value: "{{ postfix_mailname }}", vtype: 'string' }
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Configure Postfix main.cf
+  lineinfile:
+    path: /etc/postfix/main.cf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: '^inet_interfaces', line: "inet_interfaces = {{ postfix_inet_interfaces }}" }
+    - { regexp: '^mydestination', line: "mydestination = {{ postfix_mydestination }}" }
+  notify: Restart postfix
+
+- name: Enable and start Postfix
+  systemd:
+    name: postfix
+    enabled: yes
+    state: started
+
+- name: Create base application directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0755'
+  loop: "{{ base_directories }}"

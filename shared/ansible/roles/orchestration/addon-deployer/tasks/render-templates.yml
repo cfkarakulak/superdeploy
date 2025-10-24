@@ -1,0 +1,82 @@
+---
+# Render templates for an addon
+# This task renders compose.yml.j2 and other templates with environment variables
+
+- name: Check if addon has compose.yml.j2 template
+  stat:
+    path: "{{ addon_path }}/compose.yml.j2"
+  register: compose_template
+  delegate_to: localhost
+  become: no
+
+- name: Render docker-compose.yml from template with addon variables
+  vars:
+    FORGEJO_VERSION: "{{ addon_env_vars.FORGEJO_VERSION | default('') }}"
+    FORGEJO_PORT: "{{ addon_env_vars.FORGEJO_PORT | default('') }}"
+    FORGEJO_SSH_PORT: "{{ addon_env_vars.FORGEJO_SSH_PORT | default('') }}"
+    FORGEJO_ADMIN_USER: "{{ addon_env_vars.FORGEJO_ADMIN_USER | default('') }}"
+    FORGEJO_ADMIN_PASSWORD: "{{ addon_env_vars.FORGEJO_ADMIN_PASSWORD | default('') }}"
+    FORGEJO_ADMIN_EMAIL: "{{ addon_env_vars.FORGEJO_ADMIN_EMAIL | default('') }}"
+    FORGEJO_ORG: "{{ addon_env_vars.FORGEJO_ORG | default('') }}"
+    FORGEJO_REPO: "{{ addon_env_vars.FORGEJO_REPO | default('') }}"
+    FORGEJO_DB_NAME: "{{ addon_env_vars.FORGEJO_DB_NAME | default('') }}"
+    FORGEJO_DB_USER: "{{ addon_env_vars.FORGEJO_DB_USER | default('') }}"
+    FORGEJO_DB_PASSWORD: "{{ addon_env_vars.FORGEJO_DB_PASSWORD | default('') }}"
+    FORGEJO_SECRET_KEY: "{{ addon_env_vars.FORGEJO_SECRET_KEY | default('') }}"
+    FORGEJO_INTERNAL_TOKEN: "{{ addon_env_vars.FORGEJO_INTERNAL_TOKEN | default('') }}"
+    FORGEJO_DOMAIN: "{{ addon_env_vars.FORGEJO_DOMAIN | default('') }}"
+    FORGEJO_EXTERNAL_IP: "{{ addon_env_vars.FORGEJO_EXTERNAL_IP | default('') }}"
+    POSTGRES_VERSION: "{{ addon_env_vars.POSTGRES_VERSION | default('15-alpine') }}"
+    POSTGRES_USER: "{{ addon_env_vars.POSTGRES_USER | default('postgres') }}"
+    POSTGRES_PASSWORD: "{{ addon_env_vars.POSTGRES_PASSWORD | default('') }}"
+    POSTGRES_DB: "{{ addon_env_vars.POSTGRES_DB | default('postgres') }}"
+    RABBITMQ_VERSION: "{{ addon_env_vars.RABBITMQ_VERSION | default('3.12-management-alpine') }}"
+    RABBITMQ_DEFAULT_USER: "{{ addon_env_vars.RABBITMQ_DEFAULT_USER | default('guest') }}"
+    RABBITMQ_DEFAULT_PASS: "{{ addon_env_vars.RABBITMQ_DEFAULT_PASS | default('') }}"
+  template:
+    src: "{{ addon_path }}/compose.yml.j2"
+    dest: "{{ addon_deployment_path }}/docker-compose.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0644'
+  when: compose_template.stat.exists
+
+- name: Find additional templates in addon templates directory
+  find:
+    paths: "{{ addon_path }}/templates"
+    patterns: "*.j2"
+    recurse: yes
+  register: addon_templates
+  when: addon_has_templates
+
+- name: Create templates output directory
+  file:
+    path: "{{ addon_deployment_path }}/config"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0755'
+  when: addon_templates.matched | default(0) > 0
+
+- name: Render additional addon templates
+  template:
+    src: "{{ item.path }}"
+    dest: "{{ addon_deployment_path }}/config/{{ item.path | basename | regex_replace('\\.j2$', '') }}"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0644'
+  vars:
+    # Make all addon environment variables available to templates
+    addon_config: "{{ addon_specific_config }}"
+    project: "{{ project_name }}"
+    env: "{{ addon_env_vars }}"
+  loop: "{{ addon_templates.files }}"
+  when: addon_templates.matched | default(0) > 0
+
+- name: Display rendered templates
+  debug:
+    msg:
+      - "Rendered templates for {{ addon_name }}:"
+      - "  - docker-compose.yml: {{ 'yes' if compose_template.stat.exists else 'no' }}"
+      - "  - Additional templates: {{ addon_templates.matched | default(0) }}"
+    verbosity: 1

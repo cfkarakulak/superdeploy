@@ -1,0 +1,26 @@
+---
+# Default variables for project-deployer role
+
+# Base path where project data will be deployed
+project_base_path: "/opt/superdeploy/projects/{{ project_name }}"
+
+# User and group for file ownership
+superdeploy_user: "superdeploy"
+superdeploy_group: "superdeploy"
+
+# Project configuration (should be provided from project.yml)
+project_config: {}
+
+# Application configurations (should be provided from project.yml apps section)
+apps: {}
+
+# Network configuration
+network_name: "{{ project_name }}_network"
+network_subnet: "172.20.0.0/24"
+
+# Docker compose project name
+compose_project_name: "{{ project_name }}"
+
+# Monitoring configuration
+monitoring_enabled: false
+prometheus_endpoint: ""

@@ -1,0 +1,37 @@
+  {{ addon_name }}:
+    image: caddy:{{ version }}
+    container_name: {{ project_name }}-{{ addon_name }}
+    restart: unless-stopped
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN}
+      CADDY_EMAIL: ${CADDY_EMAIL}
+      CADDY_TLS_MODE: ${CADDY_TLS_MODE}
+    volumes:
+      - {{ addon_name }}-data:/data
+      - {{ addon_name }}-config:/config
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "${CADDY_HTTP_PORT}:80"
+      - "${CADDY_HTTPS_PORT}:443"
+      - "${CADDY_ADMIN_PORT}:2019"
+    networks:
+      - {{ project_name }}-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:2019/config/", "||", "exit", "1"]
+      interval: {{ healthcheck.interval }}
+      timeout: {{ healthcheck.timeout }}
+      retries: {{ healthcheck.retries }}
+      start_period: {{ healthcheck.start_period }}
+    deploy:
+      resources:
+        limits:
+          memory: {{ resources.memory }}
+          cpus: '{{ resources.cpu }}'
+    {% if monitoring.enabled %}
+    labels:
+      - "prometheus.scrape=true"
+      - "prometheus.port={{ monitoring.metrics_port }}"
+      - "prometheus.path=/metrics"
+      - "project={{ project_name }}"
+      - "service={{ addon_name }}"
+    {% endif %}

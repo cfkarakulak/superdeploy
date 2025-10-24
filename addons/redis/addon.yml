@@ -1,0 +1,67 @@
+# Redis Addon Metadata
+name: redis
+description: Redis in-memory data store and cache
+version: "7-alpine"
+category: cache
+
+# Environment variables this addon provides
+env_vars:
+  - name: REDIS_HOST
+    description: Redis hostname
+    default: "${CORE_INTERNAL_IP}"
+    required: true
+    secret: false
+    
+  - name: REDIS_PORT
+    description: Redis port
+    default: "6379"
+    required: true
+    secret: false
+    
+  - name: REDIS_PASSWORD
+    description: Redis password
+    required: true
+    secret: true
+    generate: true
+    
+  - name: REDIS_DB
+    description: Redis database number
+    default: "0"
+    required: false
+    secret: false
+
+# Docker compose configuration
+compose:
+  volumes:
+    - redis-data
+  ports: []
+  networks:
+    - project-network
+  expose:
+    - "6379"
+
+# Resource requirements
+resources:
+  memory: 256M
+  cpu: 0.25
+  disk: 5G
+
+# Health check
+healthcheck:
+  command: "redis-cli --no-auth-warning -a ${REDIS_PASSWORD} ping"
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 10s
+
+# Dependencies (other addons required)
+requires: []
+
+# Conflicts (cannot coexist with)
+conflicts: []
+
+# Tags for monitoring
+monitoring:
+  enabled: true
+  metrics_port: 9121
+  dashboard: redis-overview.json

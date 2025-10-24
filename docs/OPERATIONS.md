@@ -199,7 +199,100 @@ docker logs myproject-api --tail 100
 
 ---
 
-## 🔐 Secrets ve Environment Variables
+## 🔐 Secrets ve Environment Variables Yönetimi
+
+### **Environment Variable Stratejisi**
+
+SuperDeploy, local development ve production ortamlarını ayırmak için iki farklı dosya kullanır:
+
+- **`.env`** - Local development için (SuperDeploy tarafından ASLA değiştirilmez)
+- **`.env.superdeploy`** - Production deployment için (SuperDeploy tarafından otomatik oluşturulur)
+
+**Önemli:** SuperDeploy, uygulama repository'lerindeki `.env` dosyalarına ASLA dokunmaz. Bu sayede local development ortamınız güvende kalır.
+
+### **Sync Komutu Nasıl Çalışır?**
+
+`sync` komutu, local dosyalardan secret'ları toplayıp GitHub ve Forgejo'ya dağıtır:
+
+```bash
+# Temel kullanım
+superdeploy sync -p myproject
+
+# Uygulama-specific .env dosyalarını dahil et
+superdeploy sync -p myproject -e ../app-repos/api/.env
+
+# Birden fazla .env dosyası
+superdeploy sync -p myproject -e ../app-repos/api/.env -e ../app-repos/dashboard/.env
+
+# Sadece Forgejo'yu atla
+superdeploy sync -p myproject --skip-forgejo
+
+# Sadece GitHub'ı atla
+superdeploy sync -p myproject --skip-github
+```
+
+**Sync komutu ne yapar?**
+
+1. **Kaynaklardan toplar:**
+   - `superdeploy/.env` (infrastructure secrets)
+   - `projects/[project]/.passwords.yml` (otomatik oluşturulan şifreler)
+   - `--env-file` ile belirtilen dosyalar (uygulama secrets)
+
+2. **Merge eder (öncelik sırası):**
+   - En yüksek: `--env-file` ile verilen dosyalar
+   - Orta: `.passwords.yml` (project-specific)
+   - En düşük: `superdeploy/.env` (infrastructure)
+
+3. **Dağıtır:**
+   - **GitHub Repository Secrets:** Build-time secrets (FORGEJO_PAT, AGE_PUBLIC_KEY, DOCKER_TOKEN)
+   - **GitHub Environment Secrets:** Runtime secrets (POSTGRES_PASSWORD, REDIS_PASSWORD)
+   - **Forgejo Repository Secrets:** Deployment için gerekli secrets
+
+### **Production Secret'larını Güncelleme (Local'e Dokunmadan)**
+
+```bash
+# Senaryo: PostgreSQL şifresini değiştirmek istiyorsun
+
+# 1. Sadece production şifresini güncelle
+nano projects/myproject/.passwords.yml
+# POSTGRES_PASSWORD: yeni_sifre_buraya
+
+# 2. GitHub ve Forgejo'ya sync et
+superdeploy sync -p myproject
+
+# 3. PostgreSQL container'ını yeni şifre ile restart et
+ssh superdeploy@CORE_IP
+cd /opt/superdeploy/projects/myproject/compose
+docker compose -f docker-compose.core.yml down postgres
+docker compose -f docker-compose.core.yml up -d postgres
+
+# 4. Uygulamaları restart et (yeni şifreyi alsınlar)
+superdeploy restart -p myproject --all
+
+# NOT: Local .env dosyan hiç değişmedi!
+```
+
+### **Yeni Bir Secret Ekleme**
+
+```bash
+# Senaryo: Yeni bir API key eklemek istiyorsun
+
+# 1. Uygulama .env dosyasına ekle (local development için)
+echo "STRIPE_API_KEY=sk_test_..." >> app-repos/api/.env
+
+# 2. Production için .passwords.yml'e ekle
+echo "STRIPE_API_KEY=sk_live_..." >> projects/myproject/.passwords.yml
+
+# 3. GitHub ve Forgejo'ya sync et
+superdeploy sync -p myproject -e app-repos/api/.env
+
+# 4. Uygulamayı redeploy et
+cd app-repos/api
+git commit --allow-empty -m "chore: update secrets"
+git push origin production
+
+# NOT: Local'de sk_test_, production'da sk_live_ kullanılacak
+```
 
 ### **Secrets'ları Görüntüleme**
 
@@ -218,35 +311,35 @@ superdeploy env show --no-mask
 # (ENV_MASTER_PASSWORD gir)
 ```
 
-### **Secrets Değiştirme**
+### **Environment Variable Dosyaları Nerede?**
 
-```bash
-# 1. .env dosyasını düzenle
-nano superdeploy/.env
+```
+superdeploy/
+├── .env                              # Infrastructure secrets (CORE_IP, DOCKER_TOKEN, vb.)
+└── projects/myproject/
+    ├── .passwords.yml                # Otomatik oluşturulan şifreler (POSTGRES_PASSWORD, vb.)
+    └── secrets.env                   # (Opsiyonel) Custom secrets
 
-# 2. Yeni değerleri GitHub'a sync et
-superdeploy sync -p myproject
-
-# 3. Servisleri restart et (yeni env'ler yüklensin)
-superdeploy restart -p myproject -a api
+app-repos/
+├── api/
+│   ├── .env                         # Local development (ASLA değiştirilmez)
+│   └── .env.superdeploy             # Production overrides (otomatik oluşturulur)
+├── dashboard/
+│   ├── .env
+│   └── .env.superdeploy
+└── services/
+    ├── .env
+    └── .env.superdeploy
 ```
 
-### **Yeni Bir Secret Ekleme**
+### **Hangi Dosyayı Ne Zaman Düzenlemeli?**
 
-```bash
-# 1. .env'e ekle
-echo "NEW_API_KEY=abc123xyz" >> superdeploy/.env
-
-# 2. Sync et
-superdeploy sync -p myproject
-
-# 3. docker-compose.apps.yml'e ekle (eğer container'da kullanılacaksa)
-# environment:
-#   NEW_API_KEY: ${NEW_API_KEY}
-
-# 4. Redeploy (git push veya manuel)
-superdeploy restart -p myproject -a api
-```
+| Senaryo | Düzenlenecek Dosya | Komut |
+|---------|-------------------|-------|
+| Local development değişkeni | `app-repos/[app]/.env` | Yok (manuel edit) |
+| Production secret güncelleme | `projects/[project]/.passwords.yml` | `superdeploy sync -p [project]` |
+| Infrastructure değişkeni | `superdeploy/.env` | `superdeploy sync -p [project]` |
+| Yeni secret ekleme | Her ikisi de | `superdeploy sync -p [project] -e app-repos/[app]/.env` |
 
 ---
 
@@ -348,6 +441,154 @@ gh secret list --repo myprojectio/api | grep FORGEJO_BASE_URL
 cd app-repos/api
 git commit --allow-empty -m "test: verify new IP"
 git push origin production
+```
+
+---
+
+## 🔧 Sync Sorunları ve Çözümleri
+
+### **"gh CLI not found" Hatası**
+
+```bash
+# Hata: GitHub CLI (gh) not installed
+
+# Çözüm: gh CLI'yi kur
+brew install gh
+
+# GitHub'a login ol
+gh auth login
+# → GitHub.com seç
+# → HTTPS seç
+# → Browser'da authenticate et
+```
+
+### **"Failed to fetch AGE public key" Hatası**
+
+```bash
+# Hata: Could not find public key in AGE key file
+
+# Sebep: Forgejo runner henüz kurulmamış veya AGE key oluşturulmamış
+
+# Çözüm 1: up komutunu tekrar çalıştır
+superdeploy up -p myproject
+
+# Çözüm 2: Manuel kontrol et
+ssh superdeploy@CORE_IP
+cat /opt/forgejo-runner/.age/key.txt
+# "public key: age1..." satırını görmelisin
+
+# Eğer dosya yoksa, Ansible playbook'u tekrar çalıştır
+cd superdeploy/shared/ansible
+ansible-playbook -i inventories/dev.ini playbooks/site.yml
+```
+
+### **"PAT creation failed" Hatası**
+
+```bash
+# Hata: Forgejo PAT creation failed: 401 Unauthorized
+
+# Sebep: Forgejo admin şifresi yanlış veya Forgejo henüz hazır değil
+
+# Çözüm 1: Forgejo'nun çalıştığını kontrol et
+curl http://CORE_IP:3001/api/healthz
+
+# Çözüm 2: Admin şifresini kontrol et
+cat projects/myproject/.passwords.yml | grep FORGEJO_ADMIN_PASSWORD
+
+# Çözüm 3: Manuel PAT oluştur
+# 1. Forgejo'ya browser'dan gir: http://CORE_IP:3001
+# 2. Settings → Applications → Generate New Token
+# 3. Scopes: read:user, write:repository, write:misc, write:organization
+# 4. Token'ı kopyala ve superdeploy/.env'e ekle:
+echo "FORGEJO_PAT=your_token_here" >> superdeploy/.env
+
+# 5. Sync'i tekrar çalıştır (--skip-forgejo ile)
+superdeploy sync -p myproject --skip-forgejo
+```
+
+### **"Secret set failed" Hatası (GitHub)**
+
+```bash
+# Hata: Failed to set secret API_KEY: Resource not accessible by integration
+
+# Sebep 1: Repository'ye erişim yok
+# Çözüm: gh auth refresh -s admin:org,repo
+
+# Sebep 2: Repository adı yanlış
+# Çözüm: projects/myproject/project.yml dosyasını kontrol et
+cat projects/myproject/project.yml | grep repositories
+
+# Sebep 3: Repository private ve erişim yok
+# Çözüm: Repository settings → Manage access → Kendini ekle
+```
+
+### **"Empty secret skipped" Uyarısı**
+
+```bash
+# Uyarı: ⊘ SENTRY_DSN (empty, skipped)
+
+# Bu normal! Boş secret'lar otomatik atlanır.
+# Eğer bu secret'ı kullanmak istiyorsan:
+
+# 1. Değeri ekle
+echo "SENTRY_DSN=https://..." >> projects/myproject/.passwords.yml
+
+# 2. Sync'i tekrar çalıştır
+superdeploy sync -p myproject
+```
+
+### **Sync Sonrası Secret'lar Yüklenmiyor**
+
+```bash
+# Sorun: Sync başarılı ama container'lar yeni secret'ları görmüyor
+
+# Sebep: Container'lar restart edilmemiş
+
+# Çözüm 1: Tüm uygulamaları restart et
+superdeploy restart -p myproject --all
+
+# Çözüm 2: Sadece bir uygulamayı restart et
+superdeploy restart -p myproject -a api
+
+# Çözüm 3: Manuel restart
+ssh superdeploy@CORE_IP
+cd /opt/superdeploy/projects/myproject/compose
+docker compose -f docker-compose.apps.yml restart api
+```
+
+### **Sync Çok Yavaş (Timeout)**
+
+```bash
+# Sorun: Environment secret sync'i 30 saniyede timeout oluyor
+
+# Sebep: GitHub API rate limit veya network sorunu
+
+# Çözüm 1: Birkaç dakika bekle ve tekrar dene
+sleep 300
+superdeploy sync -p myproject
+
+# Çözüm 2: Sadece Forgejo'ya sync et (GitHub'ı atla)
+superdeploy sync -p myproject --skip-github
+
+# Çözüm 3: Rate limit'i kontrol et
+gh api rate_limit
+```
+
+### **Merge Priority Sorunları**
+
+```bash
+# Sorun: Local .env'deki değer production'a gidiyor (istemiyorum)
+
+# Sebep: --env-file ile local .env'i sync'e dahil etmişsin
+
+# Çözüm: --env-file kullanma, sadece .passwords.yml'i düzenle
+nano projects/myproject/.passwords.yml
+superdeploy sync -p myproject
+
+# NOT: Merge önceliği:
+# 1. --env-file (en yüksek)
+# 2. .passwords.yml
+# 3. superdeploy/.env (en düşük)
 ```
 
 ---
@@ -513,9 +754,10 @@ docker compose -f docker-compose.apps.yml rm -f services
 
 ## 📚 Daha Fazla Bilgi
 
-- **OVERVIEW.md:** Genel mimari ve kavramlar
+- **ARCHITECTURE.md:** Genel mimari ve kavramlar
 - **SETUP.md:** İlk kurulum
 - **DEPLOYMENT.md:** Deployment flow detayları
+- **FLOW.md:** İş akışı ve parametre akışı
 
 ---
 

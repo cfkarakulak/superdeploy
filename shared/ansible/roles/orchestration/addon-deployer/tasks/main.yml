@@ -1,0 +1,47 @@
+---
+# Addon Deployer Role - Main Entry Point
+# This role orchestrates the deployment of addons based on project configuration
+
+- name: Validate required variables
+  assert:
+    that:
+      - project_name is defined
+      - project_config is defined
+      - addons_base_path is defined
+    fail_msg: |
+      [ADDON-DEPLOYER] ERROR: Missing required variables
+        - Expected: project_name, project_config, addons_base_path
+        - Found: project_name={{ project_name | default('undefined') }}, project_config={{ 'defined' if project_config is defined else 'undefined' }}, addons_base_path={{ addons_base_path | default('undefined') }}
+        - Fix: Ensure these variables are passed to the addon-deployer role
+        - Docs: See shared/ansible/roles/orchestration/addon-deployer/README.md
+    quiet: true
+
+- name: Set default values for optional variables
+  set_fact:
+    enabled_addons: "{{ enabled_addons | default([]) }}"
+    superdeploy_user: "{{ superdeploy_user | default('superdeploy') }}"
+    superdeploy_group: "{{ superdeploy_group | default('superdeploy') }}"
+
+- name: Display addon deployment configuration
+  debug:
+    msg:
+      - "Project: {{ project_name }}"
+      - "Addons base path: {{ addons_base_path }}"
+      - "Enabled addons: {{ enabled_addons | join(', ') if enabled_addons | length > 0 else 'none' }}"
+    verbosity: 1
+
+- name: Ensure Forgejo is included as required addon
+  set_fact:
+    enabled_addons: "{{ (['forgejo'] + enabled_addons) | unique }}"
+  when: "'forgejo' not in enabled_addons"
+
+- name: Display final addon list
+  debug:
+    msg: "Deploying addons: {{ enabled_addons | join(', ') }}"
+
+# Loop through each enabled addon and deploy it
+- name: Deploy each addon
+  include_tasks: deploy-addon.yml
+  loop: "{{ enabled_addons }}"
+  loop_control:
+    loop_var: addon_name

@@ -1,0 +1,76 @@
+---
+# Project Deployer Role - Main Entry Point
+# This role orchestrates the deployment of project-specific application services
+
+- name: Validate required variables
+  assert:
+    that:
+      - project_name is defined
+      - project_config is defined
+      - project_base_path is defined
+    fail_msg: |
+      [PROJECT-DEPLOYER] ERROR: Missing required variables
+        - Expected: project_name, project_config, project_base_path
+        - Found: project_name={{ project_name | default('undefined') }}, project_config={{ 'defined' if project_config is defined else 'undefined' }}, project_base_path={{ project_base_path | default('undefined') }}
+        - Fix: Ensure these variables are passed to the project-deployer role
+        - Docs: See shared/ansible/roles/orchestration/project-deployer/README.md
+    quiet: true
+
+- name: Set default values for optional variables
+  set_fact:
+    superdeploy_user: "{{ superdeploy_user | default('superdeploy') }}"
+    superdeploy_group: "{{ superdeploy_group | default('superdeploy') }}"
+    apps: "{{ project_config.apps | default({}) }}"
+    network_subnet: "{{ project_config.network.subnet | default('172.20.0.0/24') }}"
+    monitoring_enabled: "{{ project_config.monitoring.enabled | default(false) }}"
+
+- name: Display project deployment configuration
+  debug:
+    msg:
+      - "Project: {{ project_name }}"
+      - "Project base path: {{ project_base_path }}"
+      - "Applications: {{ apps.keys() | list | join(', ') if apps | length > 0 else 'none' }}"
+      - "Network subnet: {{ network_subnet }}"
+      - "Monitoring enabled: {{ monitoring_enabled }}"
+    verbosity: 1
+
+- name: Create project directory structure
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0755'
+  loop:
+    - "{{ project_base_path }}"
+    - "{{ project_base_path }}/compose"
+    - "{{ project_base_path }}/data"
+    - "{{ project_base_path }}/logs"
+    - "{{ project_base_path }}/backups"
+
+- name: Create application-specific directories
+  file:
+    path: "{{ project_base_path }}/data/{{ item.key }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0755'
+  loop: "{{ apps | dict2items }}"
+  when: apps | length > 0
+
+- name: Display directory structure created
+  debug:
+    msg: "Project directory structure created at {{ project_base_path }}"
+
+# Deploy application services
+- name: Deploy application services
+  include_tasks: deploy-apps.yml
+  tags:
+    - project-apps
+
+# Setup monitoring integration
+- name: Setup monitoring integration
+  include_tasks: setup-monitoring.yml
+  tags:
+    - project-monitoring
+  when: monitoring_enabled | default(false)

@@ -1,0 +1,107 @@
+---
+# Forgejo Addon Deployment Tasks
+# This playbook deploys the Forgejo Git server with CI/CD capabilities
+
+- name: "Set environment variables as facts"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ env_vars | dict2items }}"
+  no_log: true
+
+- name: "Create {{ addon_name }} directories"
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0755'
+  loop:
+    - "{{ addon_base_path }}/{{ addon_name }}"
+    - "{{ addon_base_path }}/{{ addon_name }}/data"
+    - "{{ addon_base_path }}/{{ addon_name }}/postgres"
+    - "{{ addon_base_path }}/{{ addon_name }}/runner"
+    - "{{ addon_base_path }}/{{ addon_name }}/templates"
+
+- name: "Render {{ addon_name }} docker-compose.yml"
+  template:
+    src: "{{ addon_path }}/compose.yml.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/docker-compose.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+
+- name: "Render {{ addon_name }} environment file"
+  template:
+    src: "{{ addon_path }}/templates/forgejo.env.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/.env"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0600'
+
+- name: "Render {{ addon_name }} runner configuration"
+  template:
+    src: "{{ addon_path }}/templates/runner-config.yml.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/runner/config.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+
+- name: "Pull {{ addon_name }} images"
+  community.docker.docker_compose_v2:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    pull: "always"
+  become_user: "{{ superdeploy_user }}"
+
+- name: "Start {{ addon_name }} services"
+  community.docker.docker_compose_v2:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: present
+  become_user: "{{ superdeploy_user }}"
+  register: forgejo_compose_result
+
+- name: "Wait for {{ addon_name }} database to be ready"
+  shell: docker inspect -f '{{"{{"}}.State.Health.Status{{"}}"}}' {{ project_name }}-forgejo-db
+  register: db_health
+  until: db_health.stdout == 'healthy'
+  retries: 30
+  delay: 2
+  when: forgejo_compose_result.changed
+  changed_when: false
+
+- name: "Wait for {{ addon_name }} to be ready"
+  uri:
+    url: "http://localhost:{{ env_vars.FORGEJO_PORT | default(3001) }}"
+    status_code: 200
+    timeout: 5
+  register: forgejo_health_check
+  until: forgejo_health_check.status == 200
+  retries: 30
+  delay: 5
+  failed_when: false
+
+- name: "Verify {{ addon_name }} is accessible"
+  uri:
+    url: "http://localhost:{{ env_vars.FORGEJO_PORT | default(3001) }}"
+    status_code: 200
+  register: forgejo_final_check
+  failed_when: forgejo_final_check.status != 200
+
+- name: "Display {{ addon_name }} deployment status"
+  debug:
+    msg: "Forgejo is now accessible at http://{{ env_vars.FORGEJO_DOMAIN | default('localhost') }}:{{ env_vars.FORGEJO_PORT | default(3001) }}"
+
+- name: "Setup {{ addon_name }} admin and repository"
+  include_tasks: "{{ addon_path }}/tasks/setup-admin.yml"
+  when: env_vars.FORGEJO_ADMIN_USER is defined
+
+- name: "Setup {{ addon_name }} runner"
+  include_tasks: "{{ addon_path }}/tasks/setup-runner.yml"
+  when: 
+    - FORGEJO_ORG is defined
+    - FORGEJO_REPO is defined
+
+- name: "Setup {{ addon_name }} secrets"
+  include_tasks: "{{ addon_path }}/tasks/setup-secrets.yml"
+  when:
+    - FORGEJO_ORG is defined
+    - FORGEJO_REPO is defined

@@ -1,0 +1,190 @@
+---
+# Node Exporter installation and configuration for system-level monitoring
+
+- name: Validate monitoring-agent configuration variables
+  assert:
+    that:
+      - node_exporter_version is defined
+      - node_exporter_user is defined
+      - node_exporter_group is defined
+      - node_exporter_port is defined
+      - node_exporter_bin_path is defined
+      - node_exporter_enabled_collectors is defined
+      - node_exporter_enabled_collectors | length > 0
+    fail_msg: |
+      [system/monitoring-agent] ERROR: Missing required monitoring-agent configuration variables
+        - Expected: node_exporter_version, node_exporter_user, node_exporter_group, node_exporter_port, node_exporter_bin_path, node_exporter_enabled_collectors
+        - Found: Variables are not properly defined
+        - Fix: Ensure all monitoring-agent configuration variables are set in defaults/main.yml or host vars
+        - Docs: See shared/ansible/roles/system/monitoring-agent/defaults/main.yml for required variables
+
+- name: Create node_exporter system group
+  group:
+    name: "{{ node_exporter_group }}"
+    system: yes
+    state: present
+
+- name: Create node_exporter system user
+  user:
+    name: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    system: yes
+    shell: /usr/sbin/nologin
+    create_home: no
+    state: present
+
+- name: Create node_exporter directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    mode: '0755'
+  loop:
+    - "{{ node_exporter_config_dir }}"
+    - "{{ node_exporter_textfile_dir }}"
+
+- name: Check if node_exporter is already installed
+  stat:
+    path: "{{ node_exporter_bin_path }}"
+  register: node_exporter_binary
+
+- name: Get installed node_exporter version
+  command: "{{ node_exporter_bin_path }} --version"
+  register: installed_version
+  changed_when: false
+  failed_when: false
+  when: node_exporter_binary.stat.exists
+
+- name: Download and install node_exporter
+  block:
+    - name: Download node_exporter archive
+      get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+        dest: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+        mode: '0644'
+      retries: 3
+      delay: 5
+
+    - name: Extract node_exporter archive
+      unarchive:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+        dest: "/tmp"
+        remote_src: yes
+        creates: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64"
+
+    - name: Copy node_exporter binary to bin path
+      copy:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+        dest: "{{ node_exporter_bin_path }}"
+        owner: root
+        group: root
+        mode: '0755'
+        remote_src: yes
+      notify: restart-node-exporter
+
+    - name: Clean up temporary files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+        - "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64"
+  when: not node_exporter_binary.stat.exists or (installed_version.stdout is defined and node_exporter_version not in installed_version.stdout)
+
+- name: Create node_exporter systemd service
+  template:
+    src: node-exporter.service.j2
+    dest: /etc/systemd/system/{{ node_exporter_service_name }}.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart-node-exporter
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+
+- name: Enable and start node_exporter service
+  systemd:
+    name: "{{ node_exporter_service_name }}"
+    state: "{{ node_exporter_service_state }}"
+    enabled: "{{ node_exporter_service_enabled }}"
+
+- name: Wait for node_exporter to be ready
+  uri:
+    url: "http://localhost:{{ node_exporter_port }}/metrics"
+    status_code: 200
+  register: node_exporter_health
+  until: node_exporter_health.status == 200
+  retries: 10
+  delay: 2
+  ignore_errors: yes
+
+- name: Configure metric collection for project monitoring
+  block:
+    - name: Validate project monitoring configuration
+      assert:
+        that:
+          - prometheus_endpoint is defined
+          - prometheus_endpoint != ''
+          - project_name is defined
+          - project_name != ''
+        fail_msg: |
+          [system/monitoring-agent] ERROR: Missing project monitoring configuration
+            - Expected: prometheus_endpoint and project_name to be defined
+            - Found: prometheus_endpoint='{{ prometheus_endpoint | default("undefined") }}', project_name='{{ project_name | default("undefined") }}'
+            - Fix: Ensure prometheus_endpoint and project_name are passed from project.yml configuration
+            - Docs: See design.md for project configuration schema
+
+    - name: Create project-specific metric labels file
+      copy:
+        content: |
+          # Project-specific labels for node_exporter metrics
+          # These labels will be attached to all metrics from this node
+          project="{{ project_name }}"
+          environment="{{ environment | default('production') }}"
+          node_role="{{ node_role | default('core') }}"
+        dest: "{{ node_exporter_textfile_dir }}/project_labels.prom"
+        owner: "{{ node_exporter_user }}"
+        group: "{{ node_exporter_group }}"
+        mode: '0644'
+      notify: restart-node-exporter
+
+    - name: Create monitoring configuration file
+      copy:
+        content: |
+          # Monitoring configuration for {{ project_name }}
+          # Prometheus endpoint: {{ prometheus_endpoint }}
+          # Node exporter metrics: http://{{ ansible_host }}:{{ node_exporter_port }}/metrics
+          #
+          # This node is configured to expose metrics for collection by:
+          # {{ prometheus_endpoint }}
+          #
+          # Metrics are exposed on port {{ node_exporter_port }} and should be
+          # scraped by the project's Prometheus instance.
+        dest: "{{ node_exporter_config_dir }}/monitoring.conf"
+        owner: "{{ node_exporter_user }}"
+        group: "{{ node_exporter_group }}"
+        mode: '0644'
+
+    - name: Display monitoring configuration
+      debug:
+        msg:
+          - "✅ Metric collection configured for project monitoring"
+          - "Project: {{ project_name }}"
+          - "Prometheus endpoint: {{ prometheus_endpoint }}"
+          - "Node metrics endpoint: http://{{ ansible_host }}:{{ node_exporter_port }}/metrics"
+          - "Note: Ensure Prometheus is configured to scrape this endpoint"
+  when: prometheus_endpoint is defined and prometheus_endpoint != ''
+
+- name: Display node_exporter status
+  debug:
+    msg:
+      - "✅ Node Exporter installed and running"
+      - "Version: {{ node_exporter_version }}"
+      - "Metrics endpoint: http://{{ ansible_host }}:{{ node_exporter_port }}/metrics"
+      - "Enabled collectors: {{ node_exporter_enabled_collectors | join(', ') }}"
+      - "Prometheus endpoint: {{ prometheus_endpoint | default('Not configured') }}"
+      - "Project: {{ project_name | default('N/A') }}"
+      - "Monitoring: {{ 'Configured ✓' if (prometheus_endpoint is defined and prometheus_endpoint != '') else 'Not configured' }}"

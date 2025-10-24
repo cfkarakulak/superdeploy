@@ -5,7 +5,8 @@ import json
 import requests
 from rich.console import Console
 from rich.panel import Panel
-from cli.utils import load_env, validate_env_vars
+from cli.utils import load_env, validate_env_vars, get_project_root
+from cli.ansible_utils import parse_project_config, generate_ansible_extra_vars
 
 console = Console()
 

@@ -1,87 +1,184 @@
-# ═══════════════════════════════════════════════════════════════════════════
-# cheapa PROJECT - CORE SERVICES (Always Running)
-# ═══════════════════════════════════════════════════════════════════════════
-# Auto-generated from config.yml by superdeploy
-# These services are ALWAYS deployed and running.
-# ═══════════════════════════════════════════════════════════════════════════
-
+version: '3.8'
 networks:
   cheapa-network:
     name: cheapa-network
-    external: true
-
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 172.20.0.0/24
+  forgejo:
+    driver: bridge
 volumes:
-
-  postgres-data:
-    name: cheapa-postgres-data
-
-  rabbitmq-data:
-    name: cheapa-rabbitmq-data
-
-  redis-data:
-    name: cheapa-redis-data
-
-
+  forgejo-data:
+    name: cheapa-forgejo-data
+  forgejo-postgres:
+    name: cheapa-forgejo-postgres
 services:
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # PostgreSQL (Project-Specific)
-  # ═══════════════════════════════════════════════════════════════════════════
-  postgres:
-    image: postgres:15-alpine
-    container_name: cheapa-postgres
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:1.21
+    container_name: cheapa-forgejo
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-cheapa_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
-      POSTGRES_DB: ${POSTGRES_DB:-cheapa_db}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
+    - USER_UID=1000
+    - USER_GID=1000
+    - FORGEJO__database__DB_TYPE=postgres
+    - FORGEJO__database__HOST=forgejo-db:5432
+    - FORGEJO__database__NAME=${FORGEJO_DB_NAME}
+    - FORGEJO__database__USER=${FORGEJO_DB_USER}
+    - FORGEJO__database__PASSWD=${FORGEJO_DB_PASSWORD}
+    - FORGEJO__server__DOMAIN=
+    - FORGEJO__server__ROOT_URL=http://:3001/
+    - FORGEJO__server__SSH_DOMAIN=
+    - FORGEJO__server__SSH_PORT=2222
+    - FORGEJO__actions__ENABLED=true
+    - FORGEJO__security__INSTALL_LOCK=true
+    - FORGEJO__security__SECRET_KEY=${FORGEJO_SECRET_KEY}
+    - FORGEJO__security__INTERNAL_TOKEN=${FORGEJO_INTERNAL_TOKEN}
+    - FORGEJO__service__DISABLE_REGISTRATION=false
     networks:
-      - cheapa-network
+    - forgejo
+    volumes:
+    - forgejo-data:/data
+    - /etc/timezone:/etc/timezone:ro
+    - /etc/localtime:/etc/localtime:ro
+    ports:
+    - 3001:3000
+    - '2222:22'
+    depends_on:
+    - forgejo-db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:3000
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+    labels:
+    - project=cheapa
+    - service=forgejo
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+  forgejo-db:
+    image: postgres:15-alpine
+    container_name: cheapa-forgejo-db
+    restart: unless-stopped
+    environment:
+    - POSTGRES_USER=${FORGEJO_DB_USER}
+    - POSTGRES_PASSWORD=${FORGEJO_DB_PASSWORD}
+    - POSTGRES_DB=${FORGEJO_DB_NAME}
+    networks:
+    - forgejo
+    volumes:
+    - forgejo-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U ${FORGEJO_DB_USER}
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+  forgejo-init:
+    image: codeberg.org/forgejo/forgejo:1.21
+    container_name: cheapa-forgejo-init
+    user: 1000:1000
+    restart: 'no'
+    depends_on:
+    - forgejo
+    networks:
+    - forgejo
+    volumes:
+    - forgejo-data:/data
+    environment:
+    - USER_UID=1000
+    - USER_GID=1000
+    - FORGEJO_ADMIN_USER=${FORGEJO_ADMIN_USER}
+    - FORGEJO_ADMIN_PASSWORD=${FORGEJO_ADMIN_PASSWORD}
+    - FORGEJO_ADMIN_EMAIL=${FORGEJO_ADMIN_EMAIL}
+    - FORGEJO__database__DB_TYPE=postgres
+    - FORGEJO__database__HOST=forgejo-db:5432
+    - FORGEJO__database__NAME=${FORGEJO_DB_NAME}
+    - FORGEJO__database__USER=${FORGEJO_DB_USER}
+    - FORGEJO__database__PASSWD=${FORGEJO_DB_PASSWORD}
+    entrypoint:
+    - /bin/sh
+    - -c
+    command:
+    - "echo \"Waiting for Forgejo to be ready...\"\nsleep 30\necho \"Creating admin\
+      \ user...\"\nforgejo admin user create --username \"$FORGEJO_ADMIN_USER\" \\\
+      \n  --password \"$FORGEJO_ADMIN_PASSWORD\" \\\n  --email \"$FORGEJO_ADMIN_EMAIL\"\
+      \ \\\n  --admin --must-change-password=false 2>&1 || echo \"User already exists\""
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: cheapa-rabbitmq
+    restart: unless-stopped
+    hostname: cheapa-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST}
+    volumes:
+    - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+    - cheapa-network
+    expose:
+    - '5672'
+    - '15672'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     deploy:
       resources:
         limits:
           memory: 512M
           cpus: '0.5'
-        reservations:
-          memory: 256M
-    stop_grace_period: 30s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
     labels:
-      - "com.superdeploy.project=cheapa"
-      - "com.superdeploy.service=postgres"
-
-
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # RabbitMQ (Project-Specific)
-  # ═══════════════════════════════════════════════════════════════════════════
-  rabbitmq:
-    image: rabbitmq:3.12-management-alpine
-    container_name: cheapa-rabbitmq
+    - prometheus.scrape=true
+    - prometheus.port=15692
+    - prometheus.path=/metrics
+    - project=cheapa
+    - service=rabbitmq
+  postgres:
+    image: postgres:15-alpine
+    container_name: cheapa-postgres
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-cheapa_user}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?required}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
+    - postgres-data:/var/lib/postgresql/data
     networks:
-      - cheapa-network
+    - cheapa-network
+    expose:
+    - '5432'
     healthcheck:
-      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
-      interval: 30s
-      timeout: 10s
+      test:
+      - CMD-SHELL
+      - pg_isready -U ${POSTGRES_USER}
+      interval: 10s
+      timeout: 5s
       retries: 5
       start_period: 30s
     deploy:
@@ -89,54 +186,9 @@ services:
         limits:
           memory: 512M
           cpus: '0.5'
-        reservations:
-          memory: 256M
-    stop_grace_period: 30s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
     labels:
-      - "com.superdeploy.project=cheapa"
-      - "com.superdeploy.service=rabbitmq"
-
-
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Redis (Project-Specific)
-  # ═══════════════════════════════════════════════════════════════════════════
-  redis:
-    image: redis:7-alpine
-    container_name: cheapa-redis
-    restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD:?required}
-    volumes:
-      - redis-data:/data
-    networks:
-      - cheapa-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.25'
-        reservations:
-          memory: 128M
-    stop_grace_period: 10s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    labels:
-      - "com.superdeploy.project=cheapa"
-      - "com.superdeploy.service=redis"
-
-
-
+    - prometheus.scrape=true
+    - prometheus.port=9187
+    - prometheus.path=/metrics
+    - project=cheapa
+    - service=postgres

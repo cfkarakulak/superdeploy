@@ -1,0 +1,128 @@
+---
+# Deploy a single addon
+# This task orchestrates the complete deployment of one addon
+
+- name: Set addon paths and configuration
+  set_fact:
+    addon_path: "{{ addons_source_path }}/{{ addon_name }}"
+    addon_deployment_path: "{{ addons_base_path }}/{{ addon_name }}"
+    addon_specific_config: "{{ addon_configs[addon_name] | default({}) }}"
+
+- name: Display addon deployment info
+  debug:
+    msg:
+      - "Deploying addon: {{ addon_name }}"
+      - "Source path: {{ addon_path }}"
+      - "Deployment path: {{ addon_deployment_path }}"
+    verbosity: 1
+
+- name: Check if addon exists
+  stat:
+    path: "{{ addon_path }}"
+  register: addon_dir
+  delegate_to: localhost
+  become: no
+
+- name: Fail if addon does not exist
+  fail:
+    msg: |
+      [ADDON-DEPLOYER] ERROR: Addon not found
+        - Addon: {{ addon_name }}
+        - Expected path: {{ addon_path }}
+        - Fix: Ensure the addon exists in the addons directory
+        - Available addons: Check {{ addons_source_path }} directory
+  when: not addon_dir.stat.exists
+
+- name: Load addon metadata
+  include_vars:
+    file: "{{ addon_path }}/addon.yml"
+    name: addon_metadata
+  register: addon_metadata_load
+  ignore_errors: yes
+
+- name: Fail if addon.yml is missing or invalid
+  fail:
+    msg: |
+      [ADDON-DEPLOYER] ERROR: Invalid addon metadata
+        - Addon: {{ addon_name }}
+        - File: {{ addon_path }}/addon.yml
+        - Error: {{ addon_metadata_load.msg | default('File not found or invalid YAML') }}
+        - Fix: Ensure addon.yml exists and contains valid YAML
+        - Docs: See addons/README.md for addon.yml schema
+  when: addon_metadata_load is failed
+
+- name: Validate addon metadata structure
+  assert:
+    that:
+      - addon_metadata.name is defined
+      - addon_metadata.description is defined
+      - addon_metadata.category is defined
+    fail_msg: |
+      [ADDON-DEPLOYER] ERROR: Invalid addon metadata structure
+        - Addon: {{ addon_name }}
+        - Missing fields: name, description, or category
+        - Fix: Ensure addon.yml contains all required fields
+        - Docs: See addons/README.md for addon.yml schema
+    quiet: true
+
+- name: Check addon dependencies
+  assert:
+    that:
+      - item in enabled_addons
+    fail_msg: |
+      [ADDON-DEPLOYER] ERROR: Addon dependency not satisfied
+        - Addon: {{ addon_name }}
+        - Required dependency: {{ item }}
+        - Enabled addons: {{ enabled_addons | join(', ') }}
+        - Fix: Add '{{ item }}' to enabled_addons in project.yml
+        - Docs: See {{ addon_path }}/addon.yml for dependency information
+    quiet: true
+  loop: "{{ addon_metadata.requires | default([]) }}"
+  when: addon_metadata.requires is defined and addon_metadata.requires | length > 0
+
+- name: Check if addon has templates directory
+  stat:
+    path: "{{ addon_path }}/templates"
+  register: templates_dir
+  delegate_to: localhost
+  become: no
+
+- name: Set addon templates flag
+  set_fact:
+    addon_has_templates: "{{ templates_dir.stat.exists and templates_dir.stat.isdir }}"
+
+- name: Generate environment variables for addon
+  include_tasks: generate-env.yml
+
+- name: Render templates for addon
+  include_tasks: render-templates.yml
+
+- name: Check if addon has ansible.yml deployment tasks
+  stat:
+    path: "{{ addon_path }}/ansible.yml"
+  register: addon_ansible_file
+  delegate_to: localhost
+  become: no
+
+- name: Execute addon-specific deployment tasks
+  include_tasks: "{{ addon_path }}/ansible.yml"
+  vars:
+    # Pass standardized variables to addon ansible.yml
+    addon_base_path: "{{ addons_base_path }}"
+    project_name: "{{ project_name }}"
+    # superdeploy_user and superdeploy_group are inherited from parent scope
+    # Pass addon-specific configuration
+    addon_config: "{{ addon_specific_config }}"
+    # Pass all environment variables
+    env_vars: "{{ addon_env_vars }}"
+    # Pass individual env vars for backward compatibility
+    version: "{{ addon_env_vars.get(addon_name | upper + '_VERSION', addon_metadata.version | default('latest')) }}"
+  when: addon_ansible_file.stat.exists
+
+- name: Verify addon health check
+  include_tasks: verify-health.yml
+  when: addon_metadata.healthcheck is defined
+
+- name: Display addon deployment success
+  debug:
+    msg: "✓ Successfully deployed {{ addon_name }} addon"

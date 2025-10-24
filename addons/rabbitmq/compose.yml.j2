@@ -1,0 +1,35 @@
+  {{ addon_name }}:
+    image: rabbitmq:{{ version }}
+    container_name: {{ project_name }}-{{ addon_name }}
+    restart: unless-stopped
+    hostname: {{ project_name }}-{{ addon_name }}
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST}
+    volumes:
+      - {{ addon_name }}-data:/var/lib/rabbitmq
+    networks:
+      - {{ project_name }}-network
+    expose:
+      - "5672"
+      - "15672"
+    healthcheck:
+      test: ["CMD-SHELL", "{{ healthcheck.command }}"]
+      interval: {{ healthcheck.interval }}
+      timeout: {{ healthcheck.timeout }}
+      retries: {{ healthcheck.retries }}
+      start_period: {{ healthcheck.start_period }}
+    deploy:
+      resources:
+        limits:
+          memory: {{ resources.memory }}
+          cpus: '{{ resources.cpu }}'
+    {% if monitoring.enabled %}
+    labels:
+      - "prometheus.scrape=true"
+      - "prometheus.port={{ monitoring.metrics_port }}"
+      - "prometheus.path=/metrics"
+      - "project={{ project_name }}"
+      - "service={{ addon_name }}"
+    {% endif %}

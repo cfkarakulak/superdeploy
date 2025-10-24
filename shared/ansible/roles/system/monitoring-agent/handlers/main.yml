@@ -1,0 +1,8 @@
+---
+# Handlers for system/monitoring-agent role
+
+- name: restart-node-exporter
+  systemd:
+    name: "{{ node_exporter_service_name }}"
+    state: restarted
+    daemon_reload: yes

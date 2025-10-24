@@ -1,0 +1,161 @@
+---
+# Forgejo Actions Runner Setup Tasks
+# Installs and configures Forgejo Actions runner with Node.js and age encryption
+
+- name: Check if Node.js is installed
+  command: node --version
+  register: node_check
+  failed_when: false
+  changed_when: false
+
+- name: Install Node.js (if not present)
+  block:
+    - name: Download Node.js setup script
+      get_url:
+        url: https://deb.nodesource.com/setup_20.x
+        dest: /tmp/nodesource_setup.sh
+        mode: '0755'
+      when: node_check.rc != 0
+
+    - name: Run Node.js setup script
+      command: bash /tmp/nodesource_setup.sh
+      when: node_check.rc != 0
+
+    - name: Install Node.js package
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+      when: node_check.rc != 0
+  when: ansible_os_family == "Debian"
+
+- name: Check if age is installed
+  command: age --version
+  register: age_check
+  failed_when: false
+  changed_when: false
+
+- name: Install age encryption tool
+  block:
+    - name: Download age binary
+      get_url:
+        url: "https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz"
+        dest: /tmp/age.tar.gz
+        mode: '0644'
+
+    - name: Extract age binary
+      unarchive:
+        src: /tmp/age.tar.gz
+        dest: /tmp/
+        remote_src: yes
+
+    - name: Install age binary
+      copy:
+        src: /tmp/age/age
+        dest: /usr/local/bin/age
+        mode: '0755'
+        remote_src: yes
+
+    - name: Install age-keygen binary
+      copy:
+        src: /tmp/age/age-keygen
+        dest: /usr/local/bin/age-keygen
+        mode: '0755'
+        remote_src: yes
+  when: age_check.rc != 0
+
+- name: Check if Forgejo runner is already installed
+  stat:
+    path: /usr/local/bin/forgejo-runner
+  register: runner_binary_check
+
+- name: Download Forgejo Actions runner
+  get_url:
+    url: "https://code.forgejo.org/forgejo/runner/releases/download/v3.5.0/forgejo-runner-3.5.0-linux-amd64"
+    dest: /usr/local/bin/forgejo-runner
+    mode: '0755'
+  when: not runner_binary_check.stat.exists
+
+- name: Create runner working directory
+  file:
+    path: "{{ addon_base_path }}/{{ addon_name }}/runner"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0755'
+
+- name: Check if runner is already registered
+  stat:
+    path: "{{ addon_base_path }}/{{ addon_name }}/runner/.runner"
+  register: runner_registration_check
+
+- name: Wait a moment for repository to be fully ready
+  pause:
+    seconds: 3
+  when: not runner_registration_check.stat.exists
+
+- name: Generate runner registration token
+  uri:
+    url: "http://localhost:{{ FORGEJO_PORT }}/api/v1/repos/{{ FORGEJO_ORG }}/{{ FORGEJO_REPO }}/actions/runners/registration-token"
+    method: POST
+    user: "{{ FORGEJO_ADMIN_USER }}"
+    password: "{{ FORGEJO_ADMIN_PASSWORD }}"
+    force_basic_auth: yes
+    status_code: 200
+    timeout: 10
+  register: runner_token_result
+  until: runner_token_result.status == 200
+  retries: 5
+  delay: 2
+  when: not runner_registration_check.stat.exists
+
+- name: Register Forgejo Actions runner
+  command: >
+    forgejo-runner register
+    --no-interactive
+    --instance "http://{{ FORGEJO_DOMAIN }}:{{ FORGEJO_PORT }}"
+    --token "{{ runner_token_result.json.token }}"
+    --name "{{ runner_name | default(project_name + '-runner') }}"
+    --labels "{{ runner_labels | default('ubuntu-latest:docker://node:20-bookworm,ubuntu-22.04:docker://node:20-bookworm') }}"
+  args:
+    chdir: "{{ addon_base_path }}/{{ addon_name }}/runner"
+  become_user: "{{ superdeploy_user }}"
+  when: not runner_registration_check.stat.exists
+  register: runner_register_result
+
+- name: Display runner registration result
+  debug:
+    msg: "Runner '{{ runner_name | default(project_name + '-runner') }}' {{ 'registered successfully' if not runner_registration_check.stat.exists else 'already registered' }}"
+
+- name: Create runner systemd service file
+  template:
+    src: "{{ addon_path }}/tasks/forgejo-runner.service.j2"
+    dest: /etc/systemd/system/forgejo-runner.service
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Enable and start Forgejo runner service
+  systemd:
+    name: forgejo-runner
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: Wait for runner to connect
+  pause:
+    seconds: 10
+
+- name: Check runner status
+  systemd:
+    name: forgejo-runner
+    state: started
+  register: runner_status
+
+- name: Display runner setup summary
+  debug:
+    msg:
+      - "Forgejo Actions runner setup completed!"
+      - "Runner Name: {{ runner_name | default(project_name + '-runner') }}"
+      - "Runner Labels: {{ runner_labels | default('ubuntu-latest:docker://node:20-bookworm') }}"
+      - "Service Status: {{ runner_status.status.ActiveState }}"
+      - "Working Directory: {{ addon_base_path }}/{{ addon_name }}/runner"

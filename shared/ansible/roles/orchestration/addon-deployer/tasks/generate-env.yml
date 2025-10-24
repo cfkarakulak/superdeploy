@@ -1,0 +1,101 @@
+---
+# Generate environment variables for an addon
+# This task processes env.yml definitions and merges values from project.yml, secrets, and defaults
+
+- name: Load addon env.yml configuration
+  include_vars:
+    file: "{{ addon_path }}/env.yml"
+    name: addon_env_config
+  when: addon_env_config is not defined
+
+- name: Initialize addon environment variables dictionary
+  set_fact:
+    addon_env_vars: {}
+
+- name: Process each environment variable definition
+  set_fact:
+    addon_env_vars: "{{ addon_env_vars | combine({item.key: processed_value}) }}"
+  vars:
+    var_def: "{{ item.value }}"
+    # Determine the value based on source priority: secrets > project config > defaults
+    processed_value: >-
+      {%- if var_def.source == 'secret' and var_def.from_secrets is defined -%}
+        {{ project_secrets.get(var_def.from_secrets, '') }}
+      {%- elif var_def.source == 'config' and var_def.from_project is defined -%}
+        {%- set path_parts = var_def.from_project.split('.') -%}
+        {%- set ns = namespace(value=project_config, found=true) -%}
+        {%- for part in path_parts -%}
+          {%- if ns.found and ns.value is mapping and part in ns.value -%}
+            {%- set ns.value = ns.value[part] -%}
+          {%- else -%}
+            {%- set ns.found = false -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {%- if ns.found and ns.value is not mapping -%}
+          {{ ns.value }}
+        {%- elif var_def.required | default(false) -%}
+          MISSING_REQUIRED_{{ item.key }}
+        {%- else -%}
+          {{ var_def.default | default('') }}
+        {%- endif -%}
+      {%- elif var_def.source == 'runtime' -%}
+        {%- if var_def.from_ansible is defined -%}
+          {{ lookup('vars', var_def.from_ansible, default='') }}
+        {%- else -%}
+          {{ var_def.value | default('') }}
+        {%- endif -%}
+      {%- else -%}
+        {{ var_def.default | default('') }}
+      {%- endif -%}
+  loop: "{{ addon_env_config.variables | dict2items }}"
+  when: addon_env_config.variables is defined
+
+- name: Validate required environment variables
+  assert:
+    that:
+      - addon_env_vars[item.key] is defined
+      - addon_env_vars[item.key] | length > 0
+      - not (addon_env_vars[item.key] | string).startswith('MISSING_REQUIRED_')
+    fail_msg: |
+      [ADDON-DEPLOYER] ERROR: Missing required environment variable for {{ addon_name }}
+        - Variable: {{ item.key }}
+        - Description: {{ item.value.description | default('No description') }}
+        - Source: {{ item.value.source | default('unknown') }}
+        - Expected path: {{ item.value.from_project | default('N/A') }}
+        - Fix: {% if item.value.from_project is defined %}Add '{{ item.value.from_project }}' to project.yml with a valid value{% elif item.value.from_secrets is defined %}Add '{{ item.value.from_secrets }}' to project secrets{% else %}Provide value for {{ item.key }}{% endif %}
+        - Docs: See {{ addon_path }}/env.yml for variable definitions
+    quiet: true
+  loop: "{{ addon_env_config.variables | dict2items }}"
+  when:
+    - addon_env_config.variables is defined
+    - item.value.required | default(false)
+
+- name: Substitute PROJECT placeholder in environment variables
+  set_fact:
+    addon_env_vars: >-
+      {{ addon_env_vars | combine({item.key: item.value | regex_replace('\$\{PROJECT\}', project_name)}) }}
+  loop: "{{ addon_env_vars | dict2items }}"
+  when: item.value is string and '${PROJECT}' in item.value
+
+- name: Display generated environment variables (non-secrets only)
+  debug:
+    msg: "{{ addon_name }} environment variables: {{ addon_env_vars | dict2items | rejectattr('key', 'search', '(PASSWORD|SECRET|TOKEN|KEY)') | list | items2dict }}"
+    verbosity: 1
+
+- name: Create addon directory
+  file:
+    path: "{{ addon_deployment_path }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0755'
+
+- name: Generate .env file for addon
+  template:
+    src: env-file.j2
+    dest: "{{ addon_deployment_path }}/.env"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0600'
+  vars:
+    env_vars: "{{ addon_env_vars }}"

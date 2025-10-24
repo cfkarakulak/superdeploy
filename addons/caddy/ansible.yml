@@ -1,0 +1,98 @@
+---
+# Caddy Addon Deployment Tasks
+# Handles deployment and certificate management for Caddy reverse proxy
+
+- name: Create {{ addon_name }} directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0755'
+  loop:
+    - "{{ addon_base_path }}/{{ addon_name }}"
+    - "{{ addon_base_path }}/{{ addon_name }}/data"
+    - "{{ addon_base_path }}/{{ addon_name }}/config"
+
+- name: Render Caddyfile for {{ addon_name }}
+  template:
+    src: "{{ addon_path }}/Caddyfile.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/Caddyfile"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+
+- name: Render {{ addon_name }} docker-compose.yml
+  template:
+    src: "{{ addon_path }}/compose.yml.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/docker-compose.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+
+- name: Render {{ addon_name }} environment file
+  template:
+    src: "{{ addon_path }}/templates/caddy.env.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/.env"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0600'
+  when: addon_path is defined and addon_path | length > 0
+
+- name: Start {{ addon_name }} services
+  community.docker.docker_compose:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: present
+    pull: true
+  become_user: "{{ superdeploy_user }}"
+  register: caddy_compose_result
+
+- name: Wait for {{ addon_name }} to be ready
+  wait_for:
+    host: localhost
+    port: "{{ CADDY_HTTP_PORT | default(80) }}"
+    delay: 5
+    timeout: 60
+    state: started
+  when: caddy_compose_result.changed
+
+- name: Verify {{ addon_name }} admin API is accessible
+  uri:
+    url: "http://localhost:{{ CADDY_ADMIN_PORT | default(2019) }}/config/"
+    method: GET
+    status_code: 200
+  register: caddy_health
+  until: caddy_health.status == 200
+  retries: 5
+  delay: 3
+  failed_when: false
+
+- name: Verify {{ addon_name }} TLS certificate status
+  uri:
+    url: "http://localhost:{{ CADDY_ADMIN_PORT | default(2019) }}/config/apps/tls/certificates"
+    method: GET
+    status_code: 200
+  register: caddy_certs
+  when: CADDY_TLS_MODE | default('auto') == 'auto'
+  failed_when: false
+
+- name: Display {{ addon_name }} certificate information
+  debug:
+    msg: "Caddy TLS certificates: {{ caddy_certs.json | default('Not available') }}"
+  when: 
+    - CADDY_TLS_MODE | default('auto') == 'auto'
+    - caddy_certs is defined
+    - caddy_certs.json is defined
+
+- name: Ensure {{ addon_name }} certificate renewal is configured
+  cron:
+    name: "Check Caddy certificate renewal for {{ project_name }}"
+    minute: "0"
+    hour: "2"
+    job: "docker exec {{ project_name }}-{{ addon_name }} caddy reload --config /etc/caddy/Caddyfile"
+    user: "{{ superdeploy_user }}"
+  when: CADDY_TLS_MODE | default('auto') == 'auto'
+
+- name: Display {{ addon_name }} deployment status
+  debug:
+    msg: "Caddy is ready - HTTP on port {{ CADDY_HTTP_PORT | default(80) }}, HTTPS on port {{ CADDY_HTTPS_PORT | default(443) }}"
