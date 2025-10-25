@@ -35,6 +35,27 @@
     enabled_addons: "{{ (['forgejo'] + enabled_addons) | unique }}"
   when: "'forgejo' not in enabled_addons"
 
+- name: Create project Docker network
+  docker_network:
+    name: "{{ project_name }}-network"
+    driver: bridge
+    ipam_config:
+      - subnet: "{{ project_config.network.subnet | default('172.20.0.0/24') }}"
+    state: present
+  become_user: "{{ superdeploy_user }}"
+
+- name: Display deployment plan
+  debug:
+    msg:
+      - "=========================================="
+      - "ADDON DEPLOYMENT PLAN"
+      - "=========================================="
+      - "Project: {{ project_name }}"
+      - "Total addons: {{ enabled_addons | length }}"
+      - "Deployment order:"
+      - "{{ enabled_addons | map('regex_replace', '^(.*)$', '  - \\1') | list | join('\n') }}"
+      - "=========================================="
+
 - name: Display final addon list
   debug:
     msg: "Deploying addons: {{ enabled_addons | join(', ') }}"

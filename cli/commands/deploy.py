@@ -6,7 +6,7 @@ import requests
 from rich.console import Console
 from rich.panel import Panel
 from cli.utils import load_env, validate_env_vars, get_project_root
-from cli.ansible_utils import parse_project_config, generate_ansible_extra_vars
+from cli.ansible_utils import generate_ansible_extra_vars
 
 console = Console()
 
@@ -30,13 +30,13 @@ def deploy(project, app, environment, tag, migrate):
 
     \b
     Examples:
-      superdeploy deploy -p cheapa -a api                    # Deploy API (production)
-      superdeploy deploy -p cheapa -a api -e staging         # Deploy to staging
-      superdeploy deploy -p cheapa -a api -t abc123          # Deploy specific tag
-      superdeploy deploy -p cheapa -a all                    # Deploy all services
-      superdeploy deploy -p cheapa -a api --migrate          # Deploy + migrate
+      superdeploy deploy -p acme -a api                    # Deploy API (production)
+      superdeploy deploy -p acme -a api -e staging         # Deploy to staging
+      superdeploy deploy -p acme -a api -t abc123          # Deploy specific tag
+      superdeploy deploy -p acme -a all                    # Deploy all services
+      superdeploy deploy -p acme -a api --migrate          # Deploy + migrate
     """
-    env = load_env()
+    env = load_env(project=project)
 
     # Validate required vars
     required = ["CORE_EXTERNAL_IP", "FORGEJO_PAT", "FORGEJO_ORG", "REPO_SUPERDEPLOY"]

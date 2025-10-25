@@ -49,7 +49,7 @@
     owner: root
     group: root
     mode: '0644'
-  notify: restart-docker
+  notify: Restart Docker
 
 - name: Start and enable Docker service
   systemd:

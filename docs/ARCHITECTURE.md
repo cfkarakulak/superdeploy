@@ -700,3 +700,179 @@ myapp-frontend:3000/metrics
 3. **Network separation:** Docker networks ile tam izolasyon
 4. **Secret management:** GitHub → AGE → Forgejo → Docker
 5. **Monitoring centralized:** Tüm projeler tek Grafana'da
+
+
+## 🏥 Health Check System
+
+SuperDeploy implements a comprehensive health check system to ensure addons are fully operational before proceeding with deployment.
+
+### Health Check Method Selection
+
+The system automatically selects the appropriate health check method based on addon metadata and category:
+
+```yaml
+# Priority order:
+1. HTTP endpoint (if healthcheck.url is defined)
+2. Command-based (if healthcheck.command is defined)
+3. Category-specific (database, cache, queue)
+4. Container status (fallback)
+```
+
+### Health Check Methods
+
+#### 1. HTTP Health Check
+For web services and APIs:
+```yaml
+healthcheck:
+  url: "http://localhost:2019/config/"
+  status_code: 200
+  timeout: 5s
+  interval: 30s
+  retries: 3
+  start_period: 10s
+```
+
+#### 2. Command-Based Health Check
+For services with built-in health commands:
+```yaml
+healthcheck:
+  command: "pg_isready -U ${POSTGRES_USER}"
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+```
+
+#### 3. Database-Specific Health Checks
+Automatic health checks for database addons:
+- **PostgreSQL**: `pg_isready -U <user>`
+- **MongoDB**: `mongosh --eval "db.runCommand({ ping: 1 })"`
+
+#### 4. Cache-Specific Health Checks
+Automatic health checks for cache addons:
+- **Redis**: `redis-cli ping`
+
+#### 5. Queue-Specific Health Checks
+Automatic health checks for queue addons:
+- **RabbitMQ**: `rabbitmq-diagnostics -q ping`
+
+#### 6. Container Status (Fallback)
+When no specific health check is defined:
+1. Check Docker health status (if healthcheck defined in compose)
+2. Check if container is running
+3. Report container state
+
+### Health Check Configuration
+
+Health checks are configured in `addon.yml`:
+
+```yaml
+# Health check
+healthcheck:
+  command: "rabbitmq-diagnostics -q ping"  # Health check command
+  interval: 10s                             # Time between checks
+  timeout: 10s                              # Max time for check to complete
+  retries: 30                               # Number of retry attempts
+  start_period: 90s                         # Grace period before checks start
+```
+
+### Error Reporting
+
+When a health check fails, the system provides detailed diagnostics:
+
+```
+================================================================================
+[ADDON-DEPLOYER] ERROR: Health check failed for rabbitmq
+================================================================================
+
+Health Check Details:
+---------------------
+Method: queue
+Retries: 30
+Delay: 10s
+Start Period: 90s
+
+Exit Code: 1
+Output: Error: unable to connect to node
+Error: connection refused
+
+Container Status:
+-----------------
+Status: running
+Health: starting
+Restarts: 0
+
+Recent Container Logs (last 100 lines):
+---------------------------------------
+[container logs here]
+
+Running Processes:
+------------------
+[process list here]
+
+Troubleshooting Steps:
+----------------------
+1. Check if container is running:
+   docker ps -a | grep rabbitmq
+
+2. Check full container logs:
+   docker logs cheapa-rabbitmq
+
+3. Check container health status:
+   docker inspect cheapa-rabbitmq | jq '.[0].State'
+
+4. Try manual health check:
+   docker exec cheapa-rabbitmq rabbitmq-diagnostics -q ping
+
+Common Issues:
+--------------
+- Service needs more time to initialize (increase retries/start_period)
+- Configuration error in addon.yml or project.yml
+- Port conflict with another service
+- Missing required environment variables
+- Insufficient resources (memory, CPU)
+
+Next Steps:
+-----------
+- Fix the issue and retry from this addon:
+  superdeploy up cheapa --start-from rabbitmq
+
+- Skip this addon and continue:
+  superdeploy up cheapa --skip rabbitmq
+================================================================================
+```
+
+### Resuming Failed Deployments
+
+Use `--start-from` flag to resume from a specific addon:
+
+```bash
+# Resume from rabbitmq (skip all previous addons)
+superdeploy up cheapa --start-from rabbitmq
+
+# Skip specific addon(s)
+superdeploy up cheapa --skip rabbitmq
+
+# Skip multiple addons
+superdeploy up cheapa --skip rabbitmq --skip redis
+```
+
+### Best Practices
+
+1. **Set appropriate start_period**: Give services enough time to initialize
+   - Databases: 30-60s
+   - Message queues: 60-90s
+   - Web services: 10-30s
+
+2. **Use specific health checks**: Prefer command-based or HTTP checks over container status
+
+3. **Configure retries**: Set retries based on service initialization time
+   - Fast services (Redis): 5-10 retries
+   - Slow services (RabbitMQ): 20-30 retries
+
+4. **Monitor logs**: Check container logs if health checks fail repeatedly
+
+5. **Test health checks**: Validate health check commands work in container:
+   ```bash
+   docker exec <container> <health-check-command>
+   ```

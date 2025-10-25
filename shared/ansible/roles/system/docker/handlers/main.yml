@@ -5,4 +5,3 @@
   systemd:
     name: docker
     state: restarted
-  listen: restart-docker

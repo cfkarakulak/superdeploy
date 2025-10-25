@@ -1,6 +1,15 @@
 ---
 # Main playbook - Deploy entire superdeploy infrastructure
-# Run with: ansible-playbook -i inventories/dev.ini playbooks/site.yml
+# 
+# Usage:
+#   # Deploy specific project (using dynamic inventory)
+#   ansible-playbook -i inventories/dynamic.py playbooks/site.yml --limit project_cheapa
+#   
+#   # Deploy all projects
+#   ansible-playbook -i inventories/dynamic.py playbooks/site.yml
+#   
+#   # Deploy with static inventory (legacy)
+#   ansible-playbook -i inventories/dev.ini playbooks/site.yml
 #
 # Tag usage:
 #   --tags system           : Setup base system (packages, users, directories)
@@ -33,17 +42,6 @@
   tags:
     - system
     - docker
-    - foundation
-
-- name: Configure Security and Firewall
-  hosts: core
-  become: yes
-  roles:
-    - role: system/security
-  tags:
-    - system
-    - security
-    - firewall
     - foundation
 
 - name: Install System Monitoring Agent

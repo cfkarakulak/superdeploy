@@ -22,13 +22,8 @@
     - "{{ addon_base_path }}/{{ addon_name }}/runner"
     - "{{ addon_base_path }}/{{ addon_name }}/templates"
 
-- name: "Render {{ addon_name }} docker-compose.yml"
-  template:
-    src: "{{ addon_path }}/compose.yml.j2"
-    dest: "{{ addon_base_path }}/{{ addon_name }}/docker-compose.yml"
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group | default(superdeploy_user) }}"
-    mode: '0644'
+# Note: docker-compose.yml is already rendered by orchestration/addon-deployer/tasks/render-templates.yml
+# This keeps the deployment logic clean and focused on service-specific tasks
 
 - name: "Render {{ addon_name }} environment file"
   template:
@@ -46,18 +41,37 @@
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
 
-- name: "Pull {{ addon_name }} images"
-  community.docker.docker_compose_v2:
-    project_src: "{{ addon_base_path }}/{{ addon_name }}"
-    pull: "always"
-  become_user: "{{ superdeploy_user }}"
-
 - name: "Start {{ addon_name }} services"
   community.docker.docker_compose_v2:
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: present
+    pull: "missing"
+    recreate: "auto"
   become_user: "{{ superdeploy_user }}"
   register: forgejo_compose_result
+
+- name: "Restart Docker to fix iptables (if Forgejo was deployed)"
+  systemd:
+    name: docker
+    state: restarted
+  become: yes
+  when: forgejo_compose_result.changed
+
+- name: "Wait for Docker daemon to be ready"
+  shell: docker info >/dev/null 2>&1
+  register: docker_ready
+  until: docker_ready.rc == 0
+  retries: 10
+  delay: 1
+  changed_when: false
+  when: forgejo_compose_result.changed
+
+- name: "Restart {{ addon_name }} containers after Docker restart"
+  community.docker.docker_compose_v2:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: restarted
+  become_user: "{{ superdeploy_user }}"
+  when: forgejo_compose_result.changed
 
 - name: "Wait for {{ addon_name }} database to be ready"
   shell: docker inspect -f '{{"{{"}}.State.Health.Status{{"}}"}}' {{ project_name }}-forgejo-db

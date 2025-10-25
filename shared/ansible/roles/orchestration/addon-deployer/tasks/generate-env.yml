@@ -6,7 +6,6 @@
   include_vars:
     file: "{{ addon_path }}/env.yml"
     name: addon_env_config
-  when: addon_env_config is not defined
 
 - name: Initialize addon environment variables dictionary
   set_fact:
@@ -33,16 +32,18 @@
         {%- endfor -%}
         {%- if ns.found and ns.value is not mapping -%}
           {{ ns.value }}
+        {%- elif var_def.default is defined -%}
+          {{ var_def.default }}
         {%- elif var_def.required | default(false) -%}
           MISSING_REQUIRED_{{ item.key }}
         {%- else -%}
-          {{ var_def.default | default('') }}
+          
         {%- endif -%}
       {%- elif var_def.source == 'runtime' -%}
         {%- if var_def.from_ansible is defined -%}
-          {{ lookup('vars', var_def.from_ansible, default='') }}
+          {{ hostvars[inventory_hostname][var_def.from_ansible] | default(var_def.default | default('')) }}
         {%- else -%}
-          {{ var_def.value | default('') }}
+          {{ var_def.value | default(var_def.default | default('')) }}
         {%- endif -%}
       {%- else -%}
         {{ var_def.default | default('') }}
@@ -80,7 +81,7 @@
 - name: Display generated environment variables (non-secrets only)
   debug:
     msg: "{{ addon_name }} environment variables: {{ addon_env_vars | dict2items | rejectattr('key', 'search', '(PASSWORD|SECRET|TOKEN|KEY)') | list | items2dict }}"
-    verbosity: 1
+    verbosity: 0
 
 - name: Create addon directory
   file:

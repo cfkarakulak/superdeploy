@@ -22,9 +22,9 @@ def promote(project, app, from_env, to_env, yes):
 
     \b
     Examples:
-      superdeploy promote -p cheapa -a api                    # staging → production
-      superdeploy promote -p cheapa -a api --from-env dev     # dev → production
-      superdeploy promote -p cheapa -a all -y                 # Skip confirmation
+      superdeploy promote -p acme -a api                    # staging → production
+      superdeploy promote -p acme -a api --from-env dev     # dev → production
+      superdeploy promote -p acme -a all -y                 # Skip confirmation
     
     \b
     This command:
@@ -32,7 +32,7 @@ def promote(project, app, from_env, to_env, yes):
     2. Deploys the same tag to target environment
     3. Ensures consistency across environments
     """
-    env = load_env()
+    env = load_env(project=project)
 
     # Validate required vars
     required = ["CORE_EXTERNAL_IP", "FORGEJO_PAT", "FORGEJO_ORG", "REPO_SUPERDEPLOY"]

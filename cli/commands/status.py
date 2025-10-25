@@ -23,22 +23,22 @@ def status(project):
     - Container status
     - Monitoring dashboard URL
     """
-    env = load_env()
+    env = load_env(project)
     project_root = get_project_root()
-    project_dir = project_root / "projects" / project
-    config_file = project_dir / "project.yml"
 
-    # Check if project exists
-    if not config_file.exists():
-        console.print(f"[red]❌ Project '{project}' not found![/red]")
-        console.print(f"[dim]Config file not found: {config_file}[/dim]")
-        return
-
-    # Load project config
+    # Load project config using ConfigLoader
+    from cli.core.config_loader import ConfigLoader
+    
     try:
-        with open(config_file) as f:
-            config = yaml.safe_load(f)
-    except Exception as e:
+        projects_dir = project_root / "projects"
+        config_loader = ConfigLoader(projects_dir)
+        project_config_obj = config_loader.load_project(project)
+        config = project_config_obj.raw_config
+    except FileNotFoundError:
+        console.print(f"[red]❌ Project '{project}' not found![/red]")
+        console.print(f"[dim]Run: superdeploy init -p {project}[/dim]")
+        return
+    except ValueError as e:
         console.print(f"[red]❌ Error loading project config: {e}[/red]")
         return
 

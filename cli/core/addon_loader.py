@@ -112,10 +112,13 @@ class AddonLoader:
         addons = {}
         
         # Get addon names from infrastructure section
+        # Skip non-addon keys like 'vm_config'
         infrastructure = project_config.get('infrastructure', {})
+        non_addon_keys = {'vm_config'}  # These are config, not addons
         for service_name in infrastructure.keys():
-            addon = self.load_addon(service_name)
-            addons[service_name] = addon
+            if service_name not in non_addon_keys:
+                addon = self.load_addon(service_name)
+                addons[service_name] = addon
         
         # Get addon names from core_services section
         core_services = project_config.get('core_services', {})

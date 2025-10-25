@@ -16,6 +16,9 @@ projects/*/compose/env/*.env
 projects/*/.passwords.yml
 .passwords.yml
 
+# Project-specific .env files (NEVER commit!)
+projects/*/.env
+
 # Merged environment files (contains all secrets)
 merged_environment_*.yml
 

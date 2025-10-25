@@ -23,15 +23,7 @@
     msg: "No applications defined in project configuration, skipping app deployment"
   when: apps | length == 0
 
-- name: Create Docker network for project
-  docker_network:
-    name: "{{ network_name }}"
-    driver: bridge
-    ipam_config:
-      - subnet: "{{ network_subnet }}"
-    state: present
-  become_user: "{{ superdeploy_user }}"
-  when: apps | length > 0
+# Network is created by addon-deployer role, apps will use it
 
 - name: Generate docker-compose file for applications
   template:
@@ -53,12 +45,12 @@
   when: apps | length > 0
 
 - name: Pull application images
-  docker_compose:
+  community.docker.docker_compose_v2:
     project_src: "{{ project_base_path }}/compose"
     project_name: "{{ compose_project_name }}"
     files:
       - docker-compose.apps.yml
-    pull: true
+    pull: always
     state: present
   become_user: "{{ superdeploy_user }}"
   when: apps | length > 0
@@ -74,13 +66,13 @@
     - pull_result is succeeded
 
 - name: Start application services
-  docker_compose:
+  community.docker.docker_compose_v2:
     project_src: "{{ project_base_path }}/compose"
     project_name: "{{ compose_project_name }}"
     files:
       - docker-compose.apps.yml
     state: present
-    restarted: true
+    recreate: always
   become_user: "{{ superdeploy_user }}"
   when: apps | length > 0
   register: deploy_result

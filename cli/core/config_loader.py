@@ -166,6 +166,48 @@ class ProjectConfig:
         """
         return self.raw_config.get('monitoring', {})
     
+    def get_enabled_addons(self) -> List[str]:
+        """
+        Get list of enabled addons from infrastructure and core_services
+        
+        Returns:
+            List of enabled addon names
+        """
+        enabled_addons = []
+        
+        # Add addons from infrastructure section (e.g., forgejo)
+        infrastructure = self.raw_config.get('infrastructure', {})
+        for key in infrastructure.keys():
+            if key != 'vm_config':  # Skip vm_config, it's not an addon
+                enabled_addons.append(key)
+        
+        # Add addons from core_services section (e.g., postgres, rabbitmq)
+        core_services = self.raw_config.get('core_services', {})
+        enabled_addons.extend(list(core_services.keys()))
+        
+        return enabled_addons
+    
+    def get_addon_configs(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get addon configurations from both infrastructure and core_services
+        
+        Returns:
+            Dictionary of addon configurations
+        """
+        addon_configs = {}
+        
+        # Add configs from infrastructure
+        infrastructure = self.raw_config.get('infrastructure', {})
+        for key, value in infrastructure.items():
+            if key != 'vm_config' and isinstance(value, dict):
+                addon_configs[key] = value
+        
+        # Add configs from core_services
+        core_services = self.raw_config.get('core_services', {})
+        addon_configs.update(core_services)
+        
+        return addon_configs
+    
     def to_terraform_vars(self) -> Dict[str, Any]:
         """
         Convert to Terraform variables format
@@ -194,6 +236,8 @@ class ProjectConfig:
         return {
             'project_name': self.project_name,
             'project_config': self.raw_config,
+            'enabled_addons': self.get_enabled_addons(),
+            'addon_configs': self.get_addon_configs(),
             'vm_config': self.get_vm_config(),
             'network_config': self.get_network_config(),
             'apps': self.get_apps(),

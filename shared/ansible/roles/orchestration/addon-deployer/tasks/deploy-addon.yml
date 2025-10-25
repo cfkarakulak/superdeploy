@@ -91,6 +91,15 @@
   set_fact:
     addon_has_templates: "{{ templates_dir.stat.exists and templates_dir.stat.isdir }}"
 
+- name: Clear previous addon environment variables
+  set_fact:
+    addon_env_vars: {}
+
+- name: Debug addon name before generate-env
+  debug:
+    msg: "Generating env for addon: {{ addon_name }}"
+    verbosity: 0
+
 - name: Generate environment variables for addon
   include_tasks: generate-env.yml
 
@@ -113,10 +122,10 @@
     # superdeploy_user and superdeploy_group are inherited from parent scope
     # Pass addon-specific configuration
     addon_config: "{{ addon_specific_config }}"
-    # Pass all environment variables
+    # Pass addon metadata (healthcheck, resources, monitoring, etc.)
+    addon_metadata: "{{ addon_metadata }}"
+    # Pass all environment variables (includes VERSION, HOST, PORT, etc.)
     env_vars: "{{ addon_env_vars }}"
-    # Pass individual env vars for backward compatibility
-    version: "{{ addon_env_vars.get(addon_name | upper + '_VERSION', addon_metadata.version | default('latest')) }}"
   when: addon_ansible_file.stat.exists
 
 - name: Verify addon health check

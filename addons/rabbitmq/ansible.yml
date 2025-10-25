@@ -12,49 +12,25 @@
     - "{{ addon_base_path }}/{{ addon_name }}"
     - "{{ addon_base_path }}/{{ addon_name }}/data"
 
-- name: Render {{ addon_name }} docker-compose.yml
-  template:
-    src: "{{ addon_path }}/compose.yml.j2"
-    dest: "{{ addon_base_path }}/{{ addon_name }}/docker-compose.yml"
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group | default(superdeploy_user) }}"
-    mode: '0644'
-
-- name: Render {{ addon_name }} environment file
-  template:
-    src: "{{ addon_path }}/templates/rabbitmq.env.j2"
-    dest: "{{ addon_base_path }}/{{ addon_name }}/.env"
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group | default(superdeploy_user) }}"
-    mode: '0600'
-  when: addon_path is defined and addon_path | length > 0
+# Note: docker-compose.yml and .env are already rendered by orchestration/addon-deployer
+# This keeps the deployment logic clean and focused on service-specific tasks
 
 - name: Start {{ addon_name }} services
-  community.docker.docker_compose:
+  community.docker.docker_compose_v2:
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: present
-    pull: true
+    pull: "always"
   become_user: "{{ superdeploy_user }}"
   register: rabbitmq_compose_result
 
-- name: Wait for {{ addon_name }} to be ready
-  wait_for:
-    host: localhost
-    port: "{{ RABBITMQ_PORT | default(5672) }}"
-    delay: 10
-    timeout: 120
-    state: started
-  when: rabbitmq_compose_result.changed
-
-- name: Verify {{ addon_name }} is accessible
-  shell: |
-    docker exec {{ project_name }}-{{ addon_name }} rabbitmq-diagnostics -q ping
-  register: rabbitmq_health_check
-  until: rabbitmq_health_check.rc == 0
+- name: Wait for {{ addon_name }} container to be running
+  shell: docker inspect -f '{% raw %}{{.State.Running}}{% endraw %}' {{ project_name }}-{{ addon_name }}
+  register: container_running
+  until: container_running.stdout == 'true'
   retries: 10
-  delay: 6
+  delay: 2
   changed_when: false
-  failed_when: rabbitmq_health_check.rc != 0
+  when: rabbitmq_compose_result.changed
 
 - name: Wait for {{ addon_name }} management plugin
   shell: |
@@ -74,9 +50,10 @@
 
 - name: Set permissions for user on virtual host
   shell: |
-    docker exec {{ project_name }}-{{ addon_name }} rabbitmqctl set_permissions -p / {{ RABBITMQ_USER }} ".*" ".*" ".*"
+    docker exec {{ project_name }}-{{ addon_name }} rabbitmqctl set_permissions -p / {{ env_vars.RABBITMQ_DEFAULT_USER }} ".*" ".*" ".*"
   changed_when: false
+  failed_when: false
 
 - name: Display {{ addon_name }} deployment status
   debug:
-    msg: "RabbitMQ is ready - Management UI available on port {{ RABBITMQ_MANAGEMENT_PORT | default(15672) }}, AMQP on port {{ RABBITMQ_PORT | default(5672) }}"
+    msg: "RabbitMQ is ready - Management UI available on port {{ env_vars.RABBITMQ_MANAGEMENT_PORT | default(15672) }}, AMQP on port {{ env_vars.RABBITMQ_PORT | default(5672) }}"

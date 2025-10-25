@@ -99,10 +99,11 @@ resources:
 
 # Health check
 healthcheck:
-  command: "curl -f http://localhost:3000 || exit 1"
+  command: "wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1"
   interval: 10s
   timeout: 5s
-  retries: 5
+  retries: 10
+  start_period: 30s
   start_period: 30s
 
 # Dependencies (other addons required)

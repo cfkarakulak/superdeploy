@@ -4,21 +4,27 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from cli.utils import get_project_path, validate_project
+from cli.utils import get_project_path, validate_project, get_project_root
 import yaml
 
 console = Console()
 
 
-@click.command()
+@click.group()
+def validate():
+    """Validate project configuration or addons"""
+    pass
+
+
+@validate.command(name="project")
 @click.option("--project", "-p", required=True, help="Project name")
-def validate(project):
+def validate_project_cmd(project):
     """
     Validate project configuration
 
     \b
     Examples:
-      superdeploy validate -p cheapa
+      superdeploy validate -p acme
     
     \b
     This command validates:
@@ -44,15 +50,22 @@ def validate(project):
         console.print(f"[red]❌ Project validation failed: {e}[/red]")
         raise SystemExit(1)
 
-    # Load config
-    config_file = project_path / "config.yml"
+    # Load config using ConfigLoader
+    from cli.core.config_loader import ConfigLoader
     
-    if not config_file.exists():
-        console.print(f"[red]❌ Config file not found: {config_file}[/red]")
+    project_root = get_project_root()
+    
+    try:
+        config_loader = ConfigLoader(project_root / "projects")
+        project_config_obj = config_loader.load_project(project)
+        config = project_config_obj.raw_config
+    except FileNotFoundError:
+        console.print(f"[red]❌ Project config not found for: {project}[/red]")
+        console.print(f"[dim]Run: superdeploy init -p {project}[/dim]")
         raise SystemExit(1)
-
-    with open(config_file) as f:
-        config = yaml.safe_load(f)
+    except ValueError as e:
+        console.print(f"[red]❌ Invalid config: {e}[/red]")
+        raise SystemExit(1)
 
     errors = []
     warnings = []
@@ -157,4 +170,156 @@ def validate(project):
         raise SystemExit(1)
     else:
         console.print("[bold yellow]⚠️  Validation passed with warnings[/bold yellow]")
+        raise SystemExit(0)
+
+
+
+@validate.command(name="addons")
+@click.option("--project", "-p", help="Validate addons for specific project")
+@click.option("--addon", "-a", help="Validate specific addon")
+@click.option("--fix", is_flag=True, help="Attempt to auto-fix issues (not implemented yet)")
+def validate_addons(project, addon, fix):
+    """
+    Validate addon structure and configuration
+    
+    \b
+    Examples:
+      superdeploy validate addons                    # Validate all addons
+      superdeploy validate addons -a postgres        # Validate specific addon
+      superdeploy validate addons -p acme            # Validate addons for project
+      superdeploy validate addons --fix              # Auto-fix issues (future)
+    
+    \b
+    This command validates:
+    - Required files (addon.yml, docker-compose.yml.j2)
+    - Metadata fields (name, description, version, category)
+    - Compose template structure
+    - Healthcheck configuration
+    - Ansible tasks (anti-patterns)
+    """
+    from cli.core.addon_validator import AddonValidator
+    
+    console.print(
+        Panel.fit(
+            "[bold cyan]🔍 Validating Addons[/bold cyan]\n\n"
+            f"[white]{'Addon: ' + addon if addon else 'All addons'}[/white]",
+            border_style="cyan",
+        )
+    )
+    
+    if fix:
+        console.print("[yellow]⚠️  Auto-fix is not yet implemented[/yellow]\n")
+    
+    # Get addons path
+    project_root = get_project_root()
+    addons_path = project_root / "addons"
+    
+    # Initialize validator
+    validator = AddonValidator(addons_path)
+    
+    # Validate addon(s)
+    if addon:
+        results = [validator.validate_addon(addon)]
+    elif project:
+        # Load project config to get enabled addons
+        from cli.core.config_loader import ConfigLoader
+        
+        try:
+            config_loader = ConfigLoader(project_root / "projects")
+            project_config = config_loader.load_project(project)
+            enabled_addons = project_config.to_ansible_vars().get("enabled_addons", [])
+            
+            if not enabled_addons:
+                console.print(f"[yellow]⚠️  No addons enabled for project '{project}'[/yellow]")
+                raise SystemExit(0)
+            
+            console.print(f"[dim]Validating {len(enabled_addons)} addons for project '{project}'...[/dim]\n")
+            results = [validator.validate_addon(a) for a in enabled_addons]
+        except Exception as e:
+            console.print(f"[red]❌ Error loading project: {e}[/red]")
+            raise SystemExit(1)
+    else:
+        results = validator.validate_all_addons()
+    
+    if not results:
+        console.print("[yellow]⚠️  No addons found to validate[/yellow]")
+        raise SystemExit(0)
+    
+    # Display results
+    total_passed = 0
+    total_failed = 0
+    
+    for result in results:
+        # Create status indicator
+        if result.passed:
+            status = "[green]✓ PASS[/green]"
+            total_passed += 1
+        else:
+            status = "[red]✗ FAIL[/red]"
+            total_failed += 1
+        
+        # Display addon header
+        console.print(f"\n{status} [bold]{result.addon_name}[/bold]")
+        
+        if result.error_count > 0:
+            console.print(f"  [red]Errors: {result.error_count}[/red]")
+        if result.warning_count > 0:
+            console.print(f"  [yellow]Warnings: {result.warning_count}[/yellow]")
+        
+        # Display checks
+        for check in result.checks:
+            if check.severity == "info" and check.passed:
+                continue  # Skip passed info checks for brevity
+            
+            # Color based on severity and status
+            if check.passed:
+                icon = "✓"
+                color = "green"
+            else:
+                icon = "✗"
+                if check.severity == "error":
+                    color = "red"
+                elif check.severity == "warning":
+                    color = "yellow"
+                else:
+                    color = "dim"
+            
+            console.print(f"    [{color}]{icon}[/{color}] {check.message}")
+            
+            # Show fix suggestion if available
+            if not check.passed and check.fix_suggestion:
+                console.print(f"      [dim]→ {check.fix_suggestion}[/dim]")
+    
+    # Summary
+    console.print("\n" + "─" * 50)
+    console.print(f"\n[bold]Summary:[/bold]")
+    console.print(f"  Total addons: {len(results)}")
+    console.print(f"  [green]Passed: {total_passed}[/green]")
+    console.print(f"  [red]Failed: {total_failed}[/red]")
+    
+    # Create summary table
+    if total_failed > 0:
+        console.print("\n[bold red]Failed Addons:[/bold red]")
+        
+        table = Table()
+        table.add_column("Addon", style="cyan")
+        table.add_column("Errors", style="red")
+        table.add_column("Warnings", style="yellow")
+        
+        for result in results:
+            if not result.passed:
+                table.add_row(
+                    result.addon_name,
+                    str(result.error_count),
+                    str(result.warning_count)
+                )
+        
+        console.print(table)
+    
+    # Exit code
+    if total_failed > 0:
+        console.print("\n[bold red]❌ Validation failed[/bold red]")
+        raise SystemExit(1)
+    else:
+        console.print("\n[bold green]✅ All addons validated successfully![/bold green]")
         raise SystemExit(0)

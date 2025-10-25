@@ -3,6 +3,11 @@ variable "project_id" {
   type        = string
 }
 
+variable "project_name" {
+  description = "SuperDeploy project name (for resource naming and isolation)"
+  type        = string
+}
+
 variable "region" {
   description = "GCP region"
   type        = string
@@ -21,6 +26,19 @@ variable "environment" {
   default     = "dev"
 }
 
+# VM Configuration (Project-level defaults)
+variable "machine_type" {
+  description = "Default GCP machine type for VMs"
+  type        = string
+  default     = "e2-medium"
+}
+
+variable "disk_size" {
+  description = "Default boot disk size in GB"
+  type        = number
+  default     = 20
+}
+
 # VM counts
 variable "vm_counts" {
   description = "Number of VMs per role"
@@ -36,33 +54,33 @@ variable "vm_counts" {
   }
 }
 
-# Machine types
+# Machine types (per-role overrides, optional)
 variable "machine_types" {
-  description = "GCP machine types for each VM role"
+  description = "GCP machine types for each VM role (overrides default machine_type)"
   type = object({
     core   = string
     scrape = string
     proxy  = string
   })
   default = {
-    core   = "e2-standard-2"  # 2 vCPU, 8 GB RAM
-    scrape = "e2-standard-4"  # 4 vCPU, 16 GB RAM
-    proxy  = "e2-small"       # 2 vCPU, 2 GB RAM
+    core   = ""  # Empty means use default machine_type
+    scrape = ""
+    proxy  = ""
   }
 }
 
-# Disk sizes (GB)
+# Disk sizes (per-role overrides, optional)
 variable "disk_sizes" {
-  description = "Boot disk sizes in GB"
+  description = "Boot disk sizes in GB (overrides default disk_size)"
   type = object({
     core   = number
     scrape = number
     proxy  = number
   })
   default = {
-    core   = 50
-    scrape = 100
-    proxy  = 20
+    core   = 0  # 0 means use default disk_size
+    scrape = 0
+    proxy  = 0
   }
 }
 

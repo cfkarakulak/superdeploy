@@ -6,7 +6,7 @@ import subprocess
 from rich.console import Console
 from rich.panel import Panel
 from cli.utils import load_env, ssh_command, validate_env_vars, get_project_root
-from cli.ansible_utils import parse_project_config
+# parse_project_config removed - use ConfigLoader instead if needed
 
 console = Console()
 
@@ -116,17 +116,22 @@ def sync_infra(project):
     # Get GitHub org and repos from project config
     project_root = get_project_root()
 
-    # Parse project configuration
+    # Load project configuration using ConfigLoader
     try:
-        project_config = parse_project_config(project, project_root)
-        github_org = project_config.get("github", {}).get(
+        from cli.core.config_loader import ConfigLoader
+        
+        projects_dir = project_root / "projects"
+        config_loader = ConfigLoader(projects_dir)
+        project_config_obj = config_loader.load_project(project)
+        
+        github_org = project_config_obj.raw_config.get("github", {}).get(
             "organization", f"{project}io"
         )
         # Get service names from apps configuration
-        services = list(project_config.get("apps", {}).keys())
+        services = list(project_config_obj.get_apps().keys())
         if not services:
             services = ["api", "dashboard", "services"]  # Default fallback
-    except SystemExit:
+    except (FileNotFoundError, ValueError):
         # If project config doesn't exist, use defaults
         github_org = env.get("GITHUB_ORG", f"{project}io")
         services = ["api", "dashboard", "services"]

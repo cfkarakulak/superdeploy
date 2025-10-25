@@ -1,8 +1,8 @@
-# Auto-generated from .env - DO NOT EDIT MANUALLY
-# Edit ../superdeploy/.env instead
+# Auto-generated from environment variables - DO NOT EDIT MANUALLY
 
-project_id  = "galvanic-camp-475519-d6"
-environment = "dev"
+project_id   = "galvanic-camp-475519-d6"
+project_name = "cheapa"
+environment  = "dev"
 
 region = "us-central1"
 zone   = "us-central1-a"
@@ -14,18 +14,18 @@ vm_counts = {
 }
 
 machine_types = {
-  core   = "e2-medium"
+  core   = "e2-standard-2"
   scrape = "e2-standard-4"
   proxy  = "e2-small"
 }
 
 disk_sizes = {
-  core   = 20
+  core   = 50
   scrape = 100
   proxy  = 20
 }
 
-network_name = "superdeploy-dev-network"
+network_name = "cheapa-dev-network"
 subnet_cidr  = "10.0.0.0/24"
 
 admin_source_ranges = ["0.0.0.0/0"]

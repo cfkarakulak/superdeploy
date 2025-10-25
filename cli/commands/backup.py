@@ -19,8 +19,8 @@ def backup(project, output):
 
     \b
     Examples:
-      superdeploy backup -p cheapa                    # Backup to ./backups/
-      superdeploy backup -p cheapa -o /tmp/backup     # Custom output path
+      superdeploy backup -p acme                    # Backup to ./backups/
+      superdeploy backup -p acme -o /tmp/backup     # Custom output path
     
     \b
     This command backs up:
@@ -29,7 +29,7 @@ def backup(project, output):
     - Environment variables (encrypted)
     - Docker compose files
     """
-    env = load_env()
+    env = load_env(project=project)
 
     # Validate required vars
     required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH"]

@@ -34,31 +34,9 @@
   debug:
     msg: "Admin user '{{ FORGEJO_ADMIN_USER }}' {{ 'created successfully' if admin_create_result.changed else 'already exists' }}"
 
-- name: Create organization
+- name: Create repository under user
   uri:
-    url: "http://localhost:{{ FORGEJO_PORT }}/api/v1/orgs"
-    method: POST
-    user: "{{ FORGEJO_ADMIN_USER }}"
-    password: "{{ FORGEJO_ADMIN_PASSWORD }}"
-    force_basic_auth: yes
-    body_format: json
-    body:
-      username: "{{ FORGEJO_ORG }}"
-      full_name: "{{ FORGEJO_ORG }}"
-      description: "Organization for {{ project_name }} project"
-      visibility: "private"
-    status_code: [201, 422]
-    timeout: 10
-  register: org_create_result
-  failed_when: false
-
-- name: Display organization creation result
-  debug:
-    msg: "Organization '{{ FORGEJO_ORG }}' {{ 'created successfully' if org_create_result.status == 201 else 'already exists' }}"
-
-- name: Create repository in organization
-  uri:
-    url: "http://localhost:{{ FORGEJO_PORT }}/api/v1/org/{{ FORGEJO_ORG }}/repos"
+    url: "http://localhost:{{ FORGEJO_PORT }}/api/v1/user/repos"
     method: POST
     user: "{{ FORGEJO_ADMIN_USER }}"
     password: "{{ FORGEJO_ADMIN_PASSWORD }}"
@@ -77,7 +55,7 @@
 
 - name: Display repository creation result
   debug:
-    msg: "Repository '{{ FORGEJO_ORG }}/{{ FORGEJO_REPO }}' {{ 'created successfully' if repo_create_result.status == 201 else 'already exists' }}"
+    msg: "Repository '{{ FORGEJO_ADMIN_USER }}/{{ FORGEJO_REPO }}' {{ 'created successfully' if repo_create_result.status == 201 else 'already exists' }}"
 
 - name: Enable Actions for repository
   uri:
@@ -99,7 +77,6 @@
     msg:
       - "Forgejo setup completed successfully!"
       - "Admin User: {{ FORGEJO_ADMIN_USER }}"
-      - "Organization: {{ FORGEJO_ORG }}"
-      - "Repository: {{ FORGEJO_ORG }}/{{ FORGEJO_REPO }}"
+      - "Repository: {{ FORGEJO_ADMIN_USER }}/{{ FORGEJO_REPO }}"
       - "Web URL: http://{{ FORGEJO_DOMAIN }}:{{ FORGEJO_PORT }}"
-      - "Git Clone: http://{{ FORGEJO_DOMAIN }}:{{ FORGEJO_PORT }}/{{ FORGEJO_ORG }}/{{ FORGEJO_REPO }}.git"
+      - "Git Clone: http://{{ FORGEJO_DOMAIN }}:{{ FORGEJO_PORT }}/{{ FORGEJO_ADMIN_USER }}/{{ FORGEJO_REPO }}.git"

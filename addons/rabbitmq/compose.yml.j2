@@ -1,3 +1,6 @@
+version: '3.8'
+
+services:
   {{ addon_name }}:
     image: rabbitmq:{{ version }}
     container_name: {{ project_name }}-{{ addon_name }}
@@ -14,22 +17,35 @@
     expose:
       - "5672"
       - "15672"
+{% if healthcheck and healthcheck.command is defined %}
     healthcheck:
       test: ["CMD-SHELL", "{{ healthcheck.command }}"]
       interval: {{ healthcheck.interval }}
       timeout: {{ healthcheck.timeout }}
       retries: {{ healthcheck.retries }}
       start_period: {{ healthcheck.start_period }}
+{% endif %}
+{% if resources and resources.memory is defined %}
     deploy:
       resources:
         limits:
           memory: {{ resources.memory }}
           cpus: '{{ resources.cpu }}'
-    {% if monitoring.enabled %}
+{% endif %}
+{% if monitoring.enabled %}
     labels:
       - "prometheus.scrape=true"
-      - "prometheus.port={{ monitoring.metrics_port }}"
+      - "prometheus.port={{ monitoring.metrics_port | default(9090) }}"
       - "prometheus.path=/metrics"
       - "project={{ project_name }}"
       - "service={{ addon_name }}"
-    {% endif %}
+{% endif %}
+
+volumes:
+  {{ addon_name }}-data:
+    name: {{ project_name }}-{{ addon_name }}-data
+
+networks:
+  {{ project_name }}-network:
+    name: {{ project_name }}-network
+    external: true

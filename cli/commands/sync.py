@@ -417,17 +417,18 @@ def sync(project, skip_forgejo, skip_github, env_file):
     import yaml
 
     # Try project.yml first (new format), fallback to config.yml (old format)
-    config_file = project_path / "project.yml"
-    if not config_file.exists():
-        config_file = project_path / "config.yml"
+    # Load project config using ConfigLoader
+    from cli.core.config_loader import ConfigLoader
     
-    if not config_file.exists():
+    try:
+        projects_dir = project_root / "projects"
+        config_loader = ConfigLoader(projects_dir)
+        project_config_obj = config_loader.load_project(project)
+        project_config = project_config_obj.raw_config
+    except FileNotFoundError:
         console.print(f"[red]✗[/red] Project config not found: {project_path}/project.yml")
         console.print(f"[yellow]Create project.yml for project '{project}'[/yellow]")
         raise SystemExit(1)
-
-    with open(config_file) as f:
-        project_config = yaml.safe_load(f)
 
     # GitHub repos from project config
     repos = project_config.get("github", {}).get("repositories", {})

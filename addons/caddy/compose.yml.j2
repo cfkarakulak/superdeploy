@@ -1,3 +1,6 @@
+version: '3.8'
+
+services:
   {{ addon_name }}:
     image: caddy:{{ version }}
     container_name: {{ project_name }}-{{ addon_name }}
@@ -16,22 +19,37 @@
       - "${CADDY_ADMIN_PORT}:2019"
     networks:
       - {{ project_name }}-network
+{% if healthcheck and healthcheck.interval is defined %}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:2019/config/", "||", "exit", "1"]
       interval: {{ healthcheck.interval }}
       timeout: {{ healthcheck.timeout }}
       retries: {{ healthcheck.retries }}
       start_period: {{ healthcheck.start_period }}
+{% endif %}
+{% if resources and resources.memory is defined %}
     deploy:
       resources:
         limits:
           memory: {{ resources.memory }}
           cpus: '{{ resources.cpu }}'
-    {% if monitoring.enabled %}
+{% endif %}
+{% if monitoring.enabled %}
     labels:
       - "prometheus.scrape=true"
-      - "prometheus.port={{ monitoring.metrics_port }}"
+      - "prometheus.port={{ monitoring.metrics_port | default(9090) }}"
       - "prometheus.path=/metrics"
       - "project={{ project_name }}"
       - "service={{ addon_name }}"
-    {% endif %}
+{% endif %}
+
+volumes:
+  {{ addon_name }}-data:
+    name: {{ project_name }}-{{ addon_name }}-data
+  {{ addon_name }}-config:
+    name: {{ project_name }}-{{ addon_name }}-config
+
+networks:
+  {{ project_name }}-network:
+    name: {{ project_name }}-network
+    external: true

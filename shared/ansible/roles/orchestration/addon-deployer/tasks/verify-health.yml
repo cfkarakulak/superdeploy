@@ -6,47 +6,320 @@
   debug:
     msg:
       - "Running health check for {{ addon_name }}"
+      - "Category: {{ addon_metadata.category | default('unknown') }}"
       - "Command: {{ addon_metadata.healthcheck.command | default('not specified') }}"
+      - "URL: {{ addon_metadata.healthcheck.url | default('not specified') }}"
       - "Timeout: {{ addon_health_check_timeout }}s"
     verbosity: 1
 
-- name: Wait for addon to be healthy (HTTP check)
+# Determine health check method based on addon metadata and category
+- name: Determine health check method for {{ addon_name }}
+  set_fact:
+    health_check_method: >-
+      {%- if addon_metadata.healthcheck.url is defined -%}
+        http
+      {%- elif addon_metadata.healthcheck.command is defined -%}
+        command
+      {%- elif addon_metadata.category == 'database' -%}
+        database
+      {%- elif addon_metadata.category == 'cache' -%}
+        cache
+      {%- elif addon_metadata.category == 'queue' -%}
+        queue
+      {%- else -%}
+        container
+      {%- endif -%}
+    health_check_retries: "{{ addon_metadata.healthcheck.retries | default(addon_health_check_retries) }}"
+    health_check_delay: "{{ addon_metadata.healthcheck.interval | default(addon_health_check_delay ~ 's') | regex_replace('s', '') | int }}"
+    health_check_start_period: "{{ addon_metadata.healthcheck.start_period | default('0s') | regex_replace('s', '') | int }}"
+
+- name: Display selected health check method
+  debug:
+    msg: "Health check method for {{ addon_name }}: {{ health_check_method }}"
+    verbosity: 1
+
+# Wait for container to be running before health checks
+- name: Wait for {{ addon_name }} container to be running
+  shell: docker inspect -f '{% raw %}{{.State.Running}}{% endraw %}' {{ project_name }}-{{ addon_name }}
+  register: container_running
+  until: container_running.stdout == 'true'
+  retries: "{{ (health_check_start_period | int / 5) | int }}"
+  delay: 5
+  changed_when: false
+  failed_when: false
+  when: health_check_start_period | int > 0
+
+# HTTP Health Check
+- name: HTTP health check for {{ addon_name }}
   uri:
     url: "{{ addon_metadata.healthcheck.url }}"
     status_code: "{{ addon_metadata.healthcheck.status_code | default(200) }}"
-    timeout: "{{ addon_metadata.healthcheck.timeout | default('5s') | regex_replace('s$', '') | int }}"
-  register: health_result
-  until: health_result.status == (addon_metadata.healthcheck.status_code | default(200))
-  retries: "{{ addon_health_check_retries }}"
-  delay: "{{ addon_health_check_delay }}"
-  when:
-    - addon_metadata.healthcheck.url is defined
+    timeout: "{{ addon_metadata.healthcheck.timeout | default('5s') | regex_replace('s', '') | int }}"
+    validate_certs: no
+  register: http_health_result
+  until: http_health_result.status == (addon_metadata.healthcheck.status_code | default(200))
+  retries: "{{ health_check_retries }}"
+  delay: "{{ health_check_delay }}"
+  when: health_check_method == 'http'
   ignore_errors: yes
 
-- name: Wait for addon to be healthy (command check)
-  shell: "{{ addon_metadata.healthcheck.command }}"
-  args:
-    chdir: "{{ addon_deployment_path }}"
-  register: health_result
-  until: health_result.rc == 0
-  retries: "{{ addon_health_check_retries }}"
-  delay: "{{ addon_health_check_delay }}"
+# Command Health Check (from addon.yml)
+- name: Command health check for {{ addon_name }}
+  shell: |
+    docker exec {{ project_name }}-{{ addon_name }} {{ addon_metadata.healthcheck.command }}
+  register: command_health_result
+  until: command_health_result.rc == 0
+  retries: "{{ health_check_retries }}"
+  delay: "{{ health_check_delay }}"
   changed_when: false
-  when:
-    - addon_metadata.healthcheck.command is defined
-    - addon_metadata.healthcheck.url is not defined
+  when: health_check_method == 'command'
   ignore_errors: yes
+
+# Database Health Check (postgres, mongodb)
+- name: Database health check for {{ addon_name }}
+  shell: |
+    {% if addon_name == 'postgres' %}
+    docker exec {{ project_name }}-{{ addon_name }} pg_isready -U {{ env_vars.POSTGRES_USER | default('postgres') }}
+    {% elif addon_name == 'mongodb' %}
+    docker exec {{ project_name }}-{{ addon_name }} mongosh --eval "db.runCommand({ ping: 1 })" --quiet
+    {% else %}
+    echo "Unknown database type: {{ addon_name }}"
+    exit 1
+    {% endif %}
+  register: db_health_result
+  until: db_health_result.rc == 0
+  retries: "{{ health_check_retries }}"
+  delay: "{{ health_check_delay }}"
+  changed_when: false
+  when: health_check_method == 'database'
+  ignore_errors: yes
+
+# Cache Health Check (redis)
+- name: Cache health check for {{ addon_name }}
+  shell: |
+    {% if addon_name == 'redis' %}
+    docker exec {{ project_name }}-{{ addon_name }} redis-cli ping
+    {% else %}
+    echo "Unknown cache type: {{ addon_name }}"
+    exit 1
+    {% endif %}
+  register: cache_health_result
+  until: cache_health_result.rc == 0
+  retries: "{{ health_check_retries }}"
+  delay: "{{ health_check_delay }}"
+  changed_when: false
+  when: health_check_method == 'cache'
+  ignore_errors: yes
+
+# Queue Health Check (rabbitmq)
+- name: Queue health check for {{ addon_name }}
+  shell: |
+    {% if addon_name == 'rabbitmq' %}
+    docker exec {{ project_name }}-{{ addon_name }} rabbitmq-diagnostics -q ping
+    {% else %}
+    echo "Unknown queue type: {{ addon_name }}"
+    exit 1
+    {% endif %}
+  register: queue_health_result
+  until: queue_health_result.rc == 0
+  retries: "{{ health_check_retries }}"
+  delay: "{{ health_check_delay }}"
+  changed_when: false
+  when: health_check_method == 'queue'
+  ignore_errors: yes
+
+# Container Status Health Check (fallback)
+- name: Container status health check for {{ addon_name }}
+  shell: |
+    # First try to get health status if healthcheck is defined in compose
+    HEALTH_STATUS=$(docker inspect --format='{% raw %}{{.State.Health.Status}}{% endraw %}' {{ project_name }}-{{ addon_name }} 2>/dev/null || echo "none")
+    if [ "$HEALTH_STATUS" = "healthy" ]; then
+      exit 0
+    elif [ "$HEALTH_STATUS" = "none" ]; then
+      # No healthcheck defined, check if container is running
+      STATUS=$(docker inspect --format='{% raw %}{{.State.Status}}{% endraw %}' {{ project_name }}-{{ addon_name }} 2>/dev/null || echo "not_found")
+      if [ "$STATUS" = "running" ]; then
+        exit 0
+      else
+        echo "Container status: $STATUS"
+        exit 1
+      fi
+    else
+      echo "Health status: $HEALTH_STATUS"
+      exit 1
+    fi
+  register: container_health_result
+  until: container_health_result.rc == 0
+  retries: "{{ health_check_retries }}"
+  delay: "{{ health_check_delay }}"
+  changed_when: false
+  when: health_check_method == 'container'
+  ignore_errors: yes
+
+# Consolidate health check results
+- name: Set health check result
+  set_fact:
+    health_result: >-
+      {%- if health_check_method == 'http' -%}
+        {{ http_health_result }}
+      {%- elif health_check_method == 'command' -%}
+        {{ command_health_result }}
+      {%- elif health_check_method == 'database' -%}
+        {{ db_health_result }}
+      {%- elif health_check_method == 'cache' -%}
+        {{ cache_health_result }}
+      {%- elif health_check_method == 'queue' -%}
+        {{ queue_health_result }}
+      {%- else -%}
+        {{ container_health_result }}
+      {%- endif -%}
+    health_check_failed: >-
+      {%- if health_check_method == 'http' -%}
+        {{ http_health_result is failed }}
+      {%- elif health_check_method == 'command' -%}
+        {{ command_health_result is failed }}
+      {%- elif health_check_method == 'database' -%}
+        {{ db_health_result is failed }}
+      {%- elif health_check_method == 'cache' -%}
+        {{ cache_health_result is failed }}
+      {%- elif health_check_method == 'queue' -%}
+        {{ queue_health_result is failed }}
+      {%- else -%}
+        {{ container_health_result is failed }}
+      {%- endif -%}
 
 - name: Display health check result
   debug:
-    msg: "{{ addon_name }} health check: {{ 'PASSED' if health_result is succeeded else 'FAILED' }}"
+    msg: "{{ addon_name }} health check ({{ health_check_method }}): {{ 'PASSED' if not (health_check_failed | bool) else 'FAILED' }}"
 
-- name: Warn if health check failed
-  debug:
-    msg: |
-      [ADDON-DEPLOYER] WARNING: Health check failed for {{ addon_name }}
-        - The addon may not be fully operational
-        - Check logs: docker logs {{ project_name }}-{{ addon_name }}
-        - Check status: docker ps -a | grep {{ addon_name }}
-        - Deployment will continue, but manual verification is recommended
-  when: health_result is failed
+# Gather diagnostic information on failure
+- name: Gather diagnostic information on health check failure
+  block:
+    - name: Get container logs for {{ addon_name }}
+      shell: docker logs --tail 100 {{ project_name }}-{{ addon_name }} 2>&1
+      register: container_logs
+      changed_when: false
+      ignore_errors: yes
+      
+    - name: Get container status for {{ addon_name }}
+      shell: docker inspect {{ project_name }}-{{ addon_name }}
+      register: container_inspect
+      changed_when: false
+      ignore_errors: yes
+      
+    - name: Get container processes for {{ addon_name }}
+      shell: docker top {{ project_name }}-{{ addon_name }}
+      register: container_processes
+      changed_when: false
+      ignore_errors: yes
+      
+    - name: Display detailed error information
+      fail:
+        msg: |
+          ================================================================================
+          [ADDON-DEPLOYER] ERROR: Health check failed for {{ addon_name }}
+          ================================================================================
+          
+          Health Check Details:
+          ---------------------
+          Method: {{ health_check_method }}
+          Retries: {{ health_check_retries }}
+          Delay: {{ health_check_delay }}s
+          Start Period: {{ health_check_start_period }}s
+          
+          {% if health_check_method == 'http' %}
+          URL: {{ addon_metadata.healthcheck.url }}
+          Expected Status: {{ addon_metadata.healthcheck.status_code | default(200) }}
+          Actual Status: {{ http_health_result.status | default('N/A') }}
+          {% elif health_check_method == 'command' %}
+          Command: docker exec {{ project_name }}-{{ addon_name }} {{ addon_metadata.healthcheck.command }}
+          Exit Code: {{ command_health_result.rc | default('N/A') }}
+          Output: {{ command_health_result.stdout | default('') }}
+          Error: {{ command_health_result.stderr | default('') }}
+          {% elif health_check_method == 'database' %}
+          Exit Code: {{ db_health_result.rc | default('N/A') }}
+          Output: {{ db_health_result.stdout | default('') }}
+          Error: {{ db_health_result.stderr | default('') }}
+          {% elif health_check_method == 'cache' %}
+          Exit Code: {{ cache_health_result.rc | default('N/A') }}
+          Output: {{ cache_health_result.stdout | default('') }}
+          Error: {{ cache_health_result.stderr | default('') }}
+          {% elif health_check_method == 'queue' %}
+          Exit Code: {{ queue_health_result.rc | default('N/A') }}
+          Output: {{ queue_health_result.stdout | default('') }}
+          Error: {{ queue_health_result.stderr | default('') }}
+          {% else %}
+          Exit Code: {{ container_health_result.rc | default('N/A') }}
+          Output: {{ container_health_result.stdout | default('') }}
+          {% endif %}
+          
+          Container Status:
+          -----------------
+          {% if container_inspect.rc == 0 %}
+          {{ container_inspect.stdout | from_json | json_query('[0].State') | to_nice_yaml }}
+          {% else %}
+          Unable to inspect container (may not exist or be accessible)
+          {% endif %}
+          
+          Recent Container Logs (last 100 lines):
+          ---------------------------------------
+          {{ container_logs.stdout | default('No logs available') }}
+          
+          Running Processes:
+          ------------------
+          {{ container_processes.stdout | default('Unable to get process list') }}
+          
+          Troubleshooting Steps:
+          ----------------------
+          1. Check if container is running:
+             docker ps -a | grep {{ addon_name }}
+          
+          2. Check full container logs:
+             docker logs {{ project_name }}-{{ addon_name }}
+          
+          3. Check container health status:
+             docker inspect {{ project_name }}-{{ addon_name }} | jq '.[0].State'
+          
+          4. Verify configuration files:
+             cat {{ addon_deployment_path }}/docker-compose.yml
+             cat {{ addon_deployment_path }}/.env
+          
+          5. Check if ports are available:
+             netstat -tuln | grep <port>
+          
+          6. Try manual health check:
+             {% if health_check_method == 'command' %}
+             docker exec {{ project_name }}-{{ addon_name }} {{ addon_metadata.healthcheck.command }}
+             {% elif health_check_method == 'database' and addon_name == 'postgres' %}
+             docker exec {{ project_name }}-{{ addon_name }} pg_isready -U {{ env_vars.POSTGRES_USER | default('postgres') }}
+             {% elif health_check_method == 'database' and addon_name == 'mongodb' %}
+             docker exec {{ project_name }}-{{ addon_name }} mongosh --eval "db.runCommand({ ping: 1 })"
+             {% elif health_check_method == 'cache' %}
+             docker exec {{ project_name }}-{{ addon_name }} redis-cli ping
+             {% elif health_check_method == 'queue' %}
+             docker exec {{ project_name }}-{{ addon_name }} rabbitmq-diagnostics -q ping
+             {% endif %}
+          
+          Common Issues:
+          --------------
+          - Service needs more time to initialize (increase retries/start_period in addon.yml)
+          - Configuration error in addon.yml or project.yml
+          - Port conflict with another service
+          - Missing required environment variables
+          - Insufficient resources (memory, CPU)
+          - Database initialization not complete
+          - Network connectivity issues
+          
+          Next Steps:
+          -----------
+          - Fix the issue and retry from this addon:
+            superdeploy up {{ project_name }} --start-from {{ addon_name }}
+          
+          - Skip this addon and continue:
+            superdeploy up {{ project_name }} --skip {{ addon_name }}
+          
+          - Check addon configuration:
+            cat {{ addons_source_path }}/{{ addon_name }}/addon.yml
+          
+          ================================================================================
+  when: health_check_failed | bool

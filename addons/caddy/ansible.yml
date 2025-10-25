@@ -22,13 +22,8 @@
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
 
-- name: Render {{ addon_name }} docker-compose.yml
-  template:
-    src: "{{ addon_path }}/compose.yml.j2"
-    dest: "{{ addon_base_path }}/{{ addon_name }}/docker-compose.yml"
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group | default(superdeploy_user) }}"
-    mode: '0644'
+# Note: docker-compose.yml is already rendered by orchestration/addon-deployer/tasks/render-templates.yml
+# This keeps the deployment logic clean and focused on service-specific tasks
 
 - name: Render {{ addon_name }} environment file
   template:
@@ -40,10 +35,10 @@
   when: addon_path is defined and addon_path | length > 0
 
 - name: Start {{ addon_name }} services
-  community.docker.docker_compose:
+  community.docker.docker_compose_v2:
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: present
-    pull: true
+    pull: "always"
   become_user: "{{ superdeploy_user }}"
   register: caddy_compose_result
 

@@ -1,0 +1,11 @@
+---
+# Render compose.yml.j2 template
+# This is a separate file to properly pass variables to the template task
+
+- name: Render docker-compose.yml from template
+  template:
+    src: "{{ addon_path }}/compose.yml.j2"
+    dest: "{{ addon_deployment_path }}/docker-compose.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0644'

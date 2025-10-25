@@ -26,7 +26,7 @@ def logs(project, app, follow, lines, environment):
       superdeploy logs -a api -f           # Follow logs
       superdeploy logs -a api -n 500       # Last 500 lines
     """
-    env = load_env()
+    env = load_env(project)
 
     # Validate required vars
     required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH", "SSH_USER"]

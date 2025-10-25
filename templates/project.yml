@@ -10,11 +10,50 @@ description: {{PROJECT}} project
 created_at: {{CREATED_AT}}
 
 # =============================================================================
+# Cloud Provider Configuration
+# =============================================================================
+cloud:
+  # GCP Configuration
+  gcp:
+    project_id: "your-gcp-project-id"  # EDIT THIS
+    region: "us-central1"
+    zone: "us-central1-a"
+  
+  # SSH Configuration (for VM access)
+  ssh:
+    key_path: "~/.ssh/superdeploy_deploy"
+    public_key_path: "~/.ssh/superdeploy_deploy.pub"
+    user: "superdeploy"
+
+# =============================================================================
+# Docker Registry Configuration
+# =============================================================================
+docker:
+  registry: "docker.io"  # Docker Hub or custom registry
+  organization: "your-docker-org"  # EDIT THIS
+  username: "your-docker-username"  # EDIT THIS
+  # Note: Docker token should be set as environment variable DOCKER_TOKEN
+  # or stored in a secure location
+
+# =============================================================================
 # Infrastructure Configuration
 # =============================================================================
 # Core infrastructure services (always deployed)
 # Forgejo is the Git server with CI/CD capabilities
 infrastructure:
+  # VM Configuration (applies to all VMs unless overridden)
+  vm_config:
+    # Machine type (GCP instance type)
+    # Examples: e2-micro, e2-small, e2-medium, e2-standard-2, n1-standard-1
+    machine_type: e2-medium
+    
+    # Disk size in GB
+    disk_size: 20
+    
+    # VM boot disk image
+    # Examples: debian-cloud/debian-11, ubuntu-os-cloud/ubuntu-2204-lts
+    image: debian-cloud/debian-11
+  
   forgejo:
     # Forgejo version (Docker image tag)
     version: "13"

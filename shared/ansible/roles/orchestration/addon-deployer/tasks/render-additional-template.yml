@@ -1,0 +1,11 @@
+---
+# Render additional template from templates/ directory
+# This is a separate file to properly pass variables to the template task
+
+- name: Render additional template
+  template:
+    src: "{{ template_file }}"
+    dest: "{{ addon_deployment_path }}/config/{{ template_file | basename | regex_replace('\\.j2$', '') }}"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0644'

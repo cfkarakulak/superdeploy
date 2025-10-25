@@ -11,7 +11,12 @@ console = Console()
 
 
 def find_env_file() -> Optional[Path]:
-    """Smart .env file detection"""
+    """
+    Smart .env file detection (DEPRECATED - for backward compatibility only)
+    
+    New behavior: SuperDeploy now uses environment variables instead of .env files.
+    This function is kept for backward compatibility during migration.
+    """
     search_paths = [
         Path.cwd() / ".env",
         Path.home() / ".superdeploy" / ".env",
@@ -25,23 +30,109 @@ def find_env_file() -> Optional[Path]:
     return None
 
 
-def load_env() -> Dict[str, Any]:
-    """Load .env file with smart detection"""
-    env_file = find_env_file()
-
-    if not env_file:
-        console.print("[red]❌ Error: .env file not found![/red]")
-        console.print("\n[yellow]Searched locations:[/yellow]")
-        console.print(f"  • {Path.cwd() / '.env'}")
-        console.print(f"  • {Path.home() / '.superdeploy' / '.env'}")
-        console.print("\n[cyan]Solution:[/cyan]")
-        console.print("  1. cd to your superdeploy directory")
-        console.print("  2. Or run: [bold]superdeploy init[/bold]")
+def load_env(project: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Load environment configuration from project.yml.
+    
+    All configuration is now per-project in project.yml.
+    This function loads the project config and converts it to env-like dict
+    for backward compatibility with existing code.
+    
+    Args:
+        project: Project name to load config from
+    
+    Returns:
+        Dictionary of environment variables extracted from project.yml
+    """
+    if not project:
+        console.print("[red]❌ Project name required![/red]")
+        console.print("\n[cyan]Usage:[/cyan]")
+        console.print("  superdeploy <command> -p <project>")
         raise SystemExit(1)
-
-    env_vars = dotenv_values(env_file)
-    env_vars["ENV_FILE_PATH"] = str(env_file)  # Store path for later use
-    console.print(f"[dim]Loaded: {env_file}[/dim]")
+    
+    # Load project config
+    from cli.core.config_loader import ConfigLoader
+    
+    project_root = get_project_root()
+    config_loader = ConfigLoader(project_root / "projects")
+    
+    try:
+        project_config = config_loader.load_project(project)
+    except FileNotFoundError:
+        console.print(f"[red]❌ Project '{project}' not found![/red]")
+        console.print(f"\n[cyan]Create it with:[/cyan]")
+        console.print(f"  superdeploy init -p {project}")
+        raise SystemExit(1)
+    except ValueError as e:
+        console.print(f"[red]❌ Invalid project config: {e}[/red]")
+        raise SystemExit(1)
+    
+    # Extract config into env-like dict for backward compatibility
+    config = project_config.raw_config
+    cloud = config.get('cloud', {})
+    gcp = cloud.get('gcp', {})
+    ssh = cloud.get('ssh', {})
+    docker_config = config.get('docker', {})
+    infrastructure = config.get('infrastructure', {})
+    forgejo = infrastructure.get('forgejo', {})
+    
+    env_vars = {
+        # GCP
+        'GCP_PROJECT_ID': gcp.get('project_id', ''),
+        'GCP_REGION': gcp.get('region', 'us-central1'),
+        'GCP_ZONE': gcp.get('zone', 'us-central1-a'),
+        
+        # SSH
+        'SSH_KEY_PATH': ssh.get('key_path', '~/.ssh/superdeploy_deploy'),
+        'SSH_PUBLIC_KEY_PATH': ssh.get('public_key_path', '~/.ssh/superdeploy_deploy.pub'),
+        'SSH_USER': ssh.get('user', 'superdeploy'),
+        
+        # Docker
+        'DOCKER_REGISTRY': docker_config.get('registry', 'docker.io'),
+        'DOCKER_ORG': docker_config.get('organization', ''),
+        'DOCKER_USERNAME': docker_config.get('username', ''),
+        
+        # Forgejo
+        'FORGEJO_ORG': forgejo.get('org', ''),
+        'FORGEJO_ADMIN_USER': forgejo.get('admin_user', 'admin'),
+        'FORGEJO_ADMIN_EMAIL': forgejo.get('admin_email', ''),
+        'REPO_SUPERDEPLOY': forgejo.get('repo', 'superdeploy'),
+        
+        # Monitoring
+        'ENABLE_MONITORING': str(config.get('monitoring', {}).get('enabled', True)).lower(),
+    }
+    
+    # Load passwords from .passwords.yml if exists
+    project_path = get_project_root() / "projects" / project
+    passwords_file = project_path / ".passwords.yml"
+    
+    if passwords_file.exists():
+        import yaml
+        with open(passwords_file) as f:
+            passwords_data = yaml.safe_load(f)
+            if passwords_data and 'passwords' in passwords_data:
+                # Flatten passwords
+                for addon_name, addon_passwords in passwords_data['passwords'].items():
+                    for var_name, var_data in addon_passwords.items():
+                        if isinstance(var_data, dict):
+                            env_vars[var_name] = var_data.get('value', '')
+                        else:
+                            env_vars[var_name] = var_data
+    
+    # Load sensitive values from project's .env file
+    project_env_file = project_path / ".env"
+    if project_env_file.exists():
+        from dotenv import dotenv_values
+        env_secrets = dotenv_values(project_env_file)
+        env_vars.update(env_secrets)
+    
+    # Override with environment variables if set (for CI/CD)
+    sensitive_vars = ['DOCKER_TOKEN', 'GITHUB_TOKEN', 'FORGEJO_PAT']
+    for var in sensitive_vars:
+        if var in os.environ:
+            env_vars[var] = os.environ[var]
+    
+    console.print(f"[dim]✓ Loaded config from project.yml[/dim]")
     return env_vars
 
 
@@ -129,13 +220,27 @@ def get_project_root() -> Path:
 
 
 def validate_env_vars(env: Dict, required_keys: list) -> bool:
-    """Validate required env vars are present"""
+    """
+    Validate required environment variables are present.
+    
+    Args:
+        env: Dictionary of environment variables
+        required_keys: List of required variable names
+        
+    Returns:
+        True if all required variables are present, False otherwise
+    """
     missing = [key for key in required_keys if not env.get(key)]
 
     if missing:
-        console.print("[red]❌ Missing required env vars:[/red]")
+        console.print("[red]❌ Missing required environment variables:[/red]")
         for key in missing:
             console.print(f"  • {key}")
+        console.print("\n[cyan]Solution:[/cyan]")
+        console.print("  Set the missing variables in your environment:")
+        for key in missing:
+            console.print(f"  export {key}='your-value'")
+        console.print("\n[dim]See docs/ENVIRONMENT_VARIABLES.md for details[/dim]")
         return False
 
     return True

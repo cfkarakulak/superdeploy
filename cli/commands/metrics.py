@@ -19,8 +19,8 @@ def metrics(project, days):
 
     \b
     Examples:
-      superdeploy metrics -p cheapa                # Last 7 days
-      superdeploy metrics -p cheapa -d 30          # Last 30 days
+      superdeploy metrics -p acme                # Last 7 days
+      superdeploy metrics -p acme -d 30          # Last 30 days
     
     \b
     Metrics include:
@@ -30,7 +30,7 @@ def metrics(project, days):
     - Service uptime
     - Resource usage (CPU/Memory)
     """
-    env = load_env()
+    env = load_env(project=project)
 
     # Validate required vars
     required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH"]

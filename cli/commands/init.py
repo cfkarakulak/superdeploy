@@ -60,18 +60,17 @@ def get_used_subnets():
     projects_dir = project_root / "projects"
 
     if projects_dir.exists():
-        for project_dir in projects_dir.iterdir():
-            if project_dir.is_dir():
-                config_file = project_dir / "config.yml"
-                if config_file.exists():
-                    with open(config_file) as f:
-                        config = yaml.safe_load(f)
-                        if (
-                            config
-                            and "network" in config
-                            and "subnet" in config["network"]
-                        ):
-                            used_subnets.append(config["network"]["subnet"])
+        from cli.core.config_loader import ConfigLoader
+        config_loader = ConfigLoader(projects_dir)
+        
+        for project_name in config_loader.list_projects():
+            try:
+                project_config = config_loader.load_project(project_name)
+                network_config = project_config.get_network_config()
+                if network_config and "subnet" in network_config:
+                    used_subnets.append(network_config["subnet"])
+            except (FileNotFoundError, ValueError):
+                continue
 
     return used_subnets
 
@@ -384,17 +383,16 @@ PYEOF
 @click.option("--project", "-p", required=True, help="Project name")
 @click.option("--app", multiple=True, help="App in format name:path (e.g., api:../app-repos/api)")
 @click.option("--subnet", help="Network subnet (e.g., 172.20.0.0/24)")
-@click.option("--github-org", help="GitHub organization name")
 @click.option("--no-interactive", is_flag=True, help="Non-interactive mode with defaults")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmations")
-def init(project, app, subnet, github_org, no_interactive, yes):
+def init(project, app, subnet, no_interactive, yes):
     """
     Initialize a new project (creates config template)
 
     Example:
-        superdeploy init -p cheapa
-        # Edit: projects/cheapa/project.yml
-        superdeploy generate -p cheapa
+        superdeploy init -p acme
+        # Edit: projects/acme/project.yml
+        superdeploy generate -p acme
     """
     console.print(f"\n[bold cyan]🎯 Initializing project: {project}[/bold cyan]")
     console.print("━" * 40)
@@ -563,35 +561,16 @@ def init(project, app, subnet, github_org, no_interactive, yes):
             console.print("[yellow]⚠️  No services selected, using defaults[/yellow]")
             core_services = ["postgres", "rabbitmq"]
     
-    # Database configuration
+    # Password generation - always enabled (user can regenerate later)
     generate_passwords = True
-    if interactive:
-        console.print("\n[bold]Password generation:[/bold]")
-        generate_passwords = Confirm.ask("  Generate secure passwords?", default=True)
 
-    # Monitoring
+    # Monitoring - always enabled by default (user can disable in project.yml)
     enable_monitoring = True
-    if interactive:
-        enable_monitoring = Confirm.ask(
-            "\nEnable monitoring for this project?", default=True
-        )
 
-    # GitHub Organization
-    if not github_org:
-        github_org = f"{project}io"  # Default
-    if interactive and not github_org:
-        console.print("\n[bold]GitHub organization:[/bold]")
-        github_org = Prompt.ask("  GitHub org name", default=f"{project}io")
+    # GitHub Organization - removed, user will set in project.yml
 
-    # Domain
+    # Domain - empty by default (user can set in project.yml)
     project_domain = ""
-    if interactive:
-        console.print("\n[bold]Configure domain (optional):[/bold]")
-        project_domain = Prompt.ask(
-            f"  Domain for {project}", default=f"{project}.example.com"
-        )
-        if project_domain == f"{project}.example.com":
-            project_domain = ""  # Don't save example domain
 
     # Dynamic port assignments (no hardcoded service names!)
     base_external_port = 8000 + len(used_subnets) * 100  # Offset by 100 per project
@@ -611,7 +590,6 @@ def init(project, app, subnet, github_org, no_interactive, yes):
     table.add_row("Database:", "PostgreSQL 15")
     table.add_row("Queue:", "RabbitMQ 3.12")
     table.add_row("Cache:", "Redis 7")
-    table.add_row("GitHub Org:", github_org)
     table.add_row("Monitoring:", "✓ Enabled" if enable_monitoring else "✗ Disabled")
     if project_domain:
         table.add_row("Domain:", project_domain)
@@ -638,12 +616,12 @@ def init(project, app, subnet, github_org, no_interactive, yes):
         "project": project,
         "infrastructure": {
             "forgejo": {
-                "version": "1.21",
+                "version": "13.0.1",
                 "port": 3001,
                 "ssh_port": 2222,
                 "admin_user": "admin",
                 "admin_email": f"admin@{project}.local",
-                "org": github_org,
+                "org": "your-forgejo-org",  # Placeholder, user will edit
                 "repo": "superdeploy",
                 "db_name": "forgejo",
                 "db_user": "forgejo"
@@ -754,17 +732,42 @@ description: {project} project
 created_at: {datetime.now().isoformat()}
 
 # =============================================================================
+# Cloud Provider Configuration
+# =============================================================================
+cloud:
+  # GCP Configuration
+  gcp:
+    project_id: "your-gcp-project-id"  # EDIT THIS
+    region: "us-central1"
+    zone: "us-central1-a"
+  
+  # SSH Configuration (for VM access)
+  ssh:
+    key_path: "~/.ssh/superdeploy_deploy"
+    public_key_path: "~/.ssh/superdeploy_deploy.pub"
+    user: "superdeploy"
+
+# =============================================================================
+# Docker Registry Configuration
+# =============================================================================
+docker:
+  registry: "docker.io"  # Docker Hub or custom registry
+  organization: "your-docker-org"  # EDIT THIS - Docker organization
+  username: "your-docker-username"  # EDIT THIS
+  # Note: Set DOCKER_TOKEN environment variable for authentication
+
+# =============================================================================
 # Infrastructure Configuration
 # =============================================================================
 # Core infrastructure services (always deployed)
 infrastructure:
   forgejo:
-    version: "1.21"
+    version: "13.0.1"
     port: 3001
     ssh_port: 2222
     admin_user: "admin"
     admin_email: "admin@{project}.local"
-    org: "{github_org}"
+    org: "your-forgejo-org"  # EDIT THIS - Forgejo organization
     repo: "superdeploy"
     db_name: "forgejo"
     db_user: "forgejo"
@@ -813,7 +816,7 @@ apps:
 # GitHub Configuration
 # =============================================================================
 github:
-  organization: {github_org}
+  organization: "your-github-org"  # EDIT THIS - GitHub organization
 
 # =============================================================================
 # Network Configuration

@@ -62,10 +62,10 @@ resources:
 # Health check
 healthcheck:
   command: "rabbitmq-diagnostics -q ping"
-  interval: 30s
+  interval: 10s
   timeout: 10s
-  retries: 5
-  start_period: 60s
+  retries: 30
+  start_period: 90s
 
 # Dependencies (other addons required)
 requires: []

@@ -943,3 +943,119 @@ SuperDeploy, dört ana komut etrafında organize edilmiş bir deployment sistemi
 - Debugging ve troubleshooting kolaydır
 
 Bu akış, sıfırdan production'a kadar tüm süreci kapsayan, güvenli ve otomatik bir deployment sistemi sağlar.
+
+
+## 🔄 Resuming Failed Deployments
+
+### Using --start-from Flag
+
+When a deployment fails at a specific addon, you can resume from that point without redeploying previous addons:
+
+```bash
+# Scenario: Deployment failed at rabbitmq
+superdeploy up cheapa --start-from rabbitmq
+```
+
+**What happens:**
+1. System validates that `rabbitmq` exists in project configuration
+2. Displays deployment plan showing which addons will be skipped
+3. Skips all addons before `rabbitmq` (e.g., postgres, redis)
+4. Deploys from `rabbitmq` onwards
+5. System roles (foundation) always run regardless of --start-from
+
+**Example output:**
+```
+📋 Deployment Plan
+──────────────────────────────────────────────────
+  ○ postgres (before rabbitmq)
+  ○ redis (before rabbitmq)
+  ✓ rabbitmq
+  ✓ monitoring
+  ✓ caddy
+──────────────────────────────────────────────────
+Total: 3/5 addons will be deployed
+```
+
+### Using --skip Flag
+
+Skip specific addon(s) during deployment:
+
+```bash
+# Skip single addon
+superdeploy up cheapa --skip monitoring
+
+# Skip multiple addons
+superdeploy up cheapa --skip monitoring --skip caddy
+```
+
+**Use cases:**
+- Temporarily disable optional addons
+- Skip problematic addons during testing
+- Deploy only specific addons
+
+### Combining Flags
+
+You can combine --start-from and --skip:
+
+```bash
+# Start from rabbitmq but skip monitoring
+superdeploy up cheapa --start-from rabbitmq --skip monitoring
+```
+
+### Common Scenarios
+
+#### 1. Health Check Failure
+```bash
+# Deployment failed at rabbitmq health check
+# Fix: Increase retries in addon.yml
+# Resume:
+superdeploy up cheapa --start-from rabbitmq
+```
+
+#### 2. Configuration Error
+```bash
+# Deployment failed due to wrong configuration
+# Fix: Update project.yml
+# Resume from failed addon:
+superdeploy up cheapa --start-from <failed-addon>
+```
+
+#### 3. Resource Issues
+```bash
+# Deployment failed due to insufficient memory
+# Fix: Increase VM resources or reduce addon memory limits
+# Resume:
+superdeploy up cheapa --start-from <failed-addon>
+```
+
+#### 4. Testing Specific Addon
+```bash
+# Deploy only specific addon for testing
+superdeploy up cheapa --start-from postgres --skip redis --skip rabbitmq
+```
+
+### Best Practices
+
+1. **Always check logs first**: Understand why deployment failed
+   ```bash
+   docker logs <project>-<addon>
+   ```
+
+2. **Fix root cause**: Don't just retry without fixing the issue
+
+3. **Use --start-from for transient failures**: Network issues, timeouts
+
+4. **Use --skip for optional addons**: Monitoring, caching during development
+
+5. **Validate configuration**: Run validation before resuming
+   ```bash
+   superdeploy validate project -p cheapa
+   superdeploy validate addons -p cheapa
+   ```
+
+### Limitations
+
+- System roles (foundation, docker, security) always run
+- Cannot start from middle of an addon (all-or-nothing)
+- Skipped addons won't have their dependencies checked
+- --start-from validates addon exists in project config

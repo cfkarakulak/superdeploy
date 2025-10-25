@@ -6,16 +6,18 @@ networks:
     ipam:
       config:
       - subnet: 172.20.0.0/24
-  forgejo:
-    driver: bridge
 volumes:
   forgejo-data:
     name: cheapa-forgejo-data
   forgejo-postgres:
     name: cheapa-forgejo-postgres
+  rabbitmq-data:
+    name: cheapa-rabbitmq-data
+  postgres-data:
+    name: cheapa-postgres-data
 services:
   forgejo:
-    image: codeberg.org/forgejo/forgejo:1.21
+    image: codeberg.org/forgejo/forgejo:13.0.1
     container_name: cheapa-forgejo
     restart: unless-stopped
     environment:
@@ -36,7 +38,7 @@ services:
     - FORGEJO__security__INTERNAL_TOKEN=${FORGEJO_INTERNAL_TOKEN}
     - FORGEJO__service__DISABLE_REGISTRATION=false
     networks:
-    - forgejo
+    - cheapa-network
     volumes:
     - forgejo-data:/data
     - /etc/timezone:/etc/timezone:ro
@@ -49,13 +51,15 @@ services:
     healthcheck:
       test:
       - CMD
-      - curl
-      - -f
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
       - http://localhost:3000
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -78,7 +82,7 @@ services:
     - POSTGRES_PASSWORD=${FORGEJO_DB_PASSWORD}
     - POSTGRES_DB=${FORGEJO_DB_NAME}
     networks:
-    - forgejo
+    - cheapa-network
     volumes:
     - forgejo-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -95,14 +99,14 @@ services:
         max-size: 10m
         max-file: '3'
   forgejo-init:
-    image: codeberg.org/forgejo/forgejo:1.21
+    image: codeberg.org/forgejo/forgejo:13.0.1
     container_name: cheapa-forgejo-init
     user: 1000:1000
     restart: 'no'
     depends_on:
     - forgejo
     networks:
-    - forgejo
+    - cheapa-network
     volumes:
     - forgejo-data:/data
     environment:
@@ -123,7 +127,8 @@ services:
     - "echo \"Waiting for Forgejo to be ready...\"\nsleep 30\necho \"Creating admin\
       \ user...\"\nforgejo admin user create --username \"$FORGEJO_ADMIN_USER\" \\\
       \n  --password \"$FORGEJO_ADMIN_PASSWORD\" \\\n  --email \"$FORGEJO_ADMIN_EMAIL\"\
-      \ \\\n  --admin --must-change-password=false 2>&1 || echo \"User already exists\""
+      \ \\\n  --admin --must-change-password=false 2>&1 || echo \"User already exists\"\
+      \n"
   rabbitmq:
     image: rabbitmq:3.12-management-alpine
     container_name: cheapa-rabbitmq
@@ -144,10 +149,10 @@ services:
       test:
       - CMD-SHELL
       - rabbitmq-diagnostics -q ping
-      interval: 30s
+      interval: 10s
       timeout: 10s
-      retries: 5
-      start_period: 60s
+      retries: 30
+      start_period: 90s
     deploy:
       resources:
         limits:
@@ -176,7 +181,7 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - pg_isready -U ${POSTGRES_USER}
+      - pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}
       interval: 10s
       timeout: 5s
       retries: 5

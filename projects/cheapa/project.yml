@@ -7,7 +7,32 @@
 
 project: cheapa
 description: cheapa project
-created_at: 2025-10-24T17:52:50.712315
+created_at: 2025-10-24T22:17:57.204682
+
+# =============================================================================
+# Cloud Provider Configuration
+# =============================================================================
+cloud:
+  # GCP Configuration
+  gcp:
+    project_id: "galvanic-camp-475519-d6"  # EDIT THIS
+    region: "us-central1"
+    zone: "us-central1-a"
+  
+  # SSH Configuration (for VM access)
+  ssh:
+    key_path: "~/.ssh/superdeploy_deploy"
+    public_key_path: "~/.ssh/superdeploy_deploy.pub"
+    user: "superdeploy"
+
+# =============================================================================
+# Docker Registry Configuration
+# =============================================================================
+docker:
+  registry: "docker.io"  # Docker Hub or custom registry
+  organization: "c100394"  # EDIT THIS - Docker organization
+  username: "c100394"  # EDIT THIS
+  # Note: Set DOCKER_TOKEN environment variable for authentication
 
 # =============================================================================
 # Infrastructure Configuration
@@ -15,13 +40,13 @@ created_at: 2025-10-24T17:52:50.712315
 # Core infrastructure services (always deployed)
 infrastructure:
   forgejo:
-    version: "1.21"
+    version: "13.0.1"
     port: 3001
     ssh_port: 2222
-    admin_user: "admin"
-    admin_email: "admin@cheapa.local"
-    org: "cheapaio"
-    repo: "superdeploy"
+    admin_user: "cradexco"  # EDIT THIS - Forgejo username (repo will be created under this user)
+    admin_email: "cradexco@gmail.com"
+    org: "cradexco"  # Deprecated - kept for compatibility, not used
+    repo: "superdeploy"  # Repository name
     db_name: "forgejo"
     db_user: "forgejo"
 
@@ -71,7 +96,7 @@ apps:
 # GitHub Configuration
 # =============================================================================
 github:
-  organization: cheapaio
+  organization: "cheapaio"  # EDIT THIS - GitHub organization
 
 # =============================================================================
 # Network Configuration

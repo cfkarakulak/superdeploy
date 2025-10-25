@@ -40,7 +40,7 @@ def down(project, yes, keep_infra):
         )
     )
 
-    env = load_env()
+    env = load_env(project)
     project_root = get_project_root()
 
     # Load GCP project info
@@ -101,65 +101,30 @@ def down(project, yes, keep_infra):
 
     console.print("\n[bold red]🗑️  Starting destruction...[/bold red]\n")
 
-    # Method 1: Use gcloud to delete VMs directly (faster)
+    # Use Terraform destroy to properly clean up all resources
+    terraform_dir = project_root / "shared" / "terraform"
+    
+    # Add PROJECT_NAME to env for Terraform workspace selection
+    terraform_env = {**env, 'PROJECT_NAME': project}
+    
     try:
-        result = subprocess.run(
-            [
-                "gcloud",
-                "compute",
-                "instances",
-                "list",
-                f"--project={gcp_project}",
-                "--format=value(name,zone)",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
+        console.print("[cyan]Running terraform destroy...[/cyan]")
+        
+        # Initialize terraform first to ensure workspace exists
+        run_command("./terraform-wrapper.sh init", cwd=str(terraform_dir), env=terraform_env)
+        
+        # Destroy all resources in the project workspace
+        run_command(
+            "./terraform-wrapper.sh destroy -auto-approve", 
+            cwd=str(terraform_dir), 
+            env=terraform_env
         )
+        
+        console.print("\n[green]✅ All resources destroyed![/green]")
 
-        if result.stdout.strip():
-            for line in result.stdout.strip().split("\n"):
-                if line:
-                    name, zone = line.split("\t")
-                    console.print(f"  Deleting VM: [cyan]{name}[/cyan]...")
-                    subprocess.run(
-                        [
-                            "gcloud",
-                            "compute",
-                            "instances",
-                            "delete",
-                            name,
-                            f"--zone={zone}",
-                            f"--project={gcp_project}",
-                            "--quiet",
-                        ],
-                        check=True,
-                        capture_output=True,
-                    )
-                    console.print(f"    ✓ [green]Deleted {name}[/green]")
-
-        console.print("\n[green]✅ All VMs destroyed![/green]")
-
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]❌ Error deleting VMs: {e}[/red]")
-        console.print("[yellow]Falling back to Terraform destroy...[/yellow]")
-
-        # Fallback: Use terraform destroy
-        terraform_dir = project_root / "shared" / "terraform"
-        console.print("\n[cyan]Running terraform destroy...[/cyan]")
-        run_command("./terraform-wrapper.sh destroy -auto-approve", cwd=terraform_dir)
-
-    # Optionally destroy network
-    if not keep_infra:
-        console.print("\n[cyan]🗑️  Destroying VPC network...[/cyan]")
-        try:
-            terraform_dir = project_root / "shared" / "terraform"
-            run_command(
-                "./terraform-wrapper.sh destroy -auto-approve", cwd=terraform_dir
-            )
-            console.print("[green]✅ Network destroyed![/green]")
-        except Exception as e:
-            console.print(f"[yellow]⚠️  Network destruction skipped: {e}[/yellow]")
+    except Exception as e:
+        console.print(f"[red]❌ Error during terraform destroy: {e}[/red]")
+        console.print("[yellow]⚠️  Some resources may still exist. Check GCP console.[/yellow]")
 
     console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
     console.print("[bold green]🎉 Destruction Complete![/bold green]")

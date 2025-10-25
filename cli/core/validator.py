@@ -97,6 +97,7 @@ class ValidationEngine:
         
         # Run all validation checks
         errors.extend(self._validate_infrastructure_config(project_config))
+        errors.extend(self._validate_vm_config(project_config))
         errors.extend(self._validate_addon_names(project_config, available_addons))
         errors.extend(self._validate_addon_configs(project_config))
         errors.extend(self._validate_subnet_conflicts(project_config, project_name))
@@ -213,6 +214,113 @@ class ValidationEngine:
                     errors.append(ValidationError(
                         error_type='invalid_forgejo_field',
                         message=f"'infrastructure.forgejo.{string_field}' cannot be empty"
+                    ))
+        
+        return errors
+    
+    def _validate_vm_config(
+        self,
+        project_config: dict
+    ) -> List[ValidationError]:
+        """
+        Validate VM configuration in infrastructure section.
+        
+        Args:
+            project_config: Project configuration dictionary
+            
+        Returns:
+            List of validation errors
+        """
+        errors = []
+        
+        # Get infrastructure config
+        infrastructure = project_config.get('infrastructure', {})
+        
+        if not isinstance(infrastructure, dict):
+            # Already validated in _validate_infrastructure_config
+            return errors
+        
+        # Get vm_config (optional, but validate if present)
+        vm_config = infrastructure.get('vm_config')
+        
+        # If vm_config is not present, that's okay (defaults will be used)
+        if vm_config is None:
+            return errors
+        
+        if not isinstance(vm_config, dict):
+            errors.append(ValidationError(
+                error_type='invalid_vm_config',
+                message="'infrastructure.vm_config' must be a dictionary"
+            ))
+            return errors
+        
+        # Validate machine_type (if present)
+        if 'machine_type' in vm_config:
+            machine_type = vm_config['machine_type']
+            if not machine_type or not isinstance(machine_type, str) or not machine_type.strip():
+                errors.append(ValidationError(
+                    error_type='invalid_machine_type',
+                    message="'infrastructure.vm_config.machine_type' must be a non-empty string"
+                ))
+            else:
+                # Basic validation - machine type should match common patterns
+                machine_type_str = str(machine_type).strip()
+                if not machine_type_str:
+                    errors.append(ValidationError(
+                        error_type='invalid_machine_type',
+                        message="'infrastructure.vm_config.machine_type' cannot be empty"
+                    ))
+        
+        # Validate disk_size (if present)
+        if 'disk_size' in vm_config:
+            disk_size = vm_config['disk_size']
+            try:
+                disk_size_int = int(disk_size)
+                if disk_size_int < 10:
+                    errors.append(ValidationError(
+                        error_type='invalid_disk_size',
+                        message=(
+                            f"'infrastructure.vm_config.disk_size' must be at least 10 GB, "
+                            f"got {disk_size_int}"
+                        )
+                    ))
+                elif disk_size_int > 10000:
+                    errors.append(ValidationError(
+                        error_type='invalid_disk_size',
+                        message=(
+                            f"'infrastructure.vm_config.disk_size' must be at most 10000 GB, "
+                            f"got {disk_size_int}"
+                        ),
+                        severity='warning'
+                    ))
+            except (ValueError, TypeError):
+                errors.append(ValidationError(
+                    error_type='invalid_disk_size',
+                    message=(
+                        f"'infrastructure.vm_config.disk_size' must be a valid integer, "
+                        f"got '{disk_size}'"
+                    )
+                ))
+        
+        # Validate image (if present)
+        if 'image' in vm_config:
+            image = vm_config['image']
+            if not image or not isinstance(image, str) or not image.strip():
+                errors.append(ValidationError(
+                    error_type='invalid_image',
+                    message="'infrastructure.vm_config.image' must be a non-empty string"
+                ))
+            else:
+                # Basic validation - image should contain a slash (project/image format)
+                image_str = str(image).strip()
+                if '/' not in image_str:
+                    errors.append(ValidationError(
+                        error_type='invalid_image',
+                        message=(
+                            f"'infrastructure.vm_config.image' should be in format "
+                            f"'project/image', got '{image_str}'"
+                        ),
+                        severity='warning'
                     ))
         
         return errors

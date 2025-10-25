@@ -1,38 +1,23 @@
 #!/bin/bash
 # =============================================================================
-# Terraform Wrapper - Reads .env and generates tfvars
+# Terraform Wrapper - Uses environment variables passed from Python
 # =============================================================================
 
 set -e
 
-# Load .env from project root
-# Script location: shared/terraform/terraform-wrapper.sh
-# .env location: ../../.env (project root)
-if [ -f "../../.env" ]; then
-    ENV_FILE="../../.env"
-elif [ -f "../.env" ]; then
-    ENV_FILE="../.env"
-elif [ -f ".env" ]; then
-    ENV_FILE=".env"
-else
-    echo "❌ ERROR: .env not found!"
-    echo "Expected: ../../.env (from shared/terraform/)"
-    exit 1
-fi
-
-# Source .env
-set -a
-source "$ENV_FILE"
-set +a
+# Environment variables are now passed from Python CLI (via load_env)
+# No need to read .env file anymore
 
 # Validate required vars
 if [ -z "$GCP_PROJECT_ID" ] || [ "$GCP_PROJECT_ID" = "your-gcp-project-id-here" ]; then
-    echo "❌ ERROR: GCP_PROJECT_ID not configured in .env"
+    echo "❌ ERROR: GCP_PROJECT_ID not set"
+    echo "This should be passed from the CLI via project.yml"
     exit 1
 fi
 
 if [ -z "$SSH_KEY_PATH" ]; then
-    echo "❌ ERROR: SSH_KEY_PATH not configured in .env"
+    echo "❌ ERROR: SSH_KEY_PATH not set"
+    echo "This should be passed from the CLI via project.yml"
     exit 1
 fi
 
@@ -48,11 +33,11 @@ fi
 
 # Generate tfvars
 cat > envs/dev/gcp.auto.tfvars <<EOF
-# Auto-generated from .env - DO NOT EDIT MANUALLY
-# Edit ../superdeploy/.env instead
+# Auto-generated from environment variables - DO NOT EDIT MANUALLY
 
-project_id  = "$GCP_PROJECT_ID"
-environment = "dev"
+project_id   = "$GCP_PROJECT_ID"
+project_name = "${PROJECT_NAME:-superdeploy}"
+environment  = "dev"
 
 region = "${GCP_REGION:-us-central1}"
 zone   = "${GCP_ZONE:-us-central1-a}"
@@ -75,7 +60,7 @@ disk_sizes = {
   proxy  = 20
 }
 
-network_name = "superdeploy-dev-network"
+network_name = "${PROJECT_NAME:-superdeploy}-dev-network"
 subnet_cidr  = "10.0.0.0/24"
 
 admin_source_ranges = ["0.0.0.0/0"]
@@ -90,7 +75,13 @@ tags = {
 }
 EOF
 
-echo "✅ Generated envs/dev/gcp.auto.tfvars from .env"
+echo "✅ Generated envs/dev/gcp.auto.tfvars"
+
+# Select or create workspace for project isolation
+if [ -n "$PROJECT_NAME" ]; then
+    echo "🔧 Using Terraform workspace: $PROJECT_NAME"
+    terraform workspace select "$PROJECT_NAME" 2>/dev/null || terraform workspace new "$PROJECT_NAME"
+fi
 
 # Run terraform command with tfvars file (only for plan/apply, not for output)
 if [[ "$1" == "init" ]]; then
@@ -100,7 +91,7 @@ if [[ "$1" == "init" ]]; then
         BUCKET="superdeploy-tfstate-${GCP_PROJECT_ID}"
         terraform "$@" -backend-config="bucket=${BUCKET}"
     else
-        echo "💾 Using local backend (debug mode)"
+        echo "💾 Using local backend (per-project workspace)"
         terraform "$@"
     fi
 elif [[ "$1" == "output" ]]; then

@@ -18,9 +18,9 @@ module "vm_core" {
 
   project_id    = var.project_id
   zone          = var.zone
-  name          = "vm-core-${count.index + 1}"
-  machine_type  = var.machine_types.core
-  disk_size     = var.disk_sizes.core
+  name          = "${var.project_name}-core-${count.index + 1}"
+  machine_type  = var.machine_types.core != "" ? var.machine_types.core : var.machine_type
+  disk_size     = var.disk_sizes.core > 0 ? var.disk_sizes.core : var.disk_size
   image         = var.vm_image
   network       = module.network.network_self_link
   subnetwork    = module.network.subnet_self_link
@@ -32,6 +32,7 @@ module "vm_core" {
   create_external_ip = true
 
   labels = {
+    project     = var.project_name
     role        = "core"
     environment = var.environment
     has_edge    = "true"
@@ -49,9 +50,9 @@ module "vm_scrape" {
 
   project_id    = var.project_id
   zone          = var.zone
-  name          = "vm-scrape-${count.index + 1}"
-  machine_type  = var.machine_types.scrape
-  disk_size     = var.disk_sizes.scrape
+  name          = "${var.project_name}-scrape-${count.index + 1}"
+  machine_type  = var.machine_types.scrape != "" ? var.machine_types.scrape : var.machine_type
+  disk_size     = var.disk_sizes.scrape > 0 ? var.disk_sizes.scrape : var.disk_size
   image         = var.vm_image
   network       = module.network.network_self_link
   subnetwork    = module.network.subnet_self_link
@@ -63,6 +64,7 @@ module "vm_scrape" {
   create_external_ip = true
 
   labels = {
+    project     = var.project_name
     role        = "scrape"
     environment = var.environment
     has_worker  = "true"
@@ -77,9 +79,9 @@ module "vm_proxy" {
 
   project_id    = var.project_id
   zone          = var.zone
-  name          = "vm-proxy-${count.index + 1}"
-  machine_type  = var.machine_types.proxy
-  disk_size     = var.disk_sizes.proxy
+  name          = "${var.project_name}-proxy-${count.index + 1}"
+  machine_type  = var.machine_types.proxy != "" ? var.machine_types.proxy : var.machine_type
+  disk_size     = var.disk_sizes.proxy > 0 ? var.disk_sizes.proxy : var.disk_size
   image         = var.vm_image
   network       = module.network.network_self_link
   subnetwork    = module.network.subnet_self_link
@@ -91,6 +93,7 @@ module "vm_proxy" {
   create_external_ip = true
 
   labels = {
+    project     = var.project_name
     role        = "proxy"
     environment = var.environment
     has_proxy   = "true"
