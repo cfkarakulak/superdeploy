@@ -1,6 +1,8 @@
 volumes:
   forgejo-data:
+    name: {{ project_name }}-forgejo-data
   forgejo-postgres:
+    name: {{ project_name }}-forgejo-postgres
 
 services:
   forgejo:

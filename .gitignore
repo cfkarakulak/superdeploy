@@ -12,10 +12,6 @@ projects/*/secrets.env
 projects/*/compose/env/*.env
 !projects/*/compose/env/*.env.example
 
-# Generated passwords (NEVER commit!)
-projects/*/.passwords.yml
-.passwords.yml
-
 # Project-specific .env files (NEVER commit!)
 projects/*/.env
 
@@ -82,7 +78,6 @@ temp/
 .cache/
 
 # Project secrets (auto-added by superdeploy init)
-projects/*/.passwords.yml
 projects/*/apps/*/.env
 projects/*/apps/*/.env.*
 !projects/*/apps/*/.env.example

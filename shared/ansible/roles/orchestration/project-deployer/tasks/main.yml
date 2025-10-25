@@ -62,11 +62,9 @@
   debug:
     msg: "Project directory structure created at {{ project_base_path }}"
 
-# Deploy application services
-- name: Deploy application services
-  include_tasks: deploy-apps.yml
-  tags:
-    - project-apps
+# Note: Applications are deployed via GitHub Actions → Forgejo Actions workflow
+# This role only prepares the infrastructure (directories, firewall, monitoring)
+# Apps will be deployed when code is pushed to their respective repositories
 
 # Setup monitoring integration
 - name: Setup monitoring integration

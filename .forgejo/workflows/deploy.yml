@@ -254,50 +254,38 @@ jobs:
             echo "✅ Network already exists: superdeploy-proxy"
           fi
       
-      - name: Deploy core services first
+      - name: Verify core services are running
         run: |
-          set -ex
-          echo "🔧 Checking for core services..."
+          set -e
+          echo "🔍 Verifying core services are running..."
           
-          # Default core services
-          CORE_SERVICES="postgres,rabbitmq,redis"
+          # Core services should already be deployed by 'superdeploy up'
+          # We only verify they're running, not deploy them
           
-          echo "📦 Core services from config: $CORE_SERVICES"
-          
-          # Deploy core services if compose file exists
           CORE_COMPOSE="/opt/superdeploy/projects/${{ env.PROJECT }}/compose/docker-compose.core.yml"
           
-          if [ -f "$CORE_COMPOSE" ]; then
-            echo "📦 Deploying core services: $CORE_SERVICES"
-            cd /opt/superdeploy/projects/${{ env.PROJECT }}/compose
-            
-            echo "📂 Current directory: $(pwd)"
-            echo "📋 Files in directory:"
-            ls -la
-            
-            # Load environment variables from decrypted file (skip comments and empty lines)
-            if [ -f /tmp/decrypted.env ]; then
-              set -a
-              source /tmp/decrypted.env
-              set +a
-              echo "✅ Environment variables loaded for core services"
-            else
-              echo "⚠️  No decrypted env file found, using defaults"
-            fi
-            
-            echo "🐳 Starting core services..."
-            # Deploy core services
-            docker compose -f docker-compose.core.yml up -d --wait
-            
-            echo "📊 Core services status:"
-            docker compose -f docker-compose.core.yml ps
-            
-            echo "✅ Core services deployed!"
-          else
-            echo "⚠️  No core services compose file found at: $CORE_COMPOSE"
-            echo "📂 Listing /opt/superdeploy/projects/${{ env.PROJECT }}:"
-            ls -la /opt/superdeploy/projects/${{ env.PROJECT }}/ || echo "Directory not found"
+          if [ ! -f "$CORE_COMPOSE" ]; then
+            echo "❌ Core services compose file not found!"
+            echo "   Expected: $CORE_COMPOSE"
+            echo "   Run 'superdeploy up -p ${{ env.PROJECT }}' first to set up infrastructure"
+            exit 1
           fi
+          
+          cd /opt/superdeploy/projects/${{ env.PROJECT }}/compose
+          
+          # Check if core services are running
+          echo "📊 Checking core services status..."
+          if ! docker compose -f docker-compose.core.yml ps --services --filter "status=running" | grep -q .; then
+            echo "❌ Core services are not running!"
+            echo "   Run 'superdeploy up -p ${{ env.PROJECT }} --tags addons' to start core services"
+            echo ""
+            echo "📋 Current status:"
+            docker compose -f docker-compose.core.yml ps
+            exit 1
+          fi
+          
+          echo "✅ Core services are running"
+          docker compose -f docker-compose.core.yml ps
       
       - name: Register service with Caddy
         continue-on-error: true

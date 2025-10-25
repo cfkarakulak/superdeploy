@@ -141,8 +141,11 @@ class AddonValidator:
         if not self.addons_path.exists():
             return results
         
+        # Directories to skip (apps are deployed via GitHub push, not part of addon system)
+        skip_dirs = {'apps', '.git', '__pycache__'}
+        
         for addon_dir in self.addons_path.iterdir():
-            if addon_dir.is_dir() and not addon_dir.name.startswith('.'):
+            if addon_dir.is_dir() and not addon_dir.name.startswith('.') and addon_dir.name not in skip_dirs:
                 result = self.validate_addon(addon_dir.name)
                 results.append(result)
         

@@ -72,11 +72,10 @@ def backup(project, output):
         try:
             # Get database credentials from project config
             from cli.utils import get_project_path
-            import yaml
+            from dotenv import dotenv_values
             
             project_path = get_project_path(project)
-            with open(project_path / ".passwords.yml") as f:
-                passwords = yaml.safe_load(f)
+            passwords = dotenv_values(project_path / ".env")
             
             # Dump database via SSH
             db_dump = ssh_command(
@@ -106,10 +105,10 @@ def backup(project, output):
             project_path = get_project_path(project)
             
             # Copy config files
-            shutil.copy(project_path / "config.yml", f"{output}/{backup_name}/")
+            shutil.copy(project_path / "project.yml", f"{output}/{backup_name}/")
             
-            if (project_path / ".passwords.yml").exists():
-                shutil.copy(project_path / ".passwords.yml", f"{output}/{backup_name}/")
+            if (project_path / ".env").exists():
+                shutil.copy(project_path / ".env", f"{output}/{backup_name}/")
             
             # Copy compose files
             compose_dir = project_path / "compose"
@@ -131,8 +130,8 @@ def backup(project, output):
             "backup_date": datetime.now().isoformat(),
             "files": [
                 "database.sql",
-                "config.yml",
-                ".passwords.yml",
+                "project.yml",
+                ".env",
                 "compose/",
             ],
         }

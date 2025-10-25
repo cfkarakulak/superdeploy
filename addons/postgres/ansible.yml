@@ -32,15 +32,6 @@
   become_user: "{{ superdeploy_user }}"
   register: postgres_compose_result
 
-- name: Wait for {{ addon_name }} to be ready
-  wait_for:
-    host: localhost
-    port: "{{ POSTGRES_PORT | default(5432) }}"
-    delay: 5
-    timeout: 60
-    state: started
-  when: postgres_compose_result.changed
-
 - name: Verify {{ addon_name }} is accessible
   shell: |
     docker exec {{ project_name }}-{{ addon_name }} pg_isready -U {{ POSTGRES_USER }}

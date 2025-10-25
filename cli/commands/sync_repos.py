@@ -45,15 +45,14 @@ def sync_repos(env_mappings, core_secrets):
       # With core secrets (DB/Queue/Cache passwords)
       superdeploy sync:repos \\
         -e ~/api/.env:myorg/api \\
-        -c ~/superdeploy/projects/myproject/.passwords.yml
+        -c ~/superdeploy/projects/myproject/.env
     
     \b
-    Core Secrets File Format (.passwords.yml):
-      passwords:
-        POSTGRES_PASSWORD: xxx
-        RABBITMQ_PASSWORD: yyy
-        REDIS_PASSWORD: zzz
-        # Any other secrets...
+    Core Secrets File Format (.env):
+      POSTGRES_PASSWORD=xxx
+      RABBITMQ_PASSWORD=yyy
+      REDIS_PASSWORD=zzz
+      # Any other secrets...
     
     \b
     How It Works:
@@ -107,14 +106,9 @@ def sync_repos(env_mappings, core_secrets):
             raise SystemExit(1)
 
         try:
-            with open(core_secrets_path) as f:
-                core_data = yaml.safe_load(f)
-                # Support both flat and nested format
-                if "passwords" in core_data:
-                    core_secrets_dict = core_data["passwords"]
-                else:
-                    core_secrets_dict = core_data
-
+            # Load .env file using dotenv
+            core_secrets_dict = dotenv_values(core_secrets_path)
+            
             console.print("\n[cyan]📦 Core secrets loaded from:[/cyan]")
             console.print(f"  {core_secrets_path}")
             console.print(f"  [dim]Found {len(core_secrets_dict)} core secrets[/dim]")
@@ -175,8 +169,8 @@ def sync_repos(env_mappings, core_secrets):
             project_path = None
             current_path = env_path.parent
             for _ in range(5):  # Max 5 levels up
-                if (current_path / ".passwords.yml").exists() or (
-                    current_path / "config.yml"
+                if (current_path / ".env").exists() or (
+                    current_path / "project.yml"
                 ).exists():
                     project_path = current_path
                     break

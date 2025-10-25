@@ -18,13 +18,12 @@ from cli.ansible_utils import build_ansible_command
 console = Console()
 
 
-def filter_addons(enabled_addons, start_from, skip_addons, project):
+def filter_addons(enabled_addons, skip_addons, project):
     """
-    Filter addon list based on --start-from and --skip flags
+    Filter addon list based on --skip flags
     
     Args:
         enabled_addons: List of all enabled addons
-        start_from: Addon name to start from (skip all before it)
         skip_addons: Tuple of addon names to skip
         project: Project name for error messages
         
@@ -35,20 +34,6 @@ def filter_addons(enabled_addons, start_from, skip_addons, project):
         return []
     
     filtered = list(enabled_addons)
-    
-    # Apply --start-from filter
-    if start_from:
-        if start_from not in enabled_addons:
-            console.print(f"[red]❌ Error: Addon '{start_from}' not found in project '{project}'[/red]")
-            console.print(f"[yellow]Available addons: {', '.join(enabled_addons)}[/yellow]")
-            raise SystemExit(1)
-        
-        # Find index and slice from that point
-        start_index = enabled_addons.index(start_from)
-        filtered = enabled_addons[start_index:]
-        
-        console.print(f"[yellow]⚠️  Starting from addon: {start_from}[/yellow]")
-        console.print(f"[dim]Skipping: {', '.join(enabled_addons[:start_index])}[/dim]")
     
     # Apply --skip filter
     if skip_addons:
@@ -66,7 +51,7 @@ def filter_addons(enabled_addons, start_from, skip_addons, project):
     return filtered
 
 
-def display_deployment_plan(all_addons, filtered_addons, start_from, skip_addons):
+def display_deployment_plan(all_addons, filtered_addons, skip_addons):
     """Display deployment plan showing which addons will be deployed"""
     if not all_addons:
         return
@@ -78,12 +63,8 @@ def display_deployment_plan(all_addons, filtered_addons, start_from, skip_addons
         if addon in filtered_addons:
             console.print(f"  [green]✓[/green] {addon}")
         else:
-            reason = ""
-            if start_from and all_addons.index(addon) < all_addons.index(start_from):
-                reason = f"[dim](before {start_from})[/dim]"
-            elif skip_addons and addon in skip_addons:
-                reason = "[dim](skipped)[/dim]"
-            console.print(f"  [dim]○ {addon} {reason}[/dim]")
+            if skip_addons and addon in skip_addons:
+                console.print(f"  [dim]○ {addon} [dim](skipped)[/dim][/dim]")
     
     console.print("[dim]" + "─" * 50 + "[/dim]")
     console.print(f"[cyan]Total: {len(filtered_addons)}/{len(all_addons)} addons will be deployed[/cyan]\n")
@@ -222,9 +203,9 @@ def clean_ssh_known_hosts(env):
 @click.option("--skip-ansible", is_flag=True, help="Skip Ansible configuration")
 @click.option("--skip-git-push", is_flag=True, help="Skip Git push")
 @click.option("--skip-sync", is_flag=True, help="Skip automatic GitHub secrets sync")
-@click.option("--start-from", help="Start deployment from specific addon (skip previous addons)")
 @click.option("--skip", multiple=True, help="Skip specific addon(s) during deployment")
-def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, start_from, skip):
+@click.option("--tags", help="Run only specific Ansible tags (e.g. 'addons', 'project', 'foundation,addons')")
+def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, tags):
     """
     Deploy infrastructure (like 'heroku create')
 
@@ -342,48 +323,22 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, start_fr
             "admin_email", f"admin@{project}.local"
         )
 
-        # Load generated passwords from .passwords.yml
-        project_path = get_project_path(project)
-        passwords_file = project_path / ".passwords.yml"
-        generated_passwords = {}
-
-        if passwords_file.exists():
-            import yaml
-
-            with open(passwords_file) as f:
-                passwords_data = yaml.safe_load(f)
-                if passwords_data and "passwords" in passwords_data:
-                    # Flatten the nested structure
-                    for addon_name, addon_passwords in passwords_data[
-                        "passwords"
-                    ].items():
-                        for var_name, var_data in addon_passwords.items():
-                            if isinstance(var_data, dict):
-                                generated_passwords[var_name] = var_data.get(
-                                    "value", ""
-                                )
-                            else:
-                                generated_passwords[var_name] = var_data
-
+        # All passwords are now in .env (loaded via load_env)
         ansible_env_vars = {
             "core_external_ip": env["CORE_EXTERNAL_IP"],
             "core_internal_ip": env["CORE_INTERNAL_IP"],
             "FORGEJO_ADMIN_USER": forgejo_admin_user,
-            "FORGEJO_ADMIN_PASSWORD": generated_passwords.get(
-                "FORGEJO_ADMIN_PASSWORD", ""
-            ),
+            "FORGEJO_ADMIN_PASSWORD": env.get("FORGEJO_ADMIN_PASSWORD", ""),
             "FORGEJO_ADMIN_EMAIL": forgejo_admin_email,
             "FORGEJO_ORG": forgejo_org,
             "REPO_SUPERDEPLOY": env.get("REPO_SUPERDEPLOY", "superdeploy"),
             "forgejo_admin_user": forgejo_admin_user,
-            "forgejo_admin_password": generated_passwords.get(
-                "FORGEJO_ADMIN_PASSWORD", ""
-            ),
+            "forgejo_admin_password": env.get("FORGEJO_ADMIN_PASSWORD", ""),
             "forgejo_admin_email": forgejo_admin_email,
             "forgejo_org": forgejo_org,
             "forgejo_db_name": forgejo_config.get("db_name", "forgejo"),
             "forgejo_db_user": forgejo_config.get("db_user", "forgejo"),
-            "forgejo_db_password": generated_passwords.get("FORGEJO_DB_PASSWORD", ""),
+            "forgejo_db_password": env.get("FORGEJO_DB_PASSWORD", ""),
             "DOCKER_USERNAME": env.get("DOCKER_USERNAME", ""),
             "DOCKER_TOKEN": env.get("DOCKER_TOKEN", ""),
             "superdeploy_root": str(project_root),
@@ -392,23 +347,26 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, start_fr
         # Get Ansible vars from ConfigLoader (includes enabled_addons, addon_configs, etc.)
         ansible_vars = project_config_obj.to_ansible_vars()
         
-        # Filter addons based on --start-from and --skip flags
+        # Filter addons based on --skip flags
         enabled_addons = ansible_vars.get("enabled_addons", [])
-        filtered_addons = filter_addons(enabled_addons, start_from, skip, project)
+        filtered_addons = filter_addons(enabled_addons, skip, project)
         
         # Update ansible_vars with filtered addons
         ansible_vars["enabled_addons"] = filtered_addons
         
         # Display deployment plan
-        display_deployment_plan(enabled_addons, filtered_addons, start_from, skip)
+        display_deployment_plan(enabled_addons, filtered_addons, skip)
         
         # Build Ansible command using shared utility
+        # Use custom tags if provided, otherwise run all phases
+        ansible_tags = tags if tags else "foundation,addons,project"
+        
         ansible_cmd = build_ansible_command(
             ansible_dir=ansible_dir,
             project_root=project_root,
             project_config=ansible_vars,
             env_vars=ansible_env_vars,
-            tags="foundation,addons,project",
+            tags=ansible_tags,
         )
 
         run_command(ansible_cmd)

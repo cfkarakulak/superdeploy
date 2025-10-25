@@ -37,20 +37,17 @@ def generate_ansible_extra_vars(project_config, env_vars=None, project_root=None
     if project_root:
         extra_vars['addons_source_path'] = str(project_root / 'addons')
         
-        # Load project secrets from .passwords.yml if it exists
-        passwords_file = project_root / 'projects' / project_config['project_name'] / '.passwords.yml'
-        if passwords_file.exists():
-            with open(passwords_file) as f:
-                passwords_data = yaml.safe_load(f)
-                # Flatten the passwords structure for easier access in Ansible
-                flattened_secrets = {}
-                for addon_name, addon_passwords in passwords_data.get('passwords', {}).items():
-                    for secret_name, secret_data in addon_passwords.items():
-                        if isinstance(secret_data, dict) and 'value' in secret_data:
-                            flattened_secrets[secret_name] = secret_data['value']
-                        else:
-                            flattened_secrets[secret_name] = secret_data
-                extra_vars['project_secrets'] = flattened_secrets
+        # Load project secrets from .env file
+        project_name = extra_vars.get('project_name', '')
+        if project_name:
+            env_file = project_root / 'projects' / project_name / '.env'
+            if env_file.exists():
+                from dotenv import dotenv_values
+                project_secrets = dotenv_values(env_file)
+                # Filter out non-secret values (comments, empty, etc.)
+                extra_vars['project_secrets'] = {k: v for k, v in project_secrets.items() if v and not k.startswith('#')}
+            else:
+                extra_vars['project_secrets'] = {}
         else:
             extra_vars['project_secrets'] = {}
     else:
@@ -80,7 +77,7 @@ def generate_ansible_extra_vars(project_config, env_vars=None, project_root=None
     return extra_vars
 
 
-def build_ansible_command(ansible_dir, project_root, project_config, env_vars, tags=None, start_at_task=None):
+def build_ansible_command(ansible_dir, project_root, project_config, env_vars, tags=None):
     """
     Build complete Ansible playbook command with all necessary variables
     
@@ -89,8 +86,7 @@ def build_ansible_command(ansible_dir, project_root, project_config, env_vars, t
         project_root (Path): Root directory of superdeploy
         project_config (dict): Parsed project configuration
         env_vars (dict): Environment variables
-        tags (str): Optional Ansible tags to run
-        start_at_task (str): Optional task name to start from
+        tags (str): Optional Ansible tags to run (e.g. 'foundation', 'addons', 'project')
     
     Returns:
         str: Complete ansible-playbook command
@@ -106,13 +102,10 @@ def build_ansible_command(ansible_dir, project_root, project_config, env_vars, t
     # Build tags string
     tags_str = f"--tags {tags}" if tags else ""
     
-    # Build start-at-task string
-    start_at_str = f"--start-at-task='{start_at_task}'" if start_at_task else ""
-    
     # Build the command
     cmd = f"""
 cd {ansible_dir} && \\
-SUPERDEPLOY_ROOT={project_root} ansible-playbook -i inventories/dev.ini playbooks/site.yml {tags_str} {start_at_str} \\
+SUPERDEPLOY_ROOT={project_root} ansible-playbook -i inventories/dev.ini playbooks/site.yml {tags_str} \\
   --extra-vars '{extra_vars_json}'
 """
     

@@ -17,7 +17,7 @@ enabled_addons: []
 # Addon configuration from project.yml (should be provided)
 addon_configs: {}
 
-# Project secrets (should be provided from .passwords.yml)
+# Project secrets (should be provided from .env)
 project_secrets: {}
 
 # Timeout for health checks (seconds)

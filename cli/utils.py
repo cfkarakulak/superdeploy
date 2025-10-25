@@ -102,24 +102,8 @@ def load_env(project: Optional[str] = None) -> Dict[str, Any]:
         'ENABLE_MONITORING': str(config.get('monitoring', {}).get('enabled', True)).lower(),
     }
     
-    # Load passwords from .passwords.yml if exists
-    project_path = get_project_root() / "projects" / project
-    passwords_file = project_path / ".passwords.yml"
-    
-    if passwords_file.exists():
-        import yaml
-        with open(passwords_file) as f:
-            passwords_data = yaml.safe_load(f)
-            if passwords_data and 'passwords' in passwords_data:
-                # Flatten passwords
-                for addon_name, addon_passwords in passwords_data['passwords'].items():
-                    for var_name, var_data in addon_passwords.items():
-                        if isinstance(var_data, dict):
-                            env_vars[var_name] = var_data.get('value', '')
-                        else:
-                            env_vars[var_name] = var_data
-    
     # Load sensitive values from project's .env file
+    project_path = project_root / "projects" / project
     project_env_file = project_path / ".env"
     if project_env_file.exists():
         from dotenv import dotenv_values

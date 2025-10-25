@@ -19,7 +19,7 @@ services:
       - {{ project_base_path }}/data/{{ app_name }}:/app/data
       - {{ project_base_path }}/logs/{{ app_name }}:/app/logs
     networks:
-      - {{ network_name }}
+      - {{ project_name }}-network
     labels:
       - "com.superdeploy.project={{ project_name }}"
       - "com.superdeploy.app={{ app_name }}"
@@ -39,5 +39,5 @@ services:
 {% endfor %}
 
 networks:
-  {{ network_name }}:
+  {{ project_name }}-network:
     external: true
