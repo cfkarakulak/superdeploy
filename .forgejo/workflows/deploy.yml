@@ -131,14 +131,23 @@ jobs:
           set -ex
           echo "📋 Loading project configuration..."
           
-          # Debug: Check what's mounted
-          echo "🔍 Debug: Checking /opt/superdeploy/projects..."
-          ls -la /opt/superdeploy/projects/ || echo "Directory not found"
-          echo "🔍 Debug: Checking /opt/superdeploy/projects/${{ env.PROJECT }}..."
-          ls -la /opt/superdeploy/projects/${{ env.PROJECT }}/ || echo "Project directory not found"
+          # We're running inside a container, but project.yml is on the host
+          # Copy it from the host using docker cp (we have docker socket access)
+          CONFIG_FILE="/tmp/project.yml"
           
-          # Read port configuration from project.yml
-          CONFIG_FILE="/opt/superdeploy/projects/${{ env.PROJECT }}/project.yml"
+          # Find the current container ID
+          HOSTNAME=$(hostname)
+          echo "🔍 Running in container: $HOSTNAME"
+          
+          # Use docker exec to cat the file from host context
+          # The runner has access to docker socket, so we can access host filesystem
+          docker run --rm -v /opt/superdeploy/projects/${{ env.PROJECT }}:/project:ro alpine cat /project/project.yml > "$CONFIG_FILE" || {
+            echo "❌ ERROR: Cannot access project.yml from host"
+            echo "Tried to mount: /opt/superdeploy/projects/${{ env.PROJECT }}/project.yml"
+            exit 1
+          }
+          
+          echo "✅ Successfully loaded project.yml from host"
           
           if [ -f "$CONFIG_FILE" ]; then
             # Use helper script to parse YAML config
