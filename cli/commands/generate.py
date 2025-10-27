@@ -405,13 +405,15 @@ jobs:
           sudo mv age/age /usr/local/bin/
       
       - name: Prepare environment bundle
-        id: env_bundle{
-        f'''
+        id: env_bundle"""
+
+    # Add env section only if there are environment variables
+    if env_section:
+        workflow += f"""
         env:
-{env_section}'''
-        if env_section
-        else ""
-    }
+{env_section}"""
+
+    workflow += """
         run: |
           # Merge .env + .env.superdeploy
           python3 <<'PYEOF'
