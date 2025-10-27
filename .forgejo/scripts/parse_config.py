@@ -2,54 +2,101 @@
 """
 Parse project.yml configuration and extract service-specific information.
 Usage: python parse_config.py <config_file> <service_name>
+
+Note: Uses simple parsing without PyYAML dependency for faster execution
+in CI/CD environments.
 """
 
 import sys
-import yaml
-from pathlib import Path
+import os
+
+
+def simple_yaml_parse(file_path: str, service_name: str):
+    """
+    Simple YAML parser for extracting service port from apps section.
+    Only parses the specific structure needed, avoiding external dependencies.
+    """
+    if not os.path.exists(file_path):
+        print(f"ERROR: Configuration file not found: {file_path}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(file_path, "r") as f:
+        lines = f.readlines()
+
+    # State machine for parsing
+    in_apps_section = False
+    in_target_service = False
+    current_indent = 0
+    service_indent = 0
+    port = None
+    external_port = None
+    internal_port = None
+
+    for line in lines:
+        # Skip comments and empty lines
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        # Calculate indentation
+        indent = len(line) - len(line.lstrip())
+
+        # Check for apps section
+        if line.strip() == "apps:":
+            in_apps_section = True
+            current_indent = indent
+            continue
+
+        if in_apps_section:
+            # Check if we've left the apps section (lower or same indent level)
+            if indent <= current_indent and not line.startswith(" "):
+                in_apps_section = False
+                in_target_service = False
+                continue
+
+            # Check for target service
+            if stripped.startswith(f"{service_name}:"):
+                in_target_service = True
+                service_indent = indent
+                continue
+
+            # Parse service properties
+            if in_target_service:
+                # Check if we've left the service section
+                if indent <= service_indent:
+                    in_target_service = False
+                    continue
+
+                # Extract port values
+                if stripped.startswith("port:"):
+                    port = int(stripped.split(":", 1)[1].strip())
+                elif stripped.startswith("external_port:"):
+                    external_port = int(stripped.split(":", 1)[1].strip())
+                elif stripped.startswith("internal_port:"):
+                    internal_port = int(stripped.split(":", 1)[1].strip())
+
+    # Check if service was found
+    if port is None:
+        print(
+            f"ERROR: Port configuration not found for service '{service_name}' in {file_path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Use defaults if external/internal ports not specified
+    if external_port is None:
+        external_port = port
+    if internal_port is None:
+        internal_port = port
+
+    # Output in the format expected by workflow: "EXTERNAL_PORT INTERNAL_PORT"
+    print(f"{external_port} {internal_port}")
 
 
 def parse_config(config_file: str, service_name: str):
     """Parse project.yml and extract port configuration for a service."""
     try:
-        config_path = Path(config_file)
-        
-        if not config_path.exists():
-            print(f"ERROR: Configuration file not found: {config_file}", file=sys.stderr)
-            sys.exit(1)
-        
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        
-        # Check if service exists in apps section
-        if 'apps' not in config:
-            print(f"ERROR: No 'apps' section found in {config_file}", file=sys.stderr)
-            sys.exit(1)
-        
-        if service_name not in config['apps']:
-            print(f"ERROR: Port configuration not found for service '{service_name}' in {config_file}", file=sys.stderr)
-            sys.exit(1)
-        
-        service_config = config['apps'][service_name]
-        
-        # Extract port
-        if 'port' not in service_config:
-            print(f"ERROR: No 'port' field found for service '{service_name}' in {config_file}", file=sys.stderr)
-            sys.exit(1)
-        
-        port = service_config['port']
-        
-        # Output ports in the format expected by the workflow
-        # EXTERNAL_PORT INTERNAL_PORT (space-separated)
-        # In most cases, they're the same value
-        external_port = service_config.get('external_port', port)
-        internal_port = service_config.get('internal_port', port)
-        
-        print(f"{external_port} {internal_port}")
-        
-    except yaml.YAMLError as e:
-        print(f"ERROR: Failed to parse YAML file: {e}", file=sys.stderr)
-        sys.exit(1)
+        simple_yaml_parse(config_file, service_name)
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
@@ -64,4 +111,3 @@ if __name__ == "__main__":
     service_name = sys.argv[2]
     
     parse_config(config_file, service_name)
-
