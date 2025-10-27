@@ -24,13 +24,13 @@ cache:
 container:
   network: "{{ project_name }}-network"
   privileged: false
-  options: "-v /var/run/docker.sock:/var/run/docker.sock -v /opt/superdeploy/projects:/opt/superdeploy/projects:ro -v /opt/apps:/opt/apps"
+  options: ""
   workdir_parent: ""
   valid_volumes:
-    - "/opt/superdeploy/projects:/opt/superdeploy/projects:ro"
-    - "/opt/apps:/opt/apps"
-    - "/var/run/docker.sock:/var/run/docker.sock"
-  docker_host: ""
+    - "/opt/superdeploy/projects"
+    - "/opt/apps"
+    - "/var/run/docker.sock"
+  docker_host: "unix:///var/run/docker.sock"
   force_pull: false
 
 host:
