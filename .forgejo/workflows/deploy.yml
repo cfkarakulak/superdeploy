@@ -131,6 +131,12 @@ jobs:
           set -ex
           echo "📋 Loading project configuration..."
           
+          # Debug: Check what's mounted
+          echo "🔍 Debug: Checking /opt/superdeploy/projects..."
+          ls -la /opt/superdeploy/projects/ || echo "Directory not found"
+          echo "🔍 Debug: Checking /opt/superdeploy/projects/${{ env.PROJECT }}..."
+          ls -la /opt/superdeploy/projects/${{ env.PROJECT }}/ || echo "Project directory not found"
+          
           # Read port configuration from project.yml (new format) or config.yml (old format)
           CONFIG_FILE="/opt/superdeploy/projects/${{ env.PROJECT }}/project.yml"
           if [ ! -f "$CONFIG_FILE" ]; then
