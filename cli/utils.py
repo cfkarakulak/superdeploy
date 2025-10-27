@@ -73,41 +73,53 @@ def load_env(project: Optional[str] = None) -> Dict[str, Any]:
     gcp = cloud.get('gcp', {})
     ssh = cloud.get('ssh', {})
     docker_config = config.get('docker', {})
-    infrastructure = config.get('infrastructure', {})
-    forgejo = infrastructure.get('forgejo', {})
-    core_services = config.get('core_services', {})
+    
+    # Get addons from new unified section
+    addons = project_config.get_addons()
+    forgejo = addons.get('forgejo', {})
+    postgres = addons.get('postgres', {})
+    rabbitmq = addons.get('rabbitmq', {})
+    
+    # Get GitHub config
+    github_config = config.get('github', {})
     
     env_vars = {
         # GCP
-        'GCP_PROJECT_ID': gcp.get('project_id', ''),
+        'GCP_PROJECT_ID': gcp.get('project_id'),
         'GCP_REGION': gcp.get('region', 'us-central1'),
         'GCP_ZONE': gcp.get('zone', 'us-central1-a'),
         
         # SSH
-        'SSH_KEY_PATH': ssh.get('key_path', '~/.ssh/superdeploy_deploy'),
-        'SSH_PUBLIC_KEY_PATH': ssh.get('public_key_path', '~/.ssh/superdeploy_deploy.pub'),
-        'SSH_USER': ssh.get('user', 'superdeploy'),
+        'SSH_KEY_PATH': ssh.get('key_path'),
+        'SSH_PUBLIC_KEY_PATH': ssh.get('public_key_path'),
+        'SSH_USER': ssh.get('user'),
         
         # Docker
         'DOCKER_REGISTRY': docker_config.get('registry', 'docker.io'),
-        'DOCKER_ORG': docker_config.get('organization', ''),
-        'DOCKER_USERNAME': docker_config.get('username', ''),
+        'DOCKER_ORG': docker_config.get('organization'),
+        'DOCKER_USERNAME': docker_config.get('username'),
+        
+        # GitHub
+        'GITHUB_ORG': github_config.get('organization'),
+        'GITHUB_REPO': github_config.get('repository'),
         
         # Forgejo (all non-sensitive config from project.yml)
-        'FORGEJO_PORT': str(forgejo.get('port', 3001)),
-        'FORGEJO_SSH_PORT': str(forgejo.get('ssh_port', 2222)),
-        'FORGEJO_ORG': forgejo.get('org', ''),
-        'FORGEJO_ADMIN_USER': forgejo.get('admin_user', 'admin'),
-        'FORGEJO_ADMIN_EMAIL': forgejo.get('admin_email', ''),
-        'FORGEJO_REPO': forgejo.get('repo', 'superdeploy'),
-        'FORGEJO_DB_NAME': forgejo.get('db_name', 'forgejo'),
-        'FORGEJO_DB_USER': forgejo.get('db_user', 'forgejo'),
-        'REPO_SUPERDEPLOY': forgejo.get('repo', 'superdeploy'),  # Backward compatibility
+        'FORGEJO_PORT': str(forgejo.get('port')),
+        'FORGEJO_SSH_PORT': str(forgejo.get('ssh_port')),
+        'FORGEJO_ORG': forgejo.get('org'),
+        'FORGEJO_ADMIN_USER': forgejo.get('admin_user'),
+        'FORGEJO_ADMIN_EMAIL': forgejo.get('admin_email'),
+        'FORGEJO_REPO': forgejo.get('repo'),
+        'FORGEJO_DB_NAME': forgejo.get('db_name'),
+        'FORGEJO_DB_USER': forgejo.get('db_user'),
+        'REPO_SUPERDEPLOY': forgejo.get('repo'),
         
-        # Core services (non-sensitive config)
-        'POSTGRES_USER': core_services.get('postgres', {}).get('user', ''),
-        'POSTGRES_DB': core_services.get('postgres', {}).get('database', ''),
-        'RABBITMQ_USER': core_services.get('rabbitmq', {}).get('user', ''),
+        # Postgres (non-sensitive config)
+        'POSTGRES_USER': postgres.get('user'),
+        'POSTGRES_DB': postgres.get('database'),
+        
+        # RabbitMQ (non-sensitive config)
+        'RABBITMQ_USER': rabbitmq.get('user'),
         
         # Monitoring
         'ENABLE_MONITORING': str(config.get('monitoring', {}).get('enabled', True)).lower(),

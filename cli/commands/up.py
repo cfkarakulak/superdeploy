@@ -3,6 +3,7 @@
 import click
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
@@ -226,6 +227,63 @@ def generate_ansible_inventory(env, ansible_dir, project_name):
     )
 
 
+def check_single_vm_ssh(vm_key, ip, ssh_key, ssh_user):
+    """Check if a single VM is SSH-ready with sudo access"""
+    try:
+        result = subprocess.run(
+            f"ssh -i {ssh_key} -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes {ssh_user}@{ip} 'sudo -n whoami' 2>&1",
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        
+        if result.returncode == 0 and "root" in result.stdout:
+            return (vm_key, ip, True, None)
+        else:
+            return (vm_key, ip, False, result.stdout.strip()[:50])
+    except Exception as e:
+        return (vm_key, ip, False, str(e))
+
+
+def check_vms_parallel(public_ips, ssh_key, ssh_user, max_attempts=18, delay=10):
+    """Check all VMs in parallel until all are ready or timeout"""
+    all_ready = False
+    attempt = 0
+    
+    while attempt < max_attempts and not all_ready:
+        attempt += 1
+        console.print(f"  [dim]Attempt {attempt}/{max_attempts}...[/dim]")
+        
+        ready_vms = {}
+        
+        # Check all VMs concurrently
+        with ThreadPoolExecutor(max_workers=len(public_ips)) as executor:
+            futures = {
+                executor.submit(check_single_vm_ssh, vm_key, ip, ssh_key, ssh_user): vm_key
+                for vm_key, ip in public_ips.items()
+            }
+            
+            for future in as_completed(futures):
+                vm_key, ip, is_ready, error = future.result()
+                ready_vms[vm_key] = is_ready
+                
+                if is_ready:
+                    console.print(f"    [green]✓[/green] {vm_key} ({ip}) ready")
+                else:
+                    console.print(f"    [yellow]⏳[/yellow] {vm_key} ({ip}) not ready yet")
+        
+        if all(ready_vms.values()):
+            all_ready = True
+            console.print("[green]✅ All VMs ready![/green]")
+        else:
+            if attempt < max_attempts:
+                console.print("  [dim]Waiting 10s before next check...[/dim]")
+                time.sleep(delay)
+    
+    return all_ready
+
+
 def clean_ssh_known_hosts(env):
     """Clean SSH known_hosts to avoid conflicts (dynamic for all VMs)"""
     console.print("[cyan]🔐 Cleaning SSH known_hosts...[/cyan]")
@@ -236,6 +294,89 @@ def clean_ssh_known_hosts(env):
             subprocess.run(["ssh-keygen", "-R", value], capture_output=True)
 
     console.print("[green]✅ SSH known_hosts cleaned[/green]")
+
+
+def push_to_github(project_root, github_token, github_org, github_repo):
+    """Push to GitHub"""
+    try:
+        subprocess.run(
+            ["git", "remote", "remove", "github"],
+            capture_output=True,
+            cwd=str(project_root),
+        )
+    except:
+        pass
+
+    try:
+        subprocess.run(
+            [
+                "git",
+                "remote",
+                "add",
+                "github",
+                f"https://{github_token}@github.com/{github_org}/{github_repo}.git",
+            ],
+            check=False,
+            capture_output=True,
+            cwd=str(project_root),
+        )
+    except:
+        pass
+
+    result = subprocess.run(
+        ["git", "push", "-u", "github", "master"],
+        capture_output=True,
+        text=True,
+        cwd=str(project_root),
+    )
+    return ("github", result.returncode == 0, result.stderr if result.returncode != 0 else None)
+
+
+def push_to_forgejo(project_root, forgejo_url):
+    """Push to Forgejo"""
+    subprocess.run(
+        ["git", "remote", "remove", "forgejo"],
+        capture_output=True,
+        cwd=str(project_root),
+    )
+
+    result = subprocess.run(
+        ["git", "remote", "add", "forgejo", forgejo_url],
+        capture_output=True,
+        text=True,
+        cwd=str(project_root),
+    )
+
+    if result.returncode != 0:
+        return ("forgejo", False, result.stderr)
+
+    result = subprocess.run(
+        ["git", "push", "forgejo", "master:master", "-f"],
+        capture_output=True,
+        text=True,
+        cwd=str(project_root),
+    )
+    return ("forgejo", result.returncode == 0, result.stderr if result.returncode != 0 else None)
+
+
+def push_git_parallel(project_root, github_token, github_org, github_repo, forgejo_url):
+    """Push to GitHub and Forgejo in parallel"""
+    results = {}
+    
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = []
+        
+        if github_token and github_org and github_repo:
+            futures.append(executor.submit(push_to_github, project_root, github_token, github_org, github_repo))
+        
+        if forgejo_url:
+            futures.append(executor.submit(push_to_forgejo, project_root, forgejo_url))
+        
+        for future in as_completed(futures):
+            remote, success, error = future.result()
+            results[remote] = (success, error)
+    
+    return results
 
 
 @click.command()
@@ -362,51 +503,10 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
                     "[yellow]⚠️  No VMs found in outputs, skipping health check[/yellow]"
                 )
             else:
-                max_attempts = 18  # 18 * 10s = 180s max
-                attempt = 0
-                all_ready = False
-
-
-                while attempt < max_attempts and not all_ready:
-                    attempt += 1
-                    console.print(f"  [dim]Attempt {attempt}/{max_attempts}...[/dim]")
-
-                    ready_count = 0
-                    for vm_key, ip in public_ips.items():
-                        # Try SSH connection and sudo access
-                        try:
-                            result = subprocess.run(
-                                f"ssh -i ~/.ssh/superdeploy_deploy -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes superdeploy@{ip} 'sudo -n whoami' 2>&1",
-                                shell=True,
-                                capture_output=True,
-                                text=True,
-                                timeout=10,
-                            )
-
-                            # Check if sudo actually worked (should return "root")
-                            if result.returncode == 0 and "root" in result.stdout:
-                                ready_count += 1
-                                console.print(
-                                    f"    [green]✓[/green] {vm_key} ({ip}) ready"
-                                )
-                            else:
-                                console.print(
-                                    f"    [yellow]⏳[/yellow] {vm_key} ({ip}) not ready yet (sudo: {result.stdout.strip()[:50]})"
-                                )
-                        except Exception:
-                            console.print(
-                                f"    [yellow]⏳[/yellow] {vm_key} ({ip}) not reachable yet..."
-                            )
-
-                    if ready_count == len(public_ips):
-                        all_ready = True
-                        console.print("[green]✅ All VMs ready![/green]")
-                    else:
-                        if attempt < max_attempts:
-                            console.print(
-                                "  [dim]Waiting 10s before next check...[/dim]"
-                            )
-                            time.sleep(10)
+                # Check all VMs in parallel
+                ssh_key = env.get("SSH_KEY_PATH")
+                ssh_user = env.get("SSH_USER")
+                all_ready = check_vms_parallel(public_ips, ssh_key, ssh_user)
 
                 if not all_ready:
                     console.print(
@@ -433,38 +533,31 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
         ansible_dir = project_root / "shared" / "ansible"
 
         # Prepare environment variables for Ansible
-        # Get values from project config (NO HARDCODING!)
-        forgejo_config = project_config_obj.get_infrastructure().get("forgejo", {})
-        forgejo_org = forgejo_config.get("org", "")
-        forgejo_admin_user = forgejo_config.get("admin_user", "admin")
-        forgejo_admin_email = forgejo_config.get(
-            "admin_email", f"admin@{project}.local"
-        )
-
+        # Get values from project config
+        addons = project_config_obj.get_addons()
+        forgejo_config = addons.get("forgejo", {})
+        
         # Build ansible_env_vars dynamically from all env vars
         ansible_env_vars = {
-            "FORGEJO_ADMIN_USER": forgejo_admin_user,
-            "FORGEJO_ADMIN_PASSWORD": env.get("FORGEJO_ADMIN_PASSWORD", ""),
-            "FORGEJO_ADMIN_EMAIL": forgejo_admin_email,
-            "FORGEJO_ORG": forgejo_org,
-            "FORGEJO_REPO": env.get("FORGEJO_REPO", "superdeploy"),
-            "forgejo_admin_user": forgejo_admin_user,
-            "forgejo_admin_password": env.get("FORGEJO_ADMIN_PASSWORD", ""),
-            "forgejo_admin_email": forgejo_admin_email,
-            "forgejo_org": forgejo_org,
-            "forgejo_db_name": forgejo_config.get("db_name", "forgejo"),
-            "forgejo_db_user": forgejo_config.get("db_user", "forgejo"),
-            "forgejo_db_password": env.get("FORGEJO_DB_PASSWORD", ""),
-            "DOCKER_USERNAME": env.get("DOCKER_USERNAME", ""),
-            "DOCKER_TOKEN": env.get("DOCKER_TOKEN", ""),
+            "FORGEJO_ADMIN_USER": forgejo_config.get("admin_user"),
+            "FORGEJO_ADMIN_PASSWORD": env.get("FORGEJO_ADMIN_PASSWORD"),
+            "FORGEJO_ADMIN_EMAIL": forgejo_config.get("admin_email"),
+            "FORGEJO_ORG": forgejo_config.get("org"),
+            "FORGEJO_REPO": env.get("FORGEJO_REPO"),
+            "FORGEJO_DB_NAME": forgejo_config.get("db_name"),
+            "FORGEJO_DB_USER": forgejo_config.get("db_user"),
+            "FORGEJO_DB_PASSWORD": env.get("FORGEJO_DB_PASSWORD"),
+            "DOCKER_USERNAME": env.get("DOCKER_USERNAME"),
+            "DOCKER_TOKEN": env.get("DOCKER_TOKEN"),
             "superdeploy_root": str(project_root),
         }
 
-        # Add all VM IPs to ansible env vars dynamically
+        # Add all VM IPs to ansible env vars dynamically (both formats)
         for key, value in env.items():
             if key.endswith("_EXTERNAL_IP") or key.endswith("_INTERNAL_IP"):
-                # Convert to lowercase for ansible (e.g., CORE_0_EXTERNAL_IP -> core_0_external_ip)
-                ansible_env_vars[key.lower()] = value
+                # Add both uppercase and lowercase for compatibility
+                ansible_env_vars[key] = value  # CORE_0_EXTERNAL_IP
+                ansible_env_vars[key.lower()] = value  # core_0_external_ip
 
         # Get Ansible vars from ConfigLoader (includes enabled_addons, addon_configs, etc.)
         ansible_vars = project_config_obj.to_ansible_vars()
@@ -503,115 +596,68 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
             BarColumn(),
             console=console,
         ) as progress:
-            task3 = progress.add_task("[cyan]Pushing code...", total=2)
+            task3 = progress.add_task("[cyan]Pushing code...", total=1)
 
-            # GitHub - Push superdeploy repo as backup
-            github_token = env.get("GITHUB_TOKEN")
-            if github_token and github_token != "your-github-token":
-                # Add or update GitHub remote
-                try:
-                    subprocess.run(
-                        ["git", "remote", "remove", "github"],
-                        capture_output=True,
-                        cwd=str(project_root),
-                    )
-                except:
-                    pass
-
-                try:
-                    subprocess.run(
-                        [
-                            "git",
-                            "remote",
-                            "add",
-                            "github",
-                            f"https://{github_token}@github.com/cfkarakulak/superdeploy.git",
-                        ],
-                        check=False,  # Don't fail if remote exists
-                        capture_output=True,
-                        cwd=str(project_root),
-                    )
-                except:
-                    pass
-
-                run_command("git push -u github master", cwd=str(project_root))
-                console.print("[green]✅ Superdeploy backed up to GitHub![/green]")
-
-            progress.advance(task3)
-
-            # Push to Forgejo (needed for workflows)
+            # Prepare git push parameters
             import urllib.parse
-
+            
             # Reload env again in case IPs changed late
             env = load_env(project)
-
-            # Get Forgejo host from VM config (already found at function start)
+            
+            github_token = env.get("GITHUB_TOKEN")
+            
+            # Get Forgejo host from VM config
             forgejo_host = None
+            forgejo_url = None
             if forgejo_vm_role:
                 forgejo_ip_var = f"{forgejo_vm_role.upper()}_{forgejo_vm_index}_EXTERNAL_IP"
                 forgejo_host = env.get(forgejo_ip_var)
-
-            if not forgejo_host:
-                console.print("[red]❌ No VM found for Forgejo connection[/red]")
-            else:
-                # Wait until Forgejo is reachable
-                for _ in range(30):  # up to ~150s
-                    try:
-                        reachable = (
-                            subprocess.run(
-                                [
-                                    "bash",
-                                    "-lc",
-                                    f"curl -sSf -m 3 http://{forgejo_host}:3001/ >/dev/null",
-                                ],
-                                capture_output=True,
-                                cwd=str(project_root),
-                            ).returncode
-                            == 0
-                        )
-                        if reachable:
-                            break
-                    except Exception:
-                        pass
-                    time.sleep(5)
-
-                encoded_pass = urllib.parse.quote(env["FORGEJO_ADMIN_PASSWORD"])
-                repo_name = env.get("FORGEJO_REPO", "superdeploy")
-                forgejo_url = (
-                    f"http://{env['FORGEJO_ADMIN_USER']}:{encoded_pass}"
-                    f"@{forgejo_host}:3001/{env['FORGEJO_ORG']}/{repo_name}.git"
-                )
-
-                # Force update Forgejo remote
-                subprocess.run(
-                    ["git", "remote", "remove", "forgejo"],
-                    capture_output=True,
-                    cwd=str(project_root),
-                )
-
-                result = subprocess.run(
-                    ["git", "remote", "add", "forgejo", forgejo_url],
-                    capture_output=True,
-                    text=True,
-                    cwd=str(project_root),
-                )
-
-                if result.returncode != 0:
-                    console.print(
-                        f"[yellow]⚠️  Failed to add Forgejo remote: {result.stderr}[/yellow]"
+                
+                if forgejo_host:
+                    # Wait until Forgejo is reachable
+                    forgejo_port = env.get("FORGEJO_PORT")
+                    for _ in range(30):
+                        try:
+                            reachable = (
+                                subprocess.run(
+                                    [
+                                        "bash",
+                                        "-lc",
+                                        f"curl -sSf -m 3 http://{forgejo_host}:{forgejo_port}/ >/dev/null",
+                                    ],
+                                    capture_output=True,
+                                    cwd=str(project_root),
+                                ).returncode
+                                == 0
+                            )
+                            if reachable:
+                                break
+                        except Exception:
+                            pass
+                        time.sleep(5)
+                    
+                    encoded_pass = urllib.parse.quote(env["FORGEJO_ADMIN_PASSWORD"])
+                    repo_name = env.get("FORGEJO_REPO")
+                    forgejo_url = (
+                        f"http://{env['FORGEJO_ADMIN_USER']}:{encoded_pass}"
+                        f"@{forgejo_host}:{forgejo_port}/{env['FORGEJO_ORG']}/{repo_name}.git"
                     )
-
-                # Push workflows to Forgejo
-                try:
-                    run_command(
-                        "git push forgejo master:master -f", cwd=str(project_root)
-                    )
-                    console.print("[green]✅ Workflows pushed to Forgejo![/green]")
-                except Exception as e:
-                    console.print(
-                        f"[yellow]⚠️  Forgejo push failed (may already exist): {e}[/yellow]"
-                    )
-
+            
+            # Push to both remotes in parallel
+            github_org = env.get("GITHUB_ORG")
+            github_repo = env.get("GITHUB_REPO")
+            results = push_git_parallel(project_root, github_token, github_org, github_repo, forgejo_url)
+            
+            # Report results
+            for remote, (success, error) in results.items():
+                if success:
+                    if remote == "github":
+                        console.print("[green]✅ Superdeploy backed up to GitHub![/green]")
+                    else:
+                        console.print("[green]✅ Workflows pushed to Forgejo![/green]")
+                else:
+                    console.print(f"[yellow]⚠️  {remote.capitalize()} push failed: {error}[/yellow]")
+            
             progress.advance(task3)
 
     console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
@@ -625,9 +671,10 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
         forgejo_host = env.get(forgejo_ip_var)
 
     if forgejo_host:
-        console.print(f"\n[cyan]🌐 Forgejo:[/cyan] http://{forgejo_host}:3001")
+        forgejo_port = env.get("FORGEJO_PORT")
+        console.print(f"\n[cyan]🌐 Forgejo:[/cyan] http://{forgejo_host}:{forgejo_port}")
         console.print(
-            f"[cyan]👤 Login:[/cyan]   {env.get('FORGEJO_ADMIN_USER', 'admin')} / {env.get('FORGEJO_ADMIN_PASSWORD', '')}"
+            f"[cyan]👤 Login:[/cyan]   {env.get('FORGEJO_ADMIN_USER')} / {env.get('FORGEJO_ADMIN_PASSWORD')}"
         )
 
     # Auto-sync GitHub secrets (unless --skip-sync flag)

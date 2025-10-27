@@ -133,11 +133,29 @@ class ProjectConfig:
     def get_network_config(self) -> Dict[str, Any]:
         """
         Get network configuration
-
+        
         Returns:
             Dictionary with network settings
+            
+        Raises:
+            ValueError: If using old 'subnet' field instead of 'docker_subnet'
         """
-        return self.raw_config.get("network", {})
+        network = self.raw_config.get("network", {})
+        
+        # Fail if using old 'subnet' field
+        if "subnet" in network:
+            raise ValueError(
+                "ERROR: 'network.subnet' is no longer supported.\n"
+                "Use 'network.docker_subnet' instead.\n"
+                f"Change in projects/{self.project_name}/project.yml:\n"
+                f"  network:\n"
+                f"    subnet: {network['subnet']}\n"
+                f"To:\n"
+                f"  network:\n"
+                f"    docker_subnet: {network['subnet']}"
+            )
+        
+        return network
 
     def get_apps(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -148,23 +166,7 @@ class ProjectConfig:
         """
         return self.raw_config.get("apps", {})
 
-    def get_core_services(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Get core services configuration
 
-        Returns:
-            Dictionary of core service configurations
-        """
-        return self.raw_config.get("core_services", {})
-
-    def get_infrastructure(self) -> Dict[str, Any]:
-        """
-        Get infrastructure configuration
-
-        Returns:
-            Dictionary with infrastructure settings
-        """
-        return self.raw_config.get("infrastructure", {})
 
     def get_vms(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -184,47 +186,34 @@ class ProjectConfig:
         """
         return self.raw_config.get("monitoring", {})
 
-    def get_enabled_addons(self) -> List[str]:
+    def get_addons(self) -> Dict[str, Dict[str, Any]]:
         """
-        Get list of enabled addons from infrastructure and core_services
-
-        Returns:
-            List of enabled addon names
-        """
-        enabled_addons = []
-
-        # Add addons from infrastructure section (e.g., forgejo)
-        infrastructure = self.raw_config.get("infrastructure", {})
-        for key in infrastructure.keys():
-            if key != "vm_config":  # Skip vm_config, it's not an addon
-                enabled_addons.append(key)
-
-        # Add addons from core_services section (e.g., postgres, rabbitmq)
-        core_services = self.raw_config.get("core_services", {})
-        enabled_addons.extend(list(core_services.keys()))
-
-        return enabled_addons
-
-    def get_addon_configs(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Get addon configurations from both infrastructure and core_services
-
+        Get addon configurations from addons section ONLY.
+        
         Returns:
             Dictionary of addon configurations
+            
+        Raises:
+            ValueError: If infrastructure or core_services sections exist
         """
-        addon_configs = {}
-
-        # Add configs from infrastructure
-        infrastructure = self.raw_config.get("infrastructure", {})
-        for key, value in infrastructure.items():
-            if key != "vm_config" and isinstance(value, dict):
-                addon_configs[key] = value
-
-        # Add configs from core_services
-        core_services = self.raw_config.get("core_services", {})
-        addon_configs.update(core_services)
-
-        return addon_configs
+        # Fail fast if old sections exist
+        if 'infrastructure' in self.raw_config:
+            raise ValueError(
+                "ERROR: 'infrastructure' section is no longer supported.\n"
+                "Move all addon configurations to 'addons' section.\n"
+                f"Example: Move 'infrastructure.forgejo' to 'addons.forgejo'\n"
+                f"File: projects/{self.project_name}/project.yml"
+            )
+        
+        if 'core_services' in self.raw_config:
+            raise ValueError(
+                "ERROR: 'core_services' section is no longer supported.\n"
+                "Move all addon configurations to 'addons' section.\n"
+                f"Example: Move 'core_services.postgres' to 'addons.postgres'\n"
+                f"File: projects/{self.project_name}/project.yml"
+            )
+        
+        return self.raw_config.get('addons', {})
 
     def to_terraform_vars(self) -> Dict[str, Any]:
         """
@@ -292,16 +281,16 @@ class ProjectConfig:
         Returns:
             Dictionary suitable for Ansible extra vars
         """
+        addons = self.get_addons()
+        
         return {
             "project_name": self.project_name,
             "project_config": self.raw_config,
-            "enabled_addons": self.get_enabled_addons(),
-            "addon_configs": self.get_addon_configs(),
+            "enabled_addons": list(addons.keys()),
+            "addon_configs": addons,
             "vm_config": self.get_vm_config(),
             "network_config": self.get_network_config(),
             "apps": self.get_apps(),
-            "core_services": self.get_core_services(),
-            "infrastructure": self.get_infrastructure(),
             "monitoring": self.get_monitoring_config(),
         }
 

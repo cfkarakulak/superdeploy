@@ -34,10 +34,9 @@ docker:
   username: "c100394"
 
 # =============================================================================
-# Infrastructure Configuration
+# Addons Configuration
 # =============================================================================
-# Core infrastructure services (always deployed)
-infrastructure:
+addons:
   forgejo:
     version: "13.0.1"
     port: 3001
@@ -48,6 +47,17 @@ infrastructure:
     repo: "superdeploy"
     db_name: "forgejo"
     db_user: "forgejo"
+  postgres:
+    version: "15-alpine"
+    user: "cheapa_user"
+    database: "cheapa_db"
+  rabbitmq:
+    version: "3.12-management-alpine"
+    user: "cheapa_user"
+  caddy:
+    version: "2-alpine"
+    email: "cradexco@gmail.com"
+    domain: "cheapa.io"
 
 # =============================================================================
 # VMs (Infrastructure)
@@ -61,22 +71,6 @@ vms:
       - postgres
       - rabbitmq
       - forgejo
-
-# =============================================================================
-# Core Services (Addon-Based Infrastructure)
-# =============================================================================
-core_services:
-  postgres:
-    version: "15-alpine"
-    user: "cheapa_user"
-    database: "cheapa_db"
-  rabbitmq:
-    version: "3.12-management-alpine"
-    user: "cheapa_user"
-  caddy:
-    version: "2-alpine"
-    email: "cradexco@gmail.com"
-    domain: "cheapa.io"
 
 # =============================================================================
 # Application Services
@@ -100,12 +94,13 @@ apps:
 # =============================================================================
 github:
   organization: "cheapaio"
+  repository: "superdeploy"
 
 # =============================================================================
 # Network Configuration
 # =============================================================================
 network:
-  subnet: 172.20.0.0/24
+  docker_subnet: 172.20.0.0/24
 
 # =============================================================================
 # Monitoring (Optional)

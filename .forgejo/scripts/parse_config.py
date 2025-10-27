@@ -104,10 +104,13 @@ def parse_config(config_file: str, service_name: str):
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: python parse_config.py <config_file> <service_name>", file=sys.stderr)
+        print(
+            "Usage: python parse_config.py <config_file> <service_name>",
+            file=sys.stderr,
+        )
         sys.exit(1)
-    
+
     config_file = sys.argv[1]
     service_name = sys.argv[2]
-    
+
     parse_config(config_file, service_name)

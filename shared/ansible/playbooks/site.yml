@@ -67,8 +67,8 @@
         project_name: "{{ project_name }}"
         project_config: "{{ project_config }}"
         addons_base_path: "/opt/superdeploy/projects/{{ project_name }}/addons"
-        enabled_addons: "{{ project_config.addons.keys() | list if project_config.addons is defined else [] }}"
-        addon_configs: "{{ project_config.addons | default({}) }}"
+        enabled_addons: "{{ enabled_addons }}"
+        addon_configs: "{{ addon_configs }}"
         project_secrets: "{{ project_secrets | default({}) }}"
   tags:
     - addons
