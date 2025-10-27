@@ -426,15 +426,31 @@ jobs:
           # Deploy with zero-downtime
           echo "🐳 Starting service container..."
           
-          # Use docker compose v2 (plugin) - note the space, not hyphen
-          if command -v docker &> /dev/null && docker compose version &> /dev/null; then
-            docker compose -f docker-compose-${{ env.SERVICE }}.yml up -d
-          elif command -v docker-compose &> /dev/null; then
-            docker-compose -f docker-compose-${{ env.SERVICE }}.yml up -d
-          else
-            echo "❌ Neither 'docker compose' nor 'docker-compose' is available"
-            exit 1
-          fi
+          # Parse compose file and run container directly with docker
+          # This works even without docker-compose installed
+          
+          # Stop and remove old container if exists
+          docker stop ${{ env.PROJECT }}-${{ env.SERVICE }} 2>/dev/null || true
+          docker rm ${{ env.PROJECT }}-${{ env.SERVICE }} 2>/dev/null || true
+          
+          # Run new container
+          docker run -d \
+            --name ${{ env.PROJECT }}-${{ env.SERVICE }} \
+            --restart unless-stopped \
+            --network ${{ env.PROJECT }}-network \
+            --network ${{ env.PROJECT }}-proxy \
+            -p 8000:8000 \
+            --env-file /tmp/decrypted.env \
+            --label com.superdeploy.project="${{ env.PROJECT }}" \
+            --label com.superdeploy.service="${{ env.SERVICE }}" \
+            --label com.superdeploy.git.sha="${{ env.GIT_SHA }}" \
+            --label com.superdeploy.git.ref="${{ env.GIT_REF }}" \
+            --health-cmd="curl -f http://localhost:8000/health || exit 1" \
+            --health-interval=15s \
+            --health-timeout=10s \
+            --health-retries=5 \
+            --health-start-period=60s \
+            ${{ env.IMAGE }}
           
           echo "📊 Container status:"
           docker ps -a --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
