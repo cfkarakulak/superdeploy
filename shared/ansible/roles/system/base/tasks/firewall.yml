@@ -1,9 +1,19 @@
 ---
 # UFW Firewall Configuration
 
-- name: Reset UFW to defaults
+- name: Check if UFW is already configured
+  stat:
+    path: /etc/ufw/ufw.conf
+  register: ufw_configured
+
+- name: Reset UFW to defaults (only on first run)
   ufw:
     state: reset
+  when: not ufw_configured.stat.exists
+
+- name: Disable UFW temporarily to ensure SSH access
+  ufw:
+    state: disabled
 
 - name: Set UFW default policies
   ufw:
@@ -13,7 +23,7 @@
     - { direction: 'incoming', policy: 'deny' }
     - { direction: 'outgoing', policy: 'allow' }
 
-- name: Allow SSH (rate-limited)
+- name: Allow SSH FIRST (before enabling firewall)
   ufw:
     rule: limit
     port: '22'
@@ -147,7 +157,11 @@
   loop: "{{ firewall_additional_ports }}"
   when: firewall_additional_ports is defined and firewall_additional_ports | length > 0
 
-- name: Enable UFW
+- name: Enable UFW (after SSH is allowed)
   ufw:
     state: enabled
     policy: deny
+  
+- name: Reload UFW to apply all rules
+  ufw:
+    state: reloaded

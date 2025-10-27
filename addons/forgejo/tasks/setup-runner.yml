@@ -64,6 +64,58 @@
         remote_src: yes
   when: age_check.rc != 0
 
+- name: Create age key directory
+  file:
+    path: /opt/forgejo-runner/.age
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0700'
+
+- name: Check if age key already exists
+  stat:
+    path: /opt/forgejo-runner/.age/key.txt
+  register: age_key_check
+  become_user: "{{ superdeploy_user }}"
+
+- name: Remove old age key if exists (to regenerate)
+  file:
+    path: /opt/forgejo-runner/.age/key.txt
+    state: absent
+  when: 
+    - age_key_check.stat.exists
+    - age_key_check.stat.size == 0 or age_key_check.stat.mode != '0600'
+  become_user: "{{ superdeploy_user }}"
+
+- name: Generate age encryption key
+  shell: age-keygen -o /opt/forgejo-runner/.age/key.txt 2>&1
+  args:
+    creates: /opt/forgejo-runner/.age/key.txt
+  become_user: "{{ superdeploy_user }}"
+  register: age_keygen_result
+
+- name: Set age key file permissions
+  file:
+    path: /opt/forgejo-runner/.age/key.txt
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0600'
+
+- name: Display age public key
+  shell: cat /opt/forgejo-runner/.age/key.txt | grep "public key:"
+  register: age_public_key_output
+  changed_when: false
+  become_user: "{{ superdeploy_user }}"
+
+- name: Show age public key for GitHub secrets
+  debug:
+    msg:
+      - "=== AGE Encryption Setup ==="
+      - "Public Key (add to GitHub Secrets as AGE_PUBLIC_KEY):"
+      - "{{ age_public_key_output.stdout }}"
+      - "Private Key Location: /opt/forgejo-runner/.age/key.txt"
+  when: age_keygen_result is changed
+
 - name: Check if Forgejo runner is already installed
   stat:
     path: /usr/local/bin/forgejo-runner

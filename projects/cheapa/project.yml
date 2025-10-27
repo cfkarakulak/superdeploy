@@ -7,7 +7,7 @@
 
 project: cheapa
 description: cheapa project
-created_at: 2025-10-24T22:17:57.204682
+created_at: 2025-10-26T22:32:20.751772
 
 # =============================================================================
 # Cloud Provider Configuration
@@ -43,10 +43,10 @@ infrastructure:
     version: "13.0.1"
     port: 3001
     ssh_port: 2222
-    admin_user: "cradexco"  # EDIT THIS - Forgejo username (repo will be created under this user)
+    admin_user: "cradexco"
     admin_email: "cradexco@gmail.com"
-    org: "cradexco"  # Deprecated - kept for compatibility, not used
-    repo: "superdeploy"  # Repository name
+    org: "cradexco"  # EDIT THIS - Forgejo organization
+    repo: "superdeploy"
     db_name: "forgejo"
     db_user: "forgejo"
 
@@ -74,6 +74,10 @@ core_services:
     version: "15-alpine"
     user: "cheapa_user"
     database: "cheapa_db"
+  caddy:
+    version: "2-alpine"
+    email: "cradexco@gmail.com"
+    domain: "cheapa.io"
 
 # =============================================================================
 # Application Services
@@ -102,7 +106,9 @@ github:
 # Network Configuration
 # =============================================================================
 network:
-  subnet: 172.20.0.0/24
+  vpc_subnet: 10.128.0.0/20  # GCP VPC subnet (Google Cloud default range)
+  subnet: "172.20.0.0/24"
+  docker_subnet: 172.30.0.0/24  # Docker internal network (for containers)
 
 # =============================================================================
 # Monitoring (Optional)

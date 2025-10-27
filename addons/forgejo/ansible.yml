@@ -50,27 +50,9 @@
   become_user: "{{ superdeploy_user }}"
   register: forgejo_compose_result
 
-- name: "Restart Docker to fix iptables (if Forgejo was deployed)"
-  systemd:
-    name: docker
-    state: restarted
-  become: yes
-  when: forgejo_compose_result.changed
-
-- name: "Wait for Docker daemon to be ready"
-  shell: docker info >/dev/null 2>&1
-  register: docker_ready
-  until: docker_ready.rc == 0
-  retries: 10
-  delay: 1
-  changed_when: false
-  when: forgejo_compose_result.changed
-
-- name: "Restart {{ addon_name }} containers after Docker restart"
-  community.docker.docker_compose_v2:
-    project_src: "{{ addon_base_path }}/{{ addon_name }}"
-    state: restarted
-  become_user: "{{ superdeploy_user }}"
+- name: "Wait for {{ addon_name }} containers to be fully started"
+  pause:
+    seconds: 5
   when: forgejo_compose_result.changed
 
 - name: "Wait for {{ addon_name }} database to be ready"

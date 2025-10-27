@@ -26,62 +26,19 @@ variable "environment" {
   default     = "dev"
 }
 
-# VM Configuration (Project-level defaults)
-variable "machine_type" {
-  description = "Default GCP machine type for VMs"
-  type        = string
-  default     = "e2-medium"
-}
-
-variable "disk_size" {
-  description = "Default boot disk size in GB"
-  type        = number
-  default     = 20
-}
-
-# VM counts
-variable "vm_counts" {
-  description = "Number of VMs per role"
-  type = object({
-    core   = number
-    scrape = number
-    proxy  = number
-  })
-  default = {
-    core   = 1
-    scrape = 1
-    proxy  = 1
-  }
-}
-
-# Machine types (per-role overrides, optional)
-variable "machine_types" {
-  description = "GCP machine types for each VM role (overrides default machine_type)"
-  type = object({
-    core   = string
-    scrape = string
-    proxy  = string
-  })
-  default = {
-    core   = ""  # Empty means use default machine_type
-    scrape = ""
-    proxy  = ""
-  }
-}
-
-# Disk sizes (per-role overrides, optional)
-variable "disk_sizes" {
-  description = "Boot disk sizes in GB (overrides default disk_size)"
-  type = object({
-    core   = number
-    scrape = number
-    proxy  = number
-  })
-  default = {
-    core   = 0  # 0 means use default disk_size
-    scrape = 0
-    proxy  = 0
-  }
+# Dynamic VM groups - Fully configurable per project
+# Each VM is defined with all its properties
+variable "vm_groups" {
+  description = "Dynamic VM configuration - maps VM name to its properties"
+  type = map(object({
+    role         = string
+    index        = number
+    machine_type = string
+    disk_size    = number
+    tags         = list(string)
+    labels       = map(string)
+  }))
+  default = {}
 }
 
 # Network
@@ -108,21 +65,6 @@ variable "admin_source_ranges" {
   description = "IP ranges allowed to SSH into VMs"
   type        = list(string)
   default     = ["0.0.0.0/0"]  # Change this in production!
-}
-
-# Tags
-variable "tags" {
-  description = "Network tags for VMs"
-  type = object({
-    core   = list(string)
-    scrape = list(string)
-    proxy  = list(string)
-  })
-  default = {
-    core   = ["core", "edge", "api", "queue", "db"]
-    scrape = ["worker", "scrape"]
-    proxy  = ["proxy", "socks"]
-  }
 }
 
 # Image

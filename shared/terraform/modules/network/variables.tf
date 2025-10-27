@@ -28,3 +28,9 @@ variable "environment" {
   type        = string
 }
 
+variable "vm_roles" {
+  description = "List of VM roles for firewall target tags"
+  type        = list(string)
+  default     = []
+}
+

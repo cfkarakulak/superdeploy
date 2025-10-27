@@ -50,22 +50,46 @@ resource "google_compute_instance" "vm" {
   # Startup script (cloud-init)
   metadata_startup_script = var.startup_script != "" ? null : <<-EOF
     #!/bin/bash
+    set -e
+    
+    # Log everything
+    exec > >(tee -a /var/log/superdeploy-startup.log)
+    exec 2>&1
+    
+    echo "=== SuperDeploy Startup Script ==="
+    echo "Started at: $(date)"
+    
     # Basic setup for Ansible
-    apt-get update
-    apt-get install -y python3 python3-pip sudo
+    echo "Installing packages..."
+    apt-get update -qq
+    apt-get install -y -qq python3 python3-pip sudo
     
     # Create superdeploy user for Ansible
+    echo "Creating superdeploy user..."
     if ! id superdeploy &>/dev/null; then
       useradd -m -s /bin/bash superdeploy
       echo "superdeploy ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/superdeploy
+      chmod 0440 /etc/sudoers.d/superdeploy
+      echo "User created successfully"
+    else
+      echo "User already exists"
     fi
     
     # Add SSH key to superdeploy user
+    echo "Configuring SSH..."
     mkdir -p /home/superdeploy/.ssh
-    echo "${var.ssh_pub_key}" >> /home/superdeploy/.ssh/authorized_keys
+    echo "${var.ssh_pub_key}" > /home/superdeploy/.ssh/authorized_keys
     chown -R superdeploy:superdeploy /home/superdeploy/.ssh
     chmod 700 /home/superdeploy/.ssh
     chmod 600 /home/superdeploy/.ssh/authorized_keys
+    echo "SSH configured successfully"
+    
+    # Mark setup as complete
+    mkdir -p /var/lib/cloud/instance
+    touch /var/lib/cloud/instance/superdeploy-ready
+    
+    echo "Completed at: $(date)"
+    echo "=== SuperDeploy Startup Complete ==="
   EOF
 
   # Service account (use default for now, customize in prod)

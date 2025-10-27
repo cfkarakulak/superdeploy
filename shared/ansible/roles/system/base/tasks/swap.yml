@@ -6,6 +6,12 @@
     path: "{{ swap_file_path }}"
   register: swap_file
 
+- name: Check if swap is currently active
+  shell: "swapon --show | grep -q '{{ swap_file_path }}'"
+  register: swap_active
+  changed_when: false
+  failed_when: false
+
 - name: Create swap file
   command: "fallocate -l {{ swap_size_mb }}M {{ swap_file_path }}"
   when: not swap_file.stat.exists
@@ -24,7 +30,9 @@
 
 - name: Enable swap
   command: "swapon {{ swap_file_path }}"
-  when: not swap_file.stat.exists
+  when: 
+    - swap_file.stat.exists
+    - swap_active.rc != 0
 
 - name: Add swap to fstab
   lineinfile:

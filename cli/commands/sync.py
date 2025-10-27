@@ -331,7 +331,7 @@ def sync(project, skip_forgejo, skip_github, env_file):
     - gh CLI installed and authenticated
     - SSH access to VMs
     """
-    from cli.utils import validate_project, get_project_path
+    from cli.utils import validate_project, get_project_path, get_project_root
     from dotenv import dotenv_values
 
     # Validate project first
@@ -409,6 +409,7 @@ def sync(project, skip_forgejo, skip_github, env_file):
     from cli.core.config_loader import ConfigLoader
     
     try:
+        project_root = get_project_root()
         projects_dir = project_root / "projects"
         config_loader = ConfigLoader(projects_dir)
         project_config_obj = config_loader.load_project(project)

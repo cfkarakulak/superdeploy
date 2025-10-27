@@ -14,4 +14,4 @@
 - name: Restart SSH
   systemd:
     name: ssh
-    state: restarted
+    state: reloaded  # Use reload instead of restart to preserve connections

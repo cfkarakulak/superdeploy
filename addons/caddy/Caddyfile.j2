@@ -3,25 +3,25 @@
 
 {
     # Global options
-    email {{ caddy_email }}
+    email {{ CADDY_EMAIL }}
     
     # Admin API
-    admin :{{ caddy_admin_port | default('2019') }}
+    admin :{{ CADDY_ADMIN_PORT | default('2019') }}
     
-    {% if caddy_tls_mode == 'off' %}
+    {% if CADDY_TLS_MODE == 'off' %}
     # TLS disabled
     auto_https off
-    {% elif caddy_tls_mode == 'internal' %}
+    {% elif CADDY_TLS_MODE == 'internal' %}
     # Internal TLS (self-signed)
     auto_https internal
     {% endif %}
 }
 
 # Main domain configuration
-{% if caddy_tls_mode == 'off' %}
-http://{{ caddy_domain }} {
+{% if CADDY_TLS_MODE == 'off' %}
+http://{{ CADDY_DOMAIN }} {
 {% else %}
-{{ caddy_domain }} {
+{{ CADDY_DOMAIN }} {
 {% endif %}
     # Enable compression
     encode gzip zstd

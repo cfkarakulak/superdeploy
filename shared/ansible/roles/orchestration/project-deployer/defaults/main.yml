@@ -16,7 +16,7 @@ apps: {}
 
 # Network configuration
 network_name: "{{ project_name }}_network"
-network_subnet: "172.20.0.0/24"
+network_subnet: "172.30.0.0/24"  # Avoid Docker's default 172.17-172.29 range
 
 # Docker compose project name
 compose_project_name: "{{ project_name }}"

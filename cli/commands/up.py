@@ -10,10 +10,17 @@ from cli.utils import (
     load_env,
     run_command,
     get_project_root,
-    get_project_path,
     validate_env_vars,
 )
 from cli.ansible_utils import build_ansible_command
+from cli.terraform_utils import (
+    get_terraform_dir,
+    select_workspace,
+    generate_tfvars,
+    terraform_init,
+    terraform_apply,
+    terraform_refresh,
+)
 
 console = Console()
 
@@ -21,20 +28,20 @@ console = Console()
 def filter_addons(enabled_addons, skip_addons, project):
     """
     Filter addon list based on --skip flags
-    
+
     Args:
         enabled_addons: List of all enabled addons
         skip_addons: Tuple of addon names to skip
         project: Project name for error messages
-        
+
     Returns:
         Filtered list of addons to deploy
     """
     if not enabled_addons:
         return []
-    
+
     filtered = list(enabled_addons)
-    
+
     # Apply --skip filter
     if skip_addons:
         skipped = []
@@ -43,11 +50,13 @@ def filter_addons(enabled_addons, skip_addons, project):
                 filtered.remove(addon)
                 skipped.append(addon)
             elif addon not in enabled_addons:
-                console.print(f"[yellow]⚠️  Warning: Addon '{addon}' not found in project (ignoring)[/yellow]")
-        
+                console.print(
+                    f"[yellow]⚠️  Warning: Addon '{addon}' not found in project (ignoring)[/yellow]"
+                )
+
         if skipped:
             console.print(f"[yellow]⚠️  Skipping addons: {', '.join(skipped)}[/yellow]")
-    
+
     return filtered
 
 
@@ -55,19 +64,21 @@ def display_deployment_plan(all_addons, filtered_addons, skip_addons):
     """Display deployment plan showing which addons will be deployed"""
     if not all_addons:
         return
-    
+
     console.print("\n[bold cyan]📋 Deployment Plan[/bold cyan]")
     console.print("[dim]" + "─" * 50 + "[/dim]")
-    
+
     for addon in all_addons:
         if addon in filtered_addons:
             console.print(f"  [green]✓[/green] {addon}")
         else:
             if skip_addons and addon in skip_addons:
                 console.print(f"  [dim]○ {addon} [dim](skipped)[/dim][/dim]")
-    
+
     console.print("[dim]" + "─" * 50 + "[/dim]")
-    console.print(f"[cyan]Total: {len(filtered_addons)}/{len(all_addons)} addons will be deployed[/cyan]\n")
+    console.print(
+        f"[cyan]Total: {len(filtered_addons)}/{len(all_addons)} addons will be deployed[/cyan]\n"
+    )
 
 
 def check_prerequisites():
@@ -97,49 +108,42 @@ def check_prerequisites():
 
 
 def update_ips_in_env(project_root, project_name):
-    """Extract VM IPs from Terraform and update project's .env"""
+    """Extract VM IPs from Terraform and update project's .env (dynamic for any VM configuration)"""
     console.print("[cyan]📍 Extracting VM IPs...[/cyan]")
 
-    terraform_dir = project_root / "shared" / "terraform"
     env_file_path = project_root / "projects" / project_name / ".env"
 
-    # Get IPs from Terraform (only core VM - project-specific)
+    # Get all VM IPs from Terraform dynamically using terraform_utils
     try:
-        core_ext = subprocess.run(
-            "terraform output -json vm_core_public_ips | jq -r '.[0]'",
-            shell=True,
-            cwd=terraform_dir,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
+        from cli.terraform_utils import get_terraform_outputs
 
-        core_int = subprocess.run(
-            "terraform output -json vm_core_internal_ips | jq -r '.[0]'",
-            shell=True,
-            cwd=terraform_dir,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
+        # This automatically selects the correct workspace
+        outputs = get_terraform_outputs(project_name)
 
-        # Update or append IPs to .env file (only core VM)
-        ip_vars = {
-            'CORE_EXTERNAL_IP': core_ext,
-            'CORE_INTERNAL_IP': core_int,
-        }
-        
+        public_ips = outputs.get("vm_public_ips", {}).get("value", {})
+        internal_ips = outputs.get("vm_internal_ips", {}).get("value", {})
+
+        # Build environment variables dynamically
+        # Format: {vm-role}-{index}_EXTERNAL_IP and {vm-role}-{index}_INTERNAL_IP
+        ip_vars = {}
+
+        for vm_key in public_ips.keys():
+            # Convert vm-key to ENV_VAR format (e.g., "core-0" -> "CORE_0")
+            env_prefix = vm_key.upper().replace("-", "_")
+            ip_vars[f"{env_prefix}_EXTERNAL_IP"] = public_ips[vm_key]
+            ip_vars[f"{env_prefix}_INTERNAL_IP"] = internal_ips[vm_key]
+
         # Read existing .env
         if env_file_path.exists():
             with open(env_file_path, "r") as f:
                 lines = f.readlines()
         else:
             lines = []
-        
+
         # Update existing or append new
         updated_vars = set()
         new_lines = []
-        
+
         for line in lines:
             updated = False
             for var_name, var_value in ip_vars.items():
@@ -150,49 +154,86 @@ def update_ips_in_env(project_root, project_name):
                     break
             if not updated:
                 new_lines.append(line)
-        
+
         # Append missing vars
         if updated_vars != set(ip_vars.keys()):
             new_lines.append("\n# VM IPs (Auto-populated by Terraform)\n")
             for var_name, var_value in ip_vars.items():
                 if var_name not in updated_vars:
                     new_lines.append(f"{var_name}={var_value}\n")
-        
+
         # Write back
         with open(env_file_path, "w") as f:
             f.writelines(new_lines)
 
         console.print("[green]✅ Updated IPs:[/green]")
-        console.print(f"  CORE: {core_ext} ({core_int})")
+        for vm_key in sorted(public_ips.keys()):
+            console.print(f"  {vm_key}: {public_ips[vm_key]} ({internal_ips[vm_key]})")
 
         return True
     except Exception as e:
         console.print(f"[red]❌ Failed to extract IPs: {e}[/red]")
+        import traceback
+
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
         return False
 
 
-def generate_ansible_inventory(env, ansible_dir):
-    """Generate Ansible inventory file (only core VM - project-specific)"""
-    inventory_content = f"""[core]
-vm-core-1 ansible_host={env["CORE_EXTERNAL_IP"]} ansible_user={env.get("SSH_USER", "superdeploy")}
-"""
+def generate_ansible_inventory(env, ansible_dir, project_name):
+    """Generate Ansible inventory file dynamically from environment variables"""
+    # Extract VM groups from environment variables
+    # Format: {ROLE}_{INDEX}_EXTERNAL_IP
+    vm_groups = {}
 
-    inventory_path = ansible_dir / "inventories" / "dev.ini"
+    for key, value in env.items():
+        if key.endswith("_EXTERNAL_IP"):
+            # Parse VM key from env var (e.g., "CORE_0_EXTERNAL_IP" -> "core-0")
+            vm_key = key.replace("_EXTERNAL_IP", "").lower().replace("_", "-")
+            # Extract role from vm_key (e.g., "core-0" -> "core")
+            role = vm_key.rsplit("-", 1)[0]
+
+            if role not in vm_groups:
+                vm_groups[role] = []
+
+            vm_groups[role].append(
+                {
+                    "name": f"{project_name}-{vm_key}",
+                    "host": value,
+                    "user": env.get("SSH_USER", "superdeploy"),
+                }
+            )
+
+    # Build inventory content
+    inventory_lines = []
+    for role in sorted(vm_groups.keys()):
+        inventory_lines.append(f"[{role}]")
+        for vm in sorted(vm_groups[role], key=lambda x: x["name"]):
+            inventory_lines.append(
+                f"{vm['name']} ansible_host={vm['host']} ansible_user={vm['user']}"
+            )
+        inventory_lines.append("")  # Empty line between groups
+
+    inventory_content = "\n".join(inventory_lines)
+
+    inventory_path = ansible_dir / "inventories" / f"{project_name}.ini"
     inventory_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(inventory_path, "w") as f:
         f.write(inventory_content)
 
-    console.print("[green]✅ Ansible inventory generated[/green]")
+    console.print(
+        f"[green]✅ Ansible inventory generated: {inventory_path.name}[/green]"
+    )
 
 
 def clean_ssh_known_hosts(env):
-    """Clean SSH known_hosts to avoid conflicts (only core VM)"""
+    """Clean SSH known_hosts to avoid conflicts (dynamic for all VMs)"""
     console.print("[cyan]🔐 Cleaning SSH known_hosts...[/cyan]")
 
-    core_ip = env.get("CORE_EXTERNAL_IP")
-    if core_ip:
-        subprocess.run(["ssh-keygen", "-R", core_ip], capture_output=True)
+    # Clean all VM IPs from known_hosts
+    for key, value in env.items():
+        if key.endswith("_EXTERNAL_IP") and value:
+            subprocess.run(["ssh-keygen", "-R", value], capture_output=True)
 
     console.print("[green]✅ SSH known_hosts cleaned[/green]")
 
@@ -204,7 +245,10 @@ def clean_ssh_known_hosts(env):
 @click.option("--skip-git-push", is_flag=True, help="Skip Git push")
 @click.option("--skip-sync", is_flag=True, help="Skip automatic GitHub secrets sync")
 @click.option("--skip", multiple=True, help="Skip specific addon(s) during deployment")
-@click.option("--tags", help="Run only specific Ansible tags (e.g. 'addons', 'project', 'foundation,addons')")
+@click.option(
+    "--tags",
+    help="Run only specific Ansible tags (e.g. 'addons', 'project', 'foundation,addons')",
+)
 def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, tags):
     """
     Deploy infrastructure (like 'heroku create')
@@ -234,10 +278,10 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
 
     # Load project config using ConfigLoader
     from cli.core.config_loader import ConfigLoader
-    
+
     projects_dir = project_root / "projects"
     config_loader = ConfigLoader(projects_dir)
-    
+
     try:
         project_config_obj = config_loader.load_project(project)
         console.print("[dim]✓ Loaded project config[/dim]")
@@ -266,34 +310,96 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
             task1 = progress.add_task("[cyan]Provisioning VMs (Terraform)...", total=3)
 
             # Init
-            terraform_dir = project_root / "shared" / "terraform"
-            # Add PROJECT_NAME to env for Terraform
-            terraform_env = {**env, 'PROJECT_NAME': project}
-            run_command("./terraform-wrapper.sh init", cwd=str(terraform_dir), env=terraform_env)
+            terraform_dir = get_terraform_dir()
+            terraform_init()
             progress.advance(task1)
+
+            # Generate tfvars from project config
+            tfvars_file = generate_tfvars(project_config_obj)
+
+            # Select workspace (creates if doesn't exist)
+            select_workspace(project, create=True)
 
             # Refresh state to sync with actual infrastructure
             try:
-                run_command("./terraform-wrapper.sh refresh", cwd=str(terraform_dir), env=terraform_env)
+                terraform_refresh(project, project_config_obj)
             except Exception:
                 # Refresh may fail if state is empty, that's ok
                 pass
 
             # Apply
-            run_command("./terraform-wrapper.sh apply -auto-approve", cwd=str(terraform_dir), env=terraform_env)
+            terraform_apply(
+                project, project_config_obj, var_file=tfvars_file, auto_approve=True
+            )
             progress.advance(task1)
             progress.advance(task1)
 
             console.print("[green]✅ VMs provisioned![/green]")
 
-            # Wait for VMs
-            task_wait = progress.add_task(
-                "[yellow]Waiting for VMs to be ready (120s)...", total=120
-            )
-            for i in range(120):
-                time.sleep(1)
-                progress.advance(task_wait)
-            console.print("[green]✅ VMs ready![/green]")
+            # Wait for VMs to boot and be SSH-ready
+            console.print("[yellow]⏳ Waiting for VMs to be SSH-ready...[/yellow]")
+
+            # Get VM IPs first
+            from cli.terraform_utils import get_terraform_outputs
+
+            outputs = get_terraform_outputs(project)
+            public_ips = outputs.get("vm_public_ips", {}).get("value", {})
+
+            if not public_ips:
+                console.print(
+                    "[yellow]⚠️  No VMs found in outputs, skipping health check[/yellow]"
+                )
+            else:
+                max_attempts = 18  # 18 * 10s = 180s max
+                attempt = 0
+                all_ready = False
+
+
+                while attempt < max_attempts and not all_ready:
+                    attempt += 1
+                    console.print(f"  [dim]Attempt {attempt}/{max_attempts}...[/dim]")
+
+                    ready_count = 0
+                    for vm_key, ip in public_ips.items():
+                        # Try SSH connection and sudo access
+                        try:
+                            result = subprocess.run(
+                                f"ssh -i ~/.ssh/superdeploy_deploy -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes superdeploy@{ip} 'sudo -n whoami' 2>&1",
+                                shell=True,
+                                capture_output=True,
+                                text=True,
+                                timeout=10,
+                            )
+
+                            # Check if sudo actually worked (should return "root")
+                            if result.returncode == 0 and "root" in result.stdout:
+                                ready_count += 1
+                                console.print(
+                                    f"    [green]✓[/green] {vm_key} ({ip}) ready"
+                                )
+                            else:
+                                console.print(
+                                    f"    [yellow]⏳[/yellow] {vm_key} ({ip}) not ready yet (sudo: {result.stdout.strip()[:50]})"
+                                )
+                        except Exception:
+                            console.print(
+                                f"    [yellow]⏳[/yellow] {vm_key} ({ip}) not reachable yet..."
+                            )
+
+                    if ready_count == len(public_ips):
+                        all_ready = True
+                        console.print("[green]✅ All VMs ready![/green]")
+                    else:
+                        if attempt < max_attempts:
+                            console.print(
+                                "  [dim]Waiting 10s before next check...[/dim]"
+                            )
+                            time.sleep(10)
+
+                if not all_ready:
+                    console.print(
+                        "[yellow]⚠️  Some VMs may not be fully ready, continuing anyway...[/yellow]"
+                    )
 
     # Update IPs from Terraform (even if skipped, read current state)
     update_ips_in_env(project_root, project)
@@ -303,7 +409,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
 
     # Generate inventory with NEW IPs
     ansible_dir = project_root / "shared" / "ansible"
-    generate_ansible_inventory(env, ansible_dir)
+    generate_ansible_inventory(env, ansible_dir, project)
 
     # Clean SSH known_hosts with NEW IPs
     clean_ssh_known_hosts(env)
@@ -323,10 +429,8 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
             "admin_email", f"admin@{project}.local"
         )
 
-        # All passwords are now in .env (loaded via load_env)
+        # Build ansible_env_vars dynamically from all env vars
         ansible_env_vars = {
-            "core_external_ip": env["CORE_EXTERNAL_IP"],
-            "core_internal_ip": env["CORE_INTERNAL_IP"],
             "FORGEJO_ADMIN_USER": forgejo_admin_user,
             "FORGEJO_ADMIN_PASSWORD": env.get("FORGEJO_ADMIN_PASSWORD", ""),
             "FORGEJO_ADMIN_EMAIL": forgejo_admin_email,
@@ -344,29 +448,36 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
             "superdeploy_root": str(project_root),
         }
 
+        # Add all VM IPs to ansible env vars dynamically
+        for key, value in env.items():
+            if key.endswith("_EXTERNAL_IP") or key.endswith("_INTERNAL_IP"):
+                # Convert to lowercase for ansible (e.g., CORE_0_EXTERNAL_IP -> core_0_external_ip)
+                ansible_env_vars[key.lower()] = value
+
         # Get Ansible vars from ConfigLoader (includes enabled_addons, addon_configs, etc.)
         ansible_vars = project_config_obj.to_ansible_vars()
-        
+
         # Filter addons based on --skip flags
         enabled_addons = ansible_vars.get("enabled_addons", [])
         filtered_addons = filter_addons(enabled_addons, skip, project)
-        
+
         # Update ansible_vars with filtered addons
         ansible_vars["enabled_addons"] = filtered_addons
-        
+
         # Display deployment plan
         display_deployment_plan(enabled_addons, filtered_addons, skip)
-        
+
         # Build Ansible command using shared utility
         # Use custom tags if provided, otherwise run all phases
         ansible_tags = tags if tags else "foundation,addons,project"
-        
+
         ansible_cmd = build_ansible_command(
             ansible_dir=ansible_dir,
             project_root=project_root,
             project_config=ansible_vars,
             env_vars=ansible_env_vars,
             tags=ansible_tags,
+            project_name=project,
         )
 
         run_command(ansible_cmd)
@@ -422,72 +533,100 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
             # Reload env again in case IPs changed late
             env = load_env(project)
 
-            # Wait until Forgejo is reachable
-            forgejo_host = env["CORE_EXTERNAL_IP"]
-            for _ in range(30):  # up to ~150s
-                try:
-                    reachable = (
-                        subprocess.run(
-                            [
-                                "bash",
-                                "-lc",
-                                f"curl -sSf -m 3 http://{forgejo_host}:3001/ >/dev/null",
-                            ],
-                            capture_output=True,
-                            cwd=str(project_root),
-                        ).returncode
-                        == 0
-                    )
-                    if reachable:
+            # Find Forgejo host IP dynamically (first VM with core role or first VM alphabetically)
+            forgejo_host = None
+            for key in sorted(env.keys()):
+                if key.endswith("_EXTERNAL_IP"):
+                    # Prefer VM with 'core' in the name
+                    if "CORE" in key:
+                        forgejo_host = env[key]
                         break
-                except Exception:
-                    pass
-                time.sleep(5)
+                    # Fallback to first VM
+                    if not forgejo_host:
+                        forgejo_host = env[key]
 
-            encoded_pass = urllib.parse.quote(env["FORGEJO_ADMIN_PASSWORD"])
-            repo_name = env.get("REPO_SUPERDEPLOY", "superdeploy")
-            forgejo_url = (
-                f"http://{env['FORGEJO_ADMIN_USER']}:{encoded_pass}"
-                f"@{env['CORE_EXTERNAL_IP']}:3001/{env['FORGEJO_ORG']}/{repo_name}.git"
-            )
+            if not forgejo_host:
+                console.print("[red]❌ No VM found for Forgejo connection[/red]")
+            else:
+                # Wait until Forgejo is reachable
+                for _ in range(30):  # up to ~150s
+                    try:
+                        reachable = (
+                            subprocess.run(
+                                [
+                                    "bash",
+                                    "-lc",
+                                    f"curl -sSf -m 3 http://{forgejo_host}:3001/ >/dev/null",
+                                ],
+                                capture_output=True,
+                                cwd=str(project_root),
+                            ).returncode
+                            == 0
+                        )
+                        if reachable:
+                            break
+                    except Exception:
+                        pass
+                    time.sleep(5)
 
-            # Force update Forgejo remote
-            subprocess.run(
-                ["git", "remote", "remove", "forgejo"],
-                capture_output=True,
-                cwd=str(project_root),
-            )
-
-            result = subprocess.run(
-                ["git", "remote", "add", "forgejo", forgejo_url],
-                capture_output=True,
-                text=True,
-                cwd=str(project_root),
-            )
-
-            if result.returncode != 0:
-                console.print(
-                    f"[yellow]⚠️  Failed to add Forgejo remote: {result.stderr}[/yellow]"
+                encoded_pass = urllib.parse.quote(env["FORGEJO_ADMIN_PASSWORD"])
+                repo_name = env.get("REPO_SUPERDEPLOY", "superdeploy")
+                forgejo_url = (
+                    f"http://{env['FORGEJO_ADMIN_USER']}:{encoded_pass}"
+                    f"@{forgejo_host}:3001/{env['FORGEJO_ORG']}/{repo_name}.git"
                 )
 
-            # Push workflows to Forgejo
-            try:
-                run_command("git push forgejo master:master -f", cwd=str(project_root))
-                console.print("[green]✅ Workflows pushed to Forgejo![/green]")
-            except Exception as e:
-                console.print(
-                    f"[yellow]⚠️  Forgejo push failed (may already exist): {e}[/yellow]"
+                # Force update Forgejo remote
+                subprocess.run(
+                    ["git", "remote", "remove", "forgejo"],
+                    capture_output=True,
+                    cwd=str(project_root),
                 )
+
+                result = subprocess.run(
+                    ["git", "remote", "add", "forgejo", forgejo_url],
+                    capture_output=True,
+                    text=True,
+                    cwd=str(project_root),
+                )
+
+                if result.returncode != 0:
+                    console.print(
+                        f"[yellow]⚠️  Failed to add Forgejo remote: {result.stderr}[/yellow]"
+                    )
+
+                # Push workflows to Forgejo
+                try:
+                    run_command(
+                        "git push forgejo master:master -f", cwd=str(project_root)
+                    )
+                    console.print("[green]✅ Workflows pushed to Forgejo![/green]")
+                except Exception as e:
+                    console.print(
+                        f"[yellow]⚠️  Forgejo push failed (may already exist): {e}[/yellow]"
+                    )
 
             progress.advance(task3)
 
     console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
     console.print("[bold green]🎉 Infrastructure Deployed![/bold green]")
     console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
-    console.print(f"\n[cyan]🌐 Forgejo:[/cyan] http://{env['CORE_EXTERNAL_IP']}:3001")
-    console.print(
-        f"[cyan]👤 Login:[/cyan]   {env.get('FORGEJO_ADMIN_USER', 'admin')} / {env.get('FORGEJO_ADMIN_PASSWORD', '')}"
-    )
+
+    # Find Forgejo host IP dynamically
+    forgejo_host = None
+    for key in sorted(env.keys()):
+        if key.endswith("_EXTERNAL_IP"):
+            if "CORE" in key:
+                forgejo_host = env[key]
+                break
+            if not forgejo_host:
+                forgejo_host = env[key]
+
+    if forgejo_host:
+        console.print(f"\n[cyan]🌐 Forgejo:[/cyan] http://{forgejo_host}:3001")
+        console.print(
+            f"[cyan]👤 Login:[/cyan]   {env.get('FORGEJO_ADMIN_USER', 'admin')} / {env.get('FORGEJO_ADMIN_PASSWORD', '')}"
+        )
 
     # Auto-sync GitHub secrets (unless --skip-sync flag)
     if not skip_sync:

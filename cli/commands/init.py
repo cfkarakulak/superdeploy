@@ -2,7 +2,6 @@
 Project initialization command with interactive setup
 """
 
-import os
 import yaml
 import click
 import ipaddress
@@ -12,7 +11,6 @@ from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from jinja2 import Template
-import secrets
 
 console = Console()
 
@@ -20,32 +18,36 @@ console = Console()
 def get_available_addons():
     """Get list of available addons from the addons directory"""
     from cli.utils import get_project_root
-    
+
     project_root = get_project_root()
     addons_dir = project_root / "addons"
-    
+
     available = []
-    
+
     if addons_dir.exists():
         for addon_dir in addons_dir.iterdir():
-            if addon_dir.is_dir() and not addon_dir.name.startswith('.'):
+            if addon_dir.is_dir() and not addon_dir.name.startswith("."):
                 # Check if addon.yml exists
                 addon_yml = addon_dir / "addon.yml"
                 if addon_yml.exists():
                     try:
                         with open(addon_yml) as f:
                             addon_meta = yaml.safe_load(f)
-                            if addon_meta and 'name' in addon_meta:
-                                available.append({
-                                    'name': addon_meta['name'],
-                                    'description': addon_meta.get('description', ''),
-                                    'version': addon_meta.get('version', 'latest'),
-                                    'category': addon_meta.get('category', 'other')
-                                })
+                            if addon_meta and "name" in addon_meta:
+                                available.append(
+                                    {
+                                        "name": addon_meta["name"],
+                                        "description": addon_meta.get(
+                                            "description", ""
+                                        ),
+                                        "version": addon_meta.get("version", "latest"),
+                                        "category": addon_meta.get("category", "other"),
+                                    }
+                                )
                     except (yaml.YAMLError, IOError):
                         # Skip invalid addons
                         continue
-    
+
     return available
 
 
@@ -61,8 +63,9 @@ def get_used_subnets():
 
     if projects_dir.exists():
         from cli.core.config_loader import ConfigLoader
+
         config_loader = ConfigLoader(projects_dir)
-        
+
         for project_name in config_loader.list_projects():
             try:
                 project_config = config_loader.load_project(project_name)
@@ -76,11 +79,11 @@ def get_used_subnets():
 
 
 def find_next_subnet(used_subnets):
-    """Find next available subnet starting from 172.20.0.0/24"""
-    base = ipaddress.IPv4Network("172.20.0.0/24")
+    """Find next available subnet starting from 172.30.0.0/24 (Docker uses 172.17-172.29)"""
+    base = ipaddress.IPv4Network("172.30.0.0/24")
 
-    # Try subnets incrementally
-    for i in range(20, 255):  # 172.20.0.0 to 172.254.0.0
+    # Try subnets incrementally (avoid Docker's ranges)
+    for i in range(30, 255):  # 172.30.0.0 to 172.254.0.0
         candidate = ipaddress.IPv4Network(f"172.{i}.0.0/24")
         if str(candidate) not in used_subnets:
             return str(candidate)
@@ -112,91 +115,107 @@ def generate_env_superdeploy(project, service, core_services):
         "# =============================================================================",
         "",
     ]
-    
+
     # Add core service env vars
     if "postgres" in core_services:
-        lines.extend([
-            "",
-            "# PostgreSQL",
-            "POSTGRES_HOST=${POSTGRES_HOST}",
-            "POSTGRES_PORT=${POSTGRES_PORT}",
-            "POSTGRES_USER=${POSTGRES_USER}",
-            "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}",
-            "POSTGRES_DB=${POSTGRES_DB}",
-        ])
-    
+        lines.extend(
+            [
+                "",
+                "# PostgreSQL",
+                "POSTGRES_HOST=${POSTGRES_HOST}",
+                "POSTGRES_PORT=${POSTGRES_PORT}",
+                "POSTGRES_USER=${POSTGRES_USER}",
+                "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}",
+                "POSTGRES_DB=${POSTGRES_DB}",
+            ]
+        )
+
     if "rabbitmq" in core_services:
-        lines.extend([
-            "",
-            "# RabbitMQ",
-            "RABBITMQ_HOST=${RABBITMQ_HOST}",
-            "RABBITMQ_PORT=${RABBITMQ_PORT}",
-            "RABBITMQ_USER=${RABBITMQ_USER}",
-            "RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}",
-        ])
-    
+        lines.extend(
+            [
+                "",
+                "# RabbitMQ",
+                "RABBITMQ_HOST=${RABBITMQ_HOST}",
+                "RABBITMQ_PORT=${RABBITMQ_PORT}",
+                "RABBITMQ_USER=${RABBITMQ_USER}",
+                "RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}",
+            ]
+        )
+
     if "redis" in core_services:
-        lines.extend([
-            "",
-            "# Redis",
-            "REDIS_HOST=${REDIS_HOST}",
-            "REDIS_PORT=${REDIS_PORT}",
-            "REDIS_PASSWORD=${REDIS_PASSWORD}",
-        ])
-    
+        lines.extend(
+            [
+                "",
+                "# Redis",
+                "REDIS_HOST=${REDIS_HOST}",
+                "REDIS_PORT=${REDIS_PORT}",
+                "REDIS_PASSWORD=${REDIS_PASSWORD}",
+            ]
+        )
+
     if "mongodb" in core_services:
-        lines.extend([
-            "",
-            "# MongoDB",
-            "MONGODB_HOST=${MONGODB_HOST}",
-            "MONGODB_PORT=${MONGODB_PORT}",
-            "MONGODB_USER=${MONGODB_USER}",
-            "MONGODB_PASSWORD=${MONGODB_PASSWORD}",
-        ])
-    
+        lines.extend(
+            [
+                "",
+                "# MongoDB",
+                "MONGODB_HOST=${MONGODB_HOST}",
+                "MONGODB_PORT=${MONGODB_PORT}",
+                "MONGODB_USER=${MONGODB_USER}",
+                "MONGODB_PASSWORD=${MONGODB_PASSWORD}",
+            ]
+        )
+
     return "\n".join(lines)
 
 
 def generate_workflow(project, service, core_services, github_org):
     """Generate GitHub Actions workflow for a service"""
-    
+
     # Build env section
     env_vars = []
-    
+
     if "postgres" in core_services:
-        env_vars.extend([
-            "    POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}",
-            "    POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}",
-            "    POSTGRES_USER: ${{ secrets.POSTGRES_USER }}",
-            "    POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}",
-            "    POSTGRES_DB: ${{ secrets.POSTGRES_DB }}",
-        ])
-    
+        env_vars.extend(
+            [
+                "    POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}",
+                "    POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}",
+                "    POSTGRES_USER: ${{ secrets.POSTGRES_USER }}",
+                "    POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}",
+                "    POSTGRES_DB: ${{ secrets.POSTGRES_DB }}",
+            ]
+        )
+
     if "rabbitmq" in core_services:
-        env_vars.extend([
-            "    RABBITMQ_HOST: ${{ secrets.RABBITMQ_HOST }}",
-            "    RABBITMQ_PORT: ${{ secrets.RABBITMQ_PORT }}",
-            "    RABBITMQ_USER: ${{ secrets.RABBITMQ_USER }}",
-            "    RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}",
-        ])
-    
+        env_vars.extend(
+            [
+                "    RABBITMQ_HOST: ${{ secrets.RABBITMQ_HOST }}",
+                "    RABBITMQ_PORT: ${{ secrets.RABBITMQ_PORT }}",
+                "    RABBITMQ_USER: ${{ secrets.RABBITMQ_USER }}",
+                "    RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}",
+            ]
+        )
+
     if "redis" in core_services:
-        env_vars.extend([
-            "    REDIS_HOST: ${{ secrets.REDIS_HOST }}",
-            "    REDIS_PORT: ${{ secrets.REDIS_PORT }}",
-            "    REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}",
-        ])
-    
+        env_vars.extend(
+            [
+                "    REDIS_HOST: ${{ secrets.REDIS_HOST }}",
+                "    REDIS_PORT: ${{ secrets.REDIS_PORT }}",
+                "    REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}",
+            ]
+        )
+
     if "mongodb" in core_services:
-        env_vars.extend([
-            "    MONGODB_HOST: ${{ secrets.MONGODB_HOST }}",
-            "    MONGODB_PORT: ${{ secrets.MONGODB_PORT }}",
-            "    MONGODB_USER: ${{ secrets.MONGODB_USER }}",
-            "    MONGODB_PASSWORD: ${{ secrets.MONGODB_PASSWORD }}",
-        ])
-    
+        env_vars.extend(
+            [
+                "    MONGODB_HOST: ${{ secrets.MONGODB_HOST }}",
+                "    MONGODB_PORT: ${{ secrets.MONGODB_PORT }}",
+                "    MONGODB_USER: ${{ secrets.MONGODB_USER }}",
+                "    MONGODB_PASSWORD: ${{ secrets.MONGODB_PASSWORD }}",
+            ]
+        )
+
     env_section = "\n".join(env_vars)
-    
+
     workflow = f"""name: Build and Deploy
 
 on:
@@ -375,15 +394,19 @@ PYEOF
           echo "✅ Deployment triggered!"
           echo "🌐 Check status: ${{FORGEJO_URL}}/${{FORGEJO_ORG}}/${{FORGEJO_REPO}}/actions"
 """
-    
+
     return workflow
 
 
 @click.command()
 @click.option("--project", "-p", required=True, help="Project name")
-@click.option("--app", multiple=True, help="App in format name:path (e.g., api:../app-repos/api)")
+@click.option(
+    "--app", multiple=True, help="App in format name:path (e.g., api:../app-repos/api)"
+)
 @click.option("--subnet", help="Network subnet (e.g., 172.20.0.0/24)")
-@click.option("--no-interactive", is_flag=True, help="Non-interactive mode with defaults")
+@click.option(
+    "--no-interactive", is_flag=True, help="Non-interactive mode with defaults"
+)
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmations")
 def init(project, app, subnet, no_interactive, yes):
     """
@@ -409,7 +432,7 @@ def init(project, app, subnet, no_interactive, yes):
         console.print(f"[dim]Edit: {project_dir}/project.yml[/dim]")
         console.print(f"[dim]Then run: superdeploy generate -p {project}[/dim]")
         return
-    
+
     # Create project directory
     project_dir.mkdir(parents=True, exist_ok=True)
 
@@ -424,17 +447,19 @@ def init(project, app, subnet, no_interactive, yes):
         for app_spec in app:
             if ":" not in app_spec:
                 console.print(f"[red]❌ Invalid format: {app_spec}[/red]")
-                console.print("[dim]Use: --app name:path (e.g., --app api:../app-repos/api)[/dim]")
+                console.print(
+                    "[dim]Use: --app name:path (e.g., --app api:../app-repos/api)[/dim]"
+                )
                 raise SystemExit(1)
-            
+
             name, path = app_spec.split(":", 1)
             name = name.strip().lower()
             app_path = Path(path).expanduser().resolve()
-            
+
             if not app_path.exists():
                 console.print(f"[red]❌ Path not found: {app_path}[/red]")
                 raise SystemExit(1)
-            
+
             apps[name] = app_path
     elif interactive:
         # Interactive app selection with paths
@@ -442,37 +467,43 @@ def init(project, app, subnet, no_interactive, yes):
         console.print("  [dim]Add your app repos (name + path to repo)[/dim]")
         console.print("  [dim]Example: api → ../app-repos/api[/dim]")
         console.print("  [dim]Press ENTER with empty name to finish[/dim]\n")
-        
+
         service_num = 1
-        
+
         while True:
             service_name = Prompt.ask(
                 f"  Service {service_num} name",
-                default="" if service_num > 2 else ("api" if service_num == 1 else "dashboard")
+                default=""
+                if service_num > 2
+                else ("api" if service_num == 1 else "dashboard"),
             )
-            
+
             if not service_name or service_name.strip() == "":
                 if service_num == 1:
                     console.print("[yellow]⚠️  At least one service required[/yellow]")
                     continue
                 break
-            
+
             service_name = service_name.strip().lower()
-            
+
             # Validate service name
             if not service_name.replace("-", "").replace("_", "").isalnum():
-                console.print("[yellow]⚠️  Invalid name (use letters, numbers, - or _)[/yellow]")
+                console.print(
+                    "[yellow]⚠️  Invalid name (use letters, numbers, - or _)[/yellow]"
+                )
                 continue
-            
+
             if service_name in apps:
                 console.print(f"[yellow]⚠️  '{service_name}' already added[/yellow]")
                 continue
-            
+
             # Ask for path
             default_path = f"../app-repos/{service_name}"
-            service_path = Prompt.ask(f"  Service {service_num} path", default=default_path)
+            service_path = Prompt.ask(
+                f"  Service {service_num} path", default=default_path
+            )
             app_path = Path(service_path).expanduser().resolve()
-            
+
             if not app_path.exists():
                 console.print(f"[yellow]⚠️  Path not found: {app_path}[/yellow]")
                 create = Confirm.ask("  Create directory?", default=False)
@@ -481,18 +512,18 @@ def init(project, app, subnet, no_interactive, yes):
                     console.print(f"  [green]✓[/green] Created: {app_path}")
                 else:
                     continue
-            
+
             apps[service_name] = app_path
             console.print(f"  [green]✓[/green] Added: {service_name} → {app_path}")
             service_num += 1
-        
+
         console.print(f"\n  [cyan]Total services: {', '.join(apps.keys())}[/cyan]")
     else:
         # Default for non-interactive
         console.print("[red]❌ No apps specified![/red]")
         console.print("[dim]Use --app flag or run without --no-interactive[/dim]")
         raise SystemExit(1)
-    
+
     selected_services = list(apps.keys())
 
     # Network configuration
@@ -509,21 +540,21 @@ def init(project, app, subnet, no_interactive, yes):
             console.print(f"\n[green]✨ Auto-assigned subnet: {project_subnet}[/green]")
         else:
             project_subnet = Prompt.ask(
-                "  Enter custom subnet", default="172.20.0.0/24"
+                "  Enter custom subnet", default="172.30.0.0/24"
             )
     else:
         project_subnet = find_next_subnet(used_subnets)
 
     # Core services selection (addon-based)
     available_addons = get_available_addons()
-    
+
     # Filter to only show database, cache, queue, and proxy addons (not monitoring)
     available_core_services = [
-        (addon['name'], f"{addon['description']} ({addon['version']})")
+        (addon["name"], f"{addon['description']} ({addon['version']})")
         for addon in available_addons
-        if addon['category'] in ['database', 'cache', 'queue', 'proxy']
+        if addon["category"] in ["database", "cache", "queue", "proxy"]
     ]
-    
+
     # Fallback if no addons found
     if not available_core_services:
         available_core_services = [
@@ -532,35 +563,42 @@ def init(project, app, subnet, no_interactive, yes):
             ("redis", "Redis 7 - In-memory cache/store"),
             ("mongodb", "MongoDB 7 - Document database"),
         ]
-    
+
     core_services = ["postgres", "rabbitmq"]  # Default
-    
+
     if interactive:
         import inquirer
-        
+
         console.print("\n[bold]Core services configuration (Addon-based):[/bold]")
         console.print("  [dim]Use SPACE to select, ENTER to confirm[/dim]")
-        console.print("  [dim]These services are SHARED by all apps (api, dashboard, etc.)[/dim]")
+        console.print(
+            "  [dim]These services are SHARED by all apps (api, dashboard, etc.)[/dim]"
+        )
         console.print(f"  [dim]Available addons: {len(available_addons)} found[/dim]\n")
-        
+
         questions = [
             inquirer.Checkbox(
-                'services',
+                "services",
                 message="Select core services",
                 choices=[f"{name}: {desc}" for name, desc in available_core_services],
-                default=[f"{name}: {desc}" for name, desc in available_core_services 
-                        if name in ["postgres", "rabbitmq"]],
+                default=[
+                    f"{name}: {desc}"
+                    for name, desc in available_core_services
+                    if name in ["postgres", "rabbitmq"]
+                ],
             ),
         ]
-        
+
         answers = inquirer.prompt(questions)
-        if answers and answers['services']:
+        if answers and answers["services"]:
             # Extract service names from "name: description" format
-            core_services = [choice.split(":")[0].strip() for choice in answers['services']]
+            core_services = [
+                choice.split(":")[0].strip() for choice in answers["services"]
+            ]
         else:
             console.print("[yellow]⚠️  No services selected, using defaults[/yellow]")
             core_services = ["postgres", "rabbitmq"]
-    
+
     # Password generation - always enabled (user can regenerate later)
     generate_passwords = True
 
@@ -597,7 +635,11 @@ def init(project, app, subnet, no_interactive, yes):
     console.print(table)
 
     # Confirm
-    if interactive and not yes and not Confirm.ask("\n[bold]Create project?[/bold]", default=True):
+    if (
+        interactive
+        and not yes
+        and not Confirm.ask("\n[bold]Create project?[/bold]", default=True)
+    ):
         console.print("[yellow]Cancelled.[/yellow]")
         return
 
@@ -624,22 +666,18 @@ def init(project, app, subnet, no_interactive, yes):
                 "org": "your-forgejo-org",  # Placeholder, user will edit
                 "repo": "superdeploy",
                 "db_name": "forgejo",
-                "db_user": "forgejo"
+                "db_user": "forgejo",
             }
         },
-        "network": {
-            "subnet": project_subnet
-        },
+        "network": {"subnet": project_subnet},
         "apps": {
             app_name: {
                 "path": str(app_path),
-                "port": port_assignments[app_name]["external"]
+                "port": port_assignments[app_name]["external"],
             }
             for app_name, app_path in apps.items()
         },
-        "core_services": {
-            service: {} for service in core_services
-        }
+        "core_services": {service: {} for service in core_services},
     }
 
     # Validate configuration before creating files
@@ -648,10 +686,10 @@ def init(project, app, subnet, no_interactive, yes):
     from cli.core.addon_loader import AddonLoader
 
     validator = ValidationEngine(projects_dir)
-    
+
     # Get available addon names for validation
-    available_addon_names = {addon['name'] for addon in available_addons}
-    
+    available_addon_names = {addon["name"] for addon in available_addons}
+
     # Load addons for validation (if addon system is available)
     try:
         addons_dir = project_root / "addons"
@@ -664,20 +702,24 @@ def init(project, app, subnet, no_interactive, yes):
     except Exception as e:
         console.print(f"[yellow]⚠ Could not load addons for validation: {e}[/yellow]")
         addons = {}
-    
+
     # Run validation
     try:
-        validator.validate_and_raise(temp_config, addons, project, available_addon_names)
+        validator.validate_and_raise(
+            temp_config, addons, project, available_addon_names
+        )
         console.print("[dim]✓ Validation passed[/dim]")
     except ValidationException as e:
         console.print(f"\n[red]{e}[/red]")
         console.print("\n[yellow]⚠ Fix validation errors before proceeding[/yellow]")
-        console.print("[dim]Hint: Use different subnet or ports to avoid conflicts[/dim]")
+        console.print(
+            "[dim]Hint: Use different subnet or ports to avoid conflicts[/dim]"
+        )
         return
 
     # Create project structure
     console.print("\n[dim]Creating project structure...[/dim]")
-    
+
     # Create project directory
     project_dir.mkdir(parents=True, exist_ok=True)
 
@@ -687,22 +729,22 @@ def init(project, app, subnet, no_interactive, yes):
         "CREATED_AT": datetime.now().isoformat(),
         "SUBNET": project_subnet,
     }
-    
+
     # Build apps dict for template
     apps_dict = {}
     for idx, (app_name, app_path) in enumerate(apps.items()):
         apps_dict[app_name] = {
             "path": str(app_path),
             "vm": "core",
-            "port": port_assignments[app_name]["external"]
+            "port": port_assignments[app_name]["external"],
         }
-    
+
     # Build core_services dict for template
-    addon_versions = {addon['name']: addon['version'] for addon in available_addons}
+    addon_versions = {addon["name"]: addon["version"] for addon in available_addons}
     core_services_dict = {}
     for service in core_services:
         default_version = addon_versions.get(service, "latest")
-        
+
         if service == "postgres":
             core_services_dict[service] = {
                 "version": default_version,
@@ -718,7 +760,7 @@ def init(project, app, subnet, no_interactive, yes):
             core_services_dict[service] = {
                 "version": default_version,
             }
-    
+
     # Create project.yml manually (template has placeholders we need to replace)
     project_yml_content = f"""# =============================================================================
 # {project} - Project Configuration
@@ -790,27 +832,27 @@ vms:
 # =============================================================================
 core_services:
 """
-    
+
     # Add core services
     for service, config in core_services_dict.items():
         project_yml_content += f"  {service}:\n"
         for key, value in config.items():
-            project_yml_content += f"    {key}: \"{value}\"\n"
-    
-    project_yml_content += f"""
+            project_yml_content += f'    {key}: "{value}"\n'
+
+    project_yml_content += """
 # =============================================================================
 # Application Services
 # =============================================================================
 apps:
 """
-    
+
     # Add apps
     for app_name, app_config in apps_dict.items():
         project_yml_content += f"  {app_name}:\n"
         project_yml_content += f"    path: {app_config['path']}\n"
         project_yml_content += f"    vm: {app_config['vm']}\n"
         project_yml_content += f"    port: {app_config['port']}\n"
-    
+
     project_yml_content += f"""
 # =============================================================================
 # GitHub Configuration
@@ -837,24 +879,24 @@ monitoring:
 # =============================================================================
 domain: "{project_domain}"
 """
-    
+
     # Write project.yml
     project_yml_path = project_dir / "project.yml"
     project_yml_path.write_text(project_yml_content)
     console.print(f"  [green]✓[/green] Created: {project_yml_path}")
-    
+
     # Success message
     console.print("\n[green]✅ Project initialized successfully![/green]")
 
     # Next steps
     console.print("\n[bold]📝 Next steps:[/bold]")
-    console.print(f"\n1. Generate deployment files:")
+    console.print("\n1. Generate deployment files:")
     console.print(f"   [cyan]superdeploy generate -p {project}[/cyan]")
-    console.print(f"\n2. Deploy infrastructure:")
+    console.print("\n2. Deploy infrastructure:")
     console.print(f"   [cyan]superdeploy up -p {project}[/cyan]")
-    console.print(f"\n3. Check status:")
+    console.print("\n3. Check status:")
     console.print(f"   [cyan]superdeploy status -p {project}[/cyan]")
-    
+
     return  # Skip old instructions
 
     # Show exact commands with generated passwords

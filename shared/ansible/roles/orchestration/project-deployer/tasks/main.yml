@@ -21,7 +21,7 @@
     superdeploy_user: "{{ superdeploy_user | default('superdeploy') }}"
     superdeploy_group: "{{ superdeploy_group | default('superdeploy') }}"
     apps: "{{ project_config.apps | default({}) }}"
-    network_subnet: "{{ project_config.network.subnet | default('172.20.0.0/24') }}"
+    network_subnet: "{{ project_config.network.docker_subnet | default('172.30.0.0/24') }}"
     monitoring_enabled: "{{ project_config.monitoring.enabled | default(false) }}"
 
 - name: Display project deployment configuration

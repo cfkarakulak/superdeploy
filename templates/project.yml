@@ -70,7 +70,7 @@ infrastructure:
     
     # Organization and repository names
     # The organization will be created automatically
-    org: "{{PROJECT}}io"
+    org: "{{PROJECT}}"
     
     # Repository name for the project (default: superdeploy)
     repo: "superdeploy"

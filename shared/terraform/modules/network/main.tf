@@ -17,7 +17,7 @@ resource "google_compute_subnetwork" "subnet" {
   private_ip_google_access = true
 }
 
-# Firewall: Allow SSH from admin IPs
+# Firewall: Allow SSH from admin IPs (to all VM roles)
 resource "google_compute_firewall" "allow_ssh" {
   name    = "${var.network_name}-allow-ssh"
   network = google_compute_network.vpc.name
@@ -29,12 +29,13 @@ resource "google_compute_firewall" "allow_ssh" {
   }
 
   source_ranges = var.admin_source_ranges
-  target_tags   = ["core", "worker", "proxy"]
+  # Apply to all VM roles dynamically + ssh tag
+  target_tags   = concat(var.vm_roles, ["ssh"])
 
-  description = "Allow SSH from admin IP ranges"
+  description = "Allow SSH from admin IP ranges to all VMs"
 }
 
-# Firewall: Allow HTTP/HTTPS and Forgejo to edge (core VMs)
+# Firewall: Allow HTTP/HTTPS and common web ports (to all VMs)
 resource "google_compute_firewall" "allow_http_https" {
   name    = "${var.network_name}-allow-http-https"
   network = google_compute_network.vpc.name
@@ -42,13 +43,14 @@ resource "google_compute_firewall" "allow_http_https" {
 
   allow {
     protocol = "tcp"
-    ports    = ["80", "443", "3001"]
+    ports    = ["80", "443", "3001"]  # HTTP, HTTPS, Forgejo
   }
 
   source_ranges = ["0.0.0.0/0"]
-  target_tags   = ["edge", "core"]
+  # Apply to all VM roles (any can serve web traffic)
+  target_tags   = var.vm_roles
 
-  description = "Allow HTTP/HTTPS and Forgejo (3001) to edge servers"
+  description = "Allow HTTP/HTTPS and Forgejo (3001) from internet"
 }
 
 # Firewall: Allow proxy ports - PUBLIC ACCESS (for testing)
@@ -63,7 +65,8 @@ resource "google_compute_firewall" "allow_proxy" {
   }
 
   source_ranges = ["0.0.0.0/0"]  # Public access for testing
-  target_tags   = ["proxy"]
+  # Apply to all VMs (any can run proxy services)
+  target_tags   = var.vm_roles
 
   description = "Allow proxy connections - PUBLIC ACCESS"
 }
@@ -93,7 +96,8 @@ resource "google_compute_firewall" "allow_internal" {
   description = "Allow all internal communication within VPC"
 }
 
-# Firewall: Allow RabbitMQ (5672), PostgreSQL (5432) from worker VMs - INTERNAL ONLY
+# Firewall: Allow database and queue services - already covered by allow_internal
+# This rule is redundant but kept for documentation
 resource "google_compute_firewall" "allow_services" {
   name    = "${var.network_name}-allow-services"
   network = google_compute_network.vpc.name
@@ -101,13 +105,14 @@ resource "google_compute_firewall" "allow_services" {
 
   allow {
     protocol = "tcp"
-    ports    = ["5432", "5672"]  # PostgreSQL, RabbitMQ (Management UI removed from external)
+    ports    = ["5432", "5672"]  # PostgreSQL, RabbitMQ
   }
 
-  source_tags = ["worker", "scrape"]
-  target_tags = ["core", "queue", "db"]
+  # Allow from any VM role to any VM role (internal network)
+  source_tags = var.vm_roles
+  target_tags = var.vm_roles
 
-  description = "Allow worker VMs to access core services (DB, Queue) - INTERNAL ONLY"
+  description = "Allow database and queue access between VMs (covered by allow_internal)"
 }
 
 # Firewall: RabbitMQ Management UI - PUBLIC ACCESS (for testing)
@@ -122,7 +127,8 @@ resource "google_compute_firewall" "allow_rabbitmq_management" {
   }
 
   source_ranges = ["0.0.0.0/0"]  # Public access for testing
-  target_tags   = ["core", "queue"]
+  # Apply to all VMs (any can run RabbitMQ)
+  target_tags   = var.vm_roles
 
   description = "RabbitMQ Management - PUBLIC ACCESS"
 }
@@ -139,7 +145,8 @@ resource "google_compute_firewall" "allow_api_direct" {
   }
 
   source_ranges = ["0.0.0.0/0"]
-  target_tags   = ["api", "core"]
+  # Apply to all VMs (any can run API services)
+  target_tags   = var.vm_roles
 
   description = "Allow direct API access (usually proxied via Caddy)"
 }
@@ -156,7 +163,8 @@ resource "google_compute_firewall" "allow_proxy_registry" {
   }
 
   source_ranges = ["0.0.0.0/0"]  # Public access for testing
-  target_tags   = ["core"]
+  # Apply to all VMs (any can run registry)
+  target_tags   = var.vm_roles
 
   description = "Proxy Registry - PUBLIC ACCESS"
 }

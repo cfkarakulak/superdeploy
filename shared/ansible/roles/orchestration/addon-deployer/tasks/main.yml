@@ -40,7 +40,7 @@
     name: "{{ project_name }}-network"
     driver: bridge
     ipam_config:
-      - subnet: "{{ project_config.network.subnet | default('172.20.0.0/24') }}"
+      - subnet: "{{ project_config.network.docker_subnet | default('172.30.0.0/24') }}"
     state: present
   become_user: "{{ superdeploy_user }}"
 
