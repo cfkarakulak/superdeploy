@@ -17,9 +17,10 @@ StandardError=journal
 # Security settings
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
+ProtectSystem=false
 ProtectHome=false
 ReadWritePaths={{ addon_base_path }}/{{ addon_name }}/runner
+ReadWritePaths=/opt/forgejo-runner
 
 [Install]
 WantedBy=multi-user.target

@@ -7,7 +7,7 @@
 
 project: cheapa
 description: cheapa project
-created_at: 2025-10-26T22:32:20.751772
+created_at: 2025-10-27T15:28:57.469778
 
 # =============================================================================
 # Cloud Provider Configuration
@@ -15,7 +15,7 @@ created_at: 2025-10-26T22:32:20.751772
 cloud:
   # GCP Configuration
   gcp:
-    project_id: "galvanic-camp-475519-d6"  # EDIT THIS
+    project_id: "galvanic-camp-475519-d6"
     region: "us-central1"
     zone: "us-central1-a"
   
@@ -29,10 +29,9 @@ cloud:
 # Docker Registry Configuration
 # =============================================================================
 docker:
-  registry: "docker.io"  # Docker Hub or custom registry
-  organization: "c100394"  # EDIT THIS - Docker organization
-  username: "c100394"  # EDIT THIS
-  # Note: Set DOCKER_TOKEN environment variable for authentication
+  registry: "docker.io"
+  organization: "c100394"
+  username: "c100394"
 
 # =============================================================================
 # Infrastructure Configuration
@@ -45,7 +44,7 @@ infrastructure:
     ssh_port: 2222
     admin_user: "cradexco"
     admin_email: "cradexco@gmail.com"
-    org: "cradexco"  # EDIT THIS - Forgejo organization
+    org: "cradexco"
     repo: "superdeploy"
     db_name: "forgejo"
     db_user: "forgejo"
@@ -67,13 +66,13 @@ vms:
 # Core Services (Addon-Based Infrastructure)
 # =============================================================================
 core_services:
-  rabbitmq:
-    version: "3.12-management-alpine"
-    user: "cheapa_user"
   postgres:
     version: "15-alpine"
     user: "cheapa_user"
     database: "cheapa_db"
+  rabbitmq:
+    version: "3.12-management-alpine"
+    user: "cheapa_user"
   caddy:
     version: "2-alpine"
     email: "cradexco@gmail.com"
@@ -100,15 +99,13 @@ apps:
 # GitHub Configuration
 # =============================================================================
 github:
-  organization: "cheapaio"  # EDIT THIS - GitHub organization
+  organization: "cheapaio"
 
 # =============================================================================
 # Network Configuration
 # =============================================================================
 network:
-  vpc_subnet: 10.128.0.0/20  # GCP VPC subnet (Google Cloud default range)
-  subnet: "172.20.0.0/24"
-  docker_subnet: 172.30.0.0/24  # Docker internal network (for containers)
+  subnet: 172.20.0.0/24
 
 # =============================================================================
 # Monitoring (Optional)

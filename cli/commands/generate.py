@@ -114,9 +114,9 @@ FORGEJO_PAT=your-forgejo-pat  # Generated after Forgejo deployment
 # Generated Passwords (from addons)
 """
 
-        # Add generated passwords to .env
+        # Add ONLY secrets to .env (passwords, tokens, generated values)
         for addon_name, addon_passwords in passwords.items():
-            env_content += f"\n# {addon_name.title()} Passwords\n"
+            env_content += f"\n# {addon_name.title()} Secrets\n"
             for var_name, var_data in addon_passwords.items():
                 if isinstance(var_data, dict):
                     value = var_data.get("value", "")
@@ -320,11 +320,12 @@ def generate_docker_compose_apps(config, compose_dir):
 
     for app_name, app_config in apps.items():
         port = app_config.get("port", 8000)
+        tag_var = f"{app_name.upper()}_TAG"  # e.g., API_TAG
         lines.extend(
             [
                 "",
                 f"  {app_name}:",
-                f"    image: ${{DOCKER_REGISTRY:-docker.io}}/${{DOCKER_ORG}}/{app_name}:${{{app_name.upper()}_TAG}}",
+                f"    image: ${{DOCKER_REGISTRY:-docker.io}}/${{DOCKER_ORG}}/{app_name}:" + "${" + tag_var + "}",
                 f"    container_name: {project_name}-{app_name}",
                 "    restart: unless-stopped",
                 "    ports:",
@@ -342,24 +343,16 @@ def generate_docker_compose_apps(config, compose_dir):
 def generate_workflow(config, app_name, addons, template_merger):
     """
     Generate GitHub Actions workflow using addon system.
-
-    Args:
-        config: Project configuration dictionary
-        app_name: Name of the application
-        addons: Dictionary of loaded addons
-        template_merger: TemplateMerger instance
-
-    Returns:
-        String containing the complete workflow YAML
     """
     project_name = config["project"]
     docker_org = config.get("docker", {}).get("organization", project_name)
 
-    # Build env section using addon system
+    # Build env section from addons (each line should already look like: "  FOO: ${{ secrets.FOO }}")
     env_vars = template_merger.merge_workflow_env(addons)
     env_section = "\n".join(env_vars)
 
-    workflow = f"""name: Build and Deploy
+    # ONLY interpolate docker_org/app_name here. Keep GA expressions escaped with quadruple braces.
+    workflow = """name: Build and Deploy
 
 on:
   push:
@@ -403,75 +396,113 @@ jobs:
         run: |
           curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
           sudo mv age/age /usr/local/bin/
+          rm -rf age
       
       - name: Prepare environment bundle
-        id: env_bundle"""
+        id: env_bundle""".format(docker_org=docker_org, app_name=app_name)
 
-    # Add env section only if there are environment variables
     if env_section:
-        workflow += f"""
-        env:
-{env_section}"""
+        # DO NOT format this block; just append so inner ${ { … } } stays intact.
+        workflow += "\n        env:\n" + env_section + "\n"
 
-    workflow += """
+    workflow += r"""
         run: |
-          # Merge .env + .env.superdeploy
-          python3 <<'PYEOF'
-import os
-from pathlib import Path
-
-env_vars = {{}}
-
-# Read .env
-if Path('.env').exists():
-    with open('.env') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, value = line.split('=', 1)
-                env_vars[key] = value
-
-# Override with .env.superdeploy
-if Path('.env.superdeploy').exists():
-    with open('.env.superdeploy') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, value = line.split('=', 1)
-                if value.startswith('${{') and value.endswith('}}'):
-                    var_name = value[2:-1]
-                    value = os.environ.get(var_name, '')
-                env_vars[key] = value
-
-# Write merged
-with open('/tmp/app.env', 'w') as f:
-    for key, value in env_vars.items():
-        f.write(f'{{key}}={{value}}\\n')
-PYEOF
+          # Merge .env files using shell
+          cp .env /tmp/app.env 2>/dev/null || touch /tmp/app.env
           
-          # Encrypt
-          cat /tmp/app.env | age -r "${{{{ secrets.AGE_PUBLIC_KEY }}}}" | base64 -w 0 > /tmp/encrypted.txt
-          echo "encrypted=$(cat /tmp/encrypted.txt)" >> $GITHUB_OUTPUT
+          if [ -f .env.superdeploy ]; then
+            while IFS='=' read -r key value || [ -n "$key" ]; do
+              # Skip empty lines and comments
+              [ -z "$key" ] && continue
+              [[ "$key" =~ ^[[:space:]]*# ]] && continue
+              
+              # Expand ${VAR} syntax
+              if [[ "$value" =~ ^\$\{([^}]+)\}$ ]]; then
+                var_name="${BASH_REMATCH[1]}"
+                value="${!var_name}"
+              fi
+              
+              # Update or append to merged env
+              if grep -q "^${key}=" /tmp/app.env 2>/dev/null; then
+                sed -i.bak "s|^${key}=.*|${key}=${value}|" /tmp/app.env && rm -f /tmp/app.env.bak
+              else
+                echo "${key}=${value}" >> /tmp/app.env
+              fi
+            done < .env.superdeploy
+          fi
+          
+          # Encrypt with age public key
+          cat /tmp/app.env | age -r "${{ secrets.AGE_PUBLIC_KEY }}" | base64 -w 0 > /tmp/encrypted.txt
+          echo "encrypted=$(cat /tmp/encrypted.txt)" >> "$GITHUB_OUTPUT"
           rm -f /tmp/app.env /tmp/encrypted.txt
       
-      - name: Trigger Forgejo deployment
+      - name: Connectivity check to Forgejo
+        env:
+          FORGEJO_BASE_URL: ${{ secrets.FORGEJO_BASE_URL }}
         run: |
-          curl -X POST \\
-            -H "Authorization: token ${{{{ secrets.FORGEJO_PAT }}}}" \\
-            -H "Content-Type: application/json" \\
-            -d '{{
-              "ref": "master",
-              "inputs": {{
-                "project": "{project_name}",
-                "service": "{app_name}",
-                "image": "${{{{ env.REGISTRY }}}}/${{{{ env.IMAGE_NAME }}}}:${{{{ github.sha }}}}",
-                "env_bundle": "${{{{ steps.env_bundle.outputs.encrypted }}}}",
-                "git_sha": "${{{{ github.sha }}}}"
-              }}
-            }}' \\
-            "${{{{ secrets.FORGEJO_BASE_URL }}}}/api/v1/repos/${{{{ secrets.FORGEJO_ORG }}}}/superdeploy/actions/workflows/deploy.yml/dispatches"
+          set -euo pipefail
+          echo "Checking reachability of $FORGEJO_BASE_URL ..."
+          # Try to reach Forgejo (5 second timeout)
+          if curl -sS -I --max-time 5 --connect-timeout 5 "$FORGEJO_BASE_URL" 2>/dev/null; then
+            echo "✓ Forgejo reachable"
+          else
+            echo "::warning::Forgejo base URL not reachable from GitHub runner."
+            echo "This is expected if Forgejo is behind firewall/VPN."
+            echo "Deployment will continue but may fail if Forgejo API is not accessible."
+            echo "Tip: Check firewall rules, use public IP with port 443, or use self-hosted runner."
+          fi
+      
+      - name: Trigger Forgejo deployment
+        env:
+          FORGEJO_PAT: ${{ secrets.FORGEJO_PAT }}
+          FORGEJO_BASE_URL: ${{ secrets.FORGEJO_BASE_URL }}
+          FORGEJO_ORG: ${{ secrets.FORGEJO_ORG }}
+        run: |
+          set -euo pipefail
+          
+          # Debug: Show PAT prefix (first 10 chars only)
+          echo "PAT prefix: ${FORGEJO_PAT:0:10}..."
+          echo "Base URL: $FORGEJO_BASE_URL"
+          echo "Org: $FORGEJO_ORG"
+          
+          # Test PAT first
+          echo "Testing PAT..."
+          TEST_RESPONSE=$(curl -sS -i -H "Authorization: token $FORGEJO_PAT" "$FORGEJO_BASE_URL/api/v1/user")
+          TEST_CODE=$(echo "$TEST_RESPONSE" | head -n1 | cut -d' ' -f2)
+          echo "PAT test result: HTTP $TEST_CODE"
+          
+          if [[ "$TEST_CODE" != "200" ]]; then
+            echo "::error::PAT is invalid (HTTP $TEST_CODE)"
+            echo "$TEST_RESPONSE" | tail -5
+            exit 1
+          fi
+          
+          # Build JSON payload and trigger deployment
+          RESPONSE=$(curl -sS -i -X POST \
+            --max-time 30 \
+            --connect-timeout 10 \
+            -H "Authorization: token $FORGEJO_PAT" \
+            -H "Content-Type: application/json" \
+            -d "{\"ref\":\"master\",\"inputs\":{\"project\":\"%(project_name)s\",\"service\":\"%(app_name)s\",\"image\":\"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}\",\"env_bundle\":\"${{ steps.env_bundle.outputs.encrypted }}\",\"git_sha\":\"${{ github.sha }}\"}}" \
+            "$FORGEJO_BASE_URL/api/v1/repos/$FORGEJO_ORG/superdeploy/actions/workflows/deploy.yml/dispatches")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | head -n1 | cut -d' ' -f2)
+          BODY=$(echo "$RESPONSE" | tail -n1)
+          
+          echo "Response: $BODY"
+          echo "HTTP Status: $HTTP_CODE"
+          
+          if [[ "$HTTP_CODE" =~ ^2[0-9][0-9]$ ]]; then
+            echo "✓ Deployment triggered successfully"
+          else
+            echo "::error::Failed to trigger Forgejo deployment (HTTP $HTTP_CODE)"
+            echo "::error::Response: $BODY"
+            exit 1
+          fi
 """
 
+    # Safely inject project/app into the JSON literal placeholders (not GA syntax)
+    workflow = workflow.replace("%(project_name)s", project_name).replace("%(app_name)s", app_name)
     return workflow
 
 

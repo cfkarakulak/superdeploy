@@ -11,7 +11,8 @@ runner:
   insecure: false
   fetch_timeout: 5s
   fetch_interval: 2s
-  labels: []
+  labels:
+    - "ubuntu-latest:docker://node:20-bookworm"
 
 cache:
   enabled: true
@@ -21,13 +22,13 @@ cache:
   external_server: ""
 
 container:
-  network: ""
+  network: "{{ project_name }}-network"
   privileged: false
-  options: ""
+  options: "--add-host=localhost:{{ forgejo_container_ip | default('172.30.0.3') }} -v /usr/local/bin/age:/usr/local/bin/age:ro -v /opt/forgejo-runner/.age:/opt/forgejo-runner/.age:ro -v /opt/superdeploy/projects:/opt/superdeploy/projects:ro"
   workdir_parent: ""
   valid_volumes: []
   docker_host: ""
   force_pull: false
 
 host:
-  workdir_parent: "{{ runner_workdir_parent | default('/opt/superdeploy') }}"
+  workdir_parent: "{{ runner_workdir_parent | default('/opt/forgejo-runner') }}"

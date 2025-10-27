@@ -67,7 +67,7 @@ def load_env(project: Optional[str] = None) -> Dict[str, Any]:
         console.print(f"[red]❌ Invalid project config: {e}[/red]")
         raise SystemExit(1)
     
-    # Extract config into env-like dict for backward compatibility
+    # Extract ALL non-sensitive config from project.yml
     config = project_config.raw_config
     cloud = config.get('cloud', {})
     gcp = cloud.get('gcp', {})
@@ -75,6 +75,7 @@ def load_env(project: Optional[str] = None) -> Dict[str, Any]:
     docker_config = config.get('docker', {})
     infrastructure = config.get('infrastructure', {})
     forgejo = infrastructure.get('forgejo', {})
+    core_services = config.get('core_services', {})
     
     env_vars = {
         # GCP
@@ -92,11 +93,21 @@ def load_env(project: Optional[str] = None) -> Dict[str, Any]:
         'DOCKER_ORG': docker_config.get('organization', ''),
         'DOCKER_USERNAME': docker_config.get('username', ''),
         
-        # Forgejo
+        # Forgejo (all non-sensitive config from project.yml)
+        'FORGEJO_PORT': str(forgejo.get('port', 3001)),
+        'FORGEJO_SSH_PORT': str(forgejo.get('ssh_port', 2222)),
         'FORGEJO_ORG': forgejo.get('org', ''),
         'FORGEJO_ADMIN_USER': forgejo.get('admin_user', 'admin'),
         'FORGEJO_ADMIN_EMAIL': forgejo.get('admin_email', ''),
-        'REPO_SUPERDEPLOY': forgejo.get('repo', 'superdeploy'),
+        'FORGEJO_REPO': forgejo.get('repo', 'superdeploy'),
+        'FORGEJO_DB_NAME': forgejo.get('db_name', 'forgejo'),
+        'FORGEJO_DB_USER': forgejo.get('db_user', 'forgejo'),
+        'REPO_SUPERDEPLOY': forgejo.get('repo', 'superdeploy'),  # Backward compatibility
+        
+        # Core services (non-sensitive config)
+        'POSTGRES_USER': core_services.get('postgres', {}).get('user', ''),
+        'POSTGRES_DB': core_services.get('postgres', {}).get('database', ''),
+        'RABBITMQ_USER': core_services.get('rabbitmq', {}).get('user', ''),
         
         # Monitoring
         'ENABLE_MONITORING': str(config.get('monitoring', {}).get('enabled', True)).lower(),

@@ -298,6 +298,18 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
     required = ["GCP_PROJECT_ID", "GCP_REGION", "SSH_KEY_PATH"]
     if not validate_env_vars(env, required):
         raise SystemExit(1)
+    
+    # Find which VM runs Forgejo (needed for multiple operations)
+    vms_config = project_config_obj.get_vms()
+    forgejo_vm_role = None
+    forgejo_vm_index = 0
+    
+    for vm_role, vm_def in vms_config.items():
+        services_list = vm_def.get("services", [])
+        if "forgejo" in services_list:
+            forgejo_vm_role = vm_role
+            forgejo_vm_index = 0  # Use first instance of this VM role
+            break
 
     with Progress(
         SpinnerColumn(),
@@ -435,7 +447,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
             "FORGEJO_ADMIN_PASSWORD": env.get("FORGEJO_ADMIN_PASSWORD", ""),
             "FORGEJO_ADMIN_EMAIL": forgejo_admin_email,
             "FORGEJO_ORG": forgejo_org,
-            "REPO_SUPERDEPLOY": env.get("REPO_SUPERDEPLOY", "superdeploy"),
+            "FORGEJO_REPO": env.get("FORGEJO_REPO", "superdeploy"),
             "forgejo_admin_user": forgejo_admin_user,
             "forgejo_admin_password": env.get("FORGEJO_ADMIN_PASSWORD", ""),
             "forgejo_admin_email": forgejo_admin_email,
@@ -533,17 +545,11 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
             # Reload env again in case IPs changed late
             env = load_env(project)
 
-            # Find Forgejo host IP dynamically (first VM with core role or first VM alphabetically)
+            # Get Forgejo host from VM config (already found at function start)
             forgejo_host = None
-            for key in sorted(env.keys()):
-                if key.endswith("_EXTERNAL_IP"):
-                    # Prefer VM with 'core' in the name
-                    if "CORE" in key:
-                        forgejo_host = env[key]
-                        break
-                    # Fallback to first VM
-                    if not forgejo_host:
-                        forgejo_host = env[key]
+            if forgejo_vm_role:
+                forgejo_ip_var = f"{forgejo_vm_role.upper()}_{forgejo_vm_index}_EXTERNAL_IP"
+                forgejo_host = env.get(forgejo_ip_var)
 
             if not forgejo_host:
                 console.print("[red]❌ No VM found for Forgejo connection[/red]")
@@ -570,7 +576,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
                     time.sleep(5)
 
                 encoded_pass = urllib.parse.quote(env["FORGEJO_ADMIN_PASSWORD"])
-                repo_name = env.get("REPO_SUPERDEPLOY", "superdeploy")
+                repo_name = env.get("FORGEJO_REPO", "superdeploy")
                 forgejo_url = (
                     f"http://{env['FORGEJO_ADMIN_USER']}:{encoded_pass}"
                     f"@{forgejo_host}:3001/{env['FORGEJO_ORG']}/{repo_name}.git"
@@ -612,15 +618,11 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
     console.print("[bold green]🎉 Infrastructure Deployed![/bold green]")
     console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
 
-    # Find Forgejo host IP dynamically
+    # Find Forgejo host IP dynamically from project config
     forgejo_host = None
-    for key in sorted(env.keys()):
-        if key.endswith("_EXTERNAL_IP"):
-            if "CORE" in key:
-                forgejo_host = env[key]
-                break
-            if not forgejo_host:
-                forgejo_host = env[key]
+    if forgejo_vm_role:  # Already found earlier in the code
+        forgejo_ip_var = f"{forgejo_vm_role.upper()}_{forgejo_vm_index}_EXTERNAL_IP"
+        forgejo_host = env.get(forgejo_ip_var)
 
     if forgejo_host:
         console.print(f"\n[cyan]🌐 Forgejo:[/cyan] http://{forgejo_host}:3001")

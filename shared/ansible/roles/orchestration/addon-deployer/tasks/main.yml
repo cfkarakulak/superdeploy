@@ -35,6 +35,22 @@
     enabled_addons: "{{ (['forgejo'] + enabled_addons) | unique }}"
   when: "'forgejo' not in enabled_addons"
 
+- name: Create project configuration directory
+  file:
+    path: "/opt/superdeploy/projects/{{ project_name }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0755'
+
+- name: Sync project.yml to VM (for Forgejo workflows)
+  copy:
+    content: "{{ project_config | to_nice_yaml }}"
+    dest: "/opt/superdeploy/projects/{{ project_name }}/project.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0644'
+
 - name: Create project Docker network
   docker_network:
     name: "{{ project_name }}-network"

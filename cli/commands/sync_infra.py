@@ -11,11 +11,11 @@ from cli.utils import load_env, ssh_command, validate_env_vars, get_project_root
 console = Console()
 
 
-def get_age_public_key(env):
+def get_age_public_key(env, forgejo_host):
     """Fetch AGE public key from runner VM"""
     try:
         key_file = ssh_command(
-            host=env["CORE_EXTERNAL_IP"],
+            host=forgejo_host,
             user=env.get("SSH_USER", "superdeploy"),
             key_path=os.path.expanduser(env["SSH_KEY_PATH"]),
             cmd="cat /opt/forgejo-runner/.age/key.txt",
@@ -32,30 +32,43 @@ def get_age_public_key(env):
         return None
 
 
-def create_forgejo_pat(env):
+def create_forgejo_pat(env, forgejo_host):
     """Create Forgejo Personal Access Token"""
     console.print("[dim]Creating Forgejo PAT...[/dim]")
 
     import requests
     import time
 
-    forgejo_url = f"http://{env['CORE_EXTERNAL_IP']}:3001"
+    forgejo_url = f"http://{forgejo_host}:3001"
     token_name = f"github-actions-{int(time.time())}"
 
     try:
+        # Comprehensive scopes for workflow dispatch and repository access
+        scopes = [
+            "write:activitypub",
+            "write:admin",
+            "write:issue",
+            "write:misc",
+            "write:notification",
+            "write:organization",
+            "write:package",
+            "write:repository",
+            "write:user",
+        ]
+        
         response = requests.post(
             f"{forgejo_url}/api/v1/users/{env['FORGEJO_ADMIN_USER']}/tokens",
             auth=(env["FORGEJO_ADMIN_USER"], env["FORGEJO_ADMIN_PASSWORD"]),
-            json={"name": token_name, "scopes": ["write:repository", "write:user"]},
+            json={"name": token_name, "scopes": scopes},
             timeout=10,
         )
 
         if response.status_code == 201:
             token = response.json()["sha1"]
-            console.print("[green]✓[/green] Forgejo PAT created")
+            console.print(f"[green]✓[/green] Forgejo PAT created (prefix: {token[:10]}...)")
             return token
         else:
-            console.print(f"[red]✗[/red] Failed: {response.text}")
+            console.print(f"[red]✗[/red] Failed (HTTP {response.status_code}): {response.text}")
             return None
 
     except Exception as e:
@@ -97,17 +110,15 @@ def sync_infra(project):
     )
 
     # Load infrastructure env
-    env = load_env()
+    env = load_env(project)
 
-    # Validate required vars
+    # Validate required vars (from infrastructure)
     required = [
-        "CORE_EXTERNAL_IP",
         "SSH_KEY_PATH",
         "FORGEJO_ADMIN_USER",
         "FORGEJO_ADMIN_PASSWORD",
         "DOCKER_USERNAME",
         "DOCKER_TOKEN",
-        "GITHUB_ORG",
     ]
 
     if not validate_env_vars(env, required):
@@ -139,10 +150,38 @@ def sync_infra(project):
     console.print("\n[cyan]📦 Target repositories:[/cyan]")
     for service in services:
         console.print(f"  • {github_org}/{service}")
+    
+    # Find which VM runs Forgejo by checking project config
+    vms_config = project_config_obj.get_vms()
+    forgejo_vm_role = None
+    forgejo_vm_index = 0
+    
+    for vm_role, vm_def in vms_config.items():
+        services_list = vm_def.get("services", [])
+        if "forgejo" in services_list:
+            forgejo_vm_role = vm_role
+            forgejo_vm_index = 0  # Use first instance of this VM role
+            break
+    
+    if not forgejo_vm_role:
+        console.print("[red]❌ Forgejo not found in any VM configuration![/red]")
+        console.print("[dim]Add 'forgejo' to a VM's services list in project.yml[/dim]")
+        raise SystemExit(1)
+    
+    # Build the env var name for this VM (e.g., CORE_0_EXTERNAL_IP)
+    forgejo_ip_var = f"{forgejo_vm_role.upper()}_{forgejo_vm_index}_EXTERNAL_IP"
+    
+    if forgejo_ip_var not in env:
+        console.print(f"[red]❌ {forgejo_ip_var} not found in environment![/red]")
+        console.print(f"[dim]Run 'superdeploy up -p {project}' to provision VMs[/dim]")
+        raise SystemExit(1)
+    
+    forgejo_host = env[forgejo_ip_var]
+    console.print(f"[dim]Using Forgejo host: {forgejo_host} (from {forgejo_vm_role}-{forgejo_vm_index})[/dim]")
 
     # Step 1: Fetch AGE public key
     console.print("\n[cyan]1️⃣ Fetching AGE public key from runner...[/cyan]")
-    age_public_key = get_age_public_key(env)
+    age_public_key = get_age_public_key(env, forgejo_host)
     if not age_public_key:
         console.print("[red]❌ Failed to get AGE key[/red]")
         raise SystemExit(1)
@@ -150,26 +189,49 @@ def sync_infra(project):
 
     # Step 2: Create Forgejo PAT
     console.print("\n[cyan]2️⃣ Creating Forgejo PAT...[/cyan]")
-    forgejo_pat = create_forgejo_pat(env)
+    forgejo_pat = create_forgejo_pat(env, forgejo_host)
     if not forgejo_pat:
         console.print("[red]❌ Failed to create Forgejo PAT[/red]")
         raise SystemExit(1)
     console.print("[green]✓[/green] PAT created")
+    
+    # Update .env file with new PAT
+    env_file_path = project_root / "projects" / project / ".env"
+    if env_file_path.exists():
+        with open(env_file_path, "r") as f:
+            lines = f.readlines()
+        
+        # Update FORGEJO_PAT line
+        updated = False
+        for i, line in enumerate(lines):
+            if line.startswith("FORGEJO_PAT="):
+                lines[i] = f"FORGEJO_PAT={forgejo_pat}  # Generated by sync:infra\n"
+                updated = True
+                break
+        
+        # If not found, append it
+        if not updated:
+            lines.append(f"\n# Forgejo PAT (Auto-generated)\n")
+            lines.append(f"FORGEJO_PAT={forgejo_pat}  # Generated by sync:infra\n")
+        
+        with open(env_file_path, "w") as f:
+            f.writelines(lines)
+        
+        console.print(f"[green]✓[/green] Updated .env with new PAT")
 
     # Step 3: Sync to GitHub
     console.print("\n[cyan]3️⃣ Syncing to GitHub repositories...[/cyan]")
 
     infra_secrets = {
-        "FORGEJO_BASE_URL": f"http://{env['CORE_EXTERNAL_IP']}:3001",
-        "FORGEJO_URL": f"http://{env['CORE_EXTERNAL_IP']}:3001",
+        "FORGEJO_BASE_URL": f"http://{forgejo_host}:3001",
+        "FORGEJO_URL": f"http://{forgejo_host}:3001",
         "FORGEJO_PAT": forgejo_pat,
         "AGE_PUBLIC_KEY": age_public_key,
-        "CORE_EXTERNAL_IP": env["CORE_EXTERNAL_IP"],
         "DOCKER_USERNAME": env["DOCKER_USERNAME"],
         "DOCKER_TOKEN": env["DOCKER_TOKEN"],
         "PROJECT": project,
         "FORGEJO_ORG": env.get("FORGEJO_ORG"),
-        "FORGEJO_REPO": env.get("REPO_SUPERDEPLOY", "superdeploy"),
+        "FORGEJO_REPO": env.get("FORGEJO_REPO", "superdeploy"),
     }
 
     for service in services:

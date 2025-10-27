@@ -136,6 +136,18 @@
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0755'
 
+- name: Get Forgejo container IP
+  shell: docker inspect {{ project_name }}-forgejo --format '{{"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"}}'
+  register: forgejo_ip_result
+  changed_when: false
+
+- name: Add Forgejo hostname to /etc/hosts
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ forgejo_ip_result.stdout }} {{ project_name }}-forgejo"
+    state: present
+  become: yes
+
 - name: Check if runner is already registered
   stat:
     path: "{{ addon_base_path }}/{{ addon_name }}/runner/.runner"
@@ -171,7 +183,7 @@
   command: >
     forgejo-runner register
     --no-interactive
-    --instance "http://localhost:{{ FORGEJO_PORT }}"
+    --instance "http://{{ forgejo_ip_result.stdout }}:3000"
     --token "{{ runner_token }}"
     --name "{{ runner_name | default(project_name + '-runner') }}"
     --labels "{{ runner_labels | default('ubuntu-latest:docker://node:20-bookworm,ubuntu-22.04:docker://node:20-bookworm') }}"
@@ -184,6 +196,12 @@
   register: runner_register_result
   async: 60
   poll: 5
+
+- name: Update runner address to use container hostname
+  shell: |
+    sed -i 's|http://{{ forgejo_ip_result.stdout }}:3000|http://{{ project_name }}-forgejo:3000|g' {{ addon_base_path }}/{{ addon_name }}/runner/.runner
+  when: runner_register_result is changed
+  become_user: "{{ superdeploy_user }}"
 
 - name: Display runner registration result
   debug:

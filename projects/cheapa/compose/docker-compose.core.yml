@@ -11,10 +11,10 @@ volumes:
     name: cheapa-forgejo-data
   forgejo-postgres:
     name: cheapa-forgejo-postgres
-  rabbitmq-data:
-    name: cheapa-rabbitmq-data
   postgres-data:
     name: cheapa-postgres-data
+  rabbitmq-data:
+    name: cheapa-rabbitmq-data
   caddy-data:
     name: cheapa-caddy-data
   caddy-config:
@@ -133,41 +133,6 @@ services:
       \n  --password \"$FORGEJO_ADMIN_PASSWORD\" \\\n  --email \"$FORGEJO_ADMIN_EMAIL\"\
       \ \\\n  --admin --must-change-password=false 2>&1 || echo \"User already exists\"\
       \n"
-  rabbitmq:
-    image: rabbitmq:3.12-management-alpine
-    container_name: cheapa-rabbitmq
-    restart: unless-stopped
-    hostname: cheapa-rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST}
-    volumes:
-    - rabbitmq-data:/var/lib/rabbitmq
-    networks:
-    - cheapa-network
-    expose:
-    - '5672'
-    - '15672'
-    healthcheck:
-      test:
-      - CMD-SHELL
-      - rabbitmq-diagnostics -q ping
-      interval: 10s
-      timeout: 10s
-      retries: 30
-      start_period: 90s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-    labels:
-    - prometheus.scrape=true
-    - prometheus.port=15692
-    - prometheus.path=/metrics
-    - project=cheapa
-    - service=rabbitmq
   postgres:
     image: postgres:15-alpine
     container_name: cheapa-postgres
@@ -201,6 +166,41 @@ services:
     - prometheus.path=/metrics
     - project=cheapa
     - service=postgres
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: cheapa-rabbitmq
+    restart: unless-stopped
+    hostname: cheapa-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+    volumes:
+    - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+    - cheapa-network
+    expose:
+    - '5672'
+    - '15672'
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    labels:
+    - prometheus.scrape=true
+    - prometheus.port=15692
+    - prometheus.path=/metrics
+    - project=cheapa
+    - service=rabbitmq
   caddy:
     image: caddy:2-alpine
     container_name: cheapa-caddy

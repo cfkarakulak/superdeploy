@@ -50,7 +50,7 @@
 
 - name: Set permissions for user on virtual host
   shell: |
-    docker exec {{ project_name }}-{{ addon_name }} rabbitmqctl set_permissions -p / {{ env_vars.RABBITMQ_DEFAULT_USER }} ".*" ".*" ".*"
+    docker exec {{ project_name }}-{{ addon_name }} rabbitmqctl set_permissions -p / {{ env_vars.RABBITMQ_USER }} ".*" ".*" ".*"
   changed_when: false
   failed_when: false
 

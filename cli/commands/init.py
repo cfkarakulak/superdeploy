@@ -216,7 +216,7 @@ def generate_workflow(project, service, core_services, github_org):
 
     env_section = "\n".join(env_vars)
 
-    workflow = f"""name: Build and Deploy
+    workflow = """name: Build and Deploy
 
 on:
   push:
@@ -246,48 +246,21 @@ jobs:
           username: ${{{{ secrets.DOCKER_USERNAME }}}}
           password: ${{{{ secrets.DOCKER_TOKEN }}}}
       
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{{{ env.REGISTRY }}}}/${{{{ env.IMAGE_NAME }}}}
-          tags: |
-            type=sha,prefix={{{{branch}}}}-
-            type=ref,event=branch
-            type=raw,value=latest,enable={{{{is_default_branch}}}}
-      
       - name: Build and push Docker image
         id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{{{ steps.meta.outputs.tags }}}}
-          labels: ${{{{ steps.meta.outputs.labels }}}}
+          tags: ${{{{ env.REGISTRY }}}}/${{{{ env.IMAGE_NAME }}}}:${{{{ github.sha }}}}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
-      - name: Get image digest
-        id: digest
-        run: |
-          DIGEST="${{{{ steps.build.outputs.digest }}}}"
-          IMAGE_WITH_DIGEST="${{{{ env.REGISTRY }}}}/${{{{ env.IMAGE_NAME }}}}@${{DIGEST}}"
-          echo "image=${{IMAGE_WITH_DIGEST}}" >> $GITHUB_OUTPUT
-          echo "short_sha=${{{{GITHUB_SHA:0:7}}}}" >> $GITHUB_OUTPUT
-      
-      - name: Cache age binary
-        id: cache-age
-        uses: actions/cache@v3
-        with:
-          path: /usr/local/bin/age
-          key: age-v1.1.1-linux-amd64
-      
       - name: Install age
-        if: steps.cache-age.outputs.cache-hit != 'true'
         run: |
           curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
-          sudo mv age/age age/age-keygen /usr/local/bin/
-          age --version
+          sudo mv age/age /usr/local/bin/
+          rm -rf age
       
       - name: Prepare environment bundle
         id: env_bundle
@@ -301,99 +274,102 @@ jobs:
           # APP-SPECIFIC SECRETS (Add your own below)
           # =============================================================================
           # Example:
-          # {service.upper()}_SECRET_KEY: ${{{{ secrets.{service.upper()}_SECRET_KEY }}}}
+          # {service_upper}_SECRET_KEY: ${{{{ secrets.{service_upper}_SECRET_KEY }}}}
           # STRIPE_API_KEY: ${{{{ secrets.STRIPE_API_KEY }}}}
         run: |
-          # Merge .env + .env.superdeploy (superdeploy overrides)
-          python3 <<'PYEOF'
-import os
-from pathlib import Path
-
-# Read app's .env (local development values)
-env_vars = {{}}
-if Path('.env').exists():
-    with open('.env') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, value = line.split('=', 1)
-                env_vars[key] = value
-
-# Override with .env.superdeploy (production values)
-if Path('.env.superdeploy').exists():
-    with open('.env.superdeploy') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, value = line.split('=', 1)
-                # Substitute ${{VAR}} with env value
-                if value.startswith('${{') and value.endswith('}}'):
-                    var_name = value[2:-1]
-                    value = os.environ.get(var_name, '')
-                env_vars[key] = value
-else:
-    print("⚠️  .env.superdeploy not found, using only .env")
-
-# Write merged
-with open('/tmp/app.env', 'w') as f:
-    for key, value in env_vars.items():
-        f.write(f'{{key}}={{value}}\\n')
-
-print(f"✓ Merged {{len(env_vars)}} environment variables")
-PYEOF
+          # Merge .env files using shell
+          cp .env /tmp/app.env 2>/dev/null || touch /tmp/app.env
           
-          # Encrypt with AGE
+          if [ -f .env.superdeploy ]; then
+            while IFS='=' read -r key value || [ -n "$key" ]; do
+              # Skip empty lines and comments
+              [ -z "$key" ] && continue
+              [[ "$key" =~ ^[[:space:]]*# ]] && continue
+              
+              # Expand ${{VAR}} syntax
+              if [[ "$value" =~ ^\$\{{([^}}]+)\}}$ ]]; then
+                var_name="${{BASH_REMATCH[1]}}"
+                value="${{!var_name}}"
+              fi
+              
+              # Update or append to merged env
+              if grep -q "^${{key}}=" /tmp/app.env 2>/dev/null; then
+                sed -i.bak "s|^${{key}}=.*|${{key}}=${{value}}|" /tmp/app.env && rm -f /tmp/app.env.bak
+              else
+                echo "${{key}}=${{value}}" >> /tmp/app.env
+              fi
+            done < .env.superdeploy
+          fi
+          
+          # Encrypt with age public key
           cat /tmp/app.env | age -r "${{{{ secrets.AGE_PUBLIC_KEY }}}}" | base64 -w 0 > /tmp/encrypted.txt
-          
-          # Output as single line
-          ENCRYPTED=$(cat /tmp/encrypted.txt)
-          echo "encrypted=${{ENCRYPTED}}" >> $GITHUB_OUTPUT
-          
-          # Cleanup
+          echo "encrypted=$(cat /tmp/encrypted.txt)" >> "$GITHUB_OUTPUT"
           rm -f /tmp/app.env /tmp/encrypted.txt
+      
+      - name: Connectivity check to Forgejo
+        env:
+          FORGEJO_BASE_URL: ${{{{ secrets.FORGEJO_BASE_URL }}}}
+        run: |
+          set -euo pipefail
+          echo "Checking reachability of $FORGEJO_BASE_URL ..."
+          # Try to reach Forgejo (5 second timeout)
+          if curl -sS -I --max-time 5 --connect-timeout 5 "$FORGEJO_BASE_URL" 2>/dev/null; then
+            echo "✓ Forgejo reachable"
+          else
+            echo "::warning::Forgejo base URL not reachable from GitHub runner."
+            echo "This is expected if Forgejo is behind firewall/VPN."
+            echo "Deployment will continue but may fail if Forgejo API is not accessible."
+            echo "Tip: Check firewall rules, use public IP with port 443, or use self-hosted runner."
+          fi
       
       - name: Trigger Forgejo deployment
         env:
-          FORGEJO_URL: ${{{{ secrets.FORGEJO_BASE_URL }}}}
           FORGEJO_PAT: ${{{{ secrets.FORGEJO_PAT }}}}
+          FORGEJO_BASE_URL: ${{{{ secrets.FORGEJO_BASE_URL }}}}
+          FORGEJO_ORG: ${{{{ secrets.FORGEJO_ORG }}}}
         run: |
-          # Extract service from repo name
-          REPO_NAME="${{{{ github.repository }}}}"
-          SERVICE="${{REPO_NAME##*/}}"
+          set -euo pipefail
           
-          # Get project and Forgejo config from secrets
-          PROJECT="${{{{ secrets.PROJECT_NAME }}}}"
-          FORGEJO_ORG="${{{{ secrets.FORGEJO_ORG }}}}"
-          FORGEJO_REPO="${{{{ secrets.FORGEJO_REPO }}}}"
+          # Debug: Show PAT prefix (first 10 chars only)
+          echo "PAT prefix: ${{FORGEJO_PAT:0:10}}..."
+          echo "Base URL: $FORGEJO_BASE_URL"
+          echo "Org: $FORGEJO_ORG"
           
-          # Build JSON payload
-          PAYLOAD=$(cat <<EOF
-          {{
-            "ref": "master",
-            "inputs": {{
-              "project": "${{PROJECT}}",
-              "service": "${{SERVICE}}",
-              "image": "${{{{ steps.digest.outputs.image }}}}",
-              "env_bundle": "${{{{ steps.env_bundle.outputs.encrypted }}}}",
-              "git_sha": "${{{{ github.sha }}}}",
-              "git_ref": "${{{{ github.ref_name }}}}"
-            }}
-          }}
-          EOF
-          )
+          # Test PAT first
+          echo "Testing PAT..."
+          TEST_RESPONSE=$(curl -sS -i -H "Authorization: token $FORGEJO_PAT" "$FORGEJO_BASE_URL/api/v1/user")
+          TEST_CODE=$(echo "$TEST_RESPONSE" | head -n1 | cut -d' ' -f2)
+          echo "PAT test result: HTTP $TEST_CODE"
           
-          echo "📦 Payload preview:"
-          echo "${{PAYLOAD}}" | jq -r '.inputs | "project=\\(.project), service=\\(.service)"'
+          if [[ "$TEST_CODE" != "200" ]]; then
+            echo "::error::PAT is invalid (HTTP $TEST_CODE)"
+            echo "$TEST_RESPONSE" | tail -5
+            exit 1
+          fi
           
-          curl -X POST \\
-            -H "Authorization: token ${{FORGEJO_PAT}}" \\
+          # Build JSON payload and trigger deployment
+          RESPONSE=$(curl -sS -i -X POST \\
+            --max-time 30 \\
+            --connect-timeout 10 \\
+            -H "Authorization: token $FORGEJO_PAT" \\
             -H "Content-Type: application/json" \\
-            -d "${{PAYLOAD}}" \\
-            "${{FORGEJO_URL}}/api/v1/repos/${{FORGEJO_ORG}}/${{FORGEJO_REPO}}/actions/workflows/deploy.yml/dispatches"
+            -d "{{\"ref\":\"master\",\"inputs\":{{\"project\":\"{project}\",\"service\":\"{service}\",\"image\":\"${{{{ env.REGISTRY }}}}/${{{{ env.IMAGE_NAME }}}}:${{{{ github.sha }}}}\",\"env_bundle\":\"${{{{ steps.env_bundle.outputs.encrypted }}}}\",\"git_sha\":\"${{{{ github.sha }}}}\"}}}}" \\
+            "$FORGEJO_BASE_URL/api/v1/repos/$FORGEJO_ORG/superdeploy/actions/workflows/deploy.yml/dispatches")
           
-          echo "✅ Deployment triggered!"
-          echo "🌐 Check status: ${{FORGEJO_URL}}/${{FORGEJO_ORG}}/${{FORGEJO_REPO}}/actions"
-"""
+          HTTP_CODE=$(echo "$RESPONSE" | head -n1 | cut -d' ' -f2)
+          BODY=$(echo "$RESPONSE" | tail -n1)
+          
+          echo "Response: $BODY"
+          echo "HTTP Status: $HTTP_CODE"
+          
+          if [[ "$HTTP_CODE" =~ ^2[0-9][0-9]$ ]]; then
+            echo "✓ Deployment triggered successfully"
+          else
+            echo "::error::Failed to trigger Forgejo deployment (HTTP $HTTP_CODE)"
+            echo "::error::Response: $BODY"
+            exit 1
+          fi
+""".format(github_org=github_org, service=service, env_section=env_section, service_upper=service.upper(), project=project)
 
     return workflow
 

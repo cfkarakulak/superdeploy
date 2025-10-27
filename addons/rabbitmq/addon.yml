@@ -24,20 +24,20 @@ env_vars:
     required: true
     secret: false
     
-  - name: RABBITMQ_DEFAULT_USER
-    description: RabbitMQ default username
+  - name: RABBITMQ_USER
+    description: RabbitMQ username
     default: "${PROJECT}_user"
     required: true
     secret: false
     
-  - name: RABBITMQ_DEFAULT_PASS
-    description: RabbitMQ default password
+  - name: RABBITMQ_PASSWORD
+    description: RabbitMQ password
     required: true
     secret: true
     generate: true
     
-  - name: RABBITMQ_DEFAULT_VHOST
-    description: RabbitMQ default virtual host
+  - name: RABBITMQ_VHOST
+    description: RabbitMQ virtual host
     default: "${PROJECT}_vhost"
     required: true
     secret: false

@@ -44,10 +44,48 @@ class Addon:
         env_vars = {}
         project_name = project_config.get('project', '')
         
+        # Get addon-specific config from project.yml
+        addon_config = project_config.get('infrastructure', {}).get(self.name, {}) or \
+                      project_config.get('core_services', {}).get(self.name, {})
+        
         for var_name, var_config in self.env_schema.get('variables', {}).items():
+            source = var_config.get('source', 'config')
             value = var_config.get('value', '')
             
-            # Substitute placeholders
+            # Get value based on source type
+            if source == 'config':
+                # Try to get from addon-specific config first (most direct)
+                config_key = var_name.replace(f'{self.name.upper()}_', '').lower()
+                if config_key in addon_config:
+                    value = str(addon_config[config_key])
+                else:
+                    # Try from_project path if specified
+                    from_project = var_config.get('from_project', '')
+                    if from_project:
+                        # Parse path like "infrastructure.forgejo.port"
+                        parts = from_project.split('.')
+                        config_value = project_config
+                        for part in parts:
+                            config_value = config_value.get(part, {}) if isinstance(config_value, dict) else {}
+                        
+                        if config_value and not isinstance(config_value, dict):
+                            value = str(config_value)
+                        else:
+                            # Fallback to default
+                            value = str(var_config.get('default', value))
+                    else:
+                        # Use default value
+                        value = str(var_config.get('default', value))
+            
+            elif source == 'secret':
+                # Secrets are referenced as ${VAR_NAME} - they'll be substituted at runtime
+                value = var_config.get('value', f"${{{var_name}}}")
+            
+            elif source == 'runtime':
+                # Runtime values like ${ANSIBLE_HOST} - keep as placeholder
+                value = var_config.get('value', '')
+            
+            # Substitute common placeholders
             value = value.replace('${PROJECT}', project_name)
             
             # Handle CORE_INTERNAL_IP substitution
