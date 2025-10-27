@@ -137,11 +137,8 @@ jobs:
           echo "🔍 Debug: Checking /opt/superdeploy/projects/${{ env.PROJECT }}..."
           ls -la /opt/superdeploy/projects/${{ env.PROJECT }}/ || echo "Project directory not found"
           
-          # Read port configuration from project.yml (new format) or config.yml (old format)
+          # Read port configuration from project.yml
           CONFIG_FILE="/opt/superdeploy/projects/${{ env.PROJECT }}/project.yml"
-          if [ ! -f "$CONFIG_FILE" ]; then
-            CONFIG_FILE="/opt/superdeploy/projects/${{ env.PROJECT }}/config.yml"
-          fi
           
           if [ -f "$CONFIG_FILE" ]; then
             # Use helper script to parse YAML config
@@ -164,21 +161,21 @@ jobs:
               
               # NO FALLBACK! Fail if ports are empty
               if [ -z "$EXTERNAL_PORT" ] || [ -z "$INTERNAL_PORT" ]; then
-                echo "❌ ERROR: Failed to parse ports from config!"
-                echo "Config file: $CONFIG_FILE"
+                echo "❌ ERROR: Failed to parse ports from project.yml!"
+                echo "Project file: $CONFIG_FILE"
                 echo "Service: ${{ env.SERVICE }}"
                 exit 1
               fi
               
               echo "external_port=${EXTERNAL_PORT}" >> $GITHUB_OUTPUT
               echo "internal_port=${INTERNAL_PORT}" >> $GITHUB_OUTPUT
-              echo "✅ Loaded ports from config: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
+              echo "✅ Loaded ports from project.yml: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
             else
               echo "❌ ERROR: Parser script not found at: $PARSER_SCRIPT"
               exit 1
             fi
           else
-            echo "❌ ERROR: Config file not found at: $CONFIG_FILE"
+            echo "❌ ERROR: Project file not found at: $CONFIG_FILE"
             exit 1
           fi
       
@@ -195,7 +192,7 @@ jobs:
             exit 1
           fi
           
-          # Use ports from config
+          # Use ports from project.yml
           EXTERNAL_PORT="${{ steps.config.outputs.external_port }}"
           INTERNAL_PORT="${{ steps.config.outputs.internal_port }}"
           
@@ -314,7 +311,7 @@ jobs:
           set -e
           echo "🌐 Registering ${{ env.SERVICE }} with Caddy reverse proxy..."
           
-          # Get ports from config
+          # Get ports from project.yml
           EXTERNAL_PORT="${{ steps.config.outputs.external_port }}"
           INTERNAL_PORT="${{ steps.config.outputs.internal_port }}"
           
