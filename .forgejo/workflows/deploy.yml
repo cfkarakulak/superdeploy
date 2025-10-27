@@ -131,8 +131,11 @@ jobs:
           set -ex
           echo "📋 Loading project configuration..."
           
-          # Read port configuration from project config.yml
-          CONFIG_FILE="/opt/superdeploy/projects/${{ env.PROJECT }}/config.yml"
+          # Read port configuration from project.yml (new format) or config.yml (old format)
+          CONFIG_FILE="/opt/superdeploy/projects/${{ env.PROJECT }}/project.yml"
+          if [ ! -f "$CONFIG_FILE" ]; then
+            CONFIG_FILE="/opt/superdeploy/projects/${{ env.PROJECT }}/config.yml"
+          fi
           
           if [ -f "$CONFIG_FILE" ]; then
             # Use helper script to parse YAML config
