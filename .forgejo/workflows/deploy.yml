@@ -31,7 +31,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     
     env:
       PROJECT: ${{ inputs.project }}
