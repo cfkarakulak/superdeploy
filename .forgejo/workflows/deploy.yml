@@ -425,7 +425,16 @@ jobs:
           
           # Deploy with zero-downtime
           echo "🐳 Starting service container..."
-          docker-compose -f docker-compose-${{ env.SERVICE }}.yml up -d
+          
+          # Use docker compose v2 (plugin) - note the space, not hyphen
+          if command -v docker &> /dev/null && docker compose version &> /dev/null; then
+            docker compose -f docker-compose-${{ env.SERVICE }}.yml up -d
+          elif command -v docker-compose &> /dev/null; then
+            docker-compose -f docker-compose-${{ env.SERVICE }}.yml up -d
+          else
+            echo "❌ Neither 'docker compose' nor 'docker-compose' is available"
+            exit 1
+          fi
           
           echo "📊 Container status:"
           docker ps -a --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
