@@ -163,8 +163,8 @@ class TemplateMerger:
             secrets = addon.get_github_secrets()
 
             for secret in secrets:
-                # Format as GitHub Actions env variable
-                env_lines.append(f"    {secret}: ${{{{ secrets.{secret} }}}}")
+                # Format as GitHub Actions env variable (10 spaces for workflow env section)
+                env_lines.append(f"          {secret}: ${{{{ secrets.{secret} }}}}")
 
         return env_lines
 
