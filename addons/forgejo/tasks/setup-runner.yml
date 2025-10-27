@@ -148,6 +148,22 @@
     state: present
   become: yes
 
+- name: Create project configuration directory
+  file:
+    path: "/opt/superdeploy/projects/{{ project_name }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0755'
+
+- name: Copy project.yml to VM (for Forgejo workflows)
+  copy:
+    src: "{{ project_path }}/project.yml"
+    dest: "/opt/superdeploy/projects/{{ project_name }}/project.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0644'
+
 - name: Check if runner is already registered
   stat:
     path: "{{ addon_base_path }}/{{ addon_name }}/runner/.runner"

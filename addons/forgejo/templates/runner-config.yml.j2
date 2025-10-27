@@ -24,9 +24,10 @@ cache:
 container:
   network: "{{ project_name }}-network"
   privileged: false
-  options: "--add-host=localhost:{{ forgejo_container_ip | default('172.30.0.3') }} -v /usr/local/bin/age:/usr/local/bin/age:ro -v /opt/forgejo-runner/.age:/opt/forgejo-runner/.age:ro -v /opt/superdeploy/projects:/opt/superdeploy/projects:ro"
+  options: ""
   workdir_parent: ""
-  valid_volumes: []
+  valid_volumes:
+    - "/opt/superdeploy/projects:/opt/superdeploy/projects:ro"
   docker_host: ""
   force_pull: false
 
