@@ -64,6 +64,17 @@
     shell: /bin/bash
     state: present
 
+- name: Configure passwordless sudo for superdeploy user
+  copy:
+    content: |
+      # Allow superdeploy user to run sudo without password
+      {{ superdeploy_user }} ALL=(ALL) NOPASSWD:ALL
+    dest: /etc/sudoers.d/{{ superdeploy_user }}
+    owner: root
+    group: root
+    mode: '0440'
+    validate: 'visudo -cf %s'
+
 - name: Configure swap
   include_tasks: swap.yml
 

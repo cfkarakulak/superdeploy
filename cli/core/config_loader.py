@@ -52,22 +52,6 @@ class ProjectConfig:
 
     def _apply_defaults(self) -> None:
         """Apply default values to configuration"""
-        # Ensure infrastructure section exists
-        if "infrastructure" not in self.raw_config:
-            self.raw_config["infrastructure"] = {}
-
-        # Ensure vm_config section exists with defaults
-        if "vm_config" not in self.raw_config["infrastructure"]:
-            self.raw_config["infrastructure"]["vm_config"] = {}
-
-        vm_config = self.raw_config["infrastructure"]["vm_config"]
-        if "machine_type" not in vm_config:
-            vm_config["machine_type"] = "e2-medium"
-        if "disk_size" not in vm_config:
-            vm_config["disk_size"] = 20
-        if "image" not in vm_config:
-            vm_config["image"] = "debian-cloud/debian-11"
-
         # Ensure network section exists with defaults
         if "network" not in self.raw_config:
             self.raw_config["network"] = {}
@@ -123,7 +107,8 @@ class ProjectConfig:
         Returns:
             Dictionary with machine_type, disk_size, and image
         """
-        vm_config = self.raw_config.get("infrastructure", {}).get("vm_config", {})
+        # VM config is now at top level or use defaults
+        vm_config = self.raw_config.get("vm_config", {})
         return {
             "machine_type": vm_config.get("machine_type", "e2-medium"),
             "disk_size": vm_config.get("disk_size", 20),

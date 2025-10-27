@@ -137,7 +137,7 @@ class ValidationEngine:
         project_config: dict
     ) -> List[ValidationError]:
         """
-        Validate infrastructure configuration (Forgejo).
+        Validate infrastructure configuration (Forgejo in addons).
         
         Args:
             project_config: Project configuration dictionary
@@ -147,30 +147,30 @@ class ValidationEngine:
         """
         errors = []
         
-        # Get infrastructure config
-        infrastructure = project_config.get('infrastructure', {})
+        # Get addons config (new structure)
+        addons = project_config.get('addons', {})
         
-        if not isinstance(infrastructure, dict):
+        if not isinstance(addons, dict):
             errors.append(ValidationError(
                 error_type='invalid_config',
-                message="'infrastructure' must be a dictionary"
+                message="'addons' must be a dictionary"
             ))
             return errors
         
         # Validate Forgejo configuration (required)
-        forgejo_config = infrastructure.get('forgejo', {})
+        forgejo_config = addons.get('forgejo', {})
         
         if not forgejo_config:
             errors.append(ValidationError(
                 error_type='missing_forgejo_config',
-                message="'infrastructure.forgejo' configuration is required"
+                message="'addons.forgejo' configuration is required"
             ))
             return errors
         
         if not isinstance(forgejo_config, dict):
             errors.append(ValidationError(
                 error_type='invalid_config',
-                message="'infrastructure.forgejo' must be a dictionary"
+                message="'addons.forgejo' must be a dictionary"
             ))
             return errors
         
@@ -180,7 +180,7 @@ class ValidationEngine:
             if field not in forgejo_config:
                 errors.append(ValidationError(
                     error_type='missing_forgejo_field',
-                    message=f"'infrastructure.forgejo.{field}' is required"
+                    message=f"'addons.forgejo.{field}' is required"
                 ))
         
         # Validate port numbers
@@ -193,7 +193,7 @@ class ValidationEngine:
                         errors.append(ValidationError(
                             error_type='invalid_port',
                             message=(
-                                f"'infrastructure.forgejo.{port_field}' must be "
+                                f"'addons.forgejo.{port_field}' must be "
                                 f"between 1 and 65535, got {port_int}"
                             )
                         ))
@@ -201,7 +201,7 @@ class ValidationEngine:
                     errors.append(ValidationError(
                         error_type='invalid_port',
                         message=(
-                            f"'infrastructure.forgejo.{port_field}' must be a valid "
+                            f"'addons.forgejo.{port_field}' must be a valid "
                             f"port number, got '{port_value}'"
                         )
                     ))
@@ -213,7 +213,7 @@ class ValidationEngine:
                 if not value or not str(value).strip():
                     errors.append(ValidationError(
                         error_type='invalid_forgejo_field',
-                        message=f"'infrastructure.forgejo.{string_field}' cannot be empty"
+                        message=f"'addons.forgejo.{string_field}' cannot be empty"
                     ))
         
         return errors
@@ -448,13 +448,14 @@ class ValidationEngine:
         """
         errors = []
         
-        # Get subnet from project config
-        subnet_str = project_config.get('network', {}).get('subnet')
+        # Get subnet from project config (try docker_subnet first, then subnet for backward compat)
+        network_config = project_config.get('network', {})
+        subnet_str = network_config.get('docker_subnet') or network_config.get('subnet')
         
         if not subnet_str:
             errors.append(ValidationError(
                 error_type='missing_subnet',
-                message=f"Project '{project_name}' is missing network.subnet configuration"
+                message=f"Project '{project_name}' is missing network.docker_subnet configuration"
             ))
             return errors
         
@@ -716,7 +717,8 @@ class ValidationEngine:
                         config = yaml.safe_load(f)
                     
                     if config:
-                        subnet = config.get('network', {}).get('subnet')
+                        network_config = config.get('network', {})
+                        subnet = network_config.get('docker_subnet') or network_config.get('subnet')
                         project_name = config.get('project', project_dir.name)
                         
                         if subnet:
@@ -783,10 +785,10 @@ class ValidationEngine:
         """
         ports = {}
         
-        # Get Forgejo ports from infrastructure config
-        infrastructure = project_config.get('infrastructure', {})
-        if isinstance(infrastructure, dict):
-            forgejo_config = infrastructure.get('forgejo', {})
+        # Get Forgejo ports from addons config
+        addons = project_config.get('addons', {})
+        if isinstance(addons, dict):
+            forgejo_config = addons.get('forgejo', {})
             if isinstance(forgejo_config, dict):
                 # Forgejo web port
                 forgejo_port = forgejo_config.get('port')

@@ -105,14 +105,15 @@ def _check_vm_status(ssh_host, ssh_user, ssh_key, table):
 
 def _check_core_services(config, ssh_host, ssh_user, ssh_key, table, project):
     """Check core services (addons) status"""
-    core_services = config.get('core_services', {})
+    # Get addons from new structure
+    addons = config.get('addons', {})
     
-    if not core_services:
+    if not addons:
         table.add_row("Core Services", "ℹ️  None", "No addons configured")
         return
     
     # Check each addon service
-    for service_name in core_services.keys():
+    for service_name in addons.keys():
         container_name = f"{project}-{service_name}"
         
         try:

@@ -86,7 +86,7 @@ def generate_ansible_extra_vars(project_config, env_vars=None, project_root=None
 
 
 def build_ansible_command(
-    ansible_dir, project_root, project_config, env_vars, tags=None, project_name=None
+    ansible_dir, project_root, project_config, env_vars, tags=None, project_name=None, ask_become_pass=False
 ):
     """
     Build complete Ansible playbook command with all necessary variables
@@ -98,6 +98,7 @@ def build_ansible_command(
         env_vars (dict): Environment variables
         tags (str): Optional Ansible tags to run (e.g. 'foundation', 'addons', 'project')
         project_name (str): Project name for dynamic inventory file selection
+        ask_become_pass (bool): Whether to prompt for sudo password
 
     Returns:
         str: Complete ansible-playbook command
@@ -114,6 +115,9 @@ def build_ansible_command(
 
     # Build tags string
     tags_str = f"--tags {tags}" if tags else ""
+    
+    # Add --ask-become-pass if needed (for first-time setup before passwordless sudo is configured)
+    become_pass_str = "--ask-become-pass" if ask_become_pass else ""
 
     # Use project-specific inventory file if project_name is provided
     if not project_name:
@@ -123,7 +127,7 @@ def build_ansible_command(
     # Build the command
     cmd = f"""
 cd {ansible_dir} && \\
-SUPERDEPLOY_ROOT={project_root} ansible-playbook -i {inventory_file} playbooks/site.yml {tags_str} \\
+SUPERDEPLOY_ROOT={project_root} ansible-playbook -i {inventory_file} playbooks/site.yml {tags_str} {become_pass_str} \\
   --extra-vars '{extra_vars_json}'
 """
 

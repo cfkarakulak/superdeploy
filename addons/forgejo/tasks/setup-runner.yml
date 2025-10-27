@@ -147,23 +147,6 @@
     line: "{{ forgejo_ip_result.stdout }} {{ project_name }}-forgejo"
     state: present
   become: yes
-
-- name: Create project configuration directory
-  file:
-    path: "/opt/superdeploy/projects/{{ project_name }}"
-    state: directory
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group }}"
-    mode: '0755'
-
-- name: Copy project.yml to VM (for Forgejo workflows)
-  copy:
-    src: "{{ project_path }}/project.yml"
-    dest: "/opt/superdeploy/projects/{{ project_name }}/project.yml"
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group }}"
-    mode: '0644'
-
 - name: Check if runner is already registered
   stat:
     path: "{{ addon_base_path }}/{{ addon_name }}/runner/.runner"
@@ -202,7 +185,7 @@
     --instance "http://{{ forgejo_ip_result.stdout }}:3000"
     --token "{{ runner_token }}"
     --name "{{ runner_name | default(project_name + '-runner') }}"
-    --labels "{{ runner_labels | default('ubuntu-latest:docker://node:20-bookworm,ubuntu-22.04:docker://node:20-bookworm') }}"
+    --labels "{{ runner_labels | default('ubuntu-latest:docker://node:20-alpine,ubuntu-22.04:docker://node:20-alpine') }}"
   args:
     chdir: "{{ addon_base_path }}/{{ addon_name }}/runner"
   become_user: "{{ superdeploy_user }}"
@@ -234,6 +217,15 @@
   systemd:
     daemon_reload: yes
   become: yes
+
+- name: Pre-pull runner Docker image for faster workflow execution
+  community.docker.docker_image:
+    name: node:20-bookworm
+    source: pull
+  become_user: "{{ superdeploy_user }}"
+  async: 300
+  poll: 0
+  register: image_pull_job
 
 - name: Enable and start Forgejo runner service
   systemd:

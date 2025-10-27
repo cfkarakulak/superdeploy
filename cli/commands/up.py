@@ -583,9 +583,23 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
             env_vars=ansible_env_vars,
             tags=ansible_tags,
             project_name=project,
+            ask_become_pass=skip_terraform,  # Ask for password if skipping terraform (passwordless sudo not yet configured)
         )
 
-        run_command(ansible_cmd)
+        # Run ansible with interactive input if asking for become password
+        if skip_terraform:
+            # Need interactive mode for password prompt
+            result = subprocess.run(
+                ansible_cmd,
+                shell=True,
+                cwd=str(project_root),
+            )
+            if result.returncode != 0:
+                console.print("[red]❌ Ansible configuration failed![/red]")
+                raise SystemExit(1)
+        else:
+            run_command(ansible_cmd)
+        
         console.print("[green]✅ Services configured![/green]")
 
     # Git push (also outside progress to avoid mixing)
