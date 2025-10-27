@@ -120,9 +120,9 @@ class AddonLoader:
                 addon = self.load_addon(service_name)
                 addons[service_name] = addon
         
-        # Get addon names from core_services section
-        core_services = project_config.get('core_services', {})
-        for service_name in core_services.keys():
+        # Get addon names from addons section
+        addon_configs = project_config.get('addons', {})
+        for service_name in addon_configs.keys():
             addon = self.load_addon(service_name)
             addons[service_name] = addon
         

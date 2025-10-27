@@ -100,7 +100,7 @@ def render_template(template_path, context):
     return template.render(**context)
 
 
-def generate_env_superdeploy(project, service, core_services):
+def generate_env_superdeploy(project, service, addons):
     """Generate .env.superdeploy for a service"""
     lines = [
         "# =============================================================================",
@@ -116,8 +116,8 @@ def generate_env_superdeploy(project, service, core_services):
         "",
     ]
 
-    # Add core service env vars
-    if "postgres" in core_services:
+    # Add addon env vars
+    if "postgres" in addons:
         lines.extend(
             [
                 "",
@@ -130,7 +130,7 @@ def generate_env_superdeploy(project, service, core_services):
             ]
         )
 
-    if "rabbitmq" in core_services:
+    if "rabbitmq" in addons:
         lines.extend(
             [
                 "",
@@ -142,7 +142,7 @@ def generate_env_superdeploy(project, service, core_services):
             ]
         )
 
-    if "redis" in core_services:
+    if "redis" in addons:
         lines.extend(
             [
                 "",
@@ -153,7 +153,7 @@ def generate_env_superdeploy(project, service, core_services):
             ]
         )
 
-    if "mongodb" in core_services:
+    if "mongodb" in addons:
         lines.extend(
             [
                 "",
@@ -168,13 +168,13 @@ def generate_env_superdeploy(project, service, core_services):
     return "\n".join(lines)
 
 
-def generate_workflow(project, service, core_services, github_org):
+def generate_workflow(project, service, addons, github_org):
     """Generate GitHub Actions workflow for a service"""
 
     # Build env section
     env_vars = []
 
-    if "postgres" in core_services:
+    if "postgres" in addons:
         env_vars.extend(
             [
                 "    POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}",
@@ -185,7 +185,7 @@ def generate_workflow(project, service, core_services, github_org):
             ]
         )
 
-    if "rabbitmq" in core_services:
+    if "rabbitmq" in addons:
         env_vars.extend(
             [
                 "    RABBITMQ_HOST: ${{ secrets.RABBITMQ_HOST }}",
@@ -195,7 +195,7 @@ def generate_workflow(project, service, core_services, github_org):
             ]
         )
 
-    if "redis" in core_services:
+    if "redis" in addons:
         env_vars.extend(
             [
                 "    REDIS_HOST: ${{ secrets.REDIS_HOST }}",
@@ -204,7 +204,7 @@ def generate_workflow(project, service, core_services, github_org):
             ]
         )
 
-    if "mongodb" in core_services:
+    if "mongodb" in addons:
         env_vars.extend(
             [
                 "    MONGODB_HOST: ${{ secrets.MONGODB_HOST }}",
@@ -525,27 +525,27 @@ def init(project, app, subnet, no_interactive, yes):
     available_addons = get_available_addons()
 
     # Filter to only show database, cache, queue, and proxy addons (not monitoring)
-    available_core_services = [
+    available_addons_list = [
         (addon["name"], f"{addon['description']} ({addon['version']})")
         for addon in available_addons
         if addon["category"] in ["database", "cache", "queue", "proxy"]
     ]
 
     # Fallback if no addons found
-    if not available_core_services:
-        available_core_services = [
+    if not available_addons_list:
+        available_addons_list = [
             ("postgres", "PostgreSQL 15 - Relational database"),
             ("rabbitmq", "RabbitMQ 3.12 - Message queue"),
             ("redis", "Redis 7 - In-memory cache/store"),
             ("mongodb", "MongoDB 7 - Document database"),
         ]
 
-    core_services = ["postgres", "rabbitmq"]  # Default
+    selected_addons = ["postgres", "rabbitmq"]  # Default
 
     if interactive:
         import inquirer
 
-        console.print("\n[bold]Core services configuration (Addon-based):[/bold]")
+        console.print("\n[bold]Addons configuration:[/bold]")
         console.print("  [dim]Use SPACE to select, ENTER to confirm[/dim]")
         console.print(
             "  [dim]These services are SHARED by all apps (api, dashboard, etc.)[/dim]"
@@ -555,11 +555,11 @@ def init(project, app, subnet, no_interactive, yes):
         questions = [
             inquirer.Checkbox(
                 "services",
-                message="Select core services",
-                choices=[f"{name}: {desc}" for name, desc in available_core_services],
+                message="Select addons",
+                choices=[f"{name}: {desc}" for name, desc in available_addons_list],
                 default=[
                     f"{name}: {desc}"
-                    for name, desc in available_core_services
+                    for name, desc in available_addons_list
                     if name in ["postgres", "rabbitmq"]
                 ],
             ),
@@ -568,12 +568,12 @@ def init(project, app, subnet, no_interactive, yes):
         answers = inquirer.prompt(questions)
         if answers and answers["services"]:
             # Extract service names from "name: description" format
-            core_services = [
+            selected_addons = [
                 choice.split(":")[0].strip() for choice in answers["services"]
             ]
         else:
             console.print("[yellow]⚠️  No services selected, using defaults[/yellow]")
-            core_services = ["postgres", "rabbitmq"]
+            selected_addons = ["postgres", "rabbitmq"]
 
     # Password generation - always enabled (user can regenerate later)
     generate_passwords = True
@@ -653,7 +653,7 @@ def init(project, app, subnet, no_interactive, yes):
             }
             for app_name, app_path in apps.items()
         },
-        "core_services": {service: {} for service in core_services},
+        "addons": {service: {} for service in selected_addons},
     }
 
     # Validate configuration before creating files
@@ -715,25 +715,25 @@ def init(project, app, subnet, no_interactive, yes):
             "port": port_assignments[app_name]["external"],
         }
 
-    # Build core_services dict for template
+    # Build addons dict for template
     addon_versions = {addon["name"]: addon["version"] for addon in available_addons}
-    core_services_dict = {}
-    for service in core_services:
+    addons_dict = {}
+    for service in selected_addons:
         default_version = addon_versions.get(service, "latest")
 
         if service == "postgres":
-            core_services_dict[service] = {
+            addons_dict[service] = {
                 "version": default_version,
                 "user": f"{project}_user",
                 "database": f"{project}_db",
             }
         elif service in ["rabbitmq", "mongodb"]:
-            core_services_dict[service] = {
+            addons_dict[service] = {
                 "version": default_version,
                 "user": f"{project}_user",
             }
         else:
-            core_services_dict[service] = {
+            addons_dict[service] = {
                 "version": default_version,
             }
 
@@ -804,13 +804,13 @@ vms:
       - forgejo
 
 # =============================================================================
-# Core Services (Addon-Based Infrastructure)
+# Addons Configuration
 # =============================================================================
-core_services:
+addons:
 """
 
-    # Add core services
-    for service, config in core_services_dict.items():
+    # Add addons
+    for service, config in addons_dict.items():
         project_yml_content += f"  {service}:\n"
         for key, value in config.items():
             project_yml_content += f'    {key}: "{value}"\n'

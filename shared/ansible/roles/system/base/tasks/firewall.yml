@@ -78,48 +78,48 @@
 
 - name: Add PostgreSQL port if enabled
   set_fact:
-    addon_ports: "{{ addon_ports + [project_config.core_services.postgres.port | default(5432)] }}"
+    addon_ports: "{{ addon_ports + [project_config.addons.postgres.port | default(5432)] }}"
   when: 
     - project_config is defined
-    - project_config.core_services is defined
-    - project_config.core_services.postgres is defined
-    - project_config.core_services.postgres.port is defined
+    - project_config.addons is defined
+    - project_config.addons.postgres is defined
+    - project_config.addons.postgres.port is defined
 
 - name: Add Redis port if enabled
   set_fact:
-    addon_ports: "{{ addon_ports + [project_config.core_services.redis.port | default(6379)] }}"
+    addon_ports: "{{ addon_ports + [project_config.addons.redis.port | default(6379)] }}"
   when: 
     - project_config is defined
-    - project_config.core_services is defined
-    - project_config.core_services.redis is defined
-    - project_config.core_services.redis.port is defined
+    - project_config.addons is defined
+    - project_config.addons.redis is defined
+    - project_config.addons.redis.port is defined
 
 - name: Add RabbitMQ port if enabled
   set_fact:
-    addon_ports: "{{ addon_ports + [project_config.core_services.rabbitmq.port | default(5672)] }}"
+    addon_ports: "{{ addon_ports + [project_config.addons.rabbitmq.port | default(5672)] }}"
   when: 
     - project_config is defined
-    - project_config.core_services is defined
-    - project_config.core_services.rabbitmq is defined
-    - project_config.core_services.rabbitmq.port is defined
+    - project_config.addons is defined
+    - project_config.addons.rabbitmq is defined
+    - project_config.addons.rabbitmq.port is defined
 
 - name: Add RabbitMQ management port if enabled
   set_fact:
-    addon_ports: "{{ addon_ports + [project_config.core_services.rabbitmq.management_port | default(15672)] }}"
+    addon_ports: "{{ addon_ports + [project_config.addons.rabbitmq.management_port | default(15672)] }}"
   when: 
     - project_config is defined
-    - project_config.core_services is defined
-    - project_config.core_services.rabbitmq is defined
-    - project_config.core_services.rabbitmq.management_port is defined
+    - project_config.addons is defined
+    - project_config.addons.rabbitmq is defined
+    - project_config.addons.rabbitmq.management_port is defined
 
 - name: Add MongoDB port if enabled
   set_fact:
-    addon_ports: "{{ addon_ports + [project_config.core_services.mongodb.port | default(27017)] }}"
+    addon_ports: "{{ addon_ports + [project_config.addons.mongodb.port | default(27017)] }}"
   when: 
     - project_config is defined
-    - project_config.core_services is defined
-    - project_config.core_services.mongodb is defined
-    - project_config.core_services.mongodb.port is defined
+    - project_config.addons is defined
+    - project_config.addons.mongodb is defined
+    - project_config.addons.mongodb.port is defined
 
 - name: Add Prometheus port if monitoring enabled
   set_fact:

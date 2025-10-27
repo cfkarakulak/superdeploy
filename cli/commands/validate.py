@@ -74,7 +74,7 @@ def validate_project_cmd(project):
     console.print("\n[bold]Running validation checks...[/bold]\n")
 
     # 1. Required fields
-    required_fields = ["project", "services", "ports", "core_services", "github"]
+    required_fields = ["project", "services", "ports", "addons", "github"]
     for field in required_fields:
         if field not in config:
             errors.append(f"Missing required field: {field}")
@@ -106,12 +106,12 @@ def validate_project_cmd(project):
         
         console.print(f"[green]✓[/green] Port assignments: {len(external_ports)} ports")
 
-    # 4. Core services
-    if "core_services" in config:
-        required_core = ["postgres", "rabbitmq", "redis"]
-        for core in required_core:
-            if core not in config["core_services"]:
-                warnings.append(f"Core service '{core}' not configured")
+    # 4. Addons
+    if "addons" in config:
+        recommended_addons = ["postgres", "rabbitmq", "redis"]
+        for addon in recommended_addons:
+            if addon not in config["addons"]:
+                warnings.append(f"Addon '{addon}' not configured")
             else:
                 console.print(f"[green]✓[/green] Core service: {core}")
 
@@ -158,7 +158,7 @@ def validate_project_cmd(project):
         table.add_row("Project", config.get("project", "N/A"))
         table.add_row("Services", str(len(config.get("services", []))))
         table.add_row("Ports", str(len(config.get("ports", {}))))
-        table.add_row("Core Services", str(len(config.get("core_services", {}))))
+        table.add_row("Addons", str(len(config.get("addons", {}))))
         table.add_row("Repositories", str(len(config.get("github", {}).get("repositories", {}))))
         
         console.print()

@@ -45,10 +45,8 @@ class TemplateMerger:
 
         # Merge each addon
         for addon_name, addon in addons.items():
-            # Get addon-specific config from project (check both infrastructure and core_services)
-            addon_config = project_config.get("infrastructure", {}).get(
-                addon_name, {}
-            ) or project_config.get("core_services", {}).get(addon_name, {})
+            # Get addon-specific config from project
+            addon_config = project_config.get("addons", {}).get(addon_name, {})
 
             # Build template context with proper variable naming
             # Convert config keys to uppercase for template variables (e.g., port -> FORGEJO_PORT)
@@ -185,10 +183,8 @@ class TemplateMerger:
         all_tasks = []
 
         for addon_name, addon in addons.items():
-            # Get addon-specific config (check both infrastructure and core_services)
-            addon_config = project_config.get("infrastructure", {}).get(
-                addon_name, {}
-            ) or project_config.get("core_services", {}).get(addon_name, {})
+            # Get addon-specific config from project
+            addon_config = project_config.get("addons", {}).get(addon_name, {})
 
             # Get tasks from addon
             tasks = (

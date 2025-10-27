@@ -75,8 +75,8 @@ def status(project):
     # Check VMs
     vm_status = _check_vm_status(ssh_host, ssh_user, ssh_key, table)
     
-    # Check core services (from addons)
-    _check_core_services(config, ssh_host, ssh_user, ssh_key, table, project)
+    # Check addons
+    _check_addons(config, ssh_host, ssh_user, ssh_key, table, project)
     
     # Check application containers
     _check_app_containers(config, ssh_host, ssh_user, ssh_key, table, project)
@@ -103,8 +103,8 @@ def _check_vm_status(ssh_host, ssh_user, ssh_key, table):
     return vm_reachable
 
 
-def _check_core_services(config, ssh_host, ssh_user, ssh_key, table, project):
-    """Check core services (addons) status"""
+def _check_addons(config, ssh_host, ssh_user, ssh_key, table, project):
+    """Check addons status"""
     # Get addons from new structure
     addons = config.get('addons', {})
     

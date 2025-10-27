@@ -173,31 +173,11 @@ class ProjectConfig:
 
     def get_addons(self) -> Dict[str, Dict[str, Any]]:
         """
-        Get addon configurations from addons section ONLY.
+        Get addon configurations from addons section.
         
         Returns:
             Dictionary of addon configurations
-            
-        Raises:
-            ValueError: If infrastructure or core_services sections exist
         """
-        # Fail fast if old sections exist
-        if 'infrastructure' in self.raw_config:
-            raise ValueError(
-                "ERROR: 'infrastructure' section is no longer supported.\n"
-                "Move all addon configurations to 'addons' section.\n"
-                f"Example: Move 'infrastructure.forgejo' to 'addons.forgejo'\n"
-                f"File: projects/{self.project_name}/project.yml"
-            )
-        
-        if 'core_services' in self.raw_config:
-            raise ValueError(
-                "ERROR: 'core_services' section is no longer supported.\n"
-                "Move all addon configurations to 'addons' section.\n"
-                f"Example: Move 'core_services.postgres' to 'addons.postgres'\n"
-                f"File: projects/{self.project_name}/project.yml"
-            )
-        
         return self.raw_config.get('addons', {})
 
     def to_terraform_vars(self) -> Dict[str, Any]:

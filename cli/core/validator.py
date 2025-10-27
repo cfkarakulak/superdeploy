@@ -346,18 +346,18 @@ class ValidationEngine:
         if available_addons is None:
             return errors
         
-        # Get core services from config
-        core_services = project_config.get('core_services', {})
+        # Get addons from config
+        addons_config = project_config.get('addons', {})
         
-        if not isinstance(core_services, dict):
+        if not isinstance(addons_config, dict):
             errors.append(ValidationError(
                 error_type='invalid_config',
-                message="'core_services' must be a dictionary"
+                message="'addons' must be a dictionary"
             ))
             return errors
         
         # Check each addon name
-        for addon_name in core_services.keys():
+        for addon_name in addons_config.keys():
             if addon_name not in available_addons:
                 errors.append(ValidationError(
                     error_type='invalid_addon',
@@ -374,7 +374,7 @@ class ValidationEngine:
         project_config: dict
     ) -> List[ValidationError]:
         """
-        Validate addon configurations in core_services.
+        Validate addon configurations.
         
         Args:
             project_config: Project configuration dictionary
@@ -384,15 +384,15 @@ class ValidationEngine:
         """
         errors = []
         
-        # Get core services from config
-        core_services = project_config.get('core_services', {})
+        # Get addons from config
+        addons_config = project_config.get('addons', {})
         
-        if not isinstance(core_services, dict):
+        if not isinstance(addons_config, dict):
             # Already validated in _validate_addon_names
             return errors
         
         # Validate each addon configuration
-        for addon_name, addon_config in core_services.items():
+        for addon_name, addon_config in addons_config.items():
             if addon_config is None:
                 # Addon enabled with no custom config is valid
                 continue
@@ -808,10 +808,10 @@ class ValidationEngine:
                     except (ValueError, TypeError):
                         pass
         
-        # Get addon ports from core_services
-        core_services = project_config.get('core_services', {})
-        if isinstance(core_services, dict):
-            for addon_name, addon_config in core_services.items():
+        # Get addon ports from addons
+        addons_config = project_config.get('addons', {})
+        if isinstance(addons_config, dict):
+            for addon_name, addon_config in addons_config.items():
                 if isinstance(addon_config, dict):
                     port = addon_config.get('port')
                     if port:

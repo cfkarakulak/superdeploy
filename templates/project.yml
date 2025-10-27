@@ -106,7 +106,7 @@ vms:
 # =============================================================================
 # Available addons: postgres, redis, rabbitmq, mongodb, caddy, monitoring
 # Each addon can have version overrides and custom configuration
-core_services:
+addons:
   postgres:
     # Optional: Override default version from addon.yml
     # version: "15-alpine"

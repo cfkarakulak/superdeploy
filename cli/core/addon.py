@@ -45,8 +45,7 @@ class Addon:
         project_name = project_config.get('project', '')
         
         # Get addon-specific config from project.yml
-        addon_config = project_config.get('infrastructure', {}).get(self.name, {}) or \
-                      project_config.get('core_services', {}).get(self.name, {})
+        addon_config = project_config.get('addons', {}).get(self.name, {})
         
         for var_name, var_config in self.env_schema.get('variables', {}).items():
             source = var_config.get('source', 'config')
