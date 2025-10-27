@@ -48,7 +48,7 @@ jobs:
       - name: Install age
         run: |
           curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
-          sudo mv age/age /usr/local/bin/
+          mv age/age /usr/local/bin/
           rm -rf age
       
       - name: Decrypt environment bundle
