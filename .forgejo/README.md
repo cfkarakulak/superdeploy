@@ -72,3 +72,4 @@ Workflow'da `runs-on: [self-hosted, {project}]` ile doğru runner seçilir.
 - ✅ Runner'da geçici decrypt, sonra temizlik
 - ✅ Image digest ile immutable deployment
 
+# Trigger new workflow run
