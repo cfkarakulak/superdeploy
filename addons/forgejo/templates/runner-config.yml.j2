@@ -24,7 +24,7 @@ cache:
 container:
   network: "{{ project_name }}-network"
   privileged: false
-  options: ""
+  options: "-v /opt/superdeploy/projects:/opt/superdeploy/projects:ro"
   workdir_parent: ""
   valid_volumes:
     - "/opt/superdeploy/projects:/opt/superdeploy/projects:ro"
