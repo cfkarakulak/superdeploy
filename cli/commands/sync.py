@@ -12,6 +12,48 @@ from cli.utils import load_env, ssh_command, validate_env_vars
 console = Console()
 
 
+def build_service_patterns_from_addons(project, env):
+    """
+    Build service patterns dynamically from addon metadata.
+    
+    Args:
+        project (str): Project name
+        env (dict): Environment variables
+        
+    Returns:
+        dict: Dictionary mapping addon names to their environment variable structure
+    """
+    from cli.core.addon_loader import AddonLoader
+    from cli.utils import get_project_root
+    
+    try:
+        project_root = get_project_root()
+        addons_dir = project_root / "addons"
+        addon_loader = AddonLoader(addons_dir)
+        
+        # Load project config to get enabled addons
+        from cli.core.config_loader import ConfigLoader
+        projects_dir = project_root / "projects"
+        config_loader = ConfigLoader(projects_dir)
+        project_config = config_loader.load_project(project)
+        
+        # Load addons
+        addons = addon_loader.load_addons_for_project(project_config.raw_config)
+        
+        # Build patterns from addon env.yml
+        patterns = {}
+        for addon_name, addon in addons.items():
+            addon_structure = addon.get_env_var_structure()
+            if addon_structure:
+                patterns[addon_name] = addon_structure
+        
+        return patterns
+    except Exception as e:
+        # Fallback to empty dict if addon loading fails
+        console.print(f"[dim]Could not load addon patterns: {e}[/dim]")
+        return {}
+
+
 def get_age_public_key(env, forgejo_host):
     """Fetch AGE public key from runner VM"""
     try:
@@ -187,7 +229,7 @@ def set_github_env_secrets(repo, env_name, secrets):
     console.print(f"[dim]  → {success_count} success, {fail_count} failed[/dim]")
 
 
-def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_secret_key=None):
+def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_secret_key=None, project_name=None):
     """Sync all secrets to Forgejo repository"""
     import requests
 
@@ -246,31 +288,12 @@ def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_s
     if "SENTRY_DSN" in merged_env:
         secrets["SENTRY_DSN"] = merged_env["SENTRY_DSN"]
 
-    # Add core service secrets dynamically (read from merged_env)
-    # This supports ANY core service (postgres, rabbitmq, redis, memcached, etc.)
-    core_service_patterns = {
-        "postgres": {
-            "host": "POSTGRES_HOST",
-            "user": "POSTGRES_USER",
-            "password": "POSTGRES_PASSWORD",
-            "db": "POSTGRES_DB",
-            "port": "POSTGRES_PORT",
-        },
-        "rabbitmq": {
-            "host": "RABBITMQ_HOST",
-            "user": "RABBITMQ_USER",
-            "password": "RABBITMQ_PASSWORD",
-            "port": "RABBITMQ_PORT",
-            "vhost": "RABBITMQ_VHOST",
-        },
-        "redis": {
-            "host": "REDIS_HOST",
-            "password": "REDIS_PASSWORD",
-            "port": "REDIS_PORT",
-        },
-        "memcached": {"host": "MEMCACHED_HOST", "port": "MEMCACHED_PORT"},
-    }
-
+    # Add core service secrets dynamically from addon metadata
+    if not project_name:
+        # Fallback: try to get from repo name
+        project_name = repo.split("/")[-1] if "/" in repo else repo
+    core_service_patterns = build_service_patterns_from_addons(project_name, merged_env)
+    
     for service, fields in core_service_patterns.items():
         for field_key, env_key in fields.items():
             if env_key in merged_env:
@@ -580,7 +603,7 @@ def sync(project, skip_forgejo, skip_github, env_file):
             console.print(
                 "\n[bold cyan]📝 Syncing secrets to Forgejo repository...[/bold cyan]"
             )
-            sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_secrets, age_secret_key)
+            sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_secrets, age_secret_key, project)
 
         if skip_github:
             console.print("[yellow]⚠️  Skipping GitHub secrets sync[/yellow]")
@@ -635,28 +658,8 @@ def sync(project, skip_forgejo, skip_github, env_file):
             if "SENTRY_DSN" in merged_env:
                 env_secrets["SENTRY_DSN"] = merged_env["SENTRY_DSN"]
 
-            # Add core service secrets dynamically (NO HARDCODING!)
-            core_service_patterns = {
-                "postgres": {
-                    "host": "POSTGRES_HOST",
-                    "user": "POSTGRES_USER",
-                    "password": "POSTGRES_PASSWORD",
-                    "db": "POSTGRES_DB",
-                    "port": "POSTGRES_PORT",
-                },
-                "rabbitmq": {
-                    "host": "RABBITMQ_HOST",
-                    "user": "RABBITMQ_USER",
-                    "password": "RABBITMQ_PASSWORD",
-                    "port": "RABBITMQ_PORT",
-                },
-                "redis": {
-                    "host": "REDIS_HOST",
-                    "password": "REDIS_PASSWORD",
-                    "port": "REDIS_PORT",
-                },
-                "memcached": {"host": "MEMCACHED_HOST", "port": "MEMCACHED_PORT"},
-            }
+            # Add core service secrets dynamically from addon metadata
+            core_service_patterns = build_service_patterns_from_addons(project, merged_env)
             
             for service, fields in core_service_patterns.items():
                 for field_key, env_key in fields.items():

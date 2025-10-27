@@ -149,6 +149,31 @@ class AddonLoader:
         
         return sorted(available)
     
+    def list_available_addons(self) -> Dict[str, dict]:
+        """
+        List all available addons with their metadata.
+        
+        Returns:
+            Dictionary mapping addon names to their metadata
+        """
+        available = {}
+        
+        if not self.addons_dir.exists():
+            return available
+        
+        for item in self.addons_dir.iterdir():
+            if item.is_dir() and not item.name.startswith('.'):
+                addon_yml = item / 'addon.yml'
+                if addon_yml.exists():
+                    try:
+                        metadata = self._load_yaml(addon_yml)
+                        available[item.name] = metadata
+                    except Exception:
+                        # Skip invalid addons
+                        continue
+        
+        return available
+    
     def clear_cache(self):
         """Clear the addon cache"""
         self._addon_cache.clear()

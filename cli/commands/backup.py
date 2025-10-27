@@ -77,13 +77,49 @@ def backup(project, output):
             project_path = get_project_path(project)
             passwords = dotenv_values(project_path / ".env")
             
-            # Dump database via SSH
-            db_dump = ssh_command(
-                host=env["CORE_EXTERNAL_IP"],
-                user=env.get("SSH_USER", "superdeploy"),
-                key_path=env["SSH_KEY_PATH"],
-                cmd=f"docker exec {project}-postgres pg_dump -U {project}_user {project}_db",
-            )
+            # Dump database via SSH - dynamically find database addon
+            from cli.core.config_loader import ConfigLoader
+            from cli.core.addon_loader import AddonLoader
+            from cli.utils import get_project_root
+            
+            project_root = get_project_root()
+            projects_dir = project_root / "projects"
+            config_loader = ConfigLoader(projects_dir)
+            project_config = config_loader.load_project(project)
+            
+            # Load addons to find database addon by category
+            addons_dir = project_root / "addons"
+            addon_loader = AddonLoader(addons_dir)
+            loaded_addons = addon_loader.load_addons_for_project(project_config.raw_config)
+            
+            # Find first database addon
+            db_addon = None
+            db_cmd = None
+            
+            for addon_name, addon in loaded_addons.items():
+                if addon.get_category() == 'database':
+                    db_addon = addon_name
+                    addon_config = project_config.get_addons().get(addon_name, {})
+                    
+                    # Build backup command based on addon name
+                    if addon_name == 'postgres':
+                        db_user = addon_config.get('user', f'{project}_user')
+                        db_name = addon_config.get('database', f'{project}_db')
+                        db_cmd = f"docker exec {project}-{addon_name} pg_dump -U {db_user} {db_name}"
+                    elif addon_name == 'mongodb':
+                        db_name = addon_config.get('database', f'{project}_db')
+                        db_cmd = f"docker exec {project}-{addon_name} mongodump --db {db_name} --archive"
+                    # Add more database types as needed
+                    
+                    break  # Use first database addon found
+            
+            if db_cmd:
+                db_dump = ssh_command(
+                    host=env["CORE_EXTERNAL_IP"],
+                    user=env.get("SSH_USER", "superdeploy"),
+                    key_path=env["SSH_KEY_PATH"],
+                    cmd=db_cmd,
+                )
             
             # Save to file
             with open(f"{output}/{backup_name}/database.sql", "w") as f:

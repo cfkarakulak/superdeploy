@@ -281,38 +281,49 @@ jobs:
             echo "✅ Network already exists: superdeploy-proxy"
           fi
       
+      - name: Copy compose files to VM
+        run: |
+          set -e
+          echo "� Copiying compose files to VM..."
+          
+          # Ensure compose directory exists
+          mkdir -p /opt/superdeploy/projects/${{ env.PROJECT }}/compose
+          
+          # Copy compose files from checkout to VM location
+          if [ -f "projects/${{ env.PROJECT }}/compose/docker-compose.core.yml" ]; then
+            cp projects/${{ env.PROJECT }}/compose/docker-compose.core.yml /opt/superdeploy/projects/${{ env.PROJECT }}/compose/
+            echo "✅ Copied docker-compose.core.yml"
+          fi
+          
+          if [ -f "projects/${{ env.PROJECT }}/compose/docker-compose.apps.yml" ]; then
+            cp projects/${{ env.PROJECT }}/compose/docker-compose.apps.yml /opt/superdeploy/projects/${{ env.PROJECT }}/compose/
+            echo "✅ Copied docker-compose.apps.yml"
+          fi
+      
       - name: Verify core services are running
         run: |
           set -e
           echo "🔍 Verifying core services are running..."
           
-          # Core services should already be deployed by 'superdeploy up'
-          # We only verify they're running, not deploy them
+          # Check if core services are running using docker ps
+          echo "� Checkring core services status..."
           
-          CORE_COMPOSE="/opt/superdeploy/projects/${{ env.PROJECT }}/compose/docker-compose.core.yml"
+          REQUIRED_SERVICES="${{ env.PROJECT }}-forgejo ${{ env.PROJECT }}-postgres ${{ env.PROJECT }}-rabbitmq"
+          MISSING_SERVICES=""
           
-          if [ ! -f "$CORE_COMPOSE" ]; then
-            echo "❌ Core services compose file not found!"
-            echo "   Expected: $CORE_COMPOSE"
+          for service in $REQUIRED_SERVICES; do
+            if ! docker ps --format '{{.Names}}' | grep -q "^${service}$"; then
+              MISSING_SERVICES="$MISSING_SERVICES $service"
+            fi
+          done
+          
+          if [ -n "$MISSING_SERVICES" ]; then
+            echo "❌ Core services not running:$MISSING_SERVICES"
             echo "   Run 'superdeploy up -p ${{ env.PROJECT }}' first to set up infrastructure"
             exit 1
           fi
           
-          cd /opt/superdeploy/projects/${{ env.PROJECT }}/compose
-          
-          # Check if core services are running
-          echo "📊 Checking core services status..."
-          if ! docker compose -f docker-compose.core.yml ps --services --filter "status=running" | grep -q .; then
-            echo "❌ Core services are not running!"
-            echo "   Run 'superdeploy up -p ${{ env.PROJECT }} --tags addons' to start core services"
-            echo ""
-            echo "📋 Current status:"
-            docker compose -f docker-compose.core.yml ps
-            exit 1
-          fi
-          
-          echo "✅ Core services are running"
-          docker compose -f docker-compose.core.yml ps
+          echo "✅ All core services are running"
       
       - name: Register service with Caddy
         continue-on-error: true

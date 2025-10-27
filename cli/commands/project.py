@@ -59,13 +59,22 @@ def deploy(project, services):
         console.print("[yellow]Creating project deployment playbook...[/yellow]")
         _create_project_deploy_playbook(ansible_dir)
 
+    # Build ansible extra vars dynamically from project secrets
+    extra_vars = [f'-e "project_name={project}"']
+    
+    # Add all secret variables dynamically (no hardcoded addon names)
+    for key, value in project_secrets.items():
+        if value:  # Only add non-empty values
+            # Convert to ansible var format (e.g., POSTGRES_PASSWORD -> project_postgres_password)
+            ansible_var = f"project_{key.lower()}"
+            extra_vars.append(f'-e "{ansible_var}={value}"')
+    
+    extra_vars_str = ' \\\n  '.join(extra_vars)
+    
     ansible_cmd = f"""
 cd {ansible_dir} && \\
 ansible-playbook -i inventories/dev.ini playbooks/project_deploy.yml \\
-  -e "project_name={project}" \\
-  -e "project_postgres_password={project_secrets.get("POSTGRES_PASSWORD", "")}" \\
-  -e "project_rabbitmq_password={project_secrets.get("RABBITMQ_PASSWORD", "")}" \\
-  -e "project_redis_password={project_secrets.get("REDIS_PASSWORD", "")}"
+  {extra_vars_str}
 """
 
     try:

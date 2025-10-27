@@ -10,6 +10,36 @@ import yaml
 console = Console()
 
 
+def get_recommended_addons():
+    """
+    Discover recommended addons dynamically based on category.
+    
+    Returns:
+        list: List of recommended addon names
+    """
+    from cli.core.addon_loader import AddonLoader
+    
+    try:
+        project_root = get_project_root()
+        addons_dir = project_root / "addons"
+        addon_loader = AddonLoader(addons_dir)
+        
+        # Get all available addons
+        available = addon_loader.list_available_addons()
+        
+        # Filter to common categories (database, cache, queue)
+        recommended = [
+            addon_name for addon_name, metadata in available.items()
+            if metadata.get('category') in ['database', 'cache', 'queue']
+        ]
+        
+        return recommended
+    except Exception as e:
+        # Fallback to empty list if addon loading fails
+        console.print(f"[dim]Could not load recommended addons: {e}[/dim]")
+        return []
+
+
 @click.group()
 def validate():
     """Validate project configuration or addons"""
@@ -108,12 +138,12 @@ def validate_project_cmd(project):
 
     # 4. Addons
     if "addons" in config:
-        recommended_addons = ["postgres", "rabbitmq", "redis"]
+        recommended_addons = get_recommended_addons()
         for addon in recommended_addons:
             if addon not in config["addons"]:
                 warnings.append(f"Addon '{addon}' not configured")
             else:
-                console.print(f"[green]✓[/green] Core service: {core}")
+                console.print(f"[green]✓[/green] Core service: {addon}")
 
     # 5. GitHub repositories
     if "github" in config and "repositories" in config["github"]:

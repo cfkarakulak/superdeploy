@@ -159,6 +159,69 @@ class Addon:
         """
         return self.metadata.get('description', '')
     
+    def get_env_var_names(self) -> List[str]:
+        """
+        Get list of environment variable names defined by this addon.
+        
+        Returns:
+            List of environment variable names
+        """
+        env_vars = self.metadata.get('env_vars', [])
+        names = []
+        
+        for var in env_vars:
+            if isinstance(var, dict) and 'name' in var:
+                names.append(var['name'])
+        
+        return names
+    
+    def get_env_vars_for_template(self) -> List[str]:
+        """
+        Get environment variable names formatted for .env.superdeploy template.
+        
+        Returns:
+            List of environment variable names
+        """
+        return self.get_env_var_names()
+    
+    def get_secret_vars(self) -> List[str]:
+        """
+        Get list of secret environment variable names.
+        
+        Returns:
+            List of secret variable names
+        """
+        env_vars = self.metadata.get('env_vars', [])
+        secrets = []
+        
+        for var in env_vars:
+            if isinstance(var, dict) and var.get('secret', False):
+                secrets.append(var['name'])
+        
+        return secrets
+    
+    def get_env_var_structure(self) -> Dict[str, str]:
+        """
+        Get environment variable structure for sync patterns.
+        Maps generic keys (host, port, user, password) to actual variable names.
+        
+        Returns:
+            Dictionary mapping generic keys to variable names
+        """
+        structure = {}
+        env_vars = self.metadata.get('env_vars', [])
+        
+        for var in env_vars:
+            if isinstance(var, dict) and 'name' in var:
+                var_name = var['name']
+                # Extract key from variable name (e.g., POSTGRES_HOST -> host)
+                parts = var_name.split('_')
+                if len(parts) > 1:
+                    key = parts[-1].lower()
+                    structure[key] = var_name
+        
+        return structure
+    
     def _get_core_ip(self, project_config: dict) -> str:
         """
         Extract core VM internal IP from project configuration.

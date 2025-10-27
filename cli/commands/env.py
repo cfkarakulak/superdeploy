@@ -10,6 +10,51 @@ from cli.utils import load_env
 console = Console()
 
 
+def get_addon_prefixes(project):
+    """
+    Get environment variable prefixes from addon metadata.
+    
+    Args:
+        project (str): Project name
+        
+    Returns:
+        list: List of environment variable prefixes
+    """
+    from cli.core.addon_loader import AddonLoader
+    from cli.utils import get_project_root
+    
+    try:
+        project_root = get_project_root()
+        addons_dir = project_root / "addons"
+        addon_loader = AddonLoader(addons_dir)
+        
+        # Load project config to get enabled addons
+        from cli.core.config_loader import ConfigLoader
+        projects_dir = project_root / "projects"
+        config_loader = ConfigLoader(projects_dir)
+        project_config = config_loader.load_project(project)
+        
+        # Load addons
+        addons = addon_loader.load_addons_for_project(project_config.raw_config)
+        
+        # Extract prefixes from env var names
+        prefixes = set()
+        for addon_name, addon in addons.items():
+            for var_name in addon.get_env_var_names():
+                # Extract prefix (e.g., "POSTGRES_HOST" -> "POSTGRES")
+                prefix = var_name.split('_')[0]
+                prefixes.add(prefix)
+        
+        # Add app-specific prefixes
+        prefixes.update(["API", "SENTRY"])
+        
+        return list(prefixes)
+    except Exception as e:
+        # Fallback to common prefixes if addon loading fails
+        console.print(f"[dim]Could not load addon prefixes: {e}[/dim]")
+        return ["POSTGRES", "RABBITMQ", "REDIS", "API", "SENTRY"]
+
+
 def verify_password(env_vars):
     """Verify user identity with password challenge"""
     # Use GITHUB_TOKEN as verification (secure and already in .env)
@@ -142,7 +187,7 @@ def env_show(show_all, app, no_mask):
 
         # Filter by --app flag
         if app:
-            app_related = ["POSTGRES", "RABBITMQ", "REDIS", "API", "SENTRY"]
+            app_related = get_addon_prefixes(project)
             if not any(prefix in key for prefix in app_related):
                 continue
 

@@ -2,9 +2,52 @@
 
 import os
 import subprocess
+from pathlib import Path
 from rich.console import Console
 
 console = Console()
+
+
+def get_core_service_patterns(project_name, env):
+    """
+    Build service patterns dynamically from addon metadata.
+    
+    Args:
+        project_name (str): Project name
+        env (dict): Environment variables
+        
+    Returns:
+        dict: Dictionary mapping addon names to their environment variable lists
+    """
+    from cli.core.addon_loader import AddonLoader
+    from cli.utils import get_project_root
+    
+    try:
+        project_root = get_project_root()
+        addons_dir = project_root / "addons"
+        addon_loader = AddonLoader(addons_dir)
+        
+        # Load project config to get enabled addons
+        from cli.core.config_loader import ConfigLoader
+        projects_dir = project_root / "projects"
+        config_loader = ConfigLoader(projects_dir)
+        project_config = config_loader.load_project(project_name)
+        
+        # Load addons
+        addons = addon_loader.load_addons_for_project(project_config.raw_config)
+        
+        # Build patterns dynamically
+        patterns = {}
+        for addon_name, addon in addons.items():
+            env_var_names = addon.get_env_var_names()
+            if env_var_names:
+                patterns[addon_name] = env_var_names
+        
+        return patterns
+    except Exception as e:
+        # Fallback to empty dict if addon loading fails
+        console.print(f"[dim]Could not load addon patterns: {e}[/dim]")
+        return {}
 
 
 def get_age_public_key(project_name, env):
@@ -164,15 +207,9 @@ def sync_secrets_to_forgejo(project_name, env, forgejo_pat, project_secrets=None
         if field in merged_env:
             secrets[field] = merged_env[field]
 
-    # Add core service secrets dynamically
-    core_service_patterns = {
-        "postgres": ["POSTGRES_HOST", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "POSTGRES_PORT"],
-        "rabbitmq": ["RABBITMQ_HOST", "RABBITMQ_USER", "RABBITMQ_PASSWORD", "RABBITMQ_PORT"],
-        "redis": ["REDIS_HOST", "REDIS_PASSWORD", "REDIS_PORT"],
-        "memcached": ["MEMCACHED_HOST", "MEMCACHED_PORT"],
-        "mongodb": ["MONGODB_HOST", "MONGODB_USER", "MONGODB_PASSWORD", "MONGODB_PORT"],
-    }
-
+    # Add core service secrets dynamically from addon metadata
+    core_service_patterns = get_core_service_patterns(project_name, merged_env)
+    
     for service, fields in core_service_patterns.items():
         for field in fields:
             if field in merged_env:

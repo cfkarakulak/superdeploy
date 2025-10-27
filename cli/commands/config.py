@@ -114,8 +114,9 @@ def config_list(app):
 
     # App-specific filtering
     if app:
-        # Show only app-related vars
-        prefixes = ["POSTGRES_", "RABBITMQ_", "REDIS_", "API_", "SENTRY_"]
+        # Show only app-related vars - get prefixes dynamically
+        from cli.commands.env import get_addon_prefixes
+        prefixes = [f"{p}_" for p in get_addon_prefixes(None)]  # None = use fallback
         filtered = {
             k: v for k, v in env_vars.items() if any(k.startswith(p) for p in prefixes)
         }

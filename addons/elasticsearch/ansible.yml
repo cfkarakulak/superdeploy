@@ -1,0 +1,28 @@
+---
+# Elasticsearch Addon Deployment
+
+- name: Create {{ addon_name }} directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0755'
+  loop:
+    - "{{ addon_base_path }}/{{ addon_name }}"
+    - "{{ addon_base_path }}/{{ addon_name }}/data"
+
+- name: Start {{ addon_name }} services
+  community.docker.docker_compose_v2:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: present
+    pull: true
+  become_user: "{{ superdeploy_user }}"
+
+- name: Wait for {{ addon_name }} to be ready
+  wait_for:
+    host: localhost
+    port: 9200
+    delay: 10
+    timeout: 120
+    state: started

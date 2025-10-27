@@ -2,29 +2,13 @@
 # Handlers for project-deployer role
 
 - name: reload prometheus
-  block:
-    - name: Check if Prometheus is running
-      uri:
-        url: "http://localhost:9090/-/healthy"
-        method: GET
-        status_code: 200
-        timeout: 5
-      register: prometheus_health
-      failed_when: false
-      changed_when: false
-    
-    - name: Reload Prometheus configuration
-      uri:
-        url: "http://localhost:9090/-/reload"
-        method: POST
-        status_code: 200
-      when: prometheus_health.status == 200
-    
-    - name: Skip Prometheus reload (not running)
-      debug:
-        msg: "Skipping Prometheus reload - service is not running or monitoring is disabled"
-      when: prometheus_health.status != 200
+  uri:
+    url: "http://localhost:9090/-/reload"
+    method: POST
+    status_code: 200
+    timeout: 5
   when: monitoring_enabled | default(false) | bool
+  failed_when: false
   listen: reload prometheus
 
 - name: restart applications

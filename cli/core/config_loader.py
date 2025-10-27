@@ -121,26 +121,8 @@ class ProjectConfig:
         
         Returns:
             Dictionary with network settings
-            
-        Raises:
-            ValueError: If using old 'subnet' field instead of 'docker_subnet'
         """
-        network = self.raw_config.get("network", {})
-        
-        # Fail if using old 'subnet' field
-        if "subnet" in network:
-            raise ValueError(
-                "ERROR: 'network.subnet' is no longer supported.\n"
-                "Use 'network.docker_subnet' instead.\n"
-                f"Change in projects/{self.project_name}/project.yml:\n"
-                f"  network:\n"
-                f"    subnet: {network['subnet']}\n"
-                f"To:\n"
-                f"  network:\n"
-                f"    docker_subnet: {network['subnet']}"
-            )
-        
-        return network
+        return self.raw_config.get("network", {})
 
     def get_apps(self) -> Dict[str, Dict[str, Any]]:
         """

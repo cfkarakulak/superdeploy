@@ -27,6 +27,36 @@ addons/<addon-name>/
     └── *.j2
 ```
 
+## Dynamic Addon Loading
+
+**IMPORTANT**: The SuperDeploy core codebase is completely addon-agnostic. When you create a new addon, it is automatically discovered and used by all CLI commands without any code changes.
+
+### How It Works
+
+1. **AddonLoader** discovers all addons in the `addons/` directory
+2. **Addon helper methods** provide standardized access to addon metadata:
+   - `get_env_var_names()` - List of environment variable names
+   - `get_env_vars_for_template()` - Variables for .env.superdeploy generation
+   - `get_secret_vars()` - List of secret variable names
+   - `get_env_var_structure()` - Variable structure for sync patterns
+3. **CLI commands** iterate over addons generically without checking addon names
+4. **Zero hardcoded logic** - no if/else statements for specific addons
+
+### Adding a New Addon
+
+To add a new service (e.g., Elasticsearch):
+
+1. Create `addons/elasticsearch/` directory
+2. Add `addon.yml`, `env.yml`, `compose.yml.j2`, `ansible.yml`
+3. **That's it!** No code changes needed.
+
+The addon will automatically:
+- Appear in `superdeploy init` addon selection
+- Generate environment variables in `.env.superdeploy`
+- Sync secrets to GitHub/Forgejo
+- Be validated by `superdeploy validate`
+- Deploy via Ansible
+
 ## Creating a New Addon
 
 ### 1. Create addon.yml
@@ -38,6 +68,32 @@ name: myservice
 description: My awesome service
 version: "1.0"
 category: database  # database | cache | queue | proxy | monitoring
+
+# Environment variables (REQUIRED for dynamic loading)
+env_vars:
+  - name: MYSERVICE_HOST
+    description: Service hostname
+    default: "${CORE_INTERNAL_IP}"
+    required: true
+    secret: false
+    
+  - name: MYSERVICE_PORT
+    description: Service port
+    default: "8080"
+    required: true
+    secret: false
+    
+  - name: MYSERVICE_USER
+    description: Service username
+    default: "${PROJECT}_user"
+    required: true
+    secret: false
+    
+  - name: MYSERVICE_PASSWORD
+    description: Service password
+    required: true
+    secret: true
+    generate: true  # Auto-generate secure password
 
 # Resource requirements
 resources:
@@ -59,6 +115,14 @@ monitoring:
   metrics_port: 9090
   dashboard: myservice-overview.json
 ```
+
+**Important**: The `env_vars` section is critical for dynamic addon loading. Each variable should follow this structure:
+- `name`: Variable name (use `{ADDON}_FIELD` format, e.g., `POSTGRES_HOST`)
+- `description`: Human-readable description
+- `default`: Default value (can use `${PROJECT}`, `${CORE_INTERNAL_IP}` placeholders)
+- `required`: Whether the variable is required
+- `secret`: Whether the variable contains sensitive data
+- `generate`: Whether to auto-generate a secure value (for passwords)
 
 ### 2. Create compose.yml.j2
 

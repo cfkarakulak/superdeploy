@@ -70,8 +70,8 @@ def get_used_subnets():
             try:
                 project_config = config_loader.load_project(project_name)
                 network_config = project_config.get_network_config()
-                if network_config and "subnet" in network_config:
-                    used_subnets.append(network_config["subnet"])
+                if network_config and "docker_subnet" in network_config:
+                    used_subnets.append(network_config["docker_subnet"])
             except (FileNotFoundError, ValueError):
                 continue
 
@@ -100,8 +100,11 @@ def render_template(template_path, context):
     return template.render(**context)
 
 
-def generate_env_superdeploy(project, service, addons):
-    """Generate .env.superdeploy for a service"""
+def generate_env_superdeploy(project, service, addons_dict):
+    """Generate .env.superdeploy dynamically from addon metadata"""
+    from cli.core.addon_loader import AddonLoader
+    from cli.utils import get_project_root
+    
     lines = [
         "# =============================================================================",
         "# SuperDeploy - Production Environment Overrides",
@@ -116,104 +119,56 @@ def generate_env_superdeploy(project, service, addons):
         "",
     ]
 
-    # Add addon env vars
-    if "postgres" in addons:
-        lines.extend(
-            [
-                "",
-                "# PostgreSQL",
-                "POSTGRES_HOST=${POSTGRES_HOST}",
-                "POSTGRES_PORT=${POSTGRES_PORT}",
-                "POSTGRES_USER=${POSTGRES_USER}",
-                "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}",
-                "POSTGRES_DB=${POSTGRES_DB}",
-            ]
-        )
-
-    if "rabbitmq" in addons:
-        lines.extend(
-            [
-                "",
-                "# RabbitMQ",
-                "RABBITMQ_HOST=${RABBITMQ_HOST}",
-                "RABBITMQ_PORT=${RABBITMQ_PORT}",
-                "RABBITMQ_USER=${RABBITMQ_USER}",
-                "RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}",
-            ]
-        )
-
-    if "redis" in addons:
-        lines.extend(
-            [
-                "",
-                "# Redis",
-                "REDIS_HOST=${REDIS_HOST}",
-                "REDIS_PORT=${REDIS_PORT}",
-                "REDIS_PASSWORD=${REDIS_PASSWORD}",
-            ]
-        )
-
-    if "mongodb" in addons:
-        lines.extend(
-            [
-                "",
-                "# MongoDB",
-                "MONGODB_HOST=${MONGODB_HOST}",
-                "MONGODB_PORT=${MONGODB_PORT}",
-                "MONGODB_USER=${MONGODB_USER}",
-                "MONGODB_PASSWORD=${MONGODB_PASSWORD}",
-            ]
-        )
-
+    # Load addons dynamically
+    project_root = get_project_root()
+    addons_dir = project_root / "addons"
+    addon_loader = AddonLoader(addons_dir)
+    
+    try:
+        # Build minimal config for addon loading
+        config = {"project": project, "addons": addons_dict}
+        loaded_addons = addon_loader.load_addons_for_project(config)
+        
+        # Generic iteration - no addon names!
+        for addon_name, addon in loaded_addons.items():
+            env_vars = addon.get_env_vars_for_template()
+            if env_vars:
+                lines.append("")
+                lines.append(f"# {addon.get_description() or addon_name.title()}")
+                for var_name in env_vars:
+                    lines.append(f"{var_name}=${{{var_name}}}")
+    except Exception as e:
+        # Fallback to empty if addon loading fails
+        console.print(f"[yellow]⚠️  Could not load addons: {e}[/yellow]")
+    
     return "\n".join(lines)
 
 
-def generate_workflow(project, service, addons, github_org):
-    """Generate GitHub Actions workflow for a service"""
-
-    # Build env section
+def generate_workflow(project, service, addons_dict, github_org):
+    """Generate GitHub Actions workflow dynamically from addon metadata"""
+    from cli.core.addon_loader import AddonLoader
+    from cli.core.template_merger import TemplateMerger
+    from cli.utils import get_project_root
+    
+    # Load addons dynamically
+    project_root = get_project_root()
+    addons_dir = project_root / "addons"
+    addon_loader = AddonLoader(addons_dir)
+    template_merger = TemplateMerger()
+    
     env_vars = []
-
-    if "postgres" in addons:
-        env_vars.extend(
-            [
-                "    POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}",
-                "    POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}",
-                "    POSTGRES_USER: ${{ secrets.POSTGRES_USER }}",
-                "    POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}",
-                "    POSTGRES_DB: ${{ secrets.POSTGRES_DB }}",
-            ]
-        )
-
-    if "rabbitmq" in addons:
-        env_vars.extend(
-            [
-                "    RABBITMQ_HOST: ${{ secrets.RABBITMQ_HOST }}",
-                "    RABBITMQ_PORT: ${{ secrets.RABBITMQ_PORT }}",
-                "    RABBITMQ_USER: ${{ secrets.RABBITMQ_USER }}",
-                "    RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}",
-            ]
-        )
-
-    if "redis" in addons:
-        env_vars.extend(
-            [
-                "    REDIS_HOST: ${{ secrets.REDIS_HOST }}",
-                "    REDIS_PORT: ${{ secrets.REDIS_PORT }}",
-                "    REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}",
-            ]
-        )
-
-    if "mongodb" in addons:
-        env_vars.extend(
-            [
-                "    MONGODB_HOST: ${{ secrets.MONGODB_HOST }}",
-                "    MONGODB_PORT: ${{ secrets.MONGODB_PORT }}",
-                "    MONGODB_USER: ${{ secrets.MONGODB_USER }}",
-                "    MONGODB_PASSWORD: ${{ secrets.MONGODB_PASSWORD }}",
-            ]
-        )
-
+    
+    try:
+        # Build minimal config for addon loading
+        config = {"project": project, "addons": addons_dict}
+        loaded_addons = addon_loader.load_addons_for_project(config)
+        
+        # Use existing TemplateMerger (already generic!)
+        env_vars = template_merger.merge_workflow_env(loaded_addons)
+    except Exception as e:
+        # Fallback to empty if addon loading fails
+        console.print(f"[yellow]⚠️  Could not load addons for workflow: {e}[/yellow]")
+    
     env_section = "\n".join(env_vars)
 
     workflow = """name: Build and Deploy
@@ -531,16 +486,23 @@ def init(project, app, subnet, no_interactive, yes):
         if addon["category"] in ["database", "cache", "queue", "proxy"]
     ]
 
-    # Fallback if no addons found
+    # Fallback if no addons found - use empty list, user can add later
     if not available_addons_list:
-        available_addons_list = [
-            ("postgres", "PostgreSQL 15 - Relational database"),
-            ("rabbitmq", "RabbitMQ 3.12 - Message queue"),
-            ("redis", "Redis 7 - In-memory cache/store"),
-            ("mongodb", "MongoDB 7 - Document database"),
-        ]
+        console.print("[yellow]⚠️  No addons found in addons/ directory[/yellow]")
+        available_addons_list = []
 
-    selected_addons = ["postgres", "rabbitmq"]  # Default
+    # Set defaults based on common categories (database, queue)
+    selected_addons = []
+    if available_addons_list:
+        # Auto-select database and queue addons as defaults
+        for addon_name, addon_desc in available_addons_list:
+            addon_meta = next((a for a in available_addons if a["name"] == addon_name), None)
+            if addon_meta and addon_meta.get("category") in ["database", "queue"]:
+                selected_addons.append(addon_name)
+        
+        # If no defaults found, just use first two
+        if not selected_addons and len(available_addons_list) >= 2:
+            selected_addons = [available_addons_list[0][0], available_addons_list[1][0]]
 
     if interactive:
         import inquirer
@@ -560,7 +522,7 @@ def init(project, app, subnet, no_interactive, yes):
                 default=[
                     f"{name}: {desc}"
                     for name, desc in available_addons_list
-                    if name in ["postgres", "rabbitmq"]
+                    if name in selected_addons
                 ],
             ),
         ]
@@ -573,7 +535,7 @@ def init(project, app, subnet, no_interactive, yes):
             ]
         else:
             console.print("[yellow]⚠️  No services selected, using defaults[/yellow]")
-            selected_addons = ["postgres", "rabbitmq"]
+            # Keep the defaults we calculated earlier
 
     # Password generation - always enabled (user can regenerate later)
     generate_passwords = True
@@ -630,9 +592,13 @@ def init(project, app, subnet, no_interactive, yes):
         }
 
     # Build temporary project config for validation
+    # Ensure forgejo is in addons
+    if "forgejo" not in selected_addons:
+        selected_addons.insert(0, "forgejo")
+    
     temp_config = {
         "project": project,
-        "infrastructure": {
+        "addons": {
             "forgejo": {
                 "version": "13.0.1",
                 "port": 3001,
@@ -645,7 +611,7 @@ def init(project, app, subnet, no_interactive, yes):
                 "db_user": "forgejo",
             }
         },
-        "network": {"subnet": project_subnet},
+        "network": {"docker_subnet": project_subnet},
         "apps": {
             app_name: {
                 "path": str(app_path),
@@ -653,8 +619,12 @@ def init(project, app, subnet, no_interactive, yes):
             }
             for app_name, app_path in apps.items()
         },
-        "addons": {service: {} for service in selected_addons},
     }
+    
+    # Add other selected addons
+    for service in selected_addons:
+        if service != "forgejo":  # Already added above
+            temp_config["addons"][service] = {}
 
     # Validate configuration before creating files
     console.print("\n[dim]Validating configuration...[/dim]")
@@ -715,27 +685,52 @@ def init(project, app, subnet, no_interactive, yes):
             "port": port_assignments[app_name]["external"],
         }
 
-    # Build addons dict for template
+    # Build addons dict dynamically from addon metadata
     addon_versions = {addon["name"]: addon["version"] for addon in available_addons}
     addons_dict = {}
+    
+    # Always add forgejo first
+    addons_dict["forgejo"] = {
+        "version": "13.0.1",
+        "port": 3001,
+        "ssh_port": 2222,
+        "admin_user": "admin",
+        "admin_email": f"admin@{project}.local",
+        "org": "your-forgejo-org",
+        "repo": "superdeploy",
+        "db_name": "forgejo",
+        "db_user": "forgejo",
+    }
+    
+    # Add other selected addons dynamically
     for service in selected_addons:
+        if service == "forgejo":
+            continue  # Already added above
+            
         default_version = addon_versions.get(service, "latest")
-
-        if service == "postgres":
-            addons_dict[service] = {
-                "version": default_version,
-                "user": f"{project}_user",
-                "database": f"{project}_db",
-            }
-        elif service in ["rabbitmq", "mongodb"]:
-            addons_dict[service] = {
-                "version": default_version,
-                "user": f"{project}_user",
-            }
+        
+        # Get addon metadata to determine config structure
+        addon_meta = next((a for a in available_addons if a["name"] == service), None)
+        
+        if addon_meta:
+            # Build config from addon metadata
+            addon_config = {"version": default_version}
+            
+            # Add common fields based on env_vars in metadata
+            env_vars = addon_meta.get("env_vars", [])
+            for var in env_vars:
+                if isinstance(var, dict):
+                    var_name = var.get("name", "")
+                    # Extract config key from var name (e.g., POSTGRES_USER -> user)
+                    if "_USER" in var_name:
+                        addon_config["user"] = f"{project}_user"
+                    elif "_DATABASE" in var_name or "_DB" in var_name:
+                        addon_config["database"] = f"{project}_db"
+            
+            addons_dict[service] = addon_config
         else:
-            addons_dict[service] = {
-                "version": default_version,
-            }
+            # Fallback if metadata not found
+            addons_dict[service] = {"version": default_version}
 
     # Create project.yml manually (template has placeholders we need to replace)
     project_yml_content = f"""# =============================================================================
@@ -775,22 +770,6 @@ docker:
   # Note: Set DOCKER_TOKEN environment variable for authentication
 
 # =============================================================================
-# Infrastructure Configuration
-# =============================================================================
-# Core infrastructure services (always deployed)
-infrastructure:
-  forgejo:
-    version: "13.0.1"
-    port: 3001
-    ssh_port: 2222
-    admin_user: "admin"
-    admin_email: "admin@{project}.local"
-    org: "your-forgejo-org"  # EDIT THIS - Forgejo organization
-    repo: "superdeploy"
-    db_name: "forgejo"
-    db_user: "forgejo"
-
-# =============================================================================
 # VMs (Infrastructure)
 # =============================================================================
 vms:
@@ -809,7 +788,7 @@ vms:
 addons:
 """
 
-    # Add addons
+    # Add all addons (including forgejo)
     for service, config in addons_dict.items():
         project_yml_content += f"  {service}:\n"
         for key, value in config.items():

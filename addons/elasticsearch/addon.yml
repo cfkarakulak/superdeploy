@@ -1,0 +1,32 @@
+name: elasticsearch
+description: Elasticsearch search and analytics engine
+version: "8.11.0"
+category: database
+
+env_vars:
+  - name: ELASTICSEARCH_HOST
+    description: Elasticsearch hostname
+    default: "${CORE_INTERNAL_IP}"
+    required: true
+    secret: false
+    
+  - name: ELASTICSEARCH_PORT
+    description: Elasticsearch port
+    default: "9200"
+    required: true
+    secret: false
+    
+  - name: ELASTICSEARCH_USER
+    description: Elasticsearch username
+    default: "elastic"
+    required: true
+    secret: false
+    
+  - name: ELASTICSEARCH_PASSWORD
+    description: Elasticsearch password
+    required: true
+    secret: true
+    generate: true
+
+requires: []
+conflicts: []
