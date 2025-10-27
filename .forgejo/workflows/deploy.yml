@@ -59,7 +59,9 @@ jobs:
           echo "${{ env.ENV_BUNDLE }}" | base64 -d > /tmp/encrypted.age
           echo "✅ Base64 decoded successfully"
           
-          age -d -i /opt/forgejo-runner/.age/key.txt /tmp/encrypted.age > /tmp/decrypted.env
+          echo "${{ secrets.AGE_SECRET_KEY }}" > /tmp/age-key.txt
+          age -d -i /tmp/age-key.txt /tmp/encrypted.age > /tmp/decrypted.env
+          rm /tmp/age-key.txt
           echo "✅ AGE decryption successful"
           
           echo "📋 Decrypted env file contents (first 5 lines, masked):"
