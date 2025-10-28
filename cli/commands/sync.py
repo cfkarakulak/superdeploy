@@ -270,6 +270,7 @@ def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_s
     secrets = {
         # Infrastructure (generic, no app-specific logic)
         "FORGEJO_HOST": forgejo_host,
+        "FORGEJO_PAT": forgejo_pat,  # Add PAT so Forgejo can use it
         "DOCKER_REGISTRY": "docker.io",
         "DOCKER_ORG": env["DOCKER_ORG"],
         # Notifications
