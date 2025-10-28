@@ -53,9 +53,9 @@
             header_up X-Forwarded-Proto {scheme}
         }
     }
-    {% else %}
-    # {{ app_name }} service
-    handle /{{ app_name }}* {
+    {% elif app_name == 'api' %}
+    # API service on /api path
+    handle /api* {
         reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
             header_up Host {host}
             header_up X-Real-IP {remote_host}
@@ -67,6 +67,22 @@
     {% endfor %}
     {% endif %}
 }
+
+{% if apps is defined %}
+{% for app_name, app_config in apps.items() %}
+{% if app_name not in ['dashboard', 'api'] %}
+# {{ app_name }} service on separate port
+:{{ app_config.external_port | default(app_config.port) }} {
+    reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
+{% endif %}
+{% endfor %}
+{% endif %}
 
 # Metrics endpoint (Prometheus)
 :{{ monitoring.metrics_port | default('2019') }} {
