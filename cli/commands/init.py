@@ -581,14 +581,30 @@ def init(project, app, subnet, no_interactive, yes):
         console.print("[yellow]Cancelled.[/yellow]")
         return
 
-    # Build port assignments dynamically (TRULY GENERIC - NO HARDCODED SERVICE NAMES!)
+    # Build port assignments dynamically
+    # Common service ports (can be overridden by user later)
     port_assignments = {}
+    
+    # Default port mappings for common services
+    default_ports = {
+        "api": 8000,
+        "dashboard": 3000,
+        "services": 8001,
+        "worker": 8002,
+        "admin": 8003,
+    }
 
     for idx, service in enumerate(selected_services):
-        # Every service gets dynamically assigned ports
+        # Use default port if available, otherwise auto-assign
+        if service in default_ports:
+            port = default_ports[service]
+        else:
+            # Auto-assign starting from 8000, skipping known ports
+            port = base_external_port + (idx * 10)
+        
         port_assignments[service] = {
-            "external": base_external_port + (idx * 10),  # 8000, 8010, 8020...
-            "internal": base_internal_port,  # Always 8000 inside container
+            "external": port,
+            "internal": port,  # Match internal port to external by default
         }
 
     # Build temporary project config for validation

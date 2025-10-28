@@ -151,13 +151,13 @@ apps:
   dashboard:
     path: /absolute/path/to/app-repos/dashboard  # EDIT THIS
     vm: core
-    port: 8010
+    port: 3000  # Dashboard runs on port 3000 internally
   
   # Add more apps:
   # services:
   #   path: /absolute/path/to/app-repos/services
   #   vm: core
-  #   port: 8020
+  #   port: 8001  # Services (proxy registry) on port 8001
 
 # =============================================================================
 # GitHub Configuration
