@@ -319,7 +319,16 @@ def generate_docker_compose_apps(config, compose_dir):
     ]
 
     for app_name, app_config in apps.items():
-        port = app_config.get("port", 8000)
+        # Support both simple port and external_port/internal_port
+        external_port = app_config.get("external_port")
+        internal_port = app_config.get("internal_port")
+        
+        # Fallback to simple port if external/internal not specified
+        if external_port is None or internal_port is None:
+            port = app_config.get("port", 8000)
+            external_port = port
+            internal_port = port
+        
         tag_var = f"{app_name.upper()}_TAG"  # e.g., API_TAG
         lines.extend(
             [
@@ -329,7 +338,7 @@ def generate_docker_compose_apps(config, compose_dir):
                 f"    container_name: {project_name}-{app_name}",
                 "    restart: unless-stopped",
                 "    ports:",
-                f'      - "{port}:{port}"',
+                f'      - "{external_port}:{internal_port}"',
                 "    env_file:",
                 f"      - .env.{app_name}",
                 "    networks:",
