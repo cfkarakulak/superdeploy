@@ -42,9 +42,28 @@ def status(project):
         console.print(f"[red]❌ Error loading project config: {e}[/red]")
         return
 
+    # Get VMs from project config
+    vms_config = config.get('vms', {})
+    
+    if not vms_config:
+        console.print("[yellow]⚠️  No VMs configured in project.yml[/yellow]")
+        return
+    
+    # Find first VM with external IP (usually 'core')
+    ssh_host = None
+    vm_role = None
+    
+    for role in vms_config.keys():
+        # Try to get external IP for this VM role (index 0)
+        ip_var = f"{role.upper()}_0_EXTERNAL_IP"
+        if ip_var in env:
+            ssh_host = env[ip_var]
+            vm_role = role
+            break
+    
     # Validate environment
-    required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH", "SSH_USER"]
-    if not validate_env_vars(env, required):
+    required = ["SSH_KEY_PATH", "SSH_USER"]
+    if not validate_env_vars(env, required) or not ssh_host:
         console.print("[yellow]⚠️  Limited status (IPs not configured yet)[/yellow]")
 
         # Show basic info
@@ -55,6 +74,9 @@ def status(project):
         table.add_row("Configuration", "✅ .env loaded")
         table.add_row("Project Config", "✅ project.yml loaded")
         table.add_row("VMs", "⏳ Not deployed yet")
+        
+        if not ssh_host:
+            console.print(f"\n[dim]💡 Run 'superdeploy up -p {project}' to deploy infrastructure[/dim]")
 
         console.print(table)
         return
@@ -68,7 +90,6 @@ def status(project):
     table.add_column("Details", style="dim")
 
     # SSH connection details
-    ssh_host = env["CORE_EXTERNAL_IP"]
     ssh_user = env.get("SSH_USER", "superdeploy")
     ssh_key = os.path.expanduser(env["SSH_KEY_PATH"])
 
@@ -190,8 +211,11 @@ def _show_access_urls(config, ssh_host, env, vm_reachable):
     """Show access URLs for services"""
     console.print("\n[cyan]🌐 Access URLs:[/cyan]")
     
-    # Forgejo (always available)
-    console.print(f"  Forgejo:    http://{ssh_host}:3001")
+    # Forgejo (from addons config)
+    addons = config.get('addons', {})
+    forgejo_config = addons.get('forgejo', {})
+    forgejo_port = forgejo_config.get('port', 3001)
+    console.print(f"  Forgejo:    http://{ssh_host}:{forgejo_port}")
     
     # Application URLs
     apps = config.get('apps', {})
@@ -201,16 +225,15 @@ def _show_access_urls(config, ssh_host, env, vm_reachable):
         formatted_name = f"{app_name.capitalize()}:"
         console.print(f"  {formatted_name:12} http://{ssh_host}:{port}")
     
-    # Monitoring dashboard URL
-    monitoring = config.get('monitoring', {})
-    if monitoring.get('enabled', False):
-        # Check if monitoring addon is configured
-        monitoring_host = env.get('MONITORING_HOST', ssh_host)
-        grafana_port = env.get('GRAFANA_PORT', '3000')
+    # Monitoring dashboard URL (if monitoring addon is configured)
+    if 'monitoring' in addons:
+        monitoring_config = addons.get('monitoring', {})
+        grafana_port = monitoring_config.get('grafana_port', 3000)
+        prometheus_port = monitoring_config.get('prometheus_port', 9090)
         
         console.print(f"\n[cyan]📊 Monitoring:[/cyan]")
-        console.print(f"  Grafana:    http://{monitoring_host}:{grafana_port}")
-        console.print(f"  Prometheus: http://{monitoring_host}:9090")
+        console.print(f"  Grafana:    http://{ssh_host}:{grafana_port}")
+        console.print(f"  Prometheus: http://{ssh_host}:{prometheus_port}")
         
         if vm_reachable:
             console.print(f"  [dim]Filter by project: {config.get('project')}[/dim]")
