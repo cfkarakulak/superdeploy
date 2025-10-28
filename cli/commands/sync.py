@@ -649,6 +649,10 @@ def sync(project, skip_forgejo, skip_github, env_file):
                 "LOG_LEVEL": "DEBUG" if env_name == "staging" else "INFO",
                 "SMTP_USERNAME": env.get("SMTP_USERNAME", ""),
                 "SMTP_PASSWORD": env.get("SMTP_PASSWORD", ""),
+                # Add FORGEJO_PAT to environment secrets (needed for deployment trigger)
+                "FORGEJO_PAT": forgejo_pat,
+                "FORGEJO_BASE_URL": f"http://{forgejo_host}:3001",
+                "FORGEJO_ORG": env["FORGEJO_ORG"],
             }
 
             # Add optional app-specific URLs if defined
