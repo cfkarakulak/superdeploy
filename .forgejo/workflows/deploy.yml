@@ -423,9 +423,9 @@ jobs:
             fi
           done
           
-          # Deploy with zero-downtime using docker-compose
+          # Deploy with zero-downtime using docker compose
           echo "🐳 Starting service container..."
-          docker-compose -f docker-compose-${{ env.SERVICE }}.yml up -d
+          docker compose -f docker-compose-${{ env.SERVICE }}.yml up -d --wait
           
           echo "📊 Container status:"
           docker ps -a --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
