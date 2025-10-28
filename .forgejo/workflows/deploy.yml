@@ -209,12 +209,8 @@ jobs:
           
           echo "🔧 Generating compose with ports: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
           
-          # Determine if service should expose ports directly
-          # Dashboard and API expose ports, others go through Caddy
+          # Services don't expose ports directly, Caddy handles all routing
           EXPOSE_PORTS="false"
-          if [ "${{ env.SERVICE }}" == "dashboard" ] || [ "${{ env.SERVICE }}" == "api" ]; then
-            EXPOSE_PORTS="true"
-          fi
           
           # Generate compose file from template
           cat > /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml <<'EOF'

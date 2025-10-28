@@ -44,7 +44,7 @@
     # Application routes
     {% for app_name, app_config in apps.items() %}
     {% if app_name == 'dashboard' %}
-    # Dashboard on root path
+    # Dashboard on root path (must be last)
     handle / {
         reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
             header_up Host {host}
@@ -53,9 +53,10 @@
             header_up X-Forwarded-Proto {scheme}
         }
     }
-    {% elif app_name == 'api' %}
-    # API service on /api path
-    handle /api* {
+    {% else %}
+    # {{ app_name }} service on /{{ app_name }} path
+    handle /{{ app_name }}* {
+        uri strip_prefix /{{ app_name }}
         reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
             header_up Host {host}
             header_up X-Real-IP {remote_host}
@@ -67,22 +68,6 @@
     {% endfor %}
     {% endif %}
 }
-
-{% if apps is defined %}
-{% for app_name, app_config in apps.items() %}
-{% if app_name not in ['dashboard', 'api'] %}
-# {{ app_name }} service on separate port
-:{{ app_config.external_port | default(app_config.port) }} {
-    reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-    }
-}
-{% endif %}
-{% endfor %}
-{% endif %}
 
 # Metrics endpoint (Prometheus)
 :{{ monitoring.metrics_port | default('2019') }} {
