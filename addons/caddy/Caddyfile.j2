@@ -41,11 +41,12 @@
     }
     
     {% if apps is defined %}
-    # Application routes
+    # Application routes (path-based routing)
     {% for app_name, app_config in apps.items() %}
-    {% if app_name == 'dashboard' %}
-    # Dashboard on root path (must be last)
-    handle / {
+    {% if app_name != 'dashboard' %}
+    # {{ app_name }} service on /{{ app_name }} path
+    handle /{{ app_name }}* {
+        uri strip_prefix /{{ app_name }}
         reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
             header_up Host {host}
             header_up X-Real-IP {remote_host}
@@ -53,10 +54,13 @@
             header_up X-Forwarded-Proto {scheme}
         }
     }
-    {% else %}
-    # {{ app_name }} service on /{{ app_name }} path
-    handle /{{ app_name }}* {
-        uri strip_prefix /{{ app_name }}
+    {% endif %}
+    {% endfor %}
+    
+    # Dashboard on root path (must be last to catch all remaining requests)
+    {% for app_name, app_config in apps.items() %}
+    {% if app_name == 'dashboard' %}
+    handle / {
         reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
             header_up Host {host}
             header_up X-Real-IP {remote_host}
