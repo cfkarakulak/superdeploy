@@ -72,6 +72,18 @@ vms:
       - postgres
       - rabbitmq
       - forgejo
+  
+  web:
+    count: 1
+    machine_type: e2-small
+    disk_size: 10
+    services: []
+  
+  api:
+    count: 1
+    machine_type: e2-small
+    disk_size: 10
+    services: []
 
 # =============================================================================
 # Application Services
@@ -79,15 +91,15 @@ vms:
 apps:
   api:
     path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/api
-    vm: core
+    vm: api
     port: 8000
   dashboard:
     path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/dashboard
-    vm: core
+    vm: web
     port: 3000
   services:
     path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/services
-    vm: core
+    vm: api
     external_port: 8001
     internal_port: 8000
 

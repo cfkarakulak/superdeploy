@@ -26,12 +26,12 @@
 
 - name: Build monitoring targets list
   set_fact:
-    monitoring_targets: "{{ monitoring_targets | default([]) + [item.key + ':' + (item.value.port | string)] }}"
+    monitoring_targets: "{{ monitoring_targets | default([]) + [item.key + ':' + ((item.value.port | default(item.value.internal_port)) | string)] }}"
   loop: "{{ apps | dict2items }}"
   when: 
     - monitoring_enabled
     - apps | length > 0
-    - item.value.port is defined
+    - (item.value.port is defined or item.value.internal_port is defined)
 
 - name: Display monitoring targets
   debug:

@@ -29,7 +29,13 @@ scrape:
 # Health check endpoints
 health_checks:
 {% for app_name, app_config in apps.items() %}
+{% if app_config.port is defined %}
   - name: {{ app_name }}
     url: http://localhost:{{ app_config.port }}/health
     interval: 30s
+{% elif app_config.internal_port is defined %}
+  - name: {{ app_name }}
+    url: http://localhost:{{ app_config.internal_port }}/health
+    interval: 30s
+{% endif %}
 {% endfor %}

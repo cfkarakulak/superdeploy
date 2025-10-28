@@ -246,15 +246,15 @@ jobs:
                 start_period: 60s  # Longer grace period for slow starts
           EOF
           
+          # Replace placeholders (using # as delimiter to avoid conflicts with URLs)
+          COMPOSE_FILE="/opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml"
+          
           # Add ports section only if needed
           if [ "$EXPOSE_PORTS" == "true" ]; then
             sed -i "s#PORTS_PLACEHOLDER#              ports:\n                - \"${EXTERNAL_PORT}:${INTERNAL_PORT}\"#g" "$COMPOSE_FILE"
           else
             sed -i "s#PORTS_PLACEHOLDER##g" "$COMPOSE_FILE"
           fi
-          
-          # Replace placeholders (using # as delimiter to avoid conflicts with URLs)
-          COMPOSE_FILE="/opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml"
           
           sed -i "s#PROJECT_NETWORK#${{ env.PROJECT }}-network#g" "$COMPOSE_FILE"
           sed -i "s#SERVICE_NAME#${{ env.PROJECT }}-${{ env.SERVICE }}#g" "$COMPOSE_FILE"
