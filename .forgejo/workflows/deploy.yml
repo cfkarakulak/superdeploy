@@ -251,7 +251,7 @@ jobs:
           
           # Add ports section only if needed
           if [ "$EXPOSE_PORTS" == "true" ]; then
-            sed -i "s#PORTS_PLACEHOLDER#              ports:\n                - \"${EXTERNAL_PORT}:${INTERNAL_PORT}\"#g" "$COMPOSE_FILE"
+            sed -i 's#PORTS_PLACEHOLDER#      ports:\n        - "'"${EXTERNAL_PORT}:${INTERNAL_PORT}"'"#g' "$COMPOSE_FILE"
           else
             sed -i "s#PORTS_PLACEHOLDER##g" "$COMPOSE_FILE"
           fi
