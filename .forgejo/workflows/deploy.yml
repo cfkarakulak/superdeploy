@@ -237,7 +237,7 @@ jobs:
                 com.superdeploy.git.sha: "GIT_SHA_PLACEHOLDER"
                 com.superdeploy.git.ref: "GIT_REF_PLACEHOLDER"
               healthcheck:
-                test: ["CMD", "curl", "-f", "http://localhost:{{INTERNAL_PORT}}/health"]
+                test: ["CMD", "curl", "-f", "http://localhost:{{INTERNAL_PORT}}/"]
                 interval: 15s
                 timeout: 10s
                 retries: 5
