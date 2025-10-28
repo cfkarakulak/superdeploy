@@ -88,7 +88,8 @@ apps:
   services:
     path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/services
     vm: core
-    port: 8001
+    external_port: 8001
+    internal_port: 8000
 
 # =============================================================================
 # GitHub Configuration
