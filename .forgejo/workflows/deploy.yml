@@ -510,6 +510,21 @@ jobs:
           rm -f /tmp/decrypted.env
           rm -f /tmp/encrypted.age
       
+      - name: Verify final deployment status
+        run: |
+          echo "🔍 Final deployment verification..."
+          
+          # Check if container is running and healthy
+          if docker ps --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}" --filter "health=healthy" | grep -q "${{ env.PROJECT }}-${{ env.SERVICE }}"; then
+            echo "✅ Container is running and healthy"
+            echo "deployment_status=success" >> $GITHUB_ENV
+          else
+            echo "❌ Container is not healthy"
+            docker ps -a --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
+            docker logs ${{ env.PROJECT }}-${{ env.SERVICE }} --tail 50
+            exit 1
+          fi
+      
       - name: Send notification
         if: always()
         continue-on-error: true
@@ -530,3 +545,12 @@ jobs:
           else
             echo "📧 Email notification skipped (mail not configured)"
           fi
+      
+      - name: Cleanup workspace
+        if: always()
+        continue-on-error: true
+        run: |
+          echo "🧹 Cleaning up workspace..."
+          # Force cleanup to prevent job failure
+          rm -rf /tmp/* 2>/dev/null || true
+          echo "✅ Cleanup completed"
