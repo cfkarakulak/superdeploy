@@ -59,7 +59,17 @@
 
 - name: Collect application ports from project configuration
   set_fact:
-    app_ports: "{{ project_config.apps | dict2items | map(attribute='value.port') | list }}"
+    app_ports: >-
+      {{
+        project_config.apps.values() | 
+        map(attribute='external_port', default=None) | 
+        select('defined') | 
+        list +
+        project_config.apps.values() | 
+        map(attribute='port', default=None) | 
+        select('defined') | 
+        list
+      }}
   when: project_config is defined and project_config.apps is defined
 
 - name: Allow application ports
@@ -68,7 +78,7 @@
     port: "{{ item }}"
     proto: tcp
     comment: "Application port"
-  loop: "{{ app_ports }}"
+  loop: "{{ app_ports | default([]) | unique }}"
   when: app_ports is defined and app_ports | length > 0
 
 - name: Collect addon ports from project configuration
