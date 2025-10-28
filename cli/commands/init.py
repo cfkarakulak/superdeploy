@@ -586,25 +586,28 @@ def init(project, app, subnet, no_interactive, yes):
     port_assignments = {}
     
     # Default port mappings for common services
+    # Format: service_name: (external_port, internal_port)
     default_ports = {
-        "api": 8000,
-        "dashboard": 3000,
-        "services": 8001,
-        "worker": 8002,
-        "admin": 8003,
+        "api": (8000, 8000),
+        "dashboard": (3000, 3000),
+        "services": (8001, 8000),  # External 8001, internal 8000 (proxy registry)
+        "worker": (8002, 8002),
+        "admin": (8003, 8003),
     }
 
     for idx, service in enumerate(selected_services):
         # Use default port if available, otherwise auto-assign
         if service in default_ports:
-            port = default_ports[service]
+            external_port, internal_port = default_ports[service]
         else:
             # Auto-assign starting from 8000, skipping known ports
             port = base_external_port + (idx * 10)
+            external_port = port
+            internal_port = port
         
         port_assignments[service] = {
-            "external": port,
-            "internal": port,  # Match internal port to external by default
+            "external": external_port,
+            "internal": internal_port,
         }
 
     # Build temporary project config for validation
@@ -629,10 +632,18 @@ def init(project, app, subnet, no_interactive, yes):
         },
         "network": {"docker_subnet": project_subnet},
         "apps": {
-            app_name: {
-                "path": str(app_path),
-                "port": port_assignments[app_name]["external"],
-            }
+            app_name: (
+                {
+                    "path": str(app_path),
+                    "port": port_assignments[app_name]["external"],
+                }
+                if port_assignments[app_name]["external"] == port_assignments[app_name]["internal"]
+                else {
+                    "path": str(app_path),
+                    "external_port": port_assignments[app_name]["external"],
+                    "internal_port": port_assignments[app_name]["internal"],
+                }
+            )
             for app_name, app_path in apps.items()
         },
     }
