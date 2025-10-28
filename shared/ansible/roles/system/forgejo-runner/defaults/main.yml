@@ -1,0 +1,5 @@
+# Fo Runner defaults
+forgejo_runner_version: "3.5.0"
+forgejo_port: 3001
+superdeploy_user: "superdeploy"
+superdeploy_group: "superdeploy"

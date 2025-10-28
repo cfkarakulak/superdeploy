@@ -162,13 +162,14 @@ jobs:
             
             if [ -f "$PARSER_SCRIPT" ]; then
               echo "✅ Parser script found"
-              PORTS_OUTPUT=$(python3 "$PARSER_SCRIPT" "$CONFIG_FILE" "${{ env.SERVICE }}" 2>&1)
-              echo "🔍 Debug: PORTS_OUTPUT='$PORTS_OUTPUT'"
+              CONFIG_OUTPUT=$(python3 "$PARSER_SCRIPT" "$CONFIG_FILE" "${{ env.SERVICE }}" 2>&1)
+              echo "🔍 Debug: CONFIG_OUTPUT='$CONFIG_OUTPUT'"
               
-              read EXTERNAL_PORT INTERNAL_PORT <<< "$PORTS_OUTPUT"
+              read EXTERNAL_PORT INTERNAL_PORT VM_NAME <<< "$CONFIG_OUTPUT"
               
               echo "🔍 Debug: EXTERNAL_PORT='$EXTERNAL_PORT'"
               echo "🔍 Debug: INTERNAL_PORT='$INTERNAL_PORT'"
+              echo "🔍 Debug: VM_NAME='$VM_NAME'"
               
               # NO FALLBACK! Fail if ports are empty
               if [ -z "$EXTERNAL_PORT" ] || [ -z "$INTERNAL_PORT" ]; then
@@ -180,7 +181,7 @@ jobs:
               
               echo "external_port=${EXTERNAL_PORT}" >> $GITHUB_OUTPUT
               echo "internal_port=${INTERNAL_PORT}" >> $GITHUB_OUTPUT
-              echo "✅ Loaded ports from project.yml: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
+              echo "✅ Loaded ports from project.yml: ${EXTERNAL_PORT}:${INTERNAL_PORT} (VM: ${VM_NAME})"
             else
               echo "❌ ERROR: Parser script not found at: $PARSER_SCRIPT"
               exit 1

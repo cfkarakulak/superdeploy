@@ -13,7 +13,7 @@ import os
 
 def simple_yaml_parse(file_path: str, service_name: str):
     """
-    Simple YAML parser for extracting service port from apps section.
+    Simple YAML parser for extracting service port and VM from apps section.
     Only parses the specific structure needed, avoiding external dependencies.
     """
     if not os.path.exists(file_path):
@@ -31,6 +31,7 @@ def simple_yaml_parse(file_path: str, service_name: str):
     port = None
     external_port = None
     internal_port = None
+    vm = None
 
     for line in lines:
         # Skip comments and empty lines
@@ -67,13 +68,15 @@ def simple_yaml_parse(file_path: str, service_name: str):
                     in_target_service = False
                     continue
 
-                # Extract port values
+                # Extract port and VM values
                 if stripped.startswith("port:"):
                     port = int(stripped.split(":", 1)[1].strip())
                 elif stripped.startswith("external_port:"):
                     external_port = int(stripped.split(":", 1)[1].strip())
                 elif stripped.startswith("internal_port:"):
                     internal_port = int(stripped.split(":", 1)[1].strip())
+                elif stripped.startswith("vm:"):
+                    vm = stripped.split(":", 1)[1].strip()
 
     # Check if service was found and has port configuration
     if port is None and external_port is None and internal_port is None:
@@ -105,8 +108,12 @@ def simple_yaml_parse(file_path: str, service_name: str):
         print(f"ERROR: Unable to determine ports for service '{service_name}'", file=sys.stderr)
         sys.exit(1)
 
-    # Output in the format expected by workflow: "EXTERNAL_PORT INTERNAL_PORT"
-    print(f"{final_external} {final_internal}")
+    # Default VM to 'core' if not specified
+    if vm is None:
+        vm = "core"
+    
+    # Output in the format expected by workflow: "EXTERNAL_PORT INTERNAL_PORT VM"
+    print(f"{final_external} {final_internal} {vm}")
 
 
 def parse_config(config_file: str, service_name: str):

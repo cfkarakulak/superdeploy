@@ -1,0 +1,195 @@
+---
+# Forgejo Actions Runner Setup (standalone, without Forgejo server)
+# This role installs runner on non-core VMs to enable distributed deployments
+
+- name: Check if this is the core VM (skip if Forgejo addon will handle runner)
+  set_fact:
+    is_core_vm: "{{ 'core' in group_names }}"
+
+- name: Skip runner setup on core VM (handled by Forgejo addon)
+  debug:
+    msg: "Skipping standalone runner setup - this is core VM, Forgejo addon will handle it"
+  when: is_core_vm
+
+- name: Setup standalone runner on non-core VMs
+  block:
+    - name: Check if Node.js is installed
+      command: node --version
+      register: node_check
+      failed_when: false
+      changed_when: false
+
+    - name: Install Node.js (if not present)
+      block:
+        - name: Download Node.js setup script
+          get_url:
+            url: https://deb.nodesource.com/setup_20.x
+            dest: /tmp/nodesource_setup.sh
+            mode: '0755'
+          when: node_check.rc != 0
+
+        - name: Run Node.js setup script
+          command: bash /tmp/nodesource_setup.sh
+          when: node_check.rc != 0
+
+        - name: Install Node.js package
+          apt:
+            name: nodejs
+            state: present
+            update_cache: yes
+          when: node_check.rc != 0
+      when: ansible_os_family == "Debian"
+
+    - name: Check if age is installed
+      command: age --version
+      register: age_check
+      failed_when: false
+      changed_when: false
+
+    - name: Install age encryption tool
+      block:
+        - name: Download age binary
+          get_url:
+            url: "https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz"
+            dest: /tmp/age.tar.gz
+            mode: '0644'
+
+        - name: Extract age binary
+          unarchive:
+            src: /tmp/age.tar.gz
+            dest: /tmp/
+            remote_src: yes
+
+        - name: Install age binary
+          copy:
+            src: /tmp/age/age
+            dest: /usr/local/bin/age
+            mode: '0755'
+            remote_src: yes
+
+        - name: Install age-keygen binary
+          copy:
+            src: /tmp/age/age-keygen
+            dest: /usr/local/bin/age-keygen
+            mode: '0755'
+            remote_src: yes
+      when: age_check.rc != 0
+
+    - name: Create runner working directory
+      file:
+        path: /opt/forgejo-runner
+        state: directory
+        owner: "{{ superdeploy_user }}"
+        group: "{{ superdeploy_group | default(superdeploy_user) }}"
+        mode: '0755'
+
+    - name: Create age key directory
+      file:
+        path: /opt/forgejo-runner/.age
+        state: directory
+        owner: "{{ superdeploy_user }}"
+        group: "{{ superdeploy_group | default(superdeploy_user) }}"
+        mode: '0700'
+
+    - name: Check if age key already exists
+      stat:
+        path: /opt/forgejo-runner/.age/key.txt
+      register: age_key_check
+      become_user: "{{ superdeploy_user }}"
+
+    - name: Generate age encryption key
+      shell: age-keygen -o /opt/forgejo-runner/.age/key.txt 2>&1
+      args:
+        creates: /opt/forgejo-runner/.age/key.txt
+      become_user: "{{ superdeploy_user }}"
+      register: age_keygen_result
+
+    - name: Set age key file permissions
+      file:
+        path: /opt/forgejo-runner/.age/key.txt
+        owner: "{{ superdeploy_user }}"
+        group: "{{ superdeploy_group | default(superdeploy_user) }}"
+        mode: '0600'
+
+    - name: Display age public key
+      shell: cat /opt/forgejo-runner/.age/key.txt | grep "public key:"
+      register: age_public_key_output
+      changed_when: false
+      become_user: "{{ superdeploy_user }}"
+
+    - name: Show age public key for GitHub secrets
+      debug:
+        msg:
+          - "=== AGE Encryption Setup for {{ inventory_hostname }} ==="
+          - "Public Key (add to GitHub Secrets as AGE_PUBLIC_KEY):"
+          - "{{ age_public_key_output.stdout }}"
+          - "Private Key Location: /opt/forgejo-runner/.age/key.txt"
+      when: age_keygen_result is changed
+
+    - name: Check if Forgejo runner is already installed
+      stat:
+        path: /usr/local/bin/forgejo-runner
+      register: runner_binary_check
+
+    - name: Download Forgejo Actions runner
+      get_url:
+        url: "https://code.forgejo.org/forgejo/runner/releases/download/v{{ forgejo_runner_version }}/forgejo-runner-{{ forgejo_runner_version }}-linux-amd64"
+        dest: /usr/local/bin/forgejo-runner
+        mode: '0755'
+      when: not runner_binary_check.stat.exists
+
+    - name: Get Forgejo URL from core VM
+      set_fact:
+        forgejo_url: "http://{{ hostvars[groups['core'][0]]['ansible_host'] }}:{{ forgejo_port }}"
+
+    - name: Check if runner is already registered
+      stat:
+        path: /opt/forgejo-runner/.runner
+      register: runner_registration_check
+
+    - name: Get VM type from inventory group
+      set_fact:
+        vm_type: "{{ group_names | select('match', '^(core|web|api)$') | first | default('unknown') }}"
+
+    - name: Register runner with Forgejo (manual step required)
+      debug:
+        msg:
+          - "⚠️  Runner binary installed but not registered yet"
+          - "VM Type: {{ vm_type }}"
+          - ""
+          - "To register this runner, run on core VM:"
+          - "  docker exec {{ project_name }}-forgejo forgejo actions generate-runner-token"
+          - ""
+          - "Then on this VM ({{ inventory_hostname }}):"
+          - "  sudo -u {{ superdeploy_user }} forgejo-runner register --no-interactive \\"
+          - "    --instance {{ forgejo_url }} \\"
+          - "    --token <TOKEN> \\"
+          - "    --name {{ inventory_hostname }}-runner \\"
+          - "    --labels 'ubuntu-latest:docker://node:20-alpine,{{ vm_type }}:docker://node:20-alpine'"
+          - ""
+          - "Note: The '{{ vm_type }}' label allows targeting this specific VM type in workflows"
+      when: not runner_registration_check.stat.exists
+
+    - name: Create runner systemd service file
+      template:
+        src: forgejo-runner.service.j2
+        dest: /etc/systemd/system/forgejo-runner.service
+        mode: '0644'
+
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: yes
+
+    - name: Enable runner service (will start after registration)
+      systemd:
+        name: forgejo-runner
+        enabled: yes
+      when: runner_registration_check.stat.exists
+
+    - name: Start runner service if already registered
+      systemd:
+        name: forgejo-runner
+        state: started
+      when: runner_registration_check.stat.exists
+
+  when: not is_core_vm
