@@ -209,8 +209,8 @@ jobs:
           
           echo "🔧 Generating compose with ports: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
           
-          # Services don't expose ports directly, Caddy handles all routing
-          EXPOSE_PORTS="false"
+          # All services expose their own ports (no domain, using IP:PORT)
+          EXPOSE_PORTS="true"
           
           # Generate compose file from template
           cat > /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml <<'EOF'
