@@ -209,6 +209,13 @@ jobs:
           
           echo "🔧 Generating compose with ports: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
           
+          # Determine if service should expose ports directly
+          # Dashboard and API expose ports, others go through Caddy
+          EXPOSE_PORTS="false"
+          if [ "${{ env.SERVICE }}" == "dashboard" ] || [ "${{ env.SERVICE }}" == "api" ]; then
+            EXPOSE_PORTS="true"
+          fi
+          
           # Generate compose file from template
           cat > /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml <<'EOF'
           version: '3.8'
@@ -227,8 +234,7 @@ jobs:
               networks:
                 - PROJECT_NETWORK
                 - superdeploy-proxy
-              ports:
-                - "{{EXTERNAL_PORT}}:{{INTERNAL_PORT}}"
+          PORTS_PLACEHOLDER
               env_file:
                 - /tmp/decrypted.env
               labels:
@@ -243,6 +249,13 @@ jobs:
                 retries: 5
                 start_period: 60s  # Longer grace period for slow starts
           EOF
+          
+          # Add ports section only if needed
+          if [ "$EXPOSE_PORTS" == "true" ]; then
+            sed -i "s#PORTS_PLACEHOLDER#              ports:\n                - \"${EXTERNAL_PORT}:${INTERNAL_PORT}\"#g" "$COMPOSE_FILE"
+          else
+            sed -i "s#PORTS_PLACEHOLDER##g" "$COMPOSE_FILE"
+          fi
           
           # Replace placeholders (using # as delimiter to avoid conflicts with URLs)
           COMPOSE_FILE="/opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml"
