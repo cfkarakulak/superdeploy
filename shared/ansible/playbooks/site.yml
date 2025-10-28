@@ -58,6 +58,29 @@
 # PHASE 2: Addon Deployment
 # ============================================================================
 
+- name: Ensure superdeploy data directory exists
+  hosts: core
+  become: yes
+  tasks:
+    - name: Create superdeploy data directory
+      file:
+        path: /var/lib/superdeploy
+        state: directory
+        owner: "{{ superdeploy_user | default('superdeploy') }}"
+        group: "{{ superdeploy_group | default('superdeploy') }}"
+        mode: '0755'
+    
+    - name: Create project data directory
+      file:
+        path: "/var/lib/superdeploy/{{ project_name }}"
+        state: directory
+        owner: "{{ superdeploy_user | default('superdeploy') }}"
+        group: "{{ superdeploy_group | default('superdeploy') }}"
+        mode: '0755'
+  tags:
+    - addons
+    - infrastructure
+
 - name: Deploy Infrastructure Addons
   hosts: core
   become: yes
@@ -66,7 +89,7 @@
       vars:
         project_name: "{{ project_name }}"
         project_config: "{{ project_config }}"
-        addons_base_path: "/opt/superdeploy/projects/{{ project_name }}/addons"
+        addons_base_path: "/var/lib/superdeploy/{{ project_name }}/addons"
         enabled_addons: "{{ enabled_addons }}"
         addon_configs: "{{ addon_configs }}"
         project_secrets: "{{ project_secrets | default({}) }}"
