@@ -17,9 +17,9 @@
     {% endif %}
 }
 
-# Main domain configuration
+# Main configuration - supports both domain and IP-based access
 {% if CADDY_TLS_MODE == 'off' %}
-http://{{ CADDY_DOMAIN }} {
+:80 {
 {% else %}
 {{ CADDY_DOMAIN }} {
 {% endif %}
@@ -43,26 +43,29 @@ http://{{ CADDY_DOMAIN }} {
     {% if apps is defined %}
     # Application routes
     {% for app_name, app_config in apps.items() %}
+    {% if app_name == 'dashboard' %}
+    # Dashboard on root path
+    handle / {
+        reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+    {% else %}
+    # {{ app_name }} service
     handle /{{ app_name }}* {
         reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
             header_up Host {host}
             header_up X-Real-IP {remote_host}
             header_up X-Forwarded-For {remote_host}
             header_up X-Forwarded-Proto {scheme}
-            
-            # Health check
-            health_uri /health
-            health_interval 10s
-            health_timeout 5s
         }
     }
+    {% endif %}
     {% endfor %}
     {% endif %}
-    
-    # Default route (if no specific route matches)
-    handle {
-        respond "Service not found" 404
-    }
 }
 
 # Metrics endpoint (Prometheus)
