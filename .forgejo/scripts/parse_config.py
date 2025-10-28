@@ -75,22 +75,38 @@ def simple_yaml_parse(file_path: str, service_name: str):
                 elif stripped.startswith("internal_port:"):
                     internal_port = int(stripped.split(":", 1)[1].strip())
 
-    # Check if service was found
-    if port is None:
+    # Check if service was found and has port configuration
+    if port is None and external_port is None and internal_port is None:
         print(
             f"ERROR: Port configuration not found for service '{service_name}' in {file_path}",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    # Use defaults if external/internal ports not specified
-    if external_port is None:
-        external_port = port
-    if internal_port is None:
-        internal_port = port
+    # Determine final port values
+    if external_port is not None and internal_port is not None:
+        # Both external and internal ports specified
+        final_external = external_port
+        final_internal = internal_port
+    elif port is not None:
+        # Simple port specified, use for both
+        final_external = port
+        final_internal = port
+    elif external_port is not None:
+        # Only external port specified
+        final_external = external_port
+        final_internal = external_port
+    elif internal_port is not None:
+        # Only internal port specified
+        final_external = internal_port
+        final_internal = internal_port
+    else:
+        # Should never reach here due to earlier check
+        print(f"ERROR: Unable to determine ports for service '{service_name}'", file=sys.stderr)
+        sys.exit(1)
 
     # Output in the format expected by workflow: "EXTERNAL_PORT INTERNAL_PORT"
-    print(f"{external_port} {internal_port}")
+    print(f"{final_external} {final_internal}")
 
 
 def parse_config(config_file: str, service_name: str):
