@@ -52,8 +52,10 @@ jobs:
           mv age/age /usr/local/bin/
           rm -rf age
           
-          # Install Docker CLI
-          apt-get update && apt-get install -y docker.io
+          # Install docker-compose
+          curl -sL "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          chmod +x /usr/local/bin/docker-compose
+          docker-compose version
       
       - name: Decrypt environment bundle
         id: decrypt
@@ -423,9 +425,9 @@ jobs:
             fi
           done
           
-          # Deploy with zero-downtime using docker compose
+          # Deploy with zero-downtime using docker-compose
           echo "🐳 Starting service container..."
-          docker compose -f docker-compose-${{ env.SERVICE }}.yml up -d --wait
+          docker-compose -f docker-compose-${{ env.SERVICE }}.yml up -d --wait
           
           echo "📊 Container status:"
           docker ps -a --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
