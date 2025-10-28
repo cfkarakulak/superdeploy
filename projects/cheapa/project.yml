@@ -84,11 +84,11 @@ apps:
   dashboard:
     path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/dashboard
     vm: core
-    port: 8010
+    port: 3000
   services:
     path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/services
     vm: core
-    port: 8020
+    port: 8001
 
 # =============================================================================
 # GitHub Configuration
