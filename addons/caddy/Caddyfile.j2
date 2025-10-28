@@ -44,7 +44,7 @@ http://{{ CADDY_DOMAIN }} {
     # Application routes
     {% for app_name, app_config in apps.items() %}
     handle /{{ app_name }}* {
-        reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.port }} {
+        reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
             header_up Host {host}
             header_up X-Real-IP {remote_host}
             header_up X-Forwarded-For {remote_host}
