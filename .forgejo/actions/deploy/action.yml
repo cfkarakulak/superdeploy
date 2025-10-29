@@ -245,7 +245,7 @@ runs:
         docker pull ${{ inputs.image }}
         
         echo "🐳 Starting service container..."
-        docker-compose -f docker-compose-${{ inputs.service }}.yml up -d --wait
+        docker compose -f docker-compose-${{ inputs.service }}.yml up -d --wait
         
         echo "✅ Service deployed!"
     
