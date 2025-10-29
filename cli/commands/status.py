@@ -2,11 +2,10 @@
 
 import os
 import click
-import re
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
-from cli.utils import get_project_root, ssh_command
+from cli.utils import get_project_root, ssh_command, load_env
 
 console = Console()
 
@@ -41,28 +40,24 @@ def status(project):
     
     console.print(f"[cyan]📊 Fetching status for {project}...[/cyan]\n")
     
-    # Get inventory
-    inventory_path = projects_dir / project / "inventory.ini"
-    if not inventory_path.exists():
-        console.print(f"[yellow]⚠️  No inventory found. Run: superdeploy up -p {project}[/yellow]")
-        return
+    # Load .env to get VM IPs
+    env = load_env(project=project)
     
-    # Parse inventory to get all VMs
-    inventory_content = inventory_path.read_text()
-    vm_pattern = r"(\S+)\s+ansible_host=(\S+)"
+    # Get VMs from config and their IPs from .env
+    vms_config = config.get('vms', {})
     vms = {}
     
-    for match in re.finditer(vm_pattern, inventory_content):
-        vm_name = match.group(1)
-        vm_ip = match.group(2)
-        # Extract role from vm_name (e.g., cheapa-api-0 -> api)
-        role_match = re.match(rf"{project}-(\w+)-\d+", vm_name)
-        if role_match:
-            role = role_match.group(1)
-            vms[role] = {"name": vm_name, "ip": vm_ip}
+    for role in vms_config.keys():
+        # Get IP from .env (e.g., API_0_EXTERNAL_IP)
+        ip_key = f"{role.upper()}_0_EXTERNAL_IP"
+        if ip_key in env:
+            vms[role] = {
+                "ip": env[ip_key],
+                "internal_ip": env.get(f"{role.upper()}_0_INTERNAL_IP", "")
+            }
     
     if not vms:
-        console.print("[yellow]⚠️  No VMs found in inventory[/yellow]")
+        console.print(f"[yellow]⚠️  No VM IPs found in .env. Run: superdeploy up -p {project}[/yellow]")
         return
     
     # Get apps and their VM assignments
@@ -78,9 +73,8 @@ def status(project):
     ssh_user = "superdeploy"
     
     # Check each VM and its containers
-    for role, vm_info in vms.items():
+    for role, vm_info in sorted(vms.items()):
         vm_ip = vm_info["ip"]
-        vm_name = vm_info["name"]
         
         # Check VM uptime
         try:
@@ -88,13 +82,13 @@ def status(project):
             uptime = ssh_command(host=vm_ip, user=ssh_user, key_path=ssh_key, cmd=uptime_cmd)
             uptime = uptime.strip().replace("up ", "")
             table.add_row(f"{role.upper()} VM", "✅ Running", f"{vm_ip} ({uptime})")
-        except:
-            table.add_row(f"{role.upper()} VM", "❌ Down", f"{vm_ip}")
+        except Exception as e:
+            table.add_row(f"{role.upper()} VM", "❌ Down", f"{vm_ip} - {str(e)[:30]}")
             continue
         
         # Check containers on this VM
         try:
-            ps_cmd = f"docker ps -a --filter name={project}- --format '{{{{.Names}}}}|{{{{.Status}}}}|{{{{.State}}}}'"
+            ps_cmd = f'docker ps -a --filter name={project}- --format "{{{{.Names}}}}|{{{{.Status}}}}|{{{{.State}}}}"'
             containers = ssh_command(host=vm_ip, user=ssh_user, key_path=ssh_key, cmd=ps_cmd)
             
             for line in containers.strip().split("\n"):
@@ -110,6 +104,7 @@ def status(project):
                 state = parts[2]
                 
                 # Extract service name (e.g., cheapa-api -> api)
+                import re
                 service_match = re.match(rf"{project}-(\w+)", container_name)
                 if not service_match:
                     continue
@@ -137,7 +132,7 @@ def status(project):
                 table.add_row(f"  {service}", f"{icon} {status}", status_display)
         
         except Exception as e:
-            table.add_row(f"  containers", "❌ Error", str(e))
+            table.add_row(f"  containers", "❌ Error", str(e)[:40])
     
     console.print(table)
     

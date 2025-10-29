@@ -1,6 +1,7 @@
 """SuperDeploy CLI - Up command (Deploy infrastructure)"""
 
 import click
+import json
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -180,7 +181,7 @@ def update_ips_in_env(project_root, project_name):
         return False
 
 
-def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=None):
+def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=None, project_config=None):
     """Generate Ansible inventory file dynamically from environment variables
 
     Args:
@@ -188,6 +189,7 @@ def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=N
         ansible_dir: Path to ansible directory
         project_name: Project name
         orchestrator_ip: Orchestrator VM IP (from global config)
+        project_config: Project configuration object (to get VM services)
     """
     # Extract VM groups from environment variables
     # Format: {ROLE}_{INDEX}_EXTERNAL_IP
@@ -207,9 +209,25 @@ def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=N
                 "name": f"{project_name}-{vm_key}",
                 "host": value,
                 "user": env.get("SSH_USER", "superdeploy"),
+                "role": role,
             }
 
             vm_groups[role].append(vm_info)
+
+    # Get VM services from project config
+    vm_services_map = {}
+    if project_config:
+        vms_config = project_config.raw_config.get("vms", {})
+        for vm_role, vm_def in vms_config.items():
+            services = vm_def.get("services", [])
+            # Also add caddy to all VMs that have apps
+            apps = project_config.raw_config.get("apps", {})
+            for app_name, app_config in apps.items():
+                if app_config.get("vm") == vm_role:
+                    if "caddy" not in services:
+                        services = services + ["caddy"]
+                    break
+            vm_services_map[vm_role] = services
 
     # Build inventory content
     inventory_lines = []
@@ -226,8 +244,12 @@ def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=N
     for role in sorted(vm_groups.keys()):
         inventory_lines.append(f"[{role}]")
         for vm in sorted(vm_groups[role], key=lambda x: x["name"]):
+            # Get services for this VM role
+            services = vm_services_map.get(role, [])
+            services_json = json.dumps(services).replace('"', '\\"')
+            
             inventory_lines.append(
-                f"{vm['name']} ansible_host={vm['host']} ansible_user={vm['user']}"
+                f"{vm['name']} ansible_host={vm['host']} ansible_user={vm['user']} vm_services='{services_json}'"
             )
         inventory_lines.append("")  # Empty line between groups
 
@@ -593,7 +615,7 @@ def up(
 
     # Generate inventory with NEW IPs
     ansible_dir = project_root / "shared" / "ansible"
-    generate_ansible_inventory(env, ansible_dir, project, orchestrator_ip)
+    generate_ansible_inventory(env, ansible_dir, project, orchestrator_ip, project_config_obj)
 
     # Clean SSH known_hosts with NEW IPs
     clean_ssh_known_hosts(env)

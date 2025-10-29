@@ -45,22 +45,17 @@ def run(project, app, command):
         
         vm_role = apps[app].get("vm", "core")
         
-        # Get VM IP from inventory
-        inventory_path = projects_dir / project / "inventory.ini"
-        if not inventory_path.exists():
-            console.print(f"[red]❌ Inventory not found. Run: superdeploy up -p {project}[/red]")
+        # Get VM IP from .env
+        from cli.utils import load_env
+        env = load_env(project=project)
+        
+        ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
+        if ip_key not in env:
+            console.print(f"[red]❌ VM IP not found in .env: {ip_key}[/red]")
+            console.print(f"[dim]Run: superdeploy up -p {project}[/dim]")
             return
         
-        inventory_content = inventory_path.read_text()
-        import re
-        pattern = rf"{project}-{vm_role}-\d+\s+ansible_host=(\S+)"
-        match = re.search(pattern, inventory_content)
-        
-        if not match:
-            console.print(f"[red]❌ VM not found in inventory for role: {vm_role}[/red]")
-            return
-        
-        ssh_host = match.group(1)
+        ssh_host = env[ip_key]
         
     except Exception as e:
         console.print(f"[red]❌ Error: {e}[/red]")

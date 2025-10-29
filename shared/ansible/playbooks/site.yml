@@ -113,7 +113,8 @@
         project_name: "{{ project_name }}"
         project_config: "{{ project_config }}"
         addons_base_path: "/var/lib/superdeploy/{{ project_name }}/addons"
-        enabled_addons: "{{ enabled_addons }}"
+        # Filter addons based on VM's services list
+        enabled_addons: "{{ vm_services | default([]) }}"
         addon_configs: "{{ addon_configs }}"
         project_secrets: "{{ project_secrets | default({}) }}"
   tags:

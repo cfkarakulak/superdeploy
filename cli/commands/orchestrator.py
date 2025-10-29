@@ -23,7 +23,8 @@ def orchestrator():
 
 @orchestrator.command()
 @click.option("--skip-terraform", is_flag=True, help="Skip Terraform (VM already exists)")
-def up(skip_terraform):
+@click.option("--preserve-ip", is_flag=True, help="Preserve static IP on destroy (for production)")
+def up(skip_terraform, preserve_ip):
     """Deploy orchestrator VM with Forgejo (runs Terraform + Ansible by default)"""
     console.print(
         Panel.fit(
@@ -279,6 +280,11 @@ orchestrator ansible_host={orchestrator_ip} ansible_user=superdeploy
     # IMPORTANT: Manually set project_secrets for orchestrator
     # (generate_ansible_extra_vars looks in projects/{name}/.env but orchestrator is in shared/orchestrator/.env)
     ansible_vars["project_secrets"] = project_secrets
+    
+    # Add preserve_ip flag to Ansible vars if set
+    if preserve_ip:
+        ansible_vars["preserve_ip"] = True
+        console.print("[yellow]⚠️  IP preservation enabled - static IP will be kept on destroy[/yellow]")
 
     # Build Ansible command
     ansible_cmd = build_ansible_command(
@@ -447,7 +453,8 @@ orchestrator ansible_host={orchestrator_ip} ansible_user=superdeploy
 
 @orchestrator.command()
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-def down(yes):
+@click.option("--preserve-ip", is_flag=True, help="Keep static IP (don't delete)")
+def down(yes, preserve_ip):
     """Destroy orchestrator VM and clean up state"""
     from rich.prompt import Confirm
     
@@ -561,20 +568,23 @@ def down(yes):
         else:
             console.print(f"[yellow]  ⚠ VM deletion: {result.stderr.strip()[:100]}[/yellow]")
         
-        # Delete External IP
-        console.print("[dim]Deleting External IP orchestrator-main-0-ip...[/dim]")
-        result = subprocess.run(
-            f"gcloud compute addresses delete orchestrator-main-0-ip --region={region} --quiet",
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            console.print("[green]  ✓ External IP deleted[/green]")
-        elif "not found" in result.stderr.lower() or "could not fetch resource" in result.stderr.lower():
-            console.print("[dim]  ✓ External IP not found (already deleted)[/dim]")
+        # Delete External IP (unless --preserve-ip flag is set)
+        if preserve_ip:
+            console.print("[yellow]  ⊙ External IP preserved (--preserve-ip flag)[/yellow]")
         else:
-            console.print(f"[yellow]  ⚠ External IP deletion: {result.stderr.strip()[:100]}[/yellow]")
+            console.print("[dim]Deleting External IP orchestrator-main-0-ip...[/dim]")
+            result = subprocess.run(
+                f"gcloud compute addresses delete orchestrator-main-0-ip --region={region} --quiet",
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                console.print("[green]  ✓ External IP deleted[/green]")
+            elif "not found" in result.stderr.lower() or "could not fetch resource" in result.stderr.lower():
+                console.print("[dim]  ✓ External IP not found (already deleted)[/dim]")
+            else:
+                console.print(f"[yellow]  ⚠ External IP deletion: {result.stderr.strip()[:100]}[/yellow]")
         
         # Delete Firewall Rules (all network rules)
         console.print("[dim]Deleting Firewall Rules...[/dim]")

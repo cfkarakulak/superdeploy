@@ -5,6 +5,11 @@ resource "google_compute_address" "external_ip" {
   name    = "${var.name}-ip"
   project = var.project_id
   region  = var.region
+  
+  # Prevent accidental deletion of static IP
+  lifecycle {
+    prevent_destroy = false  # Set to true in production to protect IP
+  }
 }
 
 # Compute Instance
