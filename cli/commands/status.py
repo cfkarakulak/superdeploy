@@ -2,11 +2,11 @@
 
 import os
 import click
-import yaml
+import re
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
-from cli.utils import load_env, validate_env_vars, ssh_command, get_project_root
+from cli.utils import get_project_root, ssh_command
 
 console = Console()
 
@@ -15,225 +15,141 @@ console = Console()
 @click.option("--project", "-p", required=True, help="Project name")
 def status(project):
     """
-    Show infrastructure status for addon-based projects
-
+    Show infrastructure and application status
+    
     Displays:
-    - VM status
-    - Service health (from addons)
-    - Container status
-    - Monitoring dashboard URL
+    - VM status per role
+    - Container status per VM
+    - Application health
     """
-    env = load_env(project)
     project_root = get_project_root()
-
-    # Load project config using ConfigLoader
+    projects_dir = project_root / "projects"
+    
+    # Load project config
     from cli.core.config_loader import ConfigLoader
     
     try:
-        projects_dir = project_root / "projects"
         config_loader = ConfigLoader(projects_dir)
-        project_config_obj = config_loader.load_project(project)
-        config = project_config_obj.raw_config
+        project_config = config_loader.load_project(project)
+        config = project_config.raw_config
     except FileNotFoundError:
         console.print(f"[red]❌ Project '{project}' not found![/red]")
-        console.print(f"[dim]Run: superdeploy init -p {project}[/dim]")
         return
     except ValueError as e:
-        console.print(f"[red]❌ Error loading project config: {e}[/red]")
-        return
-
-    # Get VMs from project config
-    vms_config = config.get('vms', {})
-    
-    if not vms_config:
-        console.print("[yellow]⚠️  No VMs configured in project.yml[/yellow]")
+        console.print(f"[red]❌ Error loading config: {e}[/red]")
         return
     
-    # Find first VM with external IP (usually 'core')
-    ssh_host = None
-    vm_role = None
-    
-    for role in vms_config.keys():
-        # Try to get external IP for this VM role (index 0)
-        ip_var = f"{role.upper()}_0_EXTERNAL_IP"
-        if ip_var in env:
-            ssh_host = env[ip_var]
-            vm_role = role
-            break
-    
-    # Validate environment
-    required = ["SSH_KEY_PATH", "SSH_USER"]
-    if not validate_env_vars(env, required) or not ssh_host:
-        console.print("[yellow]⚠️  Limited status (IPs not configured yet)[/yellow]")
-
-        # Show basic info
-        table = Table(title=f"{project} - Infrastructure Status (Partial)")
-        table.add_column("Component", style="cyan")
-        table.add_column("Status", style="yellow")
-
-        table.add_row("Configuration", "✅ .env loaded")
-        table.add_row("Project Config", "✅ project.yml loaded")
-        table.add_row("VMs", "⏳ Not deployed yet")
-        
-        if not ssh_host:
-            console.print(f"\n[dim]💡 Run 'superdeploy up -p {project}' to deploy infrastructure[/dim]")
-
-        console.print(table)
-        return
-
     console.print(f"[cyan]📊 Fetching status for {project}...[/cyan]\n")
-
+    
+    # Get inventory
+    inventory_path = projects_dir / project / "inventory.ini"
+    if not inventory_path.exists():
+        console.print(f"[yellow]⚠️  No inventory found. Run: superdeploy up -p {project}[/yellow]")
+        return
+    
+    # Parse inventory to get all VMs
+    inventory_content = inventory_path.read_text()
+    vm_pattern = r"(\S+)\s+ansible_host=(\S+)"
+    vms = {}
+    
+    for match in re.finditer(vm_pattern, inventory_content):
+        vm_name = match.group(1)
+        vm_ip = match.group(2)
+        # Extract role from vm_name (e.g., cheapa-api-0 -> api)
+        role_match = re.match(rf"{project}-(\w+)-\d+", vm_name)
+        if role_match:
+            role = role_match.group(1)
+            vms[role] = {"name": vm_name, "ip": vm_ip}
+    
+    if not vms:
+        console.print("[yellow]⚠️  No VMs found in inventory[/yellow]")
+        return
+    
+    # Get apps and their VM assignments
+    apps = config.get("apps", {})
+    
     # Create table
     table = Table(title=f"{project} - Infrastructure Status")
     table.add_column("Component", style="cyan", no_wrap=True)
     table.add_column("Status", style="green")
     table.add_column("Details", style="dim")
-
-    # SSH connection details
-    ssh_user = env.get("SSH_USER", "superdeploy")
-    ssh_key = os.path.expanduser(env["SSH_KEY_PATH"])
-
-    # Check VMs
-    vm_status = _check_vm_status(ssh_host, ssh_user, ssh_key, table)
     
-    # Check addons
-    _check_addons(config, ssh_host, ssh_user, ssh_key, table, project)
+    ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
+    ssh_user = "superdeploy"
     
-    # Check application containers
-    _check_app_containers(config, ssh_host, ssh_user, ssh_key, table, project)
-
-    console.print(table)
-
-    # Show access URLs
-    _show_access_urls(config, ssh_host, env, vm_status)
-
-
-def _check_vm_status(ssh_host, ssh_user, ssh_key, table):
-    """Check VM status and add to table"""
-    vm_reachable = False
-    
-    try:
-        uptime = ssh_command(
-            host=ssh_host, user=ssh_user, key_path=ssh_key, cmd="uptime -p"
-        )
-        table.add_row("Core VM", "✅ Running", f"{ssh_host} ({uptime})")
-        vm_reachable = True
-    except Exception as e:
-        table.add_row("Core VM", "❌ Unreachable", ssh_host)
-    
-    return vm_reachable
-
-
-def _check_addons(config, ssh_host, ssh_user, ssh_key, table, project):
-    """Check addons status"""
-    # Get addons from new structure
-    addons = config.get('addons', {})
-    
-    if not addons:
-        table.add_row("Core Services", "ℹ️  None", "No addons configured")
-        return
-    
-    # Check each addon service
-    for service_name in addons.keys():
-        container_name = f"{project}-{service_name}"
+    # Check each VM and its containers
+    for role, vm_info in vms.items():
+        vm_ip = vm_info["ip"]
+        vm_name = vm_info["name"]
         
+        # Check VM uptime
         try:
-            # Check if container is running
-            status_cmd = f"docker ps --filter name={container_name} --format '{{{{.Status}}}}'"
-            status = ssh_command(
-                host=ssh_host,
-                user=ssh_user,
-                key_path=ssh_key,
-                cmd=status_cmd
-            )
+            uptime_cmd = "uptime -p"
+            uptime = ssh_command(host=vm_ip, user=ssh_user, key_path=ssh_key, cmd=uptime_cmd)
+            uptime = uptime.strip().replace("up ", "")
+            table.add_row(f"{role.upper()} VM", "✅ Running", f"{vm_ip} ({uptime})")
+        except:
+            table.add_row(f"{role.upper()} VM", "❌ Down", f"{vm_ip}")
+            continue
+        
+        # Check containers on this VM
+        try:
+            ps_cmd = f"docker ps -a --filter name={project}- --format '{{{{.Names}}}}|{{{{.Status}}}}|{{{{.State}}}}'"
+            containers = ssh_command(host=vm_ip, user=ssh_user, key_path=ssh_key, cmd=ps_cmd)
             
-            if status.strip():
-                # Container is running
-                table.add_row(f"  {service_name}", "✅ Running", status.strip())
+            for line in containers.strip().split("\n"):
+                if not line:
+                    continue
                 
-                # Try to get health status if available
-                try:
-                    health_cmd = f"docker inspect {container_name} --format '{{{{.State.Health.Status}}}}' 2>/dev/null || echo 'no-healthcheck'"
-                    health = ssh_command(
-                        host=ssh_host,
-                        user=ssh_user,
-                        key_path=ssh_key,
-                        cmd=health_cmd
-                    ).strip()
-                    
-                    if health and health != 'no-healthcheck':
-                        if health == 'healthy':
-                            table.add_row(f"    └─ health", "✅ Healthy", "")
-                        elif health == 'unhealthy':
-                            table.add_row(f"    └─ health", "❌ Unhealthy", "")
-                        elif health == 'starting':
-                            table.add_row(f"    └─ health", "⏳ Starting", "")
-                except:
-                    pass  # Health check not available
-            else:
-                # Container not running
-                table.add_row(f"  {service_name}", "❌ Down", "Container not found")
-        except Exception as e:
-            table.add_row(f"  {service_name}", "❌ Error", f"Cannot check: {str(e)[:30]}")
-
-
-def _check_app_containers(config, ssh_host, ssh_user, ssh_key, table, project):
-    """Check application containers status"""
-    apps = config.get('apps', {})
-    
-    if not apps:
-        return
-    
-    table.add_row("", "", "")  # Separator
-    
-    for app_name in apps.keys():
-        container_name = f"{project}-{app_name}"
+                parts = line.split("|")
+                if len(parts) < 3:
+                    continue
+                
+                container_name = parts[0]
+                status_text = parts[1]
+                state = parts[2]
+                
+                # Extract service name (e.g., cheapa-api -> api)
+                service_match = re.match(rf"{project}-(\w+)", container_name)
+                if not service_match:
+                    continue
+                
+                service = service_match.group(1)
+                
+                # Determine status icon
+                if state == "running":
+                    if "healthy" in status_text.lower():
+                        icon = "✅"
+                        status = "Running"
+                    elif "unhealthy" in status_text.lower():
+                        icon = "⚠️"
+                        status = "Unhealthy"
+                    else:
+                        icon = "✅"
+                        status = "Running"
+                else:
+                    icon = "❌"
+                    status = "Down"
+                
+                # Clean up status text
+                status_display = status_text.replace("Up ", "").replace("Exited ", "Exit ")
+                
+                table.add_row(f"  {service}", f"{icon} {status}", status_display)
         
-        try:
-            # Check if container is running
-            status_cmd = f"docker ps --filter name={container_name} --format '{{{{.Status}}}}'"
-            status = ssh_command(
-                host=ssh_host,
-                user=ssh_user,
-                key_path=ssh_key,
-                cmd=status_cmd
-            )
-            
-            if status.strip():
-                table.add_row(f"  {app_name}", "✅ Running", status.strip())
-            else:
-                table.add_row(f"  {app_name}", "❌ Down", "Container not found")
         except Exception as e:
-            table.add_row(f"  {app_name}", "❌ Error", f"Cannot check: {str(e)[:30]}")
-
-
-def _show_access_urls(config, ssh_host, env, vm_reachable):
-    """Show access URLs for services"""
-    console.print("\n[cyan]🌐 Access URLs:[/cyan]")
+            table.add_row(f"  containers", "❌ Error", str(e))
     
-    # Forgejo (from addons config)
-    addons = config.get('addons', {})
-    forgejo_config = addons.get('forgejo', {})
-    forgejo_port = forgejo_config.get('port', 3001)
-    console.print(f"  Forgejo:    http://{ssh_host}:{forgejo_port}")
+    console.print(table)
     
-    # Application URLs
-    apps = config.get('apps', {})
+    # Show access URLs
+    console.print("\n[bold cyan]🌐 Access URLs:[/bold cyan]")
+    
     for app_name, app_config in apps.items():
-        port = app_config.get('port', 8000)
-        # Format app name with proper spacing
-        formatted_name = f"{app_name.capitalize()}:"
-        console.print(f"  {formatted_name:12} http://{ssh_host}:{port}")
+        vm_role = app_config.get("vm", "core")
+        port = app_config.get("external_port") or app_config.get("port")
+        
+        if vm_role in vms and port:
+            vm_ip = vms[vm_role]["ip"]
+            console.print(f"{app_name.capitalize():12} http://{vm_ip}:{port}")
     
-    # Monitoring dashboard URL (if monitoring addon is configured)
-    if 'monitoring' in addons:
-        monitoring_config = addons.get('monitoring', {})
-        grafana_port = monitoring_config.get('grafana_port', 3000)
-        prometheus_port = monitoring_config.get('prometheus_port', 9090)
-        
-        console.print(f"\n[cyan]📊 Monitoring:[/cyan]")
-        console.print(f"  Grafana:    http://{ssh_host}:{grafana_port}")
-        console.print(f"  Prometheus: http://{ssh_host}:{prometheus_port}")
-        
-        if vm_reachable:
-            console.print(f"  [dim]Filter by project: {config.get('project')}[/dim]")
+    console.print()
