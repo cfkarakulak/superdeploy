@@ -249,7 +249,7 @@ def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=N
             services_json = json.dumps(services).replace('"', '\\"')
             
             inventory_lines.append(
-                f"{vm['name']} ansible_host={vm['host']} ansible_user={vm['user']} vm_services='{services_json}'"
+                f"{vm['name']} ansible_host={vm['host']} ansible_user={vm['user']} vm_role={role} vm_services='{services_json}'"
             )
         inventory_lines.append("")  # Empty line between groups
 

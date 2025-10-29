@@ -59,7 +59,6 @@ vms:
     services:
       - postgres
       - rabbitmq
-      - mongodb
 
 # =============================================================================
 # Addons Configuration
