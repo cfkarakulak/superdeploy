@@ -32,16 +32,16 @@ on:
 jobs:
   deploy:
     # Use project-specific runner (each project VM has its own runner with project label)
-    # e.g. "cheapa" runner on cheapa VM, "myapp" runner on myapp VM
-    runs-on: [self-hosted, "${{ inputs.project }}"]
+    # Note: Forgejo workflow_dispatch inputs don't work, using github.event.inputs instead
+    runs-on: [self-hosted, "${{ github.event.inputs.project }}"]
     
     env:
-      PROJECT: ${{ inputs.project }}
-      SERVICE: ${{ inputs.service }}
-      IMAGE: ${{ inputs.image }}
-      ENV_BUNDLE: ${{ inputs.env_bundle }}
-      GIT_SHA: ${{ inputs.git_sha }}
-      GIT_REF: ${{ inputs.git_ref }}
+      PROJECT: ${{ github.event.inputs.project }}
+      SERVICE: ${{ github.event.inputs.service }}
+      IMAGE: ${{ github.event.inputs.image }}
+      ENV_BUNDLE: ${{ github.event.inputs.env_bundle }}
+      GIT_SHA: ${{ github.event.inputs.git_sha }}
+      GIT_REF: ${{ github.event.inputs.git_ref }}
     
     steps:
       - name: Checkout superdeploy repo
