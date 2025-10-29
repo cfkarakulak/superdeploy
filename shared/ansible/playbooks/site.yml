@@ -57,8 +57,18 @@
     - monitoring-agent
     - foundation
 
-- name: Setup Forgejo Runner on project VMs (not orchestrator)
+- name: Setup Forgejo Runner on project VMs
   hosts: all:!orchestrator
+  become: yes
+  roles:
+    - role: system/forgejo-runner
+  tags:
+    - system
+    - runner
+    - foundation
+
+- name: Setup Forgejo Runner on orchestrator
+  hosts: orchestrator
   become: yes
   roles:
     - role: system/forgejo-runner
@@ -95,7 +105,7 @@
     - infrastructure
 
 - name: Deploy Infrastructure Addons
-  hosts: all
+  hosts: all:!orchestrator
   become: yes
   roles:
     - role: orchestration/addon-deployer

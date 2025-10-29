@@ -138,15 +138,25 @@
         mode: '0755'
       when: not runner_binary_check.stat.exists
 
-    - name: Verify orchestrator group exists
-      fail:
-        msg: "Orchestrator group not found in inventory. Ensure the VM with Forgejo is in the 'orchestrator' group."
-      when: "'orchestrator' not in groups or groups['orchestrator'] | length == 0"
-
-    - name: Get Forgejo URL from orchestrator VM
+    - name: Get Forgejo URL from orchestrator (via project config or inventory)
       set_fact:
-        forgejo_url: "http://{{ hostvars[groups['orchestrator'][0]]['ansible_host'] }}:3001"
-      # Note: Forgejo port is hardcoded to 3001 (orchestrator default)
+        forgejo_url: >-
+          {%- if 'orchestrator' in groups and groups['orchestrator'] | length > 0 -%}
+          http://{{ hostvars[groups['orchestrator'][0]]['ansible_host'] }}:3001
+          {%- elif project_config is defined and project_config.orchestrator is defined and project_config.orchestrator.host is defined -%}
+          http://{{ project_config.orchestrator.host }}:{{ project_config.orchestrator.port | default(3001) }}
+          {%- else -%}
+          {{ forgejo_base_url | default('') }}
+          {%- endif -%}
+
+    - name: Verify Forgejo URL is available
+      fail:
+        msg: |
+          Forgejo URL not found. Please ensure one of the following:
+          1. Orchestrator VM is in inventory with 'orchestrator' group
+          2. project_config.orchestrator.host is defined
+          3. forgejo_base_url variable is set
+      when: forgejo_url == '' or forgejo_url is not defined
 
     - name: Check if runner is already registered
       stat:
@@ -164,9 +174,13 @@
     - name: Generate runner registration token from Forgejo (on orchestrator VM)
       command: docker exec -u 1000:1000 orchestrator-forgejo forgejo actions generate-runner-token
       register: runner_token_result
-      when: not runner_registration_check.stat.exists
+      when: 
+        - not runner_registration_check.stat.exists
+        - "'orchestrator' in groups"
+        - "groups['orchestrator'] | length > 0"
       changed_when: false
       delegate_to: "{{ groups['orchestrator'][0] }}"
+      failed_when: false
 
     - name: Set runner token fact
       set_fact:
@@ -175,6 +189,15 @@
         - not runner_registration_check.stat.exists
         - runner_token_result is defined
         - runner_token_result.stdout is defined
+
+    - name: Check Forgejo connectivity
+      uri:
+        url: "{{ forgejo_url }}"
+        status_code: 200
+        timeout: 5
+      register: forgejo_connectivity
+      failed_when: false
+      when: not runner_registration_check.stat.exists
 
     - name: Register Forgejo Actions runner (project-specific)
       command: >
@@ -190,7 +213,9 @@
       when: 
         - not runner_registration_check.stat.exists
         - runner_token is defined
+        - runner_token != ''
         - forgejo_connectivity is defined
+        - forgejo_connectivity.status is defined
         - forgejo_connectivity.status == 200
       register: runner_register_result
       async: 120

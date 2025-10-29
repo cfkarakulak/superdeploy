@@ -26,5 +26,5 @@ network:
 deployment_mode: auto
 state:
   deployed: true
-  ip: 34.173.187.13
-  last_updated: '2025-10-29T10:04:38.459568'
+  ip: 34.71.217.62
+  last_updated: '2025-10-29T12:15:15.941458'

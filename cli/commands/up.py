@@ -182,7 +182,7 @@ def update_ips_in_env(project_root, project_name):
 
 def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=None):
     """Generate Ansible inventory file dynamically from environment variables
-    
+
     Args:
         env: Environment variables dict
         ansible_dir: Path to ansible directory
@@ -208,18 +208,20 @@ def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=N
                 "host": value,
                 "user": env.get("SSH_USER", "superdeploy"),
             }
-            
+
             vm_groups[role].append(vm_info)
-    
+
     # Build inventory content
     inventory_lines = []
-    
+
     # Add orchestrator group first (if provided)
     if orchestrator_ip:
         inventory_lines.append("[orchestrator]")
-        inventory_lines.append(f"orchestrator ansible_host={orchestrator_ip} ansible_user={env.get('SSH_USER', 'superdeploy')}")
+        inventory_lines.append(
+            f"orchestrator ansible_host={orchestrator_ip} ansible_user={env.get('SSH_USER', 'superdeploy')}"
+        )
         inventory_lines.append("")
-    
+
     # Add project VM groups
     for role in sorted(vm_groups.keys()):
         inventory_lines.append(f"[{role}]")
@@ -240,11 +242,9 @@ def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=N
     console.print(
         f"[green]✅ Ansible inventory generated: {inventory_path.name}[/green]"
     )
-    
+
     if orchestrator_ip:
-        console.print(
-            f"[cyan]   Orchestrator: {orchestrator_ip}[/cyan]"
-        )
+        console.print(f"[cyan]   Orchestrator: {orchestrator_ip}[/cyan]")
 
 
 def check_single_vm_ssh(vm_key, ip, ssh_key, ssh_user):
@@ -257,7 +257,7 @@ def check_single_vm_ssh(vm_key, ip, ssh_key, ssh_user):
             text=True,
             timeout=10,
         )
-        
+
         if result.returncode == 0 and "root" in result.stdout:
             return (vm_key, ip, True, None)
         else:
@@ -270,29 +270,33 @@ def check_vms_parallel(public_ips, ssh_key, ssh_user, max_attempts=18, delay=10)
     """Check all VMs in parallel until all are ready or timeout"""
     all_ready = False
     attempt = 0
-    
+
     while attempt < max_attempts and not all_ready:
         attempt += 1
         console.print(f"  [dim]Attempt {attempt}/{max_attempts}...[/dim]")
-        
+
         ready_vms = {}
-        
+
         # Check all VMs concurrently
         with ThreadPoolExecutor(max_workers=len(public_ips)) as executor:
             futures = {
-                executor.submit(check_single_vm_ssh, vm_key, ip, ssh_key, ssh_user): vm_key
+                executor.submit(
+                    check_single_vm_ssh, vm_key, ip, ssh_key, ssh_user
+                ): vm_key
                 for vm_key, ip in public_ips.items()
             }
-            
+
             for future in as_completed(futures):
                 vm_key, ip, is_ready, error = future.result()
                 ready_vms[vm_key] = is_ready
-                
+
                 if is_ready:
                     console.print(f"    [green]✓[/green] {vm_key} ({ip}) ready")
                 else:
-                    console.print(f"    [yellow]⏳[/yellow] {vm_key} ({ip}) not ready yet")
-        
+                    console.print(
+                        f"    [yellow]⏳[/yellow] {vm_key} ({ip}) not ready yet"
+                    )
+
         if all(ready_vms.values()):
             all_ready = True
             console.print("[green]✅ All VMs ready![/green]")
@@ -300,7 +304,7 @@ def check_vms_parallel(public_ips, ssh_key, ssh_user, max_attempts=18, delay=10)
             if attempt < max_attempts:
                 console.print("  [dim]Waiting 10s before next check...[/dim]")
                 time.sleep(delay)
-    
+
     return all_ready
 
 
@@ -349,7 +353,11 @@ def push_to_github(project_root, github_token, github_org, github_repo):
         text=True,
         cwd=str(project_root),
     )
-    return ("github", result.returncode == 0, result.stderr if result.returncode != 0 else None)
+    return (
+        "github",
+        result.returncode == 0,
+        result.stderr if result.returncode != 0 else None,
+    )
 
 
 def push_to_forgejo(project_root, forgejo_url):
@@ -376,26 +384,34 @@ def push_to_forgejo(project_root, forgejo_url):
         text=True,
         cwd=str(project_root),
     )
-    return ("forgejo", result.returncode == 0, result.stderr if result.returncode != 0 else None)
+    return (
+        "forgejo",
+        result.returncode == 0,
+        result.stderr if result.returncode != 0 else None,
+    )
 
 
 def push_git_parallel(project_root, github_token, github_org, github_repo, forgejo_url):
     """Push to GitHub and Forgejo in parallel"""
     results = {}
-    
+
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = []
-        
+
         if github_token and github_org and github_repo:
-            futures.append(executor.submit(push_to_github, project_root, github_token, github_org, github_repo))
-        
+            futures.append(
+                executor.submit(
+                    push_to_github, project_root, github_token, github_org, github_repo
+                )
+            )
+
         if forgejo_url:
             futures.append(executor.submit(push_to_forgejo, project_root, forgejo_url))
-        
+
         for future in as_completed(futures):
             remote, success, error = future.result()
             results[remote] = (success, error)
-    
+
     return results
 
 
@@ -414,7 +430,16 @@ def push_git_parallel(project_root, github_token, github_org, github_repo, forge
     "--start-at-task",
     help="Resume Ansible from a specific task (e.g. 'Install Docker'). Saves time when rerunning after failures.",
 )
-def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, tags, start_at_task):
+def up(
+    project,
+    skip_terraform,
+    skip_ansible,
+    skip_git_push,
+    skip_sync,
+    skip,
+    tags,
+    start_at_task,
+):
     """
     Deploy infrastructure (like 'heroku create')
 
@@ -465,29 +490,27 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
     try:
         orchestrator_config = orchestrator_loader.load()
         console.print("[dim]✓ Loaded orchestrator config[/dim]")
-        
+
         # Check if orchestrator needs to be deployed
         if orchestrator_config.should_deploy():
             console.print(
                 "[yellow]⚠️  Orchestrator not deployed yet. Deploy it first:[/yellow]"
             )
-            console.print(
-                "[yellow]   superdeploy orchestrator up[/yellow]"
-            )
+            console.print("[yellow]   superdeploy orchestrator up[/yellow]")
             console.print(
                 "[yellow]   Or set deployment_mode: 'skip' in shared/orchestrator.yml if using existing[/yellow]"
             )
             raise SystemExit(1)
-        
+
         orchestrator_ip = orchestrator_config.get_ip()
         if not orchestrator_ip:
             console.print(
                 "[yellow]⚠️  Orchestrator IP not found. Please deploy orchestrator first.[/yellow]"
             )
             raise SystemExit(1)
-        
+
         console.print(f"[dim]✓ Using orchestrator: {orchestrator_ip}[/dim]")
-        
+
     except FileNotFoundError as e:
         console.print(f"[red]❌ {e}[/red]")
         raise SystemExit(1)
@@ -498,7 +521,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
     required = ["GCP_PROJECT_ID", "GCP_REGION", "SSH_KEY_PATH"]
     if not validate_env_vars(env, required):
         raise SystemExit(1)
-    
+
     # Forgejo is always managed by orchestrator (not by projects)
 
     with Progress(
@@ -606,10 +629,12 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
 
         # Display deployment plan
         display_deployment_plan(enabled_addons, filtered_addons, skip)
-        
+
         # Display resume point if provided
         if start_at_task:
-            console.print(f"\n[yellow]⏩ Resuming from task: '{start_at_task}'[/yellow]")
+            console.print(
+                f"\n[yellow]⏩ Resuming from task: '{start_at_task}'[/yellow]"
+            )
             console.print("[dim]Skipping all tasks before this point[/dim]\n")
 
         # Build Ansible command using shared utility
@@ -640,7 +665,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
                 raise SystemExit(1)
         else:
             run_command(ansible_cmd)
-        
+
         console.print("[green]✅ Services configured![/green]")
 
     # Git push (also outside progress to avoid mixing)
@@ -655,27 +680,30 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
 
             # Prepare git push parameters
             import urllib.parse
-            
+
             # Reload env again in case IPs changed late
             env = load_env(project)
-            
+
             github_token = env.get("GITHUB_TOKEN")
-            
+
             # Get Forgejo host from orchestrator
             forgejo_host = orchestrator_ip
             forgejo_url = None
-            
+
             if forgejo_host:
                 # Get Forgejo port from orchestrator config
                 from cli.core.orchestrator_loader import OrchestratorLoader
+
                 orch_loader = OrchestratorLoader(project_root / "shared")
                 orch_config = orch_loader.load()
                 forgejo_config = orch_config.get_forgejo_config()
                 forgejo_port = forgejo_config.get("port")
                 if not forgejo_port:
-                    console.print("[red]❌ forgejo.port not found in orchestrator config![/red]")
+                    console.print(
+                        "[red]❌ forgejo.port not found in orchestrator config![/red]"
+                    )
                     raise SystemExit(1)
-                
+
                 # Wait until Forgejo is reachable
                 for _ in range(30):
                     try:
@@ -696,48 +724,63 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
                     except Exception:
                         pass
                     time.sleep(5)
-                
+
                 # Load Forgejo credentials from orchestrator
                 from dotenv import dotenv_values
-                orchestrator_env = dotenv_values(project_root / "shared" / "orchestrator" / ".env")
+
+                orchestrator_env = dotenv_values(
+                    project_root / "shared" / "orchestrator" / ".env"
+                )
                 admin_password = orchestrator_env.get("FORGEJO_ADMIN_PASSWORD")
-                
+
                 admin_user = forgejo_config.get("admin_user")
                 if not admin_user:
-                    console.print("[red]❌ forgejo.admin_user not found in orchestrator config![/red]")
+                    console.print(
+                        "[red]❌ forgejo.admin_user not found in orchestrator config![/red]"
+                    )
                     raise SystemExit(1)
-                
+
                 org = forgejo_config.get("org")
                 if not org:
-                    console.print("[red]❌ forgejo.org not found in orchestrator config![/red]")
+                    console.print(
+                        "[red]❌ forgejo.org not found in orchestrator config![/red]"
+                    )
                     raise SystemExit(1)
-                
+
                 repo_name = forgejo_config.get("repo")
                 if not repo_name:
-                    console.print("[red]❌ forgejo.repo not found in orchestrator config![/red]")
+                    console.print(
+                        "[red]❌ forgejo.repo not found in orchestrator config![/red]"
+                    )
                     raise SystemExit(1)
-                
+
                 encoded_pass = urllib.parse.quote(admin_password)
                 forgejo_url = (
                     f"http://{admin_user}:{encoded_pass}"
                     f"@{forgejo_host}:{forgejo_port}/{org}/{repo_name}.git"
                 )
-            
+
             # Push to both remotes in parallel
             github_org = env.get("GITHUB_ORG")
             github_repo = env.get("GITHUB_REPO")
-            results = push_git_parallel(project_root, github_token, github_org, github_repo, forgejo_url)
-            
+            results = push_git_parallel(
+                project_root, github_token, github_org, github_repo, forgejo_url
+            )
+
             # Report results
             for remote, (success, error) in results.items():
                 if success:
                     if remote == "github":
-                        console.print("[green]✅ Superdeploy backed up to GitHub![/green]")
+                        console.print(
+                            "[green]✅ Superdeploy backed up to GitHub![/green]"
+                        )
                     else:
                         console.print("[green]✅ Workflows pushed to Forgejo![/green]")
                 else:
-                    console.print(f"[yellow]⚠️  {remote.capitalize()} push failed: {error}[/yellow]")
-            
+                    console.print(
+                        f"[yellow]⚠️  {remote.capitalize()} push failed: {error}[/yellow]"
+                    )
+
             progress.advance(task3)
 
     console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
@@ -747,28 +790,40 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
     # Display Forgejo info (from orchestrator)
     if orchestrator_ip:
         from cli.core.orchestrator_loader import OrchestratorLoader
+
         orch_loader = OrchestratorLoader(project_root / "shared")
         orch_config = orch_loader.load()
         forgejo_config = orch_config.get_forgejo_config()
         forgejo_port = forgejo_config.get("port")
         if not forgejo_port:
-            console.print("[red]❌ forgejo.port not found in orchestrator config![/red]")
+            console.print(
+                "[red]❌ forgejo.port not found in orchestrator config![/red]"
+            )
             raise SystemExit(1)
-        
-        console.print(f"\n[cyan]🌐 Forgejo:[/cyan] http://{orchestrator_ip}:{forgejo_port}")
+
+        console.print(
+            f"\n[cyan]🌐 Forgejo:[/cyan] http://{orchestrator_ip}:{forgejo_port}"
+        )
         # Load credentials from orchestrator
         from dotenv import dotenv_values
-        orchestrator_env = dotenv_values(project_root / "shared" / "orchestrator" / ".env")
-        admin_password = orchestrator_env.get('FORGEJO_ADMIN_PASSWORD')
+
+        orchestrator_env = dotenv_values(
+            project_root / "shared" / "orchestrator" / ".env"
+        )
+        admin_password = orchestrator_env.get("FORGEJO_ADMIN_PASSWORD")
         if not admin_password:
-            console.print("[red]❌ FORGEJO_ADMIN_PASSWORD not found in orchestrator .env![/red]")
+            console.print(
+                "[red]❌ FORGEJO_ADMIN_PASSWORD not found in orchestrator .env![/red]"
+            )
             raise SystemExit(1)
-        
+
         admin_user = forgejo_config.get("admin_user")
         if not admin_user:
-            console.print("[red]❌ forgejo.admin_user not found in orchestrator config![/red]")
+            console.print(
+                "[red]❌ forgejo.admin_user not found in orchestrator config![/red]"
+            )
             raise SystemExit(1)
-        
+
         console.print(f"[cyan]👤 Login:[/cyan]   {admin_user} / {admin_password}")
 
     # Auto-sync GitHub secrets (unless --skip-sync flag)

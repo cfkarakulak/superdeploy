@@ -88,7 +88,14 @@ def generate_ansible_extra_vars(project_config, env_vars=None, project_root=None
 
 
 def build_ansible_command(
-    ansible_dir, project_root, project_config, env_vars, tags=None, project_name=None, ask_become_pass=False, start_at_task=None
+    ansible_dir,
+    project_root,
+    project_config,
+    env_vars,
+    tags=None,
+    project_name=None,
+    ask_become_pass=False,
+    start_at_task=None,
 ):
     """
     Build complete Ansible playbook command with all necessary variables
@@ -118,10 +125,10 @@ def build_ansible_command(
 
     # Build tags string
     tags_str = f"--tags {tags}" if tags else ""
-    
+
     # Add --ask-become-pass if needed (for first-time setup before passwordless sudo is configured)
     become_pass_str = "--ask-become-pass" if ask_become_pass else ""
-    
+
     # Add --start-at-task if provided (resume from specific task)
     start_at_task_str = f"--start-at-task '{start_at_task}'" if start_at_task else ""
 
