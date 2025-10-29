@@ -1,0 +1,23 @@
+name: Test Inputs
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Project name'
+        required: true
+        type: string
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Debug inputs
+        run: |
+          echo "=== Testing Inputs ==="
+          echo "inputs.project: ${{ inputs.project }}"
+          echo "github.event.inputs.project: ${{ github.event.inputs.project }}"
+          echo "github.event.client_payload.project: ${{ github.event.client_payload.project }}"
+          echo "GITHUB_EVENT_PATH: $GITHUB_EVENT_PATH"
+          cat $GITHUB_EVENT_PATH || echo "No event file"
