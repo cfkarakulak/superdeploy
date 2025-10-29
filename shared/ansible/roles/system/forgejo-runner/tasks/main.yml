@@ -206,7 +206,7 @@
         --instance "{{ forgejo_url }}"
         --token "{{ runner_token }}"
         --name "{{ runner_project_name }}-{{ vm_role }}-{{ inventory_hostname_short | default(inventory_hostname) }}"
-        --labels "self-hosted:docker://node:20-bookworm,ubuntu-latest:docker://node:20-bookworm,{{ runner_project_name }}:docker://node:20-bookworm,{{ vm_role }}:docker://node:20-bookworm,linux:docker://node:20-bookworm,docker:docker://node:20-bookworm"
+        --labels "self-hosted:docker://node:20-bookworm,project-runner:docker://node:20-bookworm,ubuntu-latest:docker://node:20-bookworm,{{ runner_project_name }}:docker://node:20-bookworm,{{ vm_role }}:docker://node:20-bookworm,linux:docker://node:20-bookworm,docker:docker://node:20-bookworm"
       args:
         chdir: /opt/forgejo-runner
       become_user: "{{ superdeploy_user }}"

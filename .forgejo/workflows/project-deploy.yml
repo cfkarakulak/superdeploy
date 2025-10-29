@@ -326,12 +326,12 @@ jobs:
           set -e
           echo "🔍 Verifying project services are running..."
           
-          # Note: Forgejo runs on orchestrator, not on project VMs
-          # Check only project-specific services (postgres, rabbitmq, etc.)
-          echo "✓ Checking project services status..."
-          
           # List all running containers for debugging
           docker ps --format 'table {{.Names}}\t{{.Status}}'
+          
+          # Check if core services exist
+          if ! docker ps --format '{{.Names}}' | grep -qE '(${{ env.PROJECT }}-postgres|${{ env.PROJECT }}-rabbitmq)'; then
+            echo "❌ Core services not found!"
             echo "   Run 'superdeploy up -p ${{ env.PROJECT }}' first to set up infrastructure"
             exit 1
           fi
