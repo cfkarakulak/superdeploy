@@ -115,6 +115,21 @@ monitoring:
   grafana: true
 
 # =============================================================================
-# Domain (Optional)
+# Domain Configuration
 # =============================================================================
-domain: ""
+# Base domain for the project
+domain: "cheapa.io"
+
+# SSL email for Let's Encrypt certificates
+ssl_email: "admin@cheapa.io"  # EDIT THIS
+
+# Subdomain mapping for each VM
+# Each VM runs Caddy and handles its own subdomain
+# DNS A records must point to each VM's IP:
+#   dashboard.cheapa.io -> web VM IP
+#   api.cheapa.io -> api VM IP
+#   services.cheapa.io -> worker VM IP
+vm_domains:
+  web: "dashboard.cheapa.io"
+  api: "api.cheapa.io"
+  worker: "services.cheapa.io"
