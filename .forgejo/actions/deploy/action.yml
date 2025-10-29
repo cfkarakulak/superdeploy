@@ -1,4 +1,4 @@
-name: 'Deploy Service'
+name: 'Deploy to VM'
 description: 'Deploy a service to VM using Docker Compose'
 author: 'Superdeploy Team'
 

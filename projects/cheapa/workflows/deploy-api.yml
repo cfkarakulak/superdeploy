@@ -1,4 +1,4 @@
-name: Deploy API
+name: Deploy Cheapa API
 
 on:
   workflow_dispatch:

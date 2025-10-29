@@ -547,7 +547,7 @@ def generate_forgejo_workflow(config, app_name):
     }
     vm_label = vm_label_map.get(app_name, vm_role)
     
-    workflow = f"""name: Deploy {app_name.title()}
+    workflow = f"""name: Deploy {project_name.title()} {app_name.title()}
 
 on:
   workflow_dispatch:
