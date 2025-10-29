@@ -28,536 +28,58 @@ on:
         required: false
         default: 'production'
         type: string
-      runner_label:
-        description: 'Runner label for routing (e.g., api, web, worker)'
-        required: true
-        type: string
 
 jobs:
-  deploy:
-    # Route to correct VM using runner_label from caller
-    # Caller determines mapping: api → api, dashboard → web, services → worker
-    runs-on: [self-hosted, ${{ inputs.runner_label }}]
-    
-    env:
-      PROJECT: ${{ inputs.project }}
-      SERVICE: ${{ inputs.service }}
-      IMAGE: ${{ inputs.image }}
-      ENV_BUNDLE: ${{ inputs.env_bundle }}
-      GIT_SHA: ${{ inputs.git_sha }}
-      GIT_REF: ${{ inputs.git_ref }}
-    
+  # Route to correct VM based on service type
+  # Forgejo doesn't support expressions in runs-on, so we use conditional jobs with static labels
+  
+  deploy-api:
+    if: ${{ inputs.service == 'api' }}
+    runs-on: [self-hosted, api]
     steps:
-      - name: Checkout superdeploy repo
-        uses: actions/checkout@v4
-      
-      - name: Install dependencies
-        run: |
-          # Install Docker CLI
-          apt-get update -qq
-          apt-get install -y -qq docker.io curl
-          
-          # Install age
-          curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
-          mv age/age /usr/local/bin/
-          rm -rf age
-          
-          # Install docker-compose
-          curl -sL "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-          chmod +x /usr/local/bin/docker-compose
-          
-          # Verify installations
-          docker --version
-          docker-compose version
-      
-      - name: Decrypt environment bundle
-        id: decrypt
-        run: |
-          set -ex  # Enable verbose mode and exit on error
-          echo "🔐 Decrypting environment bundle..."
-          echo "${{ env.ENV_BUNDLE }}" | base64 -d > /tmp/encrypted.age
-          echo "✅ Base64 decoded successfully"
-          
-          echo "${{ secrets.AGE_SECRET_KEY }}" > /tmp/age-key.txt
-          age -d -i /tmp/age-key.txt /tmp/encrypted.age > /tmp/decrypted.env
-          rm /tmp/age-key.txt
-          echo "✅ AGE decryption successful"
-          
-          echo "📋 Decrypted env file contents (first 5 lines, masked):"
-          head -5 /tmp/decrypted.env | sed 's/=.*/=***MASKED***/g'
-          
-          rm /tmp/encrypted.age
-          echo "env_file=/tmp/decrypted.env" >> $GITHUB_OUTPUT
-          echo "✅ Decrypt step completed"
-      
-      - name: Load environment variables
-        run: |
-          set -ex  # Enable verbose mode and exit on error
-          echo "📥 Loading environment variables..."
-          
-          # Check if decrypted env file exists
-          if [ ! -f /tmp/decrypted.env ]; then
-            echo "❌ Decrypted env file not found!"
-            exit 1
-          fi
-          
-          # Check if file is not empty
-          if [ ! -s /tmp/decrypted.env ]; then
-            echo "❌ Decrypted env file is empty!"
-            exit 1
-          fi
-          
-          set -a
-          source /tmp/decrypted.env
-          set +a
-          
-          echo "✅ Environment sourced successfully"
-          
-          # Save to GitHub env for next steps (filter out comments and empty lines)
-          grep -v '^#' /tmp/decrypted.env | grep -v '^$' >> $GITHUB_ENV
-          
-          echo "📊 Total env vars loaded: $(grep -v '^#' /tmp/decrypted.env | grep -v '^$' | wc -l)"
-          echo "✅ Load env step completed"
-      
-      - name: Login to Docker Hub
-        run: |
-          set -ex  # Enable verbose mode and exit on error
-          echo "🐳 Logging in to Docker Hub..."
-          
-          # Check if credentials exist
-          if [ -z "${{ secrets.DOCKER_USERNAME }}" ] || [ -z "${{ secrets.DOCKER_TOKEN }}" ]; then
-            echo "❌ Docker Hub credentials not found in secrets!"
-            exit 1
-          fi
-          
-          # Login using Docker Hub credentials from Forgejo secrets
-          echo "${{ secrets.DOCKER_TOKEN }}" | docker login docker.io -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-          
-          if [ $? -eq 0 ]; then
-            echo "✅ Docker Hub login successful"
-          else
-            echo "❌ Docker Hub login failed!"
-            exit 1
-          fi
-      
-      - name: Load project configuration
-        id: config
-        run: |
-          set -ex
-          echo "📋 Loading project configuration..."
-          
-          # We're running inside a container, but project.yml is on the host
-          # Copy it from the host using docker cp (we have docker socket access)
-          CONFIG_FILE="/tmp/project.yml"
-          
-          # Find the current container ID
-          HOSTNAME=$(hostname)
-          echo "🔍 Running in container: $HOSTNAME"
-          
-          # Use docker exec to cat the file from host context
-          # The runner has access to docker socket, so we can access host filesystem
-          docker run --rm -v /opt/superdeploy/projects/${{ env.PROJECT }}:/project:ro alpine cat /project/project.yml > "$CONFIG_FILE" || {
-            echo "❌ ERROR: Cannot access project.yml from host"
-            echo "Tried to mount: /opt/superdeploy/projects/${{ env.PROJECT }}/project.yml"
-            exit 1
-          }
-          
-          echo "✅ Successfully loaded project.yml from host"
-          
-          if [ -f "$CONFIG_FILE" ]; then
-            # Use helper script to parse YAML config
-            PARSER_SCRIPT="${GITHUB_WORKSPACE}/.forgejo/scripts/parse_config.py"
-            
-            echo "🔍 Debug: CONFIG_FILE=$CONFIG_FILE"
-            echo "🔍 Debug: PARSER_SCRIPT=$PARSER_SCRIPT"
-            echo "🔍 Debug: SERVICE=${{ env.SERVICE }}"
-            echo "🔍 Debug: GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-            
-            if [ -f "$PARSER_SCRIPT" ]; then
-              echo "✅ Parser script found"
-              CONFIG_OUTPUT=$(python3 "$PARSER_SCRIPT" "$CONFIG_FILE" "${{ env.SERVICE }}" 2>&1)
-              echo "🔍 Debug: CONFIG_OUTPUT='$CONFIG_OUTPUT'"
-              
-              read EXTERNAL_PORT INTERNAL_PORT VM_NAME <<< "$CONFIG_OUTPUT"
-              
-              echo "🔍 Debug: EXTERNAL_PORT='$EXTERNAL_PORT'"
-              echo "🔍 Debug: INTERNAL_PORT='$INTERNAL_PORT'"
-              echo "🔍 Debug: VM_NAME='$VM_NAME'"
-              
-              # NO FALLBACK! Fail if ports are empty
-              if [ -z "$EXTERNAL_PORT" ] || [ -z "$INTERNAL_PORT" ]; then
-                echo "❌ ERROR: Failed to parse ports from project.yml!"
-                echo "Project file: $CONFIG_FILE"
-                echo "Service: ${{ env.SERVICE }}"
-                exit 1
-              fi
-              
-              echo "external_port=${EXTERNAL_PORT}" >> $GITHUB_OUTPUT
-              echo "internal_port=${INTERNAL_PORT}" >> $GITHUB_OUTPUT
-              echo "✅ Loaded ports from project.yml: ${EXTERNAL_PORT}:${INTERNAL_PORT} (VM: ${VM_NAME})"
-            else
-              echo "❌ ERROR: Parser script not found at: $PARSER_SCRIPT"
-              exit 1
-            fi
-          else
-            echo "❌ ERROR: Project file not found at: $CONFIG_FILE"
-            exit 1
-          fi
-      
-      - name: Generate docker-compose for service
-        run: |
-          set -e  # Exit on error
-          
-          # Create directory structure
-          mkdir -p /opt/apps/${{ env.PROJECT }}/compose
-          
-          # Verify directory was created
-          if [ ! -d "/opt/apps/${{ env.PROJECT }}/compose" ]; then
-            echo "❌ Failed to create compose directory"
-            exit 1
-          fi
-          
-          # Use ports from project.yml
-          EXTERNAL_PORT="${{ steps.config.outputs.external_port }}"
-          INTERNAL_PORT="${{ steps.config.outputs.internal_port }}"
-          
-          echo "🔧 Generating compose with ports: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
-          
-          # All services expose their own ports (no domain, using IP:PORT)
-          EXPOSE_PORTS="true"
-          
-          # Generate compose file from template
-          cat > /opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml <<'EOF'
-          version: '3.8'
-          
-          networks:
-            PROJECT_NETWORK:
-              external: true
-            superdeploy-proxy:
-              external: true
-          
-          services:
-            SERVICE_NAME:
-              image: IMAGE_PLACEHOLDER
-              container_name: CONTAINER_NAME
-              restart: unless-stopped
-              networks:
-                - PROJECT_NETWORK
-                - superdeploy-proxy
-              PORTS_PLACEHOLDER
-              env_file:
-                - /tmp/decrypted.env
-              labels:
-                com.superdeploy.project: "PROJECT_PLACEHOLDER"
-                com.superdeploy.service: "SERVICE_PLACEHOLDER"
-                com.superdeploy.git.sha: "GIT_SHA_PLACEHOLDER"
-                com.superdeploy.git.ref: "GIT_REF_PLACEHOLDER"
-              healthcheck:
-                test: ["CMD", "curl", "-f", "http://localhost:{{INTERNAL_PORT}}/"]
-                interval: 15s
-                timeout: 10s
-                retries: 5
-                start_period: 60s  # Longer grace period for slow starts
-          EOF
-          
-          # Replace placeholders (using # as delimiter to avoid conflicts with URLs)
-          COMPOSE_FILE="/opt/apps/${{ env.PROJECT }}/compose/docker-compose-${{ env.SERVICE }}.yml"
-          
-          # Add ports section only if needed
-          if [ "$EXPOSE_PORTS" == "true" ]; then
-            sed -i 's#PORTS_PLACEHOLDER#ports:\n        - "'"${EXTERNAL_PORT}:${INTERNAL_PORT}"'"#g' "$COMPOSE_FILE"
-          else
-            sed -i "s#PORTS_PLACEHOLDER##g" "$COMPOSE_FILE"
-          fi
-          
-          sed -i "s#PROJECT_NETWORK#${{ env.PROJECT }}-network#g" "$COMPOSE_FILE"
-          sed -i "s#SERVICE_NAME#${{ env.PROJECT }}-${{ env.SERVICE }}#g" "$COMPOSE_FILE"
-          sed -i "s#CONTAINER_NAME#${{ env.PROJECT }}-${{ env.SERVICE }}#g" "$COMPOSE_FILE"
-          sed -i "s#IMAGE_PLACEHOLDER#${{ env.IMAGE }}#g" "$COMPOSE_FILE"
-          sed -i "s#PROJECT_PLACEHOLDER#${{ env.PROJECT }}#g" "$COMPOSE_FILE"
-          sed -i "s#SERVICE_PLACEHOLDER#${{ env.SERVICE }}#g" "$COMPOSE_FILE"
-          sed -i "s#GIT_SHA_PLACEHOLDER#${{ env.GIT_SHA }}#g" "$COMPOSE_FILE"
-          sed -i "s#GIT_REF_PLACEHOLDER#${{ env.GIT_REF }}#g" "$COMPOSE_FILE"
-          sed -i "s#{{EXTERNAL_PORT}}#${EXTERNAL_PORT}#g" "$COMPOSE_FILE"
-          sed -i "s#{{INTERNAL_PORT}}#${INTERNAL_PORT}#g" "$COMPOSE_FILE"
-          
-          echo "✅ Generated compose file with ports: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
-          echo "📋 Final compose file (ports section):"
-          grep -A2 "ports:" "$COMPOSE_FILE"
-      
-      - name: Create networks first
-        run: |
-          set -e
-          echo "🌐 Creating networks..."
-          
-          # Create project network if it doesn't exist
-          if ! docker network ls | grep -q "${{ env.PROJECT }}-network"; then
-            docker network create ${{ env.PROJECT }}-network || echo "⚠️  Network creation failed (may already exist)"
-            echo "✅ Network created: ${{ env.PROJECT }}-network"
-          else
-            echo "✅ Network already exists: ${{ env.PROJECT }}-network"
-          fi
-          
-          # Ensure superdeploy-proxy network exists (for Caddy)
-          if ! docker network ls | grep -q "superdeploy-proxy"; then
-            docker network create superdeploy-proxy || echo "⚠️  Network creation failed (may already exist)"
-            echo "✅ Network created: superdeploy-proxy"
-          else
-            echo "✅ Network already exists: superdeploy-proxy"
-          fi
-      
-      - name: Copy compose files to VM
-        run: |
-          set -e
-          echo "� Copiying compose files to VM..."
-          
-          # Ensure compose directory exists
-          mkdir -p /opt/superdeploy/projects/${{ env.PROJECT }}/compose
-          
-          # Copy compose files from checkout to VM location
-          if [ -f "projects/${{ env.PROJECT }}/compose/docker-compose.core.yml" ]; then
-            cp projects/${{ env.PROJECT }}/compose/docker-compose.core.yml /opt/superdeploy/projects/${{ env.PROJECT }}/compose/
-            echo "✅ Copied docker-compose.core.yml"
-          fi
-          
-          if [ -f "projects/${{ env.PROJECT }}/compose/docker-compose.apps.yml" ]; then
-            cp projects/${{ env.PROJECT }}/compose/docker-compose.apps.yml /opt/superdeploy/projects/${{ env.PROJECT }}/compose/
-            echo "✅ Copied docker-compose.apps.yml"
-          fi
-      
-      - name: Register service with Caddy
-        continue-on-error: true
-        run: |
-          set -e
-          echo "🌐 Registering ${{ env.SERVICE }} with Caddy reverse proxy..."
-          
-          # Get ports from project.yml
-          EXTERNAL_PORT="${{ steps.config.outputs.external_port }}"
-          INTERNAL_PORT="${{ steps.config.outputs.internal_port }}"
-          
-          # Create Caddy routes directory if not exists
-          mkdir -p /opt/superdeploy/shared/caddy/routes
-          
-          # Check if Caddy is running
-          if ! docker ps | grep -q superdeploy-caddy; then
-            echo "⚠️  Caddy not running, skipping route registration"
-            echo "   Routes will be loaded when Caddy starts"
-            exit 0
-          fi
-          
-          # Generate Caddy route based on service type
-          if [ "${{ env.SERVICE }}" == "dashboard" ]; then
-            # Dashboard gets root domain (port 80)
-            cat > /opt/superdeploy/shared/caddy/routes/${{ env.PROJECT }}-dashboard.caddy <<EOF
-          # Auto-generated route for ${{ env.PROJECT }} dashboard
-          # External: Port 80 (root domain)
-          # Internal: Container port ${INTERNAL_PORT}
-          :80 {
-            reverse_proxy ${{ env.PROJECT }}-dashboard:${INTERNAL_PORT}
-          }
-          EOF
-            echo "✅ Dashboard registered: :80 → ${{ env.PROJECT }}-dashboard:${INTERNAL_PORT}"
-          else
-            # Other services get their own port routes
-            cat > /opt/superdeploy/shared/caddy/routes/${{ env.PROJECT }}-${{ env.SERVICE }}.caddy <<EOF
-          # Auto-generated route for ${{ env.PROJECT }} ${{ env.SERVICE }}
-          # External: Port ${EXTERNAL_PORT}
-          # Internal: Container port ${INTERNAL_PORT}
-          :${EXTERNAL_PORT} {
-            reverse_proxy ${{ env.PROJECT }}-${{ env.SERVICE }}:${INTERNAL_PORT}
-          }
-          EOF
-            echo "✅ ${{ env.SERVICE }} registered: :${EXTERNAL_PORT} → ${{ env.PROJECT }}-${{ env.SERVICE }}:${INTERNAL_PORT}"
-          fi
-          
-          # Restart Caddy to pick up new routes (reload doesn't work with volume mounts)
-          echo "🔄 Restarting Caddy to load new routes..."
-          docker restart superdeploy-caddy
-          
-          # Wait for Caddy to be ready
-          sleep 3
-          
-          # Verify route is loaded
-          docker exec superdeploy-caddy caddy list-modules --packages | grep -q http.handlers.reverse_proxy && echo "✅ Caddy restarted successfully" || echo "⚠️  Caddy may not be ready yet"
-      
-      - name: Backup current deployment
-        id: backup
-        run: |
-          echo "💾 Backing up current deployment..."
-          
-          # Get current image (for rollback)
-          CURRENT_IMAGE=$(docker inspect ${{ env.PROJECT }}-${{ env.SERVICE }} --format '{{.Config.Image}}' 2>/dev/null || echo "none")
-          echo "current_image=${CURRENT_IMAGE}" >> $GITHUB_OUTPUT
-          echo "📦 Current image: ${CURRENT_IMAGE}"
-      
-      - name: Deploy service
-        id: deploy
-        run: |
-          set -ex  # Enable verbose mode and exit on error
-          echo "🚀 Deploying service: ${{ env.SERVICE }}"
-          
-          cd /opt/apps/${{ env.PROJECT }}/compose
-          
-          echo "📂 Current directory: $(pwd)"
-          echo "📋 Compose file:"
-          cat docker-compose-${{ env.SERVICE }}.yml
-          
-          # Pull latest image with retry
-          echo "📥 Pulling image: ${{ env.IMAGE }}"
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if docker pull ${{ env.IMAGE }}; then
-              echo "✅ Image pulled successfully"
-              break
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️  Pull failed, retrying ($RETRY_COUNT/$MAX_RETRIES)..."
-                sleep 5
-              else
-                echo "❌ Failed to pull image after $MAX_RETRIES attempts"
-                exit 1
-              fi
-            fi
-          done
-          
-          # Deploy with zero-downtime using docker-compose
-          echo "🐳 Starting service container..."
-          docker-compose -f docker-compose-${{ env.SERVICE }}.yml up -d --wait
-          
-          echo "📊 Container status:"
-          docker ps -a --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
-          
-          # Wait for health check with better feedback
-          echo "🏥 Waiting for health check..."
-          TIMEOUT=180  # 3 minutes timeout
-          ELAPSED=0
-          
-          while [ $ELAPSED -lt $TIMEOUT ]; do
-            STATUS=$(docker inspect --format="{{.State.Health.Status}}" ${{ env.PROJECT }}-${{ env.SERVICE }} 2>/dev/null || echo "unknown")
-            
-            if [ "$STATUS" = "healthy" ]; then
-              echo "✅ Service is healthy!"
-              break
-            fi
-            
-            echo "⏳ Health check status: $STATUS (${ELAPSED}s elapsed)"
-            sleep 5
-            ELAPSED=$((ELAPSED + 5))
-          done
-          
-          if [ $ELAPSED -ge $TIMEOUT ]; then
-            echo "❌ Health check timeout after ${TIMEOUT}s!"
-            echo "📋 Container logs (last 100 lines):"
-            docker logs ${{ env.PROJECT }}-${{ env.SERVICE }} --tail 100
-            echo "📊 Container inspect:"
-            docker inspect ${{ env.PROJECT }}-${{ env.SERVICE }}
-            exit 1
-          fi
-          
-          echo "✅ Service deployed and healthy!"
-      
-      - name: Rollback on failure
-        if: failure() && steps.backup.outputs.current_image != 'none'
-        run: |
-          echo "❌ Deployment failed! Rolling back..."
-          
-          ROLLBACK_IMAGE="${{ steps.backup.outputs.current_image }}"
-          
-          if [ "$ROLLBACK_IMAGE" != "none" ]; then
-            echo "🔄 Rolling back to: $ROLLBACK_IMAGE"
-            
-            cd /opt/apps/${{ env.PROJECT }}/compose
-            
-            # Pull old image
-            docker pull "$ROLLBACK_IMAGE" || echo "⚠️  Could not pull rollback image"
-            
-            # Stop current container
-            docker stop ${{ env.PROJECT }}-${{ env.SERVICE }} || true
-            docker rm ${{ env.PROJECT }}-${{ env.SERVICE }} || true
-            
-            # Start with old image using docker run (bypass compose validation)
-            docker run -d \
-              --name ${{ env.PROJECT }}-${{ env.SERVICE }} \
-              --network ${{ env.PROJECT }}-network \
-              --network superdeploy-proxy \
-              --env-file /tmp/decrypted.env \
-              --restart unless-stopped \
-              --label com.superdeploy.project="${{ env.PROJECT }}" \
-              --label com.superdeploy.service="${{ env.SERVICE }}" \
-              --label com.superdeploy.rollback="true" \
-              "$ROLLBACK_IMAGE"
-            
-            echo "✅ Rollback complete!"
-            echo "📧 Sending rollback notification..."
-          else
-            echo "⚠️  No previous deployment found, cannot rollback"
-          fi
-      
-      - name: Cleanup old images
-        continue-on-error: true
-        run: |
-          # Keep last 3 images
-          docker images ghcr.io/*/${{ env.SERVICE }} --format "{{.ID}}" | tail -n +4 | xargs -r docker rmi || true
-      
-      - name: Clean up secrets
-        if: always()
-        run: |
-          rm -f /tmp/decrypted.env
-          rm -f /tmp/encrypted.age
-      
-      - name: Verify deployment
-        run: |
-          echo "🔍 Verifying deployment..."
-          
-          # Check if container is running
-          if docker ps --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}" | grep -q "${{ env.PROJECT }}-${{ env.SERVICE }}"; then
-            echo "✅ Container is running"
-            docker ps --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
-            
-            # Check health if healthcheck is defined (optional, non-blocking)
-            HEALTH=$(docker inspect --format='{{.State.Health.Status}}' ${{ env.PROJECT }}-${{ env.SERVICE }} 2>/dev/null || echo "none")
-            if [ "$HEALTH" != "none" ]; then
-              echo "Health status: $HEALTH"
-            else
-              echo "ℹ️  No health check defined"
-            fi
-            
-            echo "✅ Deployment successful!"
-          else
-            echo "❌ Container not found"
-            docker ps -a --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
-            exit 1
-          fi
-      
-      - name: Send notification
-        if: always()
-        continue-on-error: true
-        run: |
-          STATUS="${{ job.status }}"
-          if [ "$STATUS" == "success" ]; then
-            EMOJI="✅"
-            COLOR="good"
-          else
-            EMOJI="❌"
-            COLOR="danger"
-          fi
-          
-          # Send email notification (optional, may not be configured)
-          if command -v mail &> /dev/null && [ -n "${{ secrets.ALERT_EMAIL }}" ]; then
-            echo "Deployment $STATUS: ${{ env.PROJECT }}/${{ env.SERVICE }} @ ${{ env.GIT_SHA }}" | \
-              mail -s "[$EMOJI] Deployment $STATUS" ${{ secrets.ALERT_EMAIL }} || true
-          else
-            echo "📧 Email notification skipped (mail not configured)"
-          fi
-      
-      - name: Cleanup workspace
-        if: always()
-        continue-on-error: true
-        run: |
-          echo "🧹 Cleaning up workspace..."
-          # Force cleanup to prevent job failure
-          rm -rf /tmp/* 2>/dev/null || true
-          echo "✅ Cleanup completed"
+      - uses: ./.forgejo/actions/deploy
+        with:
+          project: ${{ inputs.project }}
+          service: ${{ inputs.service }}
+          image: ${{ inputs.image }}
+          env_bundle: ${{ inputs.env_bundle }}
+          git_sha: ${{ inputs.git_sha }}
+          git_ref: ${{ inputs.git_ref }}
+        env:
+          AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+  
+  deploy-web:
+    if: ${{ inputs.service == 'dashboard' }}
+    runs-on: [self-hosted, web]
+    steps:
+      - uses: ./.forgejo/actions/deploy
+        with:
+          project: ${{ inputs.project }}
+          service: ${{ inputs.service }}
+          image: ${{ inputs.image }}
+          env_bundle: ${{ inputs.env_bundle }}
+          git_sha: ${{ inputs.git_sha }}
+          git_ref: ${{ inputs.git_ref }}
+        env:
+          AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+  
+  deploy-worker:
+    if: ${{ inputs.service == 'services' }}
+    runs-on: [self-hosted, worker]
+    steps:
+      - uses: ./.forgejo/actions/deploy
+        with:
+          project: ${{ inputs.project }}
+          service: ${{ inputs.service }}
+          image: ${{ inputs.image }}
+          env_bundle: ${{ inputs.env_bundle }}
+          git_sha: ${{ inputs.git_sha }}
+          git_ref: ${{ inputs.git_ref }}
+        env:
+          AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
