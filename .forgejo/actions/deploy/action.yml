@@ -26,6 +26,18 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Setup age tool
+      shell: bash
+      run: |
+        if ! command -v age &> /dev/null; then
+          echo "� Inystalling age..."
+          curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
+          chmod +x age/age
+          export PATH="$PWD/age:$PATH"
+          echo "$PWD/age" >> $GITHUB_PATH
+        fi
+        age --version
+    
     - name: Decrypt environment bundle
       shell: bash
       run: |
