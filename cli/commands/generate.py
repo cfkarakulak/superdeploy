@@ -538,15 +538,8 @@ def generate_forgejo_workflow(config, app_name):
     """
     project_name = config["project"]
     app_config = config["apps"][app_name]
+    # Get VM role from app config (e.g., "web", "api", "worker")
     vm_role = app_config.get("vm", "core")
-    
-    # Map service names to VM roles
-    vm_label_map = {
-        "api": "api",
-        "dashboard": "web",
-        "services": "worker",
-    }
-    vm_label = vm_label_map.get(app_name, vm_role)
     
     workflow = f"""name: Deploy {project_name.title()} {app_name.title()}
 
@@ -573,7 +566,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, {project_name}, {vm_label}]
+    runs-on: [self-hosted, {project_name}, {vm_role}]
     steps:
       - name: Checkout superdeploy repo
         uses: actions/checkout@v4

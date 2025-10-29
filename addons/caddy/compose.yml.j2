@@ -21,7 +21,7 @@ services:
       - {{ project_name }}-network
 {% if healthcheck and healthcheck.interval is defined %}
     healthcheck:
-      test: "CMD-SHELL wget --no-verbose --tries=1 --spider http://localhost:2019/config/ || exit 1"
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:2019/config/ || exit 1"]
       interval: {{ healthcheck.interval }}
       timeout: {{ healthcheck.timeout }}
       retries: {{ healthcheck.retries }}

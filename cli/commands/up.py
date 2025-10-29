@@ -219,13 +219,13 @@ def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=N
     if project_config:
         vms_config = project_config.raw_config.get("vms", {})
         for vm_role, vm_def in vms_config.items():
-            services = vm_def.get("services", [])
-            # Also add caddy to all VMs that have apps
+            services = list(vm_def.get("services", []))  # Make a copy
+            # Add caddy to VMs that have apps
             apps = project_config.raw_config.get("apps", {})
             for app_name, app_config in apps.items():
                 if app_config.get("vm") == vm_role:
                     if "caddy" not in services:
-                        services = services + ["caddy"]
+                        services.append("caddy")
                     break
             vm_services_map[vm_role] = services
 
