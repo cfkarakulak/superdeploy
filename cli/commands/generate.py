@@ -181,13 +181,14 @@ GITHUB_TOKEN=your-github-token  # Get from GitHub: https://github.com/settings/t
 
     # Generate Forgejo workflows for project
     console.print("\n[bold cyan]📋 Generating Forgejo workflows...[/bold cyan]")
-    forgejo_workflows_dir = project_dir / "workflows"
+    # Forgejo only recognizes workflows in .forgejo/workflows/
+    forgejo_workflows_dir = project_root / ".forgejo" / "workflows" / "projects" / project
     forgejo_workflows_dir.mkdir(parents=True, exist_ok=True)
     
     for app_name in config.get("apps", {}).keys():
         forgejo_workflow_content = generate_forgejo_workflow(config, app_name)
         (forgejo_workflows_dir / f"deploy-{app_name}.yml").write_text(forgejo_workflow_content)
-        console.print(f"  [green]✓[/green] workflows/deploy-{app_name}.yml")
+        console.print(f"  [green]✓[/green] .forgejo/workflows/projects/{project}/deploy-{app_name}.yml")
 
     console.print("\n[green]✅ Generation complete![/green]")
     console.print("\n[bold]📝 Next steps:[/bold]")
@@ -506,7 +507,7 @@ jobs:
             -H "Authorization: token $FORGEJO_PAT" \
             -H "Content-Type: application/json" \
             -d "{\"ref\":\"master\",\"inputs\":{\"image\":\"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}\",\"env_bundle\":\"${{ steps.env_bundle.outputs.encrypted }}\",\"git_sha\":\"${{ github.sha }}\"}}" \
-            "$FORGEJO_BASE_URL/api/v1/repos/$FORGEJO_ORG/superdeploy/actions/workflows/projects%%2F%(project_name)s%%2Fworkflows%%2Fdeploy-%(app_name)s.yml/dispatches")
+            "$FORGEJO_BASE_URL/api/v1/repos/$FORGEJO_ORG/superdeploy/actions/workflows/projects%%2F%(project_name)s%%2Fdeploy-%(app_name)s.yml/dispatches")
           
           HTTP_CODE=$(echo "$RESPONSE" | head -n1 | cut -d' ' -f2)
           BODY=$(echo "$RESPONSE" | tail -n1)
