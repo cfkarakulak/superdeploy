@@ -31,17 +31,17 @@ on:
 
 jobs:
   deploy:
-    # Use project-specific runner (each project VM has its own runner with project label)
-    # Note: Forgejo workflow_dispatch inputs don't work, using github.event.inputs instead
-    runs-on: [self-hosted, "${{ github.event.inputs.project }}"]
+    # Use common project-runner label (all project VMs have this)
+    # Project routing happens via PROJECT env variable
+    runs-on: [self-hosted, project-runner]
     
     env:
-      PROJECT: ${{ github.event.inputs.project }}
-      SERVICE: ${{ github.event.inputs.service }}
-      IMAGE: ${{ github.event.inputs.image }}
-      ENV_BUNDLE: ${{ github.event.inputs.env_bundle }}
-      GIT_SHA: ${{ github.event.inputs.git_sha }}
-      GIT_REF: ${{ github.event.inputs.git_ref }}
+      PROJECT: ${{ inputs.project }}
+      SERVICE: ${{ inputs.service }}
+      IMAGE: ${{ inputs.image }}
+      ENV_BUNDLE: ${{ inputs.env_bundle }}
+      GIT_SHA: ${{ inputs.git_sha }}
+      GIT_REF: ${{ inputs.git_ref }}
     
     steps:
       - name: Checkout superdeploy repo
