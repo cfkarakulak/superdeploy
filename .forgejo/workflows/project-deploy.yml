@@ -28,12 +28,16 @@ on:
         required: false
         default: 'production'
         type: string
+      runner_label:
+        description: 'Runner label for routing (e.g., api, web, worker)'
+        required: true
+        type: string
 
 jobs:
   deploy:
-    # Use common project-runner label (all project VMs have this)
-    # Project routing happens via PROJECT env variable
-    runs-on: [self-hosted, project-runner]
+    # Route to correct VM using runner_label from caller
+    # Caller determines mapping: api → api, dashboard → web, services → worker
+    runs-on: [self-hosted, ${{ inputs.runner_label }}]
     
     env:
       PROJECT: ${{ inputs.project }}
