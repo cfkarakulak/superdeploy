@@ -1,0 +1,22 @@
+name: Test Runner Labels
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Project name'
+        required: true
+        type: string
+
+jobs:
+  test:
+    runs-on: [self-hosted, "${{ inputs.project }}"]
+    
+    steps:
+      - name: Debug
+        run: |
+          echo "=== Runner Test ==="
+          echo "PROJECT INPUT: ${{ inputs.project }}"
+          echo "Running on correct runner!"
+          hostname
+
