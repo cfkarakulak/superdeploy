@@ -37,6 +37,9 @@ jobs:
     if: ${{ inputs.service == 'api' }}
     runs-on: [self-hosted, api]
     steps:
+      - name: Checkout superdeploy repo
+        uses: actions/checkout@v4
+      
       - uses: ./.forgejo/actions/deploy
         with:
           project: ${{ inputs.project }}
@@ -54,6 +57,9 @@ jobs:
     if: ${{ inputs.service == 'dashboard' }}
     runs-on: [self-hosted, web]
     steps:
+      - name: Checkout superdeploy repo
+        uses: actions/checkout@v4
+      
       - uses: ./.forgejo/actions/deploy
         with:
           project: ${{ inputs.project }}
@@ -71,6 +77,9 @@ jobs:
     if: ${{ inputs.service == 'services' }}
     runs-on: [self-hosted, worker]
     steps:
+      - name: Checkout superdeploy repo
+        uses: actions/checkout@v4
+      
       - uses: ./.forgejo/actions/deploy
         with:
           project: ${{ inputs.project }}
