@@ -35,7 +35,7 @@ jobs:
   
   deploy-api:
     if: ${{ inputs.service == 'api' }}
-    runs-on: [self-hosted, api]
+    runs-on: [self-hosted, cheapa, api]
     steps:
       - name: Checkout superdeploy repo
         uses: actions/checkout@v4
@@ -55,7 +55,7 @@ jobs:
   
   deploy-web:
     if: ${{ inputs.service == 'dashboard' }}
-    runs-on: [self-hosted, web]
+    runs-on: [self-hosted, cheapa, web]
     steps:
       - name: Checkout superdeploy repo
         uses: actions/checkout@v4
@@ -75,7 +75,7 @@ jobs:
   
   deploy-worker:
     if: ${{ inputs.service == 'services' }}
-    runs-on: [self-hosted, worker]
+    runs-on: [self-hosted, cheapa, worker]
     steps:
       - name: Checkout superdeploy repo
         uses: actions/checkout@v4
