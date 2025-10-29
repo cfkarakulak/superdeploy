@@ -107,16 +107,16 @@ runs:
         echo "📋 Loading project configuration..."
         
         CONFIG_FILE="/tmp/project.yml"
-        HOSTNAME=$(hostname)
-        echo "🔍 Running in container: $HOSTNAME"
         
-        docker run --rm -v /opt/superdeploy/projects/${{ inputs.project }}:/project:ro alpine cat /project/project.yml > "$CONFIG_FILE" || {
-          echo "❌ ERROR: Cannot access project.yml from host"
-          echo "Tried to mount: /opt/superdeploy/projects/${{ inputs.project }}/project.yml"
+        # Use project.yml from checked out repo (workspace)
+        if [ -f "${GITHUB_WORKSPACE}/projects/${{ inputs.project }}/project.yml" ]; then
+          cp "${GITHUB_WORKSPACE}/projects/${{ inputs.project }}/project.yml" "$CONFIG_FILE"
+          echo "✅ Successfully loaded project.yml from workspace"
+        else
+          echo "❌ ERROR: project.yml not found in workspace"
+          echo "Tried: ${GITHUB_WORKSPACE}/projects/${{ inputs.project }}/project.yml"
           exit 1
-        }
-        
-        echo "✅ Successfully loaded project.yml from host"
+        fi
         
         if [ -f "$CONFIG_FILE" ]; then
           PARSER_SCRIPT="${GITHUB_WORKSPACE}/.forgejo/scripts/parse_config.py"
