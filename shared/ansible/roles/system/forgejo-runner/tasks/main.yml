@@ -13,6 +13,17 @@
 
 - name: Setup standalone runner on project VMs
   block:
+    - name: Create deployment directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ superdeploy_user }}"
+        group: "{{ superdeploy_group | default(superdeploy_user) }}"
+        mode: '0755'
+      loop:
+        - /opt/apps
+        - /opt/superdeploy/projects
+    
     - name: Check if Node.js is installed
       command: node --version
       register: node_check
