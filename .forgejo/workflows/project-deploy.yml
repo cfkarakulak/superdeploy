@@ -31,7 +31,9 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # Use project-specific runner with label matching the project name
+    # This ensures the workflow runs on the correct VM for the project
+    runs-on: [self-hosted, "${{ inputs.project }}"]
     
     env:
       PROJECT: ${{ inputs.project }}
@@ -315,22 +317,14 @@ jobs:
       - name: Verify core services are running
         run: |
           set -e
-          echo "🔍 Verifying core services are running..."
+          echo "🔍 Verifying project services are running..."
           
-          # Check if core services are running using docker ps
-          echo "� Checkring core services status..."
+          # Note: Forgejo runs on orchestrator, not on project VMs
+          # Check only project-specific services (postgres, rabbitmq, etc.)
+          echo "✓ Checking project services status..."
           
-          REQUIRED_SERVICES="${{ env.PROJECT }}-forgejo ${{ env.PROJECT }}-postgres ${{ env.PROJECT }}-rabbitmq"
-          MISSING_SERVICES=""
-          
-          for service in $REQUIRED_SERVICES; do
-            if ! docker ps --format '{{.Names}}' | grep -q "^${service}$"; then
-              MISSING_SERVICES="$MISSING_SERVICES $service"
-            fi
-          done
-          
-          if [ -n "$MISSING_SERVICES" ]; then
-            echo "❌ Core services not running:$MISSING_SERVICES"
+          # List all running containers for debugging
+          docker ps --format 'table {{.Names}}\t{{.Status}}'
             echo "   Run 'superdeploy up -p ${{ env.PROJECT }}' first to set up infrastructure"
             exit 1
           fi

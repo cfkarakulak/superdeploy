@@ -112,3 +112,10 @@ projects/*/ansible/generated/
 
 # Generated proxy configurations
 /opt/superdeploy/shared/caddy/routes/
+
+# =============================================================================
+# Orchestrator & Shared Secrets
+# =============================================================================
+shared/orchestrator/.env
+shared/orchestrator/.secrets
+shared/config/.env

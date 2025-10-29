@@ -7,7 +7,7 @@
 
 project: cheapa
 description: cheapa project
-created_at: 2025-10-27T21:49:47.129834
+created_at: 2025-10-28T17:40:41.250329
 
 # =============================================================================
 # Cloud Provider Configuration
@@ -35,73 +35,64 @@ docker:
   # Note: Set DOCKER_TOKEN environment variable for authentication
 
 # =============================================================================
-# Addons Configuration
-# =============================================================================
-addons:
-  forgejo:
-    version: "13.0.1"
-    port: 3001
-    ssh_port: 2222
-    admin_user: "cradexco"
-    admin_email: "cradexco@gmail.com"
-    org: "cradexco"
-    repo: "superdeploy"
-    db_name: "forgejo"
-    db_user: "forgejo"
-  postgres:
-    version: "15-alpine"
-    user: "cheapa_user"
-    database: "cheapa_db"
-  rabbitmq:
-    version: "3.12-management-alpine"
-    user: "cheapa_user"
-  caddy:
-    version: "2-alpine"
-    email: "cradexco@gmail.com"
-    domain: "cheapa.io"
-
-# =============================================================================
 # VMs (Infrastructure)
 # =============================================================================
+# Note: Orchestrator VM is managed globally in shared/orchestrator.yml
+# Only define your project-specific VMs here
 vms:
-  core:
+  web:
+    count: 1
+    machine_type: e2-small
+    disk_size: 10
+    services: []  # No infrastructure services, just apps
+  
+  api:
+    count: 1
+    machine_type: e2-small
+    disk_size: 10
+    services: []
+  
+  worker:
     count: 1
     machine_type: e2-medium
     disk_size: 20
     services:
       - postgres
       - rabbitmq
-      - forgejo
-  
-  web:
-    count: 1
-    machine_type: e2-small
-    disk_size: 10
-    services: []
-  
-  api:
-    count: 1
-    machine_type: e2-small
-    disk_size: 10
-    services: []
+      - mongodb
+
+# =============================================================================
+# Addons Configuration
+# =============================================================================
+# Note: Forgejo is on orchestrator VM (shared/orchestrator.yml)
+# Only define addons that run on YOUR project VMs
+addons:
+  rabbitmq:
+    version: "3.12-management-alpine"
+  postgres:
+    version: "15-alpine"
+  caddy:
+    version: "2-alpine"
 
 # =============================================================================
 # Application Services
 # =============================================================================
+# Specify which VM each app runs on using 'vm' parameter
 apps:
-  api:
-    path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/api
-    vm: api
-    port: 8000
   dashboard:
     path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/dashboard
-    vm: web
+    vm: web        # ← Dashboard runs on 'web' VM
     port: 3000
+  
+  api:
+    path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/api
+    vm: api        # ← API runs on 'api' VM
+    port: 8000
+  
   services:
     path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/services
-    vm: api
-    external_port: 8001
-    internal_port: 8000
+    vm: worker     # ← Services run on 'worker' VM
+    port: 8001
 
 # =============================================================================
 # GitHub Configuration
@@ -113,7 +104,7 @@ github:
 # Network Configuration
 # =============================================================================
 network:
-  docker_subnet: 172.30.0.0/24
+  docker_subnet: 172.31.0.0/24
 
 # =============================================================================
 # Monitoring (Optional)

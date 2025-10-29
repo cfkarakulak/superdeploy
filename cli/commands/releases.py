@@ -153,7 +153,7 @@ def rollback(app, target, force):
     import requests
 
     forgejo_url = f"http://{env_vars['CORE_EXTERNAL_IP']}:3001"
-    workflow_url = f"{forgejo_url}/api/v1/repos/{env_vars['FORGEJO_ORG']}/{env_vars['REPO_SUPERDEPLOY']}/actions/workflows/deploy.yml/dispatches"
+    workflow_url = f"{forgejo_url}/api/v1/repos/{env_vars['FORGEJO_ORG']}/{env_vars['REPO_SUPERDEPLOY']}/actions/workflows/project-deploy.yml/dispatches"
 
     # Build image tags JSON
     image_tags = {app: target}

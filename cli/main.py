@@ -14,8 +14,6 @@ from cli.commands import (
     generate,
     up,
     sync,
-    sync_infra,
-    sync_repos,
     status,
     logs,
     run_cmd,
@@ -32,6 +30,7 @@ from cli.commands import (
     backup,
     validate,
     metrics,
+    orchestrator,
 )
 
 console = Console()
@@ -46,16 +45,16 @@ BANNER = """
 @click.group()
 @click.version_option(version="1.0.0")
 @click.pass_context
-def cli(ctx):
+def cli(ctx: click.Context) -> None:
     """
     SuperDeploy - Deploy production apps like Heroku, on your own infrastructure.
 
     \b
     Quick Start:
-      superdeploy init      # Interactive setup
-      superdeploy up        # Deploy infrastructure
-      superdeploy sync      # Sync secrets to GitHub
-      superdeploy deploy    # Deploy apps
+      superdeploy orchestrator up  # Deploy Forgejo (once)
+      superdeploy init -p myapp    # Create project
+      superdeploy up -p myapp      # Deploy project
+      superdeploy sync -p myapp    # Sync secrets
 
     \b
     Daily Workflow:
@@ -75,8 +74,6 @@ cli.add_command(generate.generate)
 cli.add_command(up.up)
 cli.add_command(down.down)
 cli.add_command(sync.sync)
-cli.add_command(sync_infra.sync_infra, name="sync:infra")
-cli.add_command(sync_repos.sync_repos, name="sync:repos")
 cli.add_command(status.status)
 cli.add_command(logs.logs)
 cli.add_command(run_cmd.run)
@@ -93,6 +90,7 @@ cli.add_command(promote.promote)
 cli.add_command(backup.backup)
 cli.add_command(validate.validate)
 cli.add_command(metrics.metrics)
+cli.add_command(orchestrator.orchestrator)
 
 
 if __name__ == "__main__":

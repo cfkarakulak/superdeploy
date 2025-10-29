@@ -36,26 +36,28 @@ def generate_ansible_extra_vars(project_config, env_vars=None, project_root=None
     if project_root:
         extra_vars["addons_source_path"] = str(project_root / "addons")
 
-        # Load project secrets from .env file
-        project_name = extra_vars.get("project_name", "")
-        if project_name:
-            env_file = project_root / "projects" / project_name / ".env"
-            if env_file.exists():
-                from dotenv import dotenv_values
+        # Load project secrets from .env file (only if not already provided)
+        if "project_secrets" not in extra_vars or not extra_vars["project_secrets"]:
+            project_name = extra_vars.get("project_name", "")
+            if project_name:
+                env_file = project_root / "projects" / project_name / ".env"
+                if env_file.exists():
+                    from dotenv import dotenv_values
 
-                project_secrets = dotenv_values(env_file)
-                # Filter out non-secret values (comments, empty, etc.)
-                extra_vars["project_secrets"] = {
-                    k: v
-                    for k, v in project_secrets.items()
-                    if v and not k.startswith("#")
-                }
+                    project_secrets = dotenv_values(env_file)
+                    # Filter out non-secret values (comments, empty, etc.)
+                    extra_vars["project_secrets"] = {
+                        k: v
+                        for k, v in project_secrets.items()
+                        if v and not k.startswith("#")
+                    }
+                else:
+                    extra_vars["project_secrets"] = {}
             else:
                 extra_vars["project_secrets"] = {}
-        else:
-            extra_vars["project_secrets"] = {}
     else:
-        extra_vars["project_secrets"] = {}
+        if "project_secrets" not in extra_vars:
+            extra_vars["project_secrets"] = {}
 
     # Extract convenience vars from nested config
     network_config = extra_vars.get("network_config", {})

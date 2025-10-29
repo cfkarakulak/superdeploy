@@ -84,7 +84,20 @@ def create_forgejo_pat(env, forgejo_host):
     import requests
     import time
 
-    forgejo_url = f"http://{forgejo_host}:3001"
+    # Get Forgejo port from orchestrator config
+    from cli.core.orchestrator_loader import OrchestratorLoader
+    from cli.utils import get_project_root
+    
+    project_root = get_project_root()
+    orch_loader = OrchestratorLoader(project_root / "shared")
+    orch_config = orch_loader.load()
+    forgejo_config = orch_config.get_forgejo_config()
+    forgejo_port = forgejo_config.get("port")
+    if not forgejo_port:
+        console.print("[red]❌ forgejo.port not found in orchestrator config![/red]")
+        return None
+    
+    forgejo_url = f"http://{forgejo_host}:{forgejo_port}"
     token_name = f"github-actions-{int(time.time())}"
 
     try:
@@ -233,9 +246,29 @@ def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_s
     """Sync all secrets to Forgejo repository"""
     import requests
 
-    forgejo_url = f"http://{forgejo_host}:3001"
-    org = env["FORGEJO_ORG"]  # No fallback - MUST exist
-    repo = env["REPO_SUPERDEPLOY"]  # No fallback - MUST exist
+    # Get Forgejo port from orchestrator config
+    from cli.core.orchestrator_loader import OrchestratorLoader
+    from cli.utils import get_project_root
+    
+    project_root = get_project_root()
+    orch_loader = OrchestratorLoader(project_root / "shared")
+    orch_config = orch_loader.load()
+    forgejo_config = orch_config.get_forgejo_config()
+    forgejo_port = forgejo_config.get("port")
+    if not forgejo_port:
+        console.print("[red]❌ forgejo.port not found in orchestrator config![/red]")
+        raise SystemExit(1)
+    
+    forgejo_url = f"http://{forgejo_host}:{forgejo_port}"
+    org = env.get("FORGEJO_ORG")
+    if not org:
+        console.print("[red]❌ FORGEJO_ORG not found in environment![/red]")
+        raise SystemExit(1)
+    
+    repo = env.get("REPO_SUPERDEPLOY")
+    if not repo:
+        console.print("[red]❌ REPO_SUPERDEPLOY not found in environment![/red]")
+        raise SystemExit(1)
 
     # Test connection first
     try:
@@ -271,12 +304,14 @@ def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_s
         # Infrastructure (generic, no app-specific logic)
         "FORGEJO_HOST": forgejo_host,
         "FORGEJO_PAT": forgejo_pat,  # Add PAT so Forgejo can use it
-        "DOCKER_REGISTRY": "docker.io",
+        "DOCKER_REGISTRY": env.get("DOCKER_REGISTRY", "docker.io"),
         "DOCKER_ORG": env["DOCKER_ORG"],
+        "DOCKER_USERNAME": env.get("DOCKER_USERNAME", ""),
+        "DOCKER_TOKEN": env.get("DOCKER_TOKEN", ""),
         # Notifications
         "ALERT_EMAIL": env.get("ALERT_EMAIL", ""),  # Optional
         "FORGEJO_ORG": env["FORGEJO_ORG"],
-        "REPO_SUPERDEPLOY": env.get("REPO_SUPERDEPLOY", "superdeploy"),
+        "REPO_SUPERDEPLOY": env["REPO_SUPERDEPLOY"],
     }
     
     # Add AGE secret key if provided
@@ -386,6 +421,29 @@ def sync(project, skip_forgejo, skip_github, env_file):
             border_style="cyan",
         )
     )
+    
+    # Early validation: Check required files exist
+    console.print("\n[cyan]🔍 Checking required files...[/cyan]")
+    project_root = get_project_root()
+    
+    required_files = {
+        "shared/orchestrator/config.yml": project_root / "shared" / "orchestrator" / "config.yml",
+        "shared/orchestrator/.env": project_root / "shared" / "orchestrator" / ".env",
+        "shared/config/.env": project_root / "shared" / "config" / ".env",
+    }
+    
+    missing_files = []
+    for file_desc, file_path in required_files.items():
+        if file_path.exists():
+            console.print(f"  [green]✓[/green] {file_desc}")
+        else:
+            console.print(f"  [red]✗[/red] {file_desc}")
+            missing_files.append(file_desc)
+    
+    if missing_files:
+        console.print("\n[red]❌ Missing required files![/red]")
+        console.print("[yellow]Run 'superdeploy orchestrator up' to create them[/yellow]")
+        raise SystemExit(1)
 
     # Load infrastructure .env
     env = load_env(project)
@@ -439,34 +497,70 @@ def sync(project, skip_forgejo, skip_github, env_file):
         console.print(f"[red]✗[/red] Project config not found")
         raise SystemExit(1)
     
-    vms_config = project_config_obj.get_vms()
-    forgejo_vm_role = None
-    forgejo_vm_index = 0
+    # Get Forgejo from orchestrator (not from project VMs)
+    from cli.core.orchestrator_loader import OrchestratorLoader
     
-    for vm_role, vm_def in vms_config.items():
-        services_list = vm_def.get("services", [])
-        if "forgejo" in services_list:
-            forgejo_vm_role = vm_role
-            forgejo_vm_index = 0
-            break
-    
-    if not forgejo_vm_role:
-        console.print("[red]❌ Forgejo not found in any VM configuration![/red]")
+    orchestrator_loader = OrchestratorLoader(project_root / "shared")
+    try:
+        orch_config = orchestrator_loader.load()
+        forgejo_host = orch_config.get_ip()
+        
+        if not forgejo_host:
+            console.print("[red]❌ Orchestrator not deployed![/red]")
+            console.print("[dim]Run 'superdeploy orchestrator up' first[/dim]")
+            raise SystemExit(1)
+        
+        console.print(f"[dim]Using Forgejo from orchestrator: {forgejo_host}[/dim]")
+        
+        # Load orchestrator config
+        forgejo_config = orch_config.get_forgejo_config()
+        
+        # Merge orchestrator values into env
+        env["FORGEJO_HOST"] = forgejo_host
+        env["FORGEJO_ORG"] = forgejo_config.get("org")
+        if not env["FORGEJO_ORG"]:
+            console.print("[red]❌ forgejo.org not found in orchestrator config![/red]")
+            raise SystemExit(1)
+        
+        env["REPO_SUPERDEPLOY"] = forgejo_config.get("repo")
+        if not env["REPO_SUPERDEPLOY"]:
+            console.print("[red]❌ forgejo.repo not found in orchestrator config![/red]")
+            raise SystemExit(1)
+        
+        # Load Docker credentials from shared/config/.env
+        from dotenv import dotenv_values
+        shared_config_file = project_root / "shared" / "config" / ".env"
+        
+        if not shared_config_file.exists():
+            console.print("[red]❌ Shared config not found: shared/config/.env![/red]")
+            console.print("[yellow]Run 'superdeploy orchestrator up' to create it[/yellow]")
+            raise SystemExit(1)
+        
+        shared_config = dotenv_values(shared_config_file)
+        
+        env["DOCKER_REGISTRY"] = shared_config.get("DOCKER_REGISTRY", "docker.io")
+        env["DOCKER_ORG"] = shared_config.get("DOCKER_ORG", "")
+        if not env["DOCKER_ORG"]:
+            console.print("[red]❌ DOCKER_ORG not found in shared/config/.env![/red]")
+            console.print("[yellow]Edit shared/config/.env and fill in Docker credentials[/yellow]")
+            raise SystemExit(1)
+        
+        env["DOCKER_USERNAME"] = shared_config.get("DOCKER_USERNAME", "")
+        if not env["DOCKER_USERNAME"]:
+            console.print("[red]❌ DOCKER_USERNAME not found in shared/config/.env![/red]")
+            console.print("[yellow]Edit shared/config/.env and fill in Docker credentials[/yellow]")
+            raise SystemExit(1)
+        
+        env["DOCKER_TOKEN"] = shared_config.get("DOCKER_TOKEN", "")
+        if not env["DOCKER_TOKEN"]:
+            console.print("[red]❌ DOCKER_TOKEN not found in shared/config/.env![/red]")
+            console.print("[yellow]Edit shared/config/.env and fill in Docker credentials[/yellow]")
+            raise SystemExit(1)
+        
+    except FileNotFoundError:
+        console.print("[red]❌ Orchestrator config not found![/red]")
+        console.print("[dim]Run 'superdeploy orchestrator up' first[/dim]")
         raise SystemExit(1)
-    
-    # Build the env var name for this VM (e.g., CORE_0_EXTERNAL_IP)
-    forgejo_ip_var = f"{forgejo_vm_role.upper()}_{forgejo_vm_index}_EXTERNAL_IP"
-    
-    if forgejo_ip_var not in env:
-        console.print(f"[red]❌ {forgejo_ip_var} not found in environment![/red]")
-        console.print(f"[dim]Run 'superdeploy up -p {project}' to provision VMs[/dim]")
-        raise SystemExit(1)
-    
-    forgejo_host = env[forgejo_ip_var]
-    console.print(f"[dim]Using Forgejo host: {forgejo_host} (from {forgejo_vm_role}-{forgejo_vm_index})[/dim]")
-    
-    # Add to env for backward compatibility
-    env["FORGEJO_HOST"] = forgejo_host
 
     # Validate required vars
     required = ["SSH_KEY_PATH"]
@@ -507,6 +601,45 @@ def sync(project, skip_forgejo, skip_github, env_file):
     apps = project_config.get("apps", {})
     repos = {app_name: f"{github_org}/{app_name}" for app_name in apps.keys()}
 
+    # Get Forgejo port from orchestrator (needed for GitHub sync too)
+    forgejo_port = orch_config.get_forgejo_config().get("port")
+    if not forgejo_port:
+        console.print("[red]❌ forgejo.port not found in orchestrator config![/red]")
+        raise SystemExit(1)
+
+    # Validate all required values BEFORE starting
+    console.print("\n[cyan]🔍 Validating configuration...[/cyan]")
+    validation_errors = []
+    
+    required_env_vars = {
+        "FORGEJO_ORG": env.get("FORGEJO_ORG"),
+        "REPO_SUPERDEPLOY": env.get("REPO_SUPERDEPLOY"),
+        "DOCKER_REGISTRY": env.get("DOCKER_REGISTRY"),
+        "DOCKER_ORG": env.get("DOCKER_ORG"),
+        "DOCKER_USERNAME": env.get("DOCKER_USERNAME"),
+        "DOCKER_TOKEN": env.get("DOCKER_TOKEN"),
+        "SSH_KEY_PATH": env.get("SSH_KEY_PATH"),
+    }
+    
+    for var_name, var_value in required_env_vars.items():
+        if not var_value:
+            validation_errors.append(f"  [red]✗[/red] {var_name} is missing or empty")
+        else:
+            console.print(f"  [green]✓[/green] {var_name}")
+    
+    if validation_errors:
+        console.print("\n[red]❌ Configuration validation failed:[/red]")
+        for error in validation_errors:
+            console.print(error)
+        console.print("\n[yellow]Fix these issues:[/yellow]")
+        console.print("  • FORGEJO_ORG, REPO_SUPERDEPLOY: shared/orchestrator/config.yml")
+        console.print("  • DOCKER_*: shared/config/.env")
+        console.print("  • SSH_KEY_PATH: projects/{project}/project.yml")
+        console.print("\n[yellow]Run 'superdeploy orchestrator up' to create missing files[/yellow]")
+        raise SystemExit(1)
+    
+    console.print("[green]✅ Configuration valid[/green]")
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -523,61 +656,49 @@ def sync(project, skip_forgejo, skip_github, env_file):
         progress.advance(task1)
         console.print(f"[green]✅ AGE Public Key: {age_public_key[:30]}...[/green]")
 
-        # Step 2: Create Forgejo PAT (if not exists or invalid)
-        task2 = progress.add_task("[cyan]Creating Forgejo PAT...", total=1)
+        # Step 2: Load Forgejo PAT from orchestrator
+        task2 = progress.add_task("[cyan]Loading Forgejo PAT...", total=1)
 
-        forgejo_pat = env.get("FORGEJO_PAT")
+        # Load PAT from shared/orchestrator/.env
+        from cli.utils import get_project_root
+        from dotenv import dotenv_values
         
-        # Test existing PAT if present
+        project_root = get_project_root()
+        orchestrator_env_file = project_root / "shared" / "orchestrator" / ".env"
+        
+        if not orchestrator_env_file.exists():
+            console.print(f"[red]❌ Orchestrator .env not found: {orchestrator_env_file}[/red]")
+            console.print("[yellow]Run 'superdeploy orchestrator up' first to create Forgejo and PAT[/yellow]")
+            raise SystemExit(1)
+        
+        orchestrator_env = dotenv_values(orchestrator_env_file)
+        forgejo_pat = orchestrator_env.get("FORGEJO_PAT")
+        
+        if not forgejo_pat:
+            console.print("[red]❌ FORGEJO_PAT not found in orchestrator .env[/red]")
+            console.print("[yellow]Run 'superdeploy orchestrator up' to generate PAT[/yellow]")
+            raise SystemExit(1)
+        
+        # Test PAT validity
         pat_valid = False
-        if forgejo_pat and forgejo_pat != "auto-generated" and not skip_forgejo:
+        if not skip_forgejo:
             try:
                 import requests
                 test_response = requests.get(
-                    f"http://{env['CORE_EXTERNAL_IP']}:3001/api/v1/user",
+                    f"http://{forgejo_host}:3001/api/v1/user",
                     headers={"Authorization": f"token {forgejo_pat}"},
                     timeout=5,
                 )
                 pat_valid = (test_response.status_code == 200)
-                if not pat_valid:
-                    console.print(f"[dim]Existing PAT invalid (HTTP {test_response.status_code}), creating new one...[/dim]")
-            except:
-                pass
-        
-        if not forgejo_pat or forgejo_pat == "auto-generated" or skip_forgejo or not pat_valid:
-            forgejo_pat = create_forgejo_pat(env, forgejo_host)
-
-            if forgejo_pat:
-                # Update .env file in project directory
-                from cli.utils import get_project_root
-                
-                project_root = get_project_root()
-                env_file_path = project_root / "projects" / project / ".env"
-
-                if not env_file_path.exists():
-                    console.print(f"[yellow]⚠[/yellow] .env not found at {env_file_path}, skipping save")
+                if pat_valid:
+                    console.print("[green]✅ Forgejo PAT loaded from orchestrator[/green]")
                 else:
-                    with open(env_file_path, "r") as f:
-                        lines = f.readlines()
-
-                    updated = False
-                    with open(env_file_path, "w") as f:
-                        for line in lines:
-                            if line.startswith("FORGEJO_PAT="):
-                                f.write(f"FORGEJO_PAT={forgejo_pat}\n")
-                                updated = True
-                            else:
-                                f.write(line)
-                        
-                        # If FORGEJO_PAT line didn't exist, append it
-                        if not updated:
-                            f.write(f"\nFORGEJO_PAT={forgejo_pat}\n")
-
-                    console.print(
-                        f"[green]✅ Forgejo PAT saved to {env_file_path}[/green]"
-                    )
-
-                # Update env dict so it's used in GitHub secrets sync
+                    console.print(f"[yellow]⚠️  PAT invalid (HTTP {test_response.status_code})[/yellow]")
+                    console.print("[yellow]Run 'superdeploy orchestrator up --force' to regenerate PAT[/yellow]")
+            except Exception as e:
+                console.print(f"[yellow]⚠️  Could not validate PAT: {e}[/yellow]")
+        
+        # Update env dict so it's used in GitHub secrets sync
                 env["FORGEJO_PAT"] = forgejo_pat
 
         progress.advance(task2)
@@ -621,9 +742,9 @@ def sync(project, skip_forgejo, skip_github, env_file):
         # Repository secrets (infrastructure/build related)
         repo_secrets = {
             "AGE_PUBLIC_KEY": age_public_key,
-            "FORGEJO_BASE_URL": f"http://{forgejo_host}:3001",
+            "FORGEJO_BASE_URL": f"http://{forgejo_host}:{forgejo_port}",
             "FORGEJO_ORG": env["FORGEJO_ORG"],
-            "FORGEJO_REPO": env.get("FORGEJO_REPO", "superdeploy"),
+            "FORGEJO_REPO": env["REPO_SUPERDEPLOY"],  # Use REPO_SUPERDEPLOY from env
             "FORGEJO_PAT": forgejo_pat,
             "PROJECT_NAME": project,  # ✅ Generic project name
             "DOCKER_USERNAME": env["DOCKER_USERNAME"],
@@ -651,7 +772,7 @@ def sync(project, skip_forgejo, skip_github, env_file):
                 "SMTP_PASSWORD": env.get("SMTP_PASSWORD", ""),
                 # Add FORGEJO_PAT to environment secrets (needed for deployment trigger)
                 "FORGEJO_PAT": forgejo_pat,
-                "FORGEJO_BASE_URL": f"http://{forgejo_host}:3001",
+                "FORGEJO_BASE_URL": f"http://{forgejo_host}:{forgejo_port}",
                 "FORGEJO_ORG": env["FORGEJO_ORG"],
             }
 

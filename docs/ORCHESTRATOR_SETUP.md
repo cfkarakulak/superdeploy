@@ -1,0 +1,309 @@
+# Orchestrator VM Setup Guide
+
+## 🎯 Konsept
+
+**Orchestrator VM:** Tüm projeler için tek bir Forgejo instance'ı çalıştıran global VM.
+
+## 📋 İlk Kurulum (Bir Kere)
+
+### 1. Orchestrator Projesi Oluştur
+
+```bash
+superdeploy init -p orchestrator
+```
+
+### 2. Orchestrator project.yml
+
+```yaml
+project: orchestrator
+description: Global Forgejo orchestrator for all projects
+
+cloud:
+  gcp:
+    project_id: "your-gcp-project"
+    region: "us-central1"
+    zone: "us-central1-a"
+
+vms:
+  orchestrator:  # ← FIXED İSİM
+    count: 1
+    machine_type: e2-medium
+    disk_size: 50
+    services:
+      - forgejo
+
+addons:
+  forgejo:
+    version: "13.0.1"
+    port: 3001
+    ssh_port: 2222
+    admin_user: "admin"
+    admin_email: "admin@example.com"
+    org: "myorg"
+    repo: "superdeploy"
+    db_name: "forgejo"
+    db_user: "forgejo"
+
+apps: {}  # Orchestrator'da app yok
+```
+
+### 3. Deploy Orchestrator
+
+```bash
+superdeploy up -p orchestrator
+```
+
+**Bu şunları yapar:**
+- ✅ `orchestrator` VM oluşturur
+- ✅ Forgejo + PostgreSQL kurar
+- ✅ `orchestrator-runner` kurar
+- ✅ Admin user oluşturur
+
+### 4. Orchestrator IP'sini Kaydet
+
+```bash
+# .env dosyasından al
+cat projects/orchestrator/.env | grep ORCHESTRATOR_0_EXTERNAL_IP
+
+# Örnek: 34.72.179.175
+```
+
+## 📦 Diğer Projeler (Her Proje İçin)
+
+### 1. Proje Oluştur
+
+```bash
+superdeploy init -p cheapa
+```
+
+### 2. Project.yml (Orchestrator Referansı)
+
+```yaml
+project: cheapa
+
+# Orchestrator referansı
+orchestrator:
+  host: "34.72.179.175"  # Orchestrator VM IP
+  port: 3001
+  org: "myorg"
+  repo: "superdeploy"
+
+cloud:
+  gcp:
+    project_id: "your-gcp-project"
+    region: "us-central1"
+    zone: "us-central1-a"
+
+vms:
+  web:
+    count: 1
+    machine_type: e2-small
+    services: []
+  
+  api:
+    count: 1
+    machine_type: e2-small
+    services: []
+
+addons: {}  # Forgejo yok, orchestrator kullanacak
+
+apps:
+  api:
+    path: /path/to/api
+    vm: api
+    port: 8000
+  dashboard:
+    path: /path/to/dashboard
+    vm: web
+    port: 3000
+```
+
+### 3. Deploy Project
+
+```bash
+superdeploy up -p cheapa
+```
+
+**Bu şunları yapar:**
+- ✅ `cheapa-web-0`, `cheapa-api-0` VM'leri oluşturur
+- ✅ Her VM'de project-specific runner kurar
+- ✅ Runner'ları orchestrator Forgejo'ya register eder
+- ✅ Forgejo'ya **DOKUNMAZ** (zaten var)
+
+## 🔄 Workflow
+
+### Orchestrator'da
+
+```yaml
+# .forgejo/workflows/deploy.yml
+jobs:
+  deploy:
+    runs-on: [self-hosted, "${{ inputs.project }}"]
+```
+
+### GitHub Actions'da
+
+```yaml
+# .github/workflows/deploy.yml
+- name: Trigger Forgejo deployment
+  env:
+    FORGEJO_BASE_URL: "http://34.72.179.175:3001"  # Orchestrator IP
+    FORGEJO_PAT: ${{ secrets.FORGEJO_PAT }}
+  run: |
+    curl -X POST \
+      -H "Authorization: token $FORGEJO_PAT" \
+      "$FORGEJO_BASE_URL/api/v1/repos/myorg/superdeploy/actions/workflows/deploy.yml/dispatches" \
+      -d '{"ref":"master","inputs":{"project":"cheapa","service":"api",...}}'
+```
+
+## 🎯 Çoklu Proje Örneği
+
+### Orchestrator (Bir Kere)
+
+```bash
+superdeploy up -p orchestrator
+```
+
+**Sonuç:**
+- VM: `orchestrator` (34.72.179.175)
+- Forgejo: http://34.72.179.175:3001
+- Runner: `orchestrator-runner`
+
+### Proje 1: cheapa
+
+```bash
+superdeploy up -p cheapa
+```
+
+**Sonuç:**
+- VM'ler: `cheapa-web-0`, `cheapa-api-0`
+- Runner'lar: `cheapa-web-*`, `cheapa-api-*`
+- Forgejo: Orchestrator'ı kullanır
+
+### Proje 2: myapp
+
+```bash
+superdeploy up -p myapp
+```
+
+**Sonuç:**
+- VM'ler: `myapp-app-0`, `myapp-worker-0`
+- Runner'lar: `myapp-app-*`, `myapp-worker-*`
+- Forgejo: Orchestrator'ı kullanır
+
+### Proje 3: acme
+
+```bash
+superdeploy up -p acme
+```
+
+**Sonuç:**
+- VM'ler: `acme-frontend-0`, `acme-backend-0`
+- Runner'lar: `acme-frontend-*`, `acme-backend-*`
+- Forgejo: Orchestrator'ı kullanır
+
+## 📊 Final Mimari
+
+```
+┌─────────────────────────────────────────────┐
+│  Orchestrator VM (34.72.179.175)           │
+│  ┌─────────────────────────────────────┐   │
+│  │  Forgejo (Port 3001)                │   │
+│  │  - myorg/superdeploy repo           │   │
+│  │  - Workflows for all projects       │   │
+│  └─────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────┐   │
+│  │  orchestrator-runner                │   │
+│  │  Labels: [orchestrator]             │   │
+│  └─────────────────────────────────────┘   │
+└─────────────────────────────────────────────┘
+         │
+         ├──────────────┬──────────────┬──────────────┐
+         ▼              ▼              ▼              ▼
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ cheapa VMs  │  │ myapp VMs   │  │ acme VMs    │  │ ...         │
+│ - web       │  │ - app       │  │ - frontend  │  │             │
+│ - api       │  │ - worker    │  │ - backend   │  │             │
+│             │  │             │  │             │  │             │
+│ Runners:    │  │ Runners:    │  │ Runners:    │  │             │
+│ cheapa-*    │  │ myapp-*     │  │ acme-*      │  │             │
+└─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘
+```
+
+## ✅ Avantajlar
+
+1. **Tek Forgejo:** Tüm projeler için merkezi yönetim
+2. **İzolasyon:** Her proje kendi VM'lerinde çalışır
+3. **Ölçeklenebilir:** Yeni proje = sadece yeni VM'ler
+4. **Maliyet:** Forgejo için tek VM yeterli
+5. **Bakım:** Forgejo güncellemesi tek yerde
+
+## 🔧 Bakım
+
+### Orchestrator Güncelleme
+
+```bash
+# Orchestrator'ı güncelle
+superdeploy up -p orchestrator --tags addons
+
+# Diğer projelere dokunmaz
+```
+
+### Yeni Proje Ekleme
+
+```bash
+# Sadece yeni proje VM'lerini oluştur
+superdeploy up -p newproject
+
+# Orchestrator'a dokunmaz
+```
+
+### Runner Yeniden Kaydetme
+
+```bash
+# Bir projenin runner'larını yeniden kaydet
+superdeploy up -p cheapa --tags runner
+```
+
+## 🚨 Önemli Notlar
+
+1. **Orchestrator IP:** Tüm projelerde aynı IP kullanılmalı
+2. **Forgejo Org/Repo:** Tüm projelerde aynı olmalı
+3. **İlk Kurulum:** Orchestrator mutlaka ilk kurulmalı
+4. **Backup:** Orchestrator VM'i düzenli yedeklenmeli
+5. **Network:** Tüm VM'ler aynı VPC'de olmalı
+
+## 📝 Troubleshooting
+
+### Runner Orchestrator'a Bağlanamıyor
+
+```bash
+# Orchestrator IP'sini kontrol et
+ping 34.72.179.175
+
+# Firewall kurallarını kontrol et
+gcloud compute firewall-rules list
+
+# Runner log'larını kontrol et
+sudo journalctl -u forgejo-runner -f
+```
+
+### Forgejo Erişilemiyor
+
+```bash
+# Orchestrator VM'de Forgejo durumunu kontrol et
+ssh orchestrator
+docker ps | grep forgejo
+docker logs orchestrator-forgejo
+```
+
+### Yeni Proje Runner'ı Görünmüyor
+
+```bash
+# Forgejo UI'da kontrol et
+http://34.72.179.175:3001/admin/actions/runners
+
+# Runner registration token'ı yenile
+ssh orchestrator
+docker exec -u 1000:1000 orchestrator-forgejo forgejo actions generate-runner-token
+```

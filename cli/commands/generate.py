@@ -102,14 +102,14 @@ def generate(project):
 # DO NOT COMMIT THIS FILE TO GIT!
 # =============================================================================
 
-# Docker Registry Token
-DOCKER_TOKEN=your-docker-token  # Get from Docker Hub: https://hub.docker.com/settings/security
+# Docker credentials (read from shared/config/.env)
+# DOCKER_REGISTRY, DOCKER_ORG, DOCKER_USERNAME, DOCKER_TOKEN are managed globally
 
 # GitHub Token
 GITHUB_TOKEN=your-github-token  # Get from GitHub: https://github.com/settings/tokens
 
-# Forgejo PAT
-FORGEJO_PAT=your-forgejo-pat  # Generated after Forgejo deployment
+# Forgejo PAT (read from shared/orchestrator/.env)
+# FORGEJO_PAT is managed globally by orchestrator
 
 # Generated Passwords (from addons)
 """
@@ -493,7 +493,7 @@ jobs:
             -H "Authorization: token $FORGEJO_PAT" \
             -H "Content-Type: application/json" \
             -d "{\"ref\":\"master\",\"inputs\":{\"project\":\"%(project_name)s\",\"service\":\"%(app_name)s\",\"image\":\"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}\",\"env_bundle\":\"${{ steps.env_bundle.outputs.encrypted }}\",\"git_sha\":\"${{ github.sha }}\"}}" \
-            "$FORGEJO_BASE_URL/api/v1/repos/$FORGEJO_ORG/superdeploy/actions/workflows/deploy.yml/dispatches")
+            "$FORGEJO_BASE_URL/api/v1/repos/$FORGEJO_ORG/superdeploy/actions/workflows/project-deploy.yml/dispatches")
           
           HTTP_CODE=$(echo "$RESPONSE" | head -n1 | cut -d' ' -f2)
           BODY=$(echo "$RESPONSE" | tail -n1)

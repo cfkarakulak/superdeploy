@@ -137,14 +137,14 @@
     mode: '0755'
 
 - name: Get Forgejo container IP
-  shell: docker inspect {{ project_name }}-forgejo --format '{{"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"}}'
+  shell: docker inspect orchestrator-forgejo --format '{{"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"}}'
   register: forgejo_ip_result
   changed_when: false
 
 - name: Add Forgejo hostname to /etc/hosts
   lineinfile:
     path: /etc/hosts
-    line: "{{ forgejo_ip_result.stdout }} {{ project_name }}-forgejo"
+    line: "{{ forgejo_ip_result.stdout }} orchestrator-forgejo"
     state: present
   become: yes
 - name: Check if runner is already registered
@@ -165,10 +165,11 @@
   when: not runner_registration_check.stat.exists
 
 - name: Generate runner registration token via Forgejo CLI
-  command: docker exec -u 1000:1000 {{ project_name }}-forgejo forgejo actions generate-runner-token
+  command: docker exec -u 1000:1000 orchestrator-forgejo forgejo actions generate-runner-token
   register: runner_token_cli_result
   when: not runner_registration_check.stat.exists
   changed_when: false
+  failed_when: false
 
 - name: Set runner token fact
   set_fact:
@@ -178,14 +179,14 @@
     - runner_token_cli_result is defined
     - runner_token_cli_result.stdout is defined
 
-- name: Register Forgejo Actions runner
+- name: Register Forgejo Actions runner (orchestrator - multi-project)
   command: >
     forgejo-runner register
     --no-interactive
     --instance "http://{{ forgejo_ip_result.stdout }}:3000"
     --token "{{ runner_token }}"
-    --name "{{ runner_name | default(project_name + '-runner') }}"
-    --labels "{{ runner_labels | default('ubuntu-latest:docker://node:20-alpine,ubuntu-22.04:docker://node:20-alpine') }}"
+    --name "orchestrator-runner"
+    --labels "ubuntu-latest:docker://node:20-bookworm,orchestrator:docker://node:20-bookworm,linux:docker://node:20-bookworm,docker:docker://node:20-bookworm"
   args:
     chdir: "{{ addon_base_path }}/{{ addon_name }}/runner"
   become_user: "{{ superdeploy_user }}"
@@ -198,7 +199,7 @@
 
 - name: Update runner address to use container hostname
   shell: |
-    sed -i 's|http://{{ forgejo_ip_result.stdout }}:3000|http://{{ project_name }}-forgejo:3000|g' {{ addon_base_path }}/{{ addon_name }}/runner/.runner
+    sed -i 's|http://{{ forgejo_ip_result.stdout }}:3000|http://orchestrator-forgejo:3000|g' {{ addon_base_path }}/{{ addon_name }}/runner/.runner
   when: runner_register_result is changed
   become_user: "{{ superdeploy_user }}"
 
@@ -253,7 +254,10 @@
   debug:
     msg:
       - "Forgejo Actions runner setup completed!"
-      - "Runner Name: {{ runner_name | default(project_name + '-runner') }}"
-      - "Runner Labels: {{ runner_labels | default('ubuntu-latest:docker://node:20-bookworm') }}"
+      - "Runner Name: orchestrator-runner (multi-project)"
+      - "Runner Labels: ubuntu-latest, orchestrator, linux, docker"
       - "Service Status: {{ runner_status.status.ActiveState }}"
       - "Working Directory: {{ addon_base_path }}/{{ addon_name }}/runner"
+      - ""
+      - "⚠️  IMPORTANT: This runner serves ALL projects!"
+      - "   Workflows should use: runs-on: [self-hosted, orchestrator]"

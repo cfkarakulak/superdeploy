@@ -1,0 +1,3 @@
+# Orchestrator directory
+# config.yml - Configuration (committed)
+# .env - Secrets (NOT committed, in .gitignore)

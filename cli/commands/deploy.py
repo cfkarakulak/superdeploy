@@ -75,7 +75,7 @@ def deploy(project, app, environment, tag, migrate):
 
     # Forgejo API call
     forgejo_url = f"http://{env['CORE_EXTERNAL_IP']}:3001"
-    workflow_url = f"{forgejo_url}/api/v1/repos/{env['FORGEJO_ORG']}/{env['REPO_SUPERDEPLOY']}/actions/workflows/deploy.yml/dispatches"
+    workflow_url = f"{forgejo_url}/api/v1/repos/{env['FORGEJO_ORG']}/{env['REPO_SUPERDEPLOY']}/actions/workflows/project-deploy.yml/dispatches"
 
     payload = {
         "ref": "master",

@@ -309,7 +309,7 @@ jobs:
             -H "Authorization: token $FORGEJO_PAT" \\
             -H "Content-Type: application/json" \\
             -d "{{\"ref\":\"master\",\"inputs\":{{\"project\":\"{project}\",\"service\":\"{service}\",\"image\":\"${{{{ env.REGISTRY }}}}/${{{{ env.IMAGE_NAME }}}}:${{{{ github.sha }}}}\",\"env_bundle\":\"${{{{ steps.env_bundle.outputs.encrypted }}}}\",\"git_sha\":\"${{{{ github.sha }}}}\"}}}}" \\
-            "$FORGEJO_BASE_URL/api/v1/repos/$FORGEJO_ORG/superdeploy/actions/workflows/deploy.yml/dispatches")
+            "$FORGEJO_BASE_URL/api/v1/repos/$FORGEJO_ORG/superdeploy/actions/workflows/project-deploy.yml/dispatches")
           
           HTTP_CODE=$(echo "$RESPONSE" | head -n1 | cut -d' ' -f2)
           BODY=$(echo "$RESPONSE" | tail -n1)
@@ -611,25 +611,10 @@ def init(project, app, subnet, no_interactive, yes):
         }
 
     # Build temporary project config for validation
-    # Ensure forgejo is in addons
-    if "forgejo" not in selected_addons:
-        selected_addons.insert(0, "forgejo")
-    
+    # Note: Forgejo is managed globally by orchestrator, not per-project
     temp_config = {
         "project": project,
-        "addons": {
-            "forgejo": {
-                "version": "13.0.1",
-                "port": 3001,
-                "ssh_port": 2222,
-                "admin_user": "admin",
-                "admin_email": f"admin@{project}.local",
-                "org": "your-forgejo-org",  # Placeholder, user will edit
-                "repo": "superdeploy",
-                "db_name": "forgejo",
-                "db_user": "forgejo",
-            }
-        },
+        "addons": {},
         "network": {"docker_subnet": project_subnet},
         "apps": {
             app_name: (
@@ -716,23 +701,9 @@ def init(project, app, subnet, no_interactive, yes):
     addon_versions = {addon["name"]: addon["version"] for addon in available_addons}
     addons_dict = {}
     
-    # Always add forgejo first
-    addons_dict["forgejo"] = {
-        "version": "13.0.1",
-        "port": 3001,
-        "ssh_port": 2222,
-        "admin_user": "admin",
-        "admin_email": f"admin@{project}.local",
-        "org": "your-forgejo-org",
-        "repo": "superdeploy",
-        "db_name": "forgejo",
-        "db_user": "forgejo",
-    }
-    
-    # Add other selected addons dynamically
+    # Note: Forgejo is managed globally by orchestrator, not per-project
+    # Add selected addons dynamically
     for service in selected_addons:
-        if service == "forgejo":
-            continue  # Already added above
             
         default_version = addon_versions.get(service, "latest")
         
@@ -794,7 +765,7 @@ docker:
   registry: "docker.io"  # Docker Hub or custom registry
   organization: "your-docker-org"  # EDIT THIS - Docker organization
   username: "your-docker-username"  # EDIT THIS
-  # Note: Set DOCKER_TOKEN environment variable for authentication
+  # Note: Docker credentials (DOCKER_TOKEN) are managed in shared/config/.env
 
 # =============================================================================
 # VMs (Infrastructure)
@@ -807,7 +778,7 @@ vms:
     services:
       - postgres
       - rabbitmq
-      - forgejo
+      # Note: Forgejo is managed globally by orchestrator
 
 # =============================================================================
 # Addons Configuration
@@ -846,7 +817,7 @@ github:
 # Network Configuration
 # =============================================================================
 network:
-  subnet: {project_subnet}
+  docker_subnet: {project_subnet}
 
 # =============================================================================
 # Monitoring (Optional)

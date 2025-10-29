@@ -33,6 +33,9 @@
     - system
     - system-base
     - foundation
+  vars:
+    # Skip firewall reconfiguration on orchestrator during project deployments
+    skip_firewall_reset: "{{ 'orchestrator' in group_names and project_name is defined }}"
 
 - name: Install and Configure Docker
   hosts: all
@@ -54,8 +57,8 @@
     - monitoring-agent
     - foundation
 
-- name: Setup Forgejo Runner on non-core VMs
-  hosts: all
+- name: Setup Forgejo Runner on project VMs (not orchestrator)
+  hosts: all:!orchestrator
   become: yes
   roles:
     - role: system/forgejo-runner
@@ -69,7 +72,7 @@
 # ============================================================================
 
 - name: Ensure superdeploy data directory exists
-  hosts: core
+  hosts: orchestrator
   become: yes
   tasks:
     - name: Create superdeploy data directory
@@ -92,7 +95,7 @@
     - infrastructure
 
 - name: Deploy Infrastructure Addons
-  hosts: core
+  hosts: all
   become: yes
   roles:
     - role: orchestration/addon-deployer
@@ -112,7 +115,7 @@
 # ============================================================================
 
 - name: Deploy Project Applications
-  hosts: core
+  hosts: all
   become: yes
   roles:
     - role: orchestration/project-deployer

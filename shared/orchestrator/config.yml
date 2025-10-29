@@ -1,0 +1,30 @@
+gcp:
+  project_id: galvanic-camp-475519-d6
+  region: us-central1
+  zone: us-central1-a
+ssh:
+  key_path: ~/.ssh/superdeploy_deploy
+  public_key_path: ~/.ssh/superdeploy_deploy.pub
+  user: superdeploy
+vm:
+  name: orchestrator
+  machine_type: e2-medium
+  disk_size: 50
+forgejo:
+  version: 13.0.1
+  port: 3001
+  ssh_port: 2222
+  admin_user: cradexco
+  admin_email: cradexco@gmail.com
+  org: cradexco
+  repo: superdeploy
+  db_name: forgejo
+  db_user: forgejo
+network:
+  vpc_name: superdeploy-network
+  subnet_cidr: 10.128.0.0/20
+deployment_mode: auto
+state:
+  deployed: true
+  ip: 34.173.187.13
+  last_updated: '2025-10-29T10:04:38.459568'

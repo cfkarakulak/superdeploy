@@ -30,10 +30,12 @@
       - "Enabled addons: {{ enabled_addons | join(', ') if enabled_addons | length > 0 else 'none' }}"
     verbosity: 1
 
-- name: Ensure Forgejo is included as required addon
+- name: Ensure Forgejo is included as required addon (orchestrator only)
   set_fact:
     enabled_addons: "{{ (['forgejo'] + enabled_addons) | unique }}"
-  when: "'forgejo' not in enabled_addons"
+  when: 
+    - "'forgejo' not in enabled_addons"
+    - "'orchestrator' in group_names"
 
 - name: Create project configuration directory
   file:

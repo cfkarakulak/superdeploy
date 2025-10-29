@@ -14,7 +14,7 @@
 
 - name: Create admin user via Forgejo CLI
   shell: |
-    docker exec -u 1000:1000 {{ project_name }}-forgejo \
+    docker exec -u 1000:1000 orchestrator-forgejo \
       forgejo admin user create \
       --username "{{ FORGEJO_ADMIN_USER }}" \
       --password "{{ FORGEJO_ADMIN_PASSWORD }}" \

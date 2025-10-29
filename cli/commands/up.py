@@ -180,8 +180,15 @@ def update_ips_in_env(project_root, project_name):
         return False
 
 
-def generate_ansible_inventory(env, ansible_dir, project_name):
-    """Generate Ansible inventory file dynamically from environment variables"""
+def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=None):
+    """Generate Ansible inventory file dynamically from environment variables
+    
+    Args:
+        env: Environment variables dict
+        ansible_dir: Path to ansible directory
+        project_name: Project name
+        orchestrator_ip: Orchestrator VM IP (from global config)
+    """
     # Extract VM groups from environment variables
     # Format: {ROLE}_{INDEX}_EXTERNAL_IP
     vm_groups = {}
@@ -196,16 +203,18 @@ def generate_ansible_inventory(env, ansible_dir, project_name):
             if role not in vm_groups:
                 vm_groups[role] = []
 
-            vm_groups[role].append(
-                {
-                    "name": f"{project_name}-{vm_key}",
-                    "host": value,
-                    "user": env.get("SSH_USER", "superdeploy"),
-                }
-            )
-
-    # Build inventory content
+            vm_info = {
+                "name": f"{project_name}-{vm_key}",
+                "host": value,
+                "user": env.get("SSH_USER", "superdeploy"),
+            }
+            
+            vm_groups[role].append(vm_info)
+    
+    # Build inventory content (DO NOT include orchestrator - it's managed separately)
     inventory_lines = []
+    
+    # Add project VM groups only
     for role in sorted(vm_groups.keys()):
         inventory_lines.append(f"[{role}]")
         for vm in sorted(vm_groups[role], key=lambda x: x["name"]):
@@ -225,6 +234,11 @@ def generate_ansible_inventory(env, ansible_dir, project_name):
     console.print(
         f"[green]✅ Ansible inventory generated: {inventory_path.name}[/green]"
     )
+    
+    if orchestrator_ip:
+        console.print(
+            f"[cyan]   Orchestrator: {orchestrator_ip}[/cyan]"
+        )
 
 
 def check_single_vm_ssh(vm_key, ip, ssh_key, ssh_user):
@@ -419,9 +433,12 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
 
     # Load project config using ConfigLoader
     from cli.core.config_loader import ConfigLoader
+    from cli.core.orchestrator_loader import OrchestratorLoader
 
     projects_dir = project_root / "projects"
+    shared_dir = project_root / "shared"
     config_loader = ConfigLoader(projects_dir)
+    orchestrator_loader = OrchestratorLoader(shared_dir)
 
     try:
         project_config_obj = config_loader.load_project(project)
@@ -433,6 +450,38 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
         console.print(f"[red]❌ Invalid configuration: {e}[/red]")
         raise SystemExit(1)
 
+    # Load orchestrator config
+    orchestrator_ip = None
+    try:
+        orchestrator_config = orchestrator_loader.load()
+        console.print("[dim]✓ Loaded orchestrator config[/dim]")
+        
+        # Check if orchestrator needs to be deployed
+        if orchestrator_config.should_deploy():
+            console.print(
+                "[yellow]⚠️  Orchestrator not deployed yet. Deploy it first:[/yellow]"
+            )
+            console.print(
+                "[yellow]   superdeploy orchestrator up[/yellow]"
+            )
+            console.print(
+                "[yellow]   Or set deployment_mode: 'skip' in shared/orchestrator.yml if using existing[/yellow]"
+            )
+            raise SystemExit(1)
+        
+        orchestrator_ip = orchestrator_config.get_ip()
+        if not orchestrator_ip:
+            console.print(
+                "[yellow]⚠️  Orchestrator IP not found. Please deploy orchestrator first.[/yellow]"
+            )
+            raise SystemExit(1)
+        
+        console.print(f"[dim]✓ Using orchestrator: {orchestrator_ip}[/dim]")
+        
+    except FileNotFoundError as e:
+        console.print(f"[red]❌ {e}[/red]")
+        raise SystemExit(1)
+
     env = load_env(project)
 
     # Validate required vars
@@ -440,17 +489,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
     if not validate_env_vars(env, required):
         raise SystemExit(1)
     
-    # Find which VM runs Forgejo (needed for multiple operations)
-    vms_config = project_config_obj.get_vms()
-    forgejo_vm_role = None
-    forgejo_vm_index = 0
-    
-    for vm_role, vm_def in vms_config.items():
-        services_list = vm_def.get("services", [])
-        if "forgejo" in services_list:
-            forgejo_vm_role = vm_role
-            forgejo_vm_index = 0  # Use first instance of this VM role
-            break
+    # Forgejo is always managed by orchestrator (not by projects)
 
     with Progress(
         SpinnerColumn(),
@@ -521,7 +560,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
 
     # Generate inventory with NEW IPs
     ansible_dir = project_root / "shared" / "ansible"
-    generate_ansible_inventory(env, ansible_dir, project)
+    generate_ansible_inventory(env, ansible_dir, project, orchestrator_ip)
 
     # Clean SSH known_hosts with NEW IPs
     clean_ssh_known_hosts(env)
@@ -533,22 +572,8 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
         ansible_dir = project_root / "shared" / "ansible"
 
         # Prepare environment variables for Ansible
-        # Get values from project config
-        addons = project_config_obj.get_addons()
-        forgejo_config = addons.get("forgejo", {})
-        
         # Build ansible_env_vars dynamically from all env vars
         ansible_env_vars = {
-            "FORGEJO_ADMIN_USER": forgejo_config.get("admin_user"),
-            "FORGEJO_ADMIN_PASSWORD": env.get("FORGEJO_ADMIN_PASSWORD"),
-            "FORGEJO_ADMIN_EMAIL": forgejo_config.get("admin_email"),
-            "FORGEJO_ORG": forgejo_config.get("org"),
-            "FORGEJO_REPO": env.get("FORGEJO_REPO"),
-            "FORGEJO_DB_NAME": forgejo_config.get("db_name"),
-            "FORGEJO_DB_USER": forgejo_config.get("db_user"),
-            "FORGEJO_DB_PASSWORD": env.get("FORGEJO_DB_PASSWORD"),
-            "DOCKER_USERNAME": env.get("DOCKER_USERNAME"),
-            "DOCKER_TOKEN": env.get("DOCKER_TOKEN"),
             "superdeploy_root": str(project_root),
         }
 
@@ -620,42 +645,67 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
             
             github_token = env.get("GITHUB_TOKEN")
             
-            # Get Forgejo host from VM config
-            forgejo_host = None
+            # Get Forgejo host from orchestrator
+            forgejo_host = orchestrator_ip
             forgejo_url = None
-            if forgejo_vm_role:
-                forgejo_ip_var = f"{forgejo_vm_role.upper()}_{forgejo_vm_index}_EXTERNAL_IP"
-                forgejo_host = env.get(forgejo_ip_var)
+            
+            if forgejo_host:
+                # Get Forgejo port from orchestrator config
+                from cli.core.orchestrator_loader import OrchestratorLoader
+                orch_loader = OrchestratorLoader(project_root / "shared")
+                orch_config = orch_loader.load()
+                forgejo_config = orch_config.get_forgejo_config()
+                forgejo_port = forgejo_config.get("port")
+                if not forgejo_port:
+                    console.print("[red]❌ forgejo.port not found in orchestrator config![/red]")
+                    raise SystemExit(1)
                 
-                if forgejo_host:
-                    # Wait until Forgejo is reachable
-                    forgejo_port = env.get("FORGEJO_PORT")
-                    for _ in range(30):
-                        try:
-                            reachable = (
-                                subprocess.run(
-                                    [
-                                        "bash",
-                                        "-lc",
-                                        f"curl -sSf -m 3 http://{forgejo_host}:{forgejo_port}/ >/dev/null",
-                                    ],
-                                    capture_output=True,
-                                    cwd=str(project_root),
-                                ).returncode
-                                == 0
-                            )
-                            if reachable:
-                                break
-                        except Exception:
-                            pass
-                        time.sleep(5)
-                    
-                    encoded_pass = urllib.parse.quote(env["FORGEJO_ADMIN_PASSWORD"])
-                    repo_name = env.get("FORGEJO_REPO")
-                    forgejo_url = (
-                        f"http://{env['FORGEJO_ADMIN_USER']}:{encoded_pass}"
-                        f"@{forgejo_host}:{forgejo_port}/{env['FORGEJO_ORG']}/{repo_name}.git"
-                    )
+                # Wait until Forgejo is reachable
+                for _ in range(30):
+                    try:
+                        reachable = (
+                            subprocess.run(
+                                [
+                                    "bash",
+                                    "-lc",
+                                    f"curl -sSf -m 3 http://{forgejo_host}:{forgejo_port}/ >/dev/null",
+                                ],
+                                capture_output=True,
+                                cwd=str(project_root),
+                            ).returncode
+                            == 0
+                        )
+                        if reachable:
+                            break
+                    except Exception:
+                        pass
+                    time.sleep(5)
+                
+                # Load Forgejo credentials from orchestrator
+                from dotenv import dotenv_values
+                orchestrator_env = dotenv_values(project_root / "shared" / "orchestrator" / ".env")
+                admin_password = orchestrator_env.get("FORGEJO_ADMIN_PASSWORD")
+                
+                admin_user = forgejo_config.get("admin_user")
+                if not admin_user:
+                    console.print("[red]❌ forgejo.admin_user not found in orchestrator config![/red]")
+                    raise SystemExit(1)
+                
+                org = forgejo_config.get("org")
+                if not org:
+                    console.print("[red]❌ forgejo.org not found in orchestrator config![/red]")
+                    raise SystemExit(1)
+                
+                repo_name = forgejo_config.get("repo")
+                if not repo_name:
+                    console.print("[red]❌ forgejo.repo not found in orchestrator config![/red]")
+                    raise SystemExit(1)
+                
+                encoded_pass = urllib.parse.quote(admin_password)
+                forgejo_url = (
+                    f"http://{admin_user}:{encoded_pass}"
+                    f"@{forgejo_host}:{forgejo_port}/{org}/{repo_name}.git"
+                )
             
             # Push to both remotes in parallel
             github_org = env.get("GITHUB_ORG")
@@ -678,18 +728,32 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
     console.print("[bold green]🎉 Infrastructure Deployed![/bold green]")
     console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
 
-    # Find Forgejo host IP dynamically from project config
-    forgejo_host = None
-    if forgejo_vm_role:  # Already found earlier in the code
-        forgejo_ip_var = f"{forgejo_vm_role.upper()}_{forgejo_vm_index}_EXTERNAL_IP"
-        forgejo_host = env.get(forgejo_ip_var)
-
-    if forgejo_host:
-        forgejo_port = env.get("FORGEJO_PORT")
-        console.print(f"\n[cyan]🌐 Forgejo:[/cyan] http://{forgejo_host}:{forgejo_port}")
-        console.print(
-            f"[cyan]👤 Login:[/cyan]   {env.get('FORGEJO_ADMIN_USER')} / {env.get('FORGEJO_ADMIN_PASSWORD')}"
-        )
+    # Display Forgejo info (from orchestrator)
+    if orchestrator_ip:
+        from cli.core.orchestrator_loader import OrchestratorLoader
+        orch_loader = OrchestratorLoader(project_root / "shared")
+        orch_config = orch_loader.load()
+        forgejo_config = orch_config.get_forgejo_config()
+        forgejo_port = forgejo_config.get("port")
+        if not forgejo_port:
+            console.print("[red]❌ forgejo.port not found in orchestrator config![/red]")
+            raise SystemExit(1)
+        
+        console.print(f"\n[cyan]🌐 Forgejo:[/cyan] http://{orchestrator_ip}:{forgejo_port}")
+        # Load credentials from orchestrator
+        from dotenv import dotenv_values
+        orchestrator_env = dotenv_values(project_root / "shared" / "orchestrator" / ".env")
+        admin_password = orchestrator_env.get('FORGEJO_ADMIN_PASSWORD')
+        if not admin_password:
+            console.print("[red]❌ FORGEJO_ADMIN_PASSWORD not found in orchestrator .env![/red]")
+            raise SystemExit(1)
+        
+        admin_user = forgejo_config.get("admin_user")
+        if not admin_user:
+            console.print("[red]❌ forgejo.admin_user not found in orchestrator config![/red]")
+            raise SystemExit(1)
+        
+        console.print(f"[cyan]👤 Login:[/cyan]   {admin_user} / {admin_password}")
 
     # Auto-sync GitHub secrets (unless --skip-sync flag)
     if not skip_sync:

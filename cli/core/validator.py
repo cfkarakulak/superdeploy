@@ -137,7 +137,10 @@ class ValidationEngine:
         project_config: dict
     ) -> List[ValidationError]:
         """
-        Validate infrastructure configuration (Forgejo in addons).
+        Validate infrastructure configuration.
+        
+        Note: Forgejo is now managed globally in shared/orchestrator.yml,
+        so it's no longer required in project configs.
         
         Args:
             project_config: Project configuration dictionary
@@ -150,71 +153,66 @@ class ValidationEngine:
         # Get addons config (new structure)
         addons = project_config.get('addons', {})
         
-        if not isinstance(addons, dict):
+        if addons is not None and not isinstance(addons, dict):
             errors.append(ValidationError(
                 error_type='invalid_config',
                 message="'addons' must be a dictionary"
             ))
             return errors
         
-        # Validate Forgejo configuration (required)
-        forgejo_config = addons.get('forgejo', {})
-        
-        if not forgejo_config:
-            errors.append(ValidationError(
-                error_type='missing_forgejo_config',
-                message="'addons.forgejo' configuration is required"
-            ))
-            return errors
-        
-        if not isinstance(forgejo_config, dict):
-            errors.append(ValidationError(
-                error_type='invalid_config',
-                message="'addons.forgejo' must be a dictionary"
-            ))
-            return errors
-        
-        # Validate required Forgejo fields
-        required_fields = ['port', 'ssh_port', 'admin_user', 'org', 'repo']
-        for field in required_fields:
-            if field not in forgejo_config:
+        # Forgejo is optional now (managed globally)
+        # If present, validate it
+        if addons and 'forgejo' in addons:
+            forgejo_config = addons.get('forgejo', {})
+            
+            if not isinstance(forgejo_config, dict):
                 errors.append(ValidationError(
-                    error_type='missing_forgejo_field',
-                    message=f"'addons.forgejo.{field}' is required"
+                    error_type='invalid_config',
+                    message="'addons.forgejo' must be a dictionary"
                 ))
-        
-        # Validate port numbers
-        for port_field in ['port', 'ssh_port']:
-            if port_field in forgejo_config:
-                port_value = forgejo_config[port_field]
-                try:
-                    port_int = int(port_value)
-                    if port_int < 1 or port_int > 65535:
+                return errors
+            
+            # Validate required Forgejo fields (if Forgejo is defined)
+            required_fields = ['port', 'ssh_port', 'admin_user', 'org', 'repo']
+            for field in required_fields:
+                if field not in forgejo_config:
+                    errors.append(ValidationError(
+                        error_type='missing_forgejo_field',
+                        message=f"'addons.forgejo.{field}' is required when Forgejo is defined"
+                    ))
+            
+            # Validate port numbers
+            for port_field in ['port', 'ssh_port']:
+                if port_field in forgejo_config:
+                    port_value = forgejo_config[port_field]
+                    try:
+                        port_int = int(port_value)
+                        if port_int < 1 or port_int > 65535:
+                            errors.append(ValidationError(
+                                error_type='invalid_port',
+                                message=(
+                                    f"'addons.forgejo.{port_field}' must be "
+                                    f"between 1 and 65535, got {port_int}"
+                                )
+                            ))
+                    except (ValueError, TypeError):
                         errors.append(ValidationError(
                             error_type='invalid_port',
                             message=(
-                                f"'addons.forgejo.{port_field}' must be "
-                                f"between 1 and 65535, got {port_int}"
+                                f"'addons.forgejo.{port_field}' must be a valid "
+                                f"port number, got '{port_value}'"
                             )
                         ))
-                except (ValueError, TypeError):
-                    errors.append(ValidationError(
-                        error_type='invalid_port',
-                        message=(
-                            f"'addons.forgejo.{port_field}' must be a valid "
-                            f"port number, got '{port_value}'"
-                        )
-                    ))
-        
-        # Validate string fields are not empty
-        for string_field in ['admin_user', 'org', 'repo']:
-            if string_field in forgejo_config:
-                value = forgejo_config[string_field]
-                if not value or not str(value).strip():
-                    errors.append(ValidationError(
-                        error_type='invalid_forgejo_field',
-                        message=f"'addons.forgejo.{string_field}' cannot be empty"
-                    ))
+            
+            # Validate string fields are not empty
+            for string_field in ['admin_user', 'org', 'repo']:
+                if string_field in forgejo_config:
+                    value = forgejo_config[string_field]
+                    if not value or not str(value).strip():
+                        errors.append(ValidationError(
+                            error_type='invalid_forgejo_field',
+                            message=f"'addons.forgejo.{string_field}' cannot be empty"
+                        ))
         
         return errors
     

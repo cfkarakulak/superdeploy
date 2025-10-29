@@ -1,17 +1,17 @@
 ---
 # Forgejo Actions Runner Setup (standalone, without Forgejo server)
-# This role installs runner on non-core VMs to enable distributed deployments
+# This role installs runner on project VMs to enable distributed deployments
 
-- name: Check if this is the core VM (skip if Forgejo addon will handle runner)
+- name: Check if this is the orchestrator VM (skip if Forgejo addon will handle runner)
   set_fact:
-    is_core_vm: "{{ 'core' in group_names }}"
+    is_orchestrator_vm: "{{ 'orchestrator' in group_names }}"
 
-- name: Skip runner setup on core VM (handled by Forgejo addon)
+- name: Skip runner setup on orchestrator VM (handled by Forgejo addon)
   debug:
-    msg: "Skipping standalone runner setup - this is core VM, Forgejo addon will handle it"
-  when: is_core_vm
+    msg: "Skipping standalone runner setup - this is orchestrator VM, Forgejo addon will handle it"
+  when: is_orchestrator_vm
 
-- name: Setup standalone runner on non-core VMs
+- name: Setup standalone runner on project VMs
   block:
     - name: Check if Node.js is installed
       command: node --version
@@ -138,25 +138,35 @@
         mode: '0755'
       when: not runner_binary_check.stat.exists
 
-    - name: Get Forgejo URL from core VM
+    - name: Verify orchestrator group exists
+      fail:
+        msg: "Orchestrator group not found in inventory. Ensure the VM with Forgejo is in the 'orchestrator' group."
+      when: "'orchestrator' not in groups or groups['orchestrator'] | length == 0"
+
+    - name: Get Forgejo URL from orchestrator VM
       set_fact:
-        forgejo_url: "http://{{ hostvars[groups['core'][0]]['ansible_host'] }}:{{ forgejo_port }}"
+        forgejo_url: "http://{{ hostvars[groups['orchestrator'][0]]['ansible_host'] }}:3001"
+      # Note: Forgejo port is hardcoded to 3001 (orchestrator default)
 
     - name: Check if runner is already registered
       stat:
         path: /opt/forgejo-runner/.runner
       register: runner_registration_check
 
-    - name: Get VM type from inventory group
+    - name: Determine project name from inventory groups or project_name variable
       set_fact:
-        vm_type: "{{ group_names | select('match', '^(core|web|api)$') | first | default('unknown') }}"
+        runner_project_name: "{{ project_name | default(group_names | reject('in', ['all', 'ungrouped', 'orchestrator', 'core']) | first | default('unknown')) }}"
 
-    - name: Generate runner registration token from Forgejo (on core VM)
-      command: docker exec -u 1000:1000 {{ project_name }}-forgejo forgejo actions generate-runner-token
+    - name: Determine VM role from inventory groups (excluding special groups)
+      set_fact:
+        vm_role: "{{ group_names | reject('in', ['all', 'ungrouped', 'orchestrator']) | first | default('worker') }}"
+
+    - name: Generate runner registration token from Forgejo (on orchestrator VM)
+      command: docker exec -u 1000:1000 orchestrator-forgejo forgejo actions generate-runner-token
       register: runner_token_result
       when: not runner_registration_check.stat.exists
       changed_when: false
-      delegate_to: "{{ groups['core'][0] }}"
+      delegate_to: "{{ groups['orchestrator'][0] }}"
 
     - name: Set runner token fact
       set_fact:
@@ -166,27 +176,37 @@
         - runner_token_result is defined
         - runner_token_result.stdout is defined
 
-    - name: Register Forgejo Actions runner
+    - name: Register Forgejo Actions runner (project-specific)
       command: >
         forgejo-runner register
         --no-interactive
         --instance "{{ forgejo_url }}"
         --token "{{ runner_token }}"
-        --name "{{ inventory_hostname }}-runner"
-        --labels "ubuntu-latest:docker://node:20-alpine,{{ vm_type }}:docker://node:20-alpine"
+        --name "{{ runner_project_name }}-{{ vm_role }}-{{ inventory_hostname_short | default(inventory_hostname) }}"
+        --labels "ubuntu-latest:docker://node:20-bookworm,{{ runner_project_name }}:docker://node:20-bookworm,{{ vm_role }}:docker://node:20-bookworm,linux:docker://node:20-bookworm,docker:docker://node:20-bookworm"
       args:
         chdir: /opt/forgejo-runner
       become_user: "{{ superdeploy_user }}"
       when: 
         - not runner_registration_check.stat.exists
         - runner_token is defined
+        - forgejo_connectivity is defined
+        - forgejo_connectivity.status == 200
       register: runner_register_result
-      async: 60
-      poll: 5
+      async: 120
+      poll: 10
 
     - name: Display runner registration result
       debug:
-        msg: "{{ 'Runner registered successfully on ' + inventory_hostname + ' (VM type: ' + vm_type + ')' if (runner_register_result is defined and runner_register_result.changed) else ('Runner already registered' if runner_registration_check.stat.exists else 'Runner registration skipped (token not available)') }}"
+        msg: 
+          - "{{ 'Runner registered successfully!' if (runner_register_result is defined and runner_register_result.changed) else ('Runner already registered' if runner_registration_check.stat.exists else 'Runner registration skipped (token not available)') }}"
+          - "Runner Name: {{ runner_project_name }}-{{ vm_role }}-{{ inventory_hostname_short | default(inventory_hostname) }}"
+          - "Runner Labels: ubuntu-latest, {{ runner_project_name }}, {{ vm_role }}, linux, docker"
+          - "Project: {{ runner_project_name }}"
+          - "VM Role: {{ vm_role }}"
+          - ""
+          - "⚠️  Workflows should use: runs-on: [self-hosted, {{ runner_project_name }}]"
+          - "   Or for specific VM role: runs-on: [self-hosted, {{ runner_project_name }}, {{ vm_role }}]"
 
     - name: Create runner systemd service file
       template:
@@ -210,4 +230,4 @@
         state: started
       when: runner_registration_check.stat.exists
 
-  when: not is_core_vm
+  when: not is_orchestrator_vm

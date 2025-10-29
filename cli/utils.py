@@ -125,13 +125,29 @@ def load_env(project: Optional[str] = None) -> Dict[str, Any]:
         'ENABLE_MONITORING': str(config.get('monitoring', {}).get('enabled', True)).lower(),
     }
     
-    # Load sensitive values from project's .env file
+    # Load shared config (Docker credentials, etc.)
+    from dotenv import dotenv_values
+    shared_config_file = project_root / "shared" / "config" / ".env"
+    if shared_config_file.exists():
+        shared_config = dotenv_values(shared_config_file)
+        # Only load Docker credentials from shared config
+        for key in ['DOCKER_REGISTRY', 'DOCKER_ORG', 'DOCKER_USERNAME', 'DOCKER_TOKEN']:
+            if shared_config.get(key):
+                env_vars[key] = shared_config[key]
+    
+    # Load sensitive values from project's .env file (overrides shared config)
     project_path = project_root / "projects" / project
     project_env_file = project_path / ".env"
     if project_env_file.exists():
-        from dotenv import dotenv_values
         env_secrets = dotenv_values(project_env_file)
         env_vars.update(env_secrets)
+    
+    # Load FORGEJO_PAT from orchestrator (global)
+    orchestrator_env_file = project_root / "shared" / "orchestrator" / ".env"
+    if orchestrator_env_file.exists():
+        orchestrator_env = dotenv_values(orchestrator_env_file)
+        if orchestrator_env.get("FORGEJO_PAT"):
+            env_vars["FORGEJO_PAT"] = orchestrator_env["FORGEJO_PAT"]
     
     # Override with environment variables if set (for CI/CD)
     sensitive_vars = ['DOCKER_TOKEN', 'GITHUB_TOKEN', 'FORGEJO_PAT']

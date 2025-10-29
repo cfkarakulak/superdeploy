@@ -37,16 +37,17 @@ Forgejo (Deployment Only)
 
 ### Manuel Trigger (Test)
 ```bash
+# Trigger deployment workflow
 curl -X POST \
   -H "Authorization: token YOUR_PAT" \
   -H "Content-Type: application/json" \
-  "http://34.44.228.225:3001/api/v1/repos/cradexco/superdeploy/dispatches" \
+  "http://ORCHESTRATOR_IP:3001/api/v1/repos/YOUR_ORG/superdeploy/actions/workflows/deploy.yml/dispatches" \
   -d '{
-    "event_type": "deploy",
-    "client_payload": {
+    "ref": "master",
+    "inputs": {
       "project": "cheapa",
       "service": "api",
-      "image": "ghcr.io/cheapaio/api@sha256:abc123",
+      "image": "docker.io/c100394/cheapa-api:abc123",
       "env_bundle": "BASE64_ENCRYPTED_ENV",
       "git_sha": "abc123",
       "git_ref": "production"
@@ -57,13 +58,59 @@ curl -X POST \
 ### Otomatik (GitHub Actions)
 GitHub'a push → Build → Trigger Forgejo → Deploy
 
-## Runner Labels
+## Runner Architecture
 
-Her proje kendi runner'ını kullanır:
-- `cheapa-runner`: `[self-hosted, cheapa, linux, docker]`
-- `myapp-runner`: `[self-hosted, myapp, linux, docker]`
+SuperDeploy uses a **hybrid runner architecture** for maximum flexibility:
 
-Workflow'da `runs-on: [self-hosted, {project}]` ile doğru runner seçilir.
+### 1. Orchestrator Runner (Fixed, Multi-Project)
+- **Location:** Orchestrator VM (where Forgejo runs)
+- **Name:** `orchestrator-runner`
+- **Labels:** `[self-hosted, orchestrator, linux, docker, ubuntu-latest]`
+- **Purpose:** Handles workflows that need to run on the Forgejo VM itself
+- **Usage:** `runs-on: [self-hosted, orchestrator]`
+
+### 2. Project-Specific Runners (Dynamic, Per-VM)
+- **Location:** Each project VM (web, api, worker, etc.)
+- **Name:** `{project}-{vm_role}-{hostname}`
+- **Labels:** `[self-hosted, {project}, {vm_role}, linux, docker, ubuntu-latest]`
+- **Purpose:** Handles project-specific deployments on their respective VMs
+- **Usage:** `runs-on: [self-hosted, {project}]`
+
+### Example: cheapa Project
+
+```yaml
+# project.yml
+vms:
+  web:
+    count: 1
+  api:
+    count: 1
+```
+
+**Runners Created:**
+- `orchestrator-runner` (on Forgejo VM) → Labels: `[orchestrator, linux, docker]`
+- `cheapa-web-cheapa-web-0` (on web VM) → Labels: `[cheapa, web, linux, docker]`
+- `cheapa-api-cheapa-api-0` (on api VM) → Labels: `[cheapa, api, linux, docker]`
+
+**Workflow Usage:**
+```yaml
+# Deploy to project VMs
+runs-on: [self-hosted, cheapa]
+
+# Deploy to specific VM role
+runs-on: [self-hosted, cheapa, web]
+
+# Run on orchestrator (for infra tasks)
+runs-on: [self-hosted, orchestrator]
+```
+
+### Benefits
+
+✅ **Multi-Project Support:** One Forgejo instance serves multiple projects  
+✅ **Isolation:** Each project's workflows run on their own VMs  
+✅ **Flexibility:** Can target specific VM roles (web, api, worker)  
+✅ **Scalability:** Add more VMs = more runners automatically  
+✅ **Fixed Orchestrator:** Forgejo VM name never changes
 
 ## Güvenlik
 
