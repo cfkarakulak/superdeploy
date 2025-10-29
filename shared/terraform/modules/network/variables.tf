@@ -34,3 +34,9 @@ variable "vm_roles" {
   default     = []
 }
 
+variable "app_ports" {
+  description = "List of application ports to expose (from project config)"
+  type        = list(string)
+  default     = []
+}
+

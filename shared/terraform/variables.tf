@@ -74,3 +74,10 @@ variable "vm_image" {
   default     = "debian-cloud/debian-11"
 }
 
+# Application Ports
+variable "app_ports" {
+  description = "List of application ports to expose (extracted from project config)"
+  type        = list(string)
+  default     = []
+}
+

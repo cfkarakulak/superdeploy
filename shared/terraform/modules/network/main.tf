@@ -133,22 +133,22 @@ resource "google_compute_firewall" "allow_rabbitmq_management" {
   description = "RabbitMQ Management - PUBLIC ACCESS"
 }
 
-# Firewall: Allow direct API access (8000) - optional, usually via Caddy
-resource "google_compute_firewall" "allow_api_direct" {
-  name    = "${var.network_name}-allow-api-direct"
+# Firewall: Allow application ports (dynamically configured per project)
+resource "google_compute_firewall" "allow_app_ports" {
+  count   = length(var.app_ports) > 0 ? 1 : 0
+  name    = "${var.network_name}-allow-app-ports"
   network = google_compute_network.vpc.name
   project = var.project_id
 
   allow {
     protocol = "tcp"
-    ports    = ["8000"]  # Direct API access
+    ports    = var.app_ports
   }
 
   source_ranges = ["0.0.0.0/0"]
-  # Apply to all VMs (any can run API services)
   target_tags   = var.vm_roles
 
-  description = "Allow direct API access (usually proxied via Caddy)"
+  description = "Allow direct access to application ports (configured per project)"
 }
 
 # Firewall: Proxy Registry - PUBLIC ACCESS (for testing)

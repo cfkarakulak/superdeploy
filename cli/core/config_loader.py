@@ -210,6 +210,18 @@ class ProjectConfig:
                     "labels": labels,
                 }
 
+        # Extract app ports from apps configuration
+        apps_config = self.raw_config.get("apps", {})
+        app_ports = []
+        for app_name, app_config in apps_config.items():
+            # Support both 'port' and 'external_port'
+            port = app_config.get("external_port") or app_config.get("port")
+            if port:
+                app_ports.append(str(port))
+        
+        # Remove duplicates and sort
+        app_ports = sorted(list(set(app_ports)))
+
         return {
             "project_id": gcp_config.get("project_id", ""),
             "project_name": self.project_name,
@@ -219,6 +231,7 @@ class ProjectConfig:
             "subnet_cidr": network_config.get("vpc_subnet", "10.128.0.0/20"),
             "network_name": f"{self.project_name}-network",
             "ssh_pub_key_path": ssh_config.get("public_key_path", "~/.ssh/id_rsa.pub"),
+            "app_ports": app_ports,
         }
 
     def to_ansible_vars(self) -> Dict[str, Any]:

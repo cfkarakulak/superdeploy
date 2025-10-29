@@ -14,6 +14,7 @@ module "network" {
   admin_source_ranges = var.admin_source_ranges
   environment         = var.environment
   vm_roles            = local.vm_roles  # Pass dynamic VM roles
+  app_ports           = var.app_ports   # Pass app ports from project config
 }
 
 # Dynamic VM creation based on project configuration
