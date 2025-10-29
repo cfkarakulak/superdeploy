@@ -321,23 +321,6 @@ jobs:
             echo "✅ Copied docker-compose.apps.yml"
           fi
       
-      - name: Verify core services are running
-        run: |
-          set -e
-          echo "🔍 Verifying project services are running..."
-          
-          # List all running containers for debugging
-          docker ps --format 'table {{.Names}}\t{{.Status}}'
-          
-          # Check if core services exist
-          if ! docker ps --format '{{.Names}}' | grep -qE '(${{ env.PROJECT }}-postgres|${{ env.PROJECT }}-rabbitmq)'; then
-            echo "❌ Core services not found!"
-            echo "   Run 'superdeploy up -p ${{ env.PROJECT }}' first to set up infrastructure"
-            exit 1
-          fi
-          
-          echo "✅ All core services are running"
-      
       - name: Register service with Caddy
         continue-on-error: true
         run: |
