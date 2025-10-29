@@ -1,19 +1,26 @@
 ---
 # UFW Firewall Configuration
 
-- name: Check if UFW is already configured
-  stat:
-    path: /etc/ufw/ufw.conf
-  register: ufw_configured
+- name: Skip firewall configuration on orchestrator during project deployments
+  debug:
+    msg: "Skipping firewall reconfiguration - orchestrator already configured"
+  when: skip_firewall_reset | default(false)
 
-- name: Reset UFW to defaults (only on first run)
-  ufw:
-    state: reset
-  when: not ufw_configured.stat.exists
+- name: Configure firewall
+  block:
+    - name: Check if UFW is already configured
+      stat:
+        path: /etc/ufw/ufw.conf
+      register: ufw_configured
 
-- name: Disable UFW temporarily to ensure SSH access
-  ufw:
-    state: disabled
+    - name: Reset UFW to defaults (only on first run)
+      ufw:
+        state: reset
+      when: not ufw_configured.stat.exists
+
+    - name: Disable UFW temporarily to ensure SSH access
+      ufw:
+        state: disabled
 
 - name: Set UFW default policies
   ufw:
@@ -44,18 +51,21 @@
     proto: tcp
     comment: 'HTTPS'
 
-- name: Collect Forgejo port from project configuration
-  set_fact:
-    forgejo_port: "{{ project_config.infrastructure.forgejo.port | default(3001) }}"
-  when: project_config is defined and project_config.infrastructure is defined and project_config.infrastructure.forgejo is defined
-
-- name: Allow Forgejo port
+- name: Allow Forgejo port on orchestrator VM
   ufw:
     rule: allow
-    port: "{{ forgejo_port }}"
+    port: "3001"
     proto: tcp
-    comment: "Forgejo web interface"
-  when: forgejo_port is defined
+    comment: "Forgejo web interface (orchestrator)"
+  when: "'orchestrator' in group_names"
+
+- name: Allow Forgejo SSH port on orchestrator VM
+  ufw:
+    rule: allow
+    port: "2222"
+    proto: tcp
+    comment: "Forgejo SSH (orchestrator)"
+  when: "'orchestrator' in group_names"
 
 - name: Collect application ports from project configuration
   set_fact:
@@ -171,7 +181,9 @@
   ufw:
     state: enabled
     policy: deny
-  
+  when: not (skip_firewall_reset | default(false))
+
 - name: Reload UFW to apply all rules
   ufw:
     state: reloaded
+  when: not (skip_firewall_reset | default(false))
