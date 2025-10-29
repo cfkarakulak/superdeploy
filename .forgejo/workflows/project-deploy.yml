@@ -31,8 +31,8 @@ on:
 
 jobs:
   deploy:
-    # Use project-specific runner with label matching the project name
-    # This ensures the workflow runs on the correct VM for the project
+    # Use project-specific runner (each project VM has its own runner with project label)
+    # e.g. "cheapa" runner on cheapa VM, "myapp" runner on myapp VM
     runs-on: [self-hosted, "${{ inputs.project }}"]
     
     env:
