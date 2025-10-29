@@ -48,6 +48,10 @@ jobs:
       
       - name: Install dependencies
         run: |
+          # Install Docker CLI
+          apt-get update -qq
+          apt-get install -y -qq docker.io curl
+          
           # Install age
           curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
           mv age/age /usr/local/bin/
@@ -56,6 +60,9 @@ jobs:
           # Install docker-compose
           curl -sL "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
           chmod +x /usr/local/bin/docker-compose
+          
+          # Verify installations
+          docker --version
           docker-compose version
       
       - name: Decrypt environment bundle
