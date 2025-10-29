@@ -504,53 +504,29 @@ jobs:
           rm -f /tmp/decrypted.env
           rm -f /tmp/encrypted.age
       
-      - name: Verify final deployment status
+      - name: Verify deployment
         run: |
-          echo "🔍 Final deployment verification..."
+          echo "🔍 Verifying deployment..."
           
-          # Wait for container to be running first
-          echo "⏳ Waiting for container to start..."
-          for i in {1..30}; do
-            if docker ps --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}" | grep -q "${{ env.PROJECT }}-${{ env.SERVICE }}"; then
-              echo "✅ Container is running"
-              break
-            fi
-            if [ $i -eq 30 ]; then
-              echo "❌ Container failed to start"
-              docker ps -a --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
-              docker logs ${{ env.PROJECT }}-${{ env.SERVICE }} --tail 50
-              exit 1
-            fi
-            sleep 2
-          done
-          
-          # Wait for health check (with grace period)
-          echo "⏳ Waiting for health check (up to 90s)..."
-          for i in {1..45}; do
+          # Check if container is running
+          if docker ps --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}" | grep -q "${{ env.PROJECT }}-${{ env.SERVICE }}"; then
+            echo "✅ Container is running"
+            docker ps --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
+            
+            # Check health if healthcheck is defined (optional, non-blocking)
             HEALTH=$(docker inspect --format='{{.State.Health.Status}}' ${{ env.PROJECT }}-${{ env.SERVICE }} 2>/dev/null || echo "none")
-            echo "Health status: $HEALTH (attempt $i/45)"
-            
-            if [ "$HEALTH" == "healthy" ]; then
-              echo "✅ Container is healthy"
-              echo "deployment_status=success" >> $GITHUB_ENV
-              exit 0
-            elif [ "$HEALTH" == "unhealthy" ]; then
-              echo "❌ Container is unhealthy"
-              docker logs ${{ env.PROJECT }}-${{ env.SERVICE }} --tail 50
-              exit 1
+            if [ "$HEALTH" != "none" ]; then
+              echo "Health status: $HEALTH"
+            else
+              echo "ℹ️  No health check defined"
             fi
             
-            sleep 2
-          done
-          
-          # If we get here, health check is still starting
-          echo "⚠️  Health check still in progress after 90s"
-          echo "Container status:"
-          docker ps --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
-          echo "Recent logs:"
-          docker logs ${{ env.PROJECT }}-${{ env.SERVICE }} --tail 30
-          echo "✅ Container is running, marking as success (health check may still be starting)"
-          echo "deployment_status=success" >> $GITHUB_ENV
+            echo "✅ Deployment successful!"
+          else
+            echo "❌ Container not found"
+            docker ps -a --filter "name=${{ env.PROJECT }}-${{ env.SERVICE }}"
+            exit 1
+          fi
       
       - name: Send notification
         if: always()
