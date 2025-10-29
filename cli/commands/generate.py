@@ -179,6 +179,16 @@ GITHUB_TOKEN=your-github-token  # Get from GitHub: https://github.com/settings/t
 
         console.print(f"  [green]✓[/green] {app_name}: {app_path}")
 
+    # Generate Forgejo workflows for project
+    console.print("\n[bold cyan]📋 Generating Forgejo workflows...[/bold cyan]")
+    forgejo_workflows_dir = project_dir / "workflows"
+    forgejo_workflows_dir.mkdir(parents=True, exist_ok=True)
+    
+    for app_name in config.get("apps", {}).keys():
+        forgejo_workflow_content = generate_forgejo_workflow(config, app_name)
+        (forgejo_workflows_dir / f"deploy-{app_name}.yml").write_text(forgejo_workflow_content)
+        console.print(f"  [green]✓[/green] workflows/deploy-{app_name}.yml")
+
     console.print("\n[green]✅ Generation complete![/green]")
     console.print("\n[bold]📝 Next steps:[/bold]")
     console.print("\n1. Review generated files")
@@ -495,8 +505,8 @@ jobs:
             --connect-timeout 10 \
             -H "Authorization: token $FORGEJO_PAT" \
             -H "Content-Type: application/json" \
-            -d "{\"ref\":\"master\",\"inputs\":{\"project\":\"%(project_name)s\",\"service\":\"%(app_name)s\",\"image\":\"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}\",\"env_bundle\":\"${{ steps.env_bundle.outputs.encrypted }}\",\"git_sha\":\"${{ github.sha }}\"}}" \
-            "$FORGEJO_BASE_URL/api/v1/repos/$FORGEJO_ORG/superdeploy/actions/workflows/project-deploy.yml/dispatches")
+            -d "{\"ref\":\"master\",\"inputs\":{\"image\":\"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}\",\"env_bundle\":\"${{ steps.env_bundle.outputs.encrypted }}\",\"git_sha\":\"${{ github.sha }}\"}}" \
+            "$FORGEJO_BASE_URL/api/v1/repos/$FORGEJO_ORG/superdeploy/actions/workflows/projects%%2F%(project_name)s%%2Fworkflows%%2Fdeploy-%(app_name)s.yml/dispatches")
           
           HTTP_CODE=$(echo "$RESPONSE" | head -n1 | cut -d' ' -f2)
           BODY=$(echo "$RESPONSE" | tail -n1)
@@ -517,6 +527,73 @@ jobs:
     workflow = workflow.replace("%(project_name)s", project_name).replace(
         "%(app_name)s", app_name
     )
+    return workflow
+
+
+def generate_forgejo_workflow(config, app_name):
+    """
+    Generate Forgejo workflow for a specific app in the project.
+    This workflow runs on the Forgejo instance and deploys to the correct VM.
+    """
+    project_name = config["project"]
+    app_config = config["apps"][app_name]
+    vm_role = app_config.get("vm", "core")
+    
+    # Map service names to VM roles
+    vm_label_map = {
+        "api": "api",
+        "dashboard": "web",
+        "services": "worker",
+    }
+    vm_label = vm_label_map.get(app_name, vm_role)
+    
+    workflow = f"""name: Deploy {app_name.title()}
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Docker image with tag'
+        required: true
+        type: string
+      env_bundle:
+        description: 'AGE-encrypted environment variables bundle'
+        required: true
+        type: string
+      git_sha:
+        description: 'Git commit SHA'
+        required: true
+        type: string
+      git_ref:
+        description: 'Git ref (branch/tag)'
+        required: false
+        default: 'production'
+        type: string
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, {project_name}, {vm_label}]
+    steps:
+      - name: Checkout superdeploy repo
+        uses: actions/checkout@v4
+        with:
+          repository: cradexco/superdeploy
+          ref: master
+      
+      - name: Deploy to VM
+        uses: ./.forgejo/actions/deploy
+        with:
+          project: {project_name}
+          service: {app_name}
+          image: ${{{{ inputs.image }}}}
+          env_bundle: ${{{{ inputs.env_bundle }}}}
+          git_sha: ${{{{ inputs.git_sha }}}}
+          git_ref: ${{{{ inputs.git_ref }}}}
+        env:
+          AGE_SECRET_KEY: ${{{{ secrets.AGE_SECRET_KEY }}}}
+          DOCKER_USERNAME: ${{{{ secrets.DOCKER_USERNAME }}}}
+          DOCKER_TOKEN: ${{{{ secrets.DOCKER_TOKEN }}}}
+"""
     return workflow
 
 
