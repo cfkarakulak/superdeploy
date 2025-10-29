@@ -132,8 +132,8 @@ runs:
               exit 1
             fi
             
-            echo "external_port=${EXTERNAL_PORT}" >> $GITHUB_OUTPUT
-            echo "internal_port=${INTERNAL_PORT}" >> $GITHUB_OUTPUT
+            echo "EXTERNAL_PORT=${EXTERNAL_PORT}" >> $GITHUB_ENV
+            echo "INTERNAL_PORT=${INTERNAL_PORT}" >> $GITHUB_ENV
             echo "✅ Loaded ports from project.yml: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
           else
             echo "❌ ERROR: Parser script not found at: $PARSER_SCRIPT"
