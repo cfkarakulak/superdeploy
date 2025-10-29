@@ -11,6 +11,10 @@ on:
         description: 'Service name (e.g., api, dashboard, services)'
         required: true
         type: string
+      role:
+        description: 'VM role (api, web, worker) - determines target VM'
+        required: true
+        type: string
       image:
         description: 'Docker image with tag (e.g., ghcr.io/cheapaio/api:abc123)'
         required: true
@@ -31,9 +35,9 @@ on:
 
 jobs:
   deploy:
-    # Use common project-runner label (all project VMs have this)
-    # Project routing happens via PROJECT env variable
-    runs-on: [self-hosted, project-runner]
+    # Route to specific VM based on role (api, web, worker)
+    # Each VM has: [self-hosted, project-runner, <role>]
+    runs-on: [self-hosted, project-runner, "${{ inputs.role }}"]
     
     env:
       PROJECT: ${{ inputs.project }}
