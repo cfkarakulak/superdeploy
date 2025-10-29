@@ -1,60 +1,84 @@
-import os
-
 """SuperDeploy CLI - Restart command"""
 
 import click
 from rich.console import Console
-from cli.utils import load_env, validate_env_vars, ssh_command
+from cli.utils import get_project_root
+from cli.core.config_loader import ConfigLoader
+from cli.ansible_utils import run_ansible_playbook
 
 console = Console()
 
 
 @click.command()
 @click.option("--project", "-p", required=True, help="Project name")
-@click.argument("app")
-@click.option("-e", "--env", "environment", default="production", help="Environment")
-def restart(project, app, environment):
+@click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
+def restart(project, app):
     """
-    Restart service
-
+    Restart an application container
+    
     \b
-    Examples:
-      superdeploy restart api        # Restart API service
-      superdeploy restart dashboard  # Restart Dashboard
+    Example:
+      superdeploy restart -p cheapa -a api
     """
-    env_vars = load_env()
-
-    # Validate required vars
-    required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH", "SSH_USER"]
-    if not validate_env_vars(env_vars, required):
-        raise SystemExit(1)
-
-    console.print(f"[cyan]🔄 Restarting [bold]{app}[/bold]...[/cyan]")
-
-    # SSH command
-    ssh_host = env_vars["CORE_EXTERNAL_IP"]
-    ssh_user = env_vars.get("SSH_USER", "superdeploy")
-    ssh_key = os.path.expanduser(env_vars["SSH_KEY_PATH"])
-
-    # Project-specific compose directory
-    restart_cmd = f"cd /opt/apps/{project}/compose && docker compose -f docker-compose.apps.yml restart {app}"
-
+    console.print(f"\n[cyan]🔄 Restarting {project}/{app}...[/cyan]\n")
+    
+    project_root = get_project_root()
+    projects_dir = project_root / "projects"
+    
+    # Load config to find VM
     try:
-        result = ssh_command(
-            host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=restart_cmd
-        )
-
-        console.print(f"[green]✅ {project}/{app} restarted successfully![/green]")
-
-        # Show status (container naming: {project}-{app})
-        status_cmd = f"docker ps --filter name={project}-{app} --format 'table {{{{.Names}}}}\t{{{{.Status}}}}'"
-        status = ssh_command(
-            host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=status_cmd
-        )
-
-        console.print("\n[cyan]Status:[/cyan]")
-        console.print(status)
-
+        config_loader = ConfigLoader(projects_dir)
+        project_config = config_loader.load_project(project)
+        apps = project_config.raw_config.get("apps", {})
+        
+        if app not in apps:
+            console.print(f"[red]❌ App '{app}' not found in project config[/red]")
+            return
+        
+        vm_role = apps[app].get("vm", "core")
+        
     except Exception as e:
-        console.print(f"[red]❌ Restart failed: {e}[/red]")
-        raise SystemExit(1)
+        console.print(f"[red]❌ Error loading config: {e}[/red]")
+        return
+    
+    # Restart via Ansible
+    console.print(f"[dim]Restarting on VM role: {vm_role}[/dim]\n")
+    
+    playbook_content = f"""---
+- name: Restart {app}
+  hosts: {vm_role}
+  become: yes
+  tasks:
+    - name: Restart container
+      community.docker.docker_container:
+        name: "{project}-{app}"
+        state: started
+        restart: yes
+      
+    - name: Wait for container
+      wait_for:
+        timeout: 5
+      
+    - name: Show status
+      command: docker ps --filter name={project}-{app} --format 'table {{{{.Names}}}}\\t{{{{.Status}}}}'
+      register: status
+      
+    - name: Display status
+      debug:
+        msg: "{{{{ status.stdout }}}}"
+"""
+    
+    playbook_path = project_root / "shared" / "ansible" / "playbooks" / f"restart-{app}.yml"
+    playbook_path.write_text(playbook_content)
+    
+    try:
+        run_ansible_playbook(
+            playbook_path=str(playbook_path),
+            inventory_path=str(projects_dir / project / "inventory.ini"),
+            extra_vars={"project_name": project}
+        )
+        console.print(f"\n[green]✅ {app} restarted successfully![/green]\n")
+    except Exception as e:
+        console.print(f"\n[red]❌ Restart failed: {e}[/red]\n")
+    finally:
+        playbook_path.unlink(missing_ok=True)

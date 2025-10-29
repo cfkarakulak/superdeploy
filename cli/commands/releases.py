@@ -17,20 +17,23 @@ console = Console()
 @click.option("-n", "--limit", default=10, help="Number of releases to show")
 def releases(project, app, limit):
     """
-    Show release history for an app
+    Show release history for an app (from Docker container labels)
 
     \b
     Examples:
-      superdeploy releases -a api          # Last 10 releases
-      superdeploy releases -a api -n 20    # Last 20 releases
+      superdeploy releases -p cheapa -a api          # Current deployment info
+      superdeploy releases -p cheapa -a api -n 20    # (limit not used currently)
 
     \b
-    Release info includes:
-    - Version number
-    - Git SHA
-    - Deployed timestamp
-    - Image tag
-    - Status
+    Shows:
+    - Current Git SHA
+    - Docker image tag
+    - Deployment labels
+    - Container status
+    
+    \b
+    For full Git history:
+      cd app-repos/<app> && git log --oneline
     """
     env_vars = load_env()
 

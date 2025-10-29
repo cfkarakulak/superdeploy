@@ -26,19 +26,51 @@ def logs(project, app, follow, lines, environment):
       superdeploy logs -a api -f           # Follow logs
       superdeploy logs -a api -n 500       # Last 500 lines
     """
-    env = load_env(project)
-
-    # Validate required vars
-    required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH", "SSH_USER"]
-    if not validate_env_vars(env, required):
-        raise SystemExit(1)
-
+    from cli.utils import get_project_root
+    from cli.core.config_loader import ConfigLoader
+    
     console.print(f"[cyan]📋 Fetching logs for [bold]{project}/{app}[/bold]...[/cyan]")
-
-    # SSH command to get docker logs
-    ssh_key = os.path.expanduser(env["SSH_KEY_PATH"])
-    ssh_user = env.get("SSH_USER", "superdeploy")
-    ssh_host = env["CORE_EXTERNAL_IP"]
+    
+    # Load config to find VM
+    project_root = get_project_root()
+    projects_dir = project_root / "projects"
+    
+    try:
+        config_loader = ConfigLoader(projects_dir)
+        project_config = config_loader.load_project(project)
+        apps = project_config.raw_config.get("apps", {})
+        
+        if app not in apps:
+            console.print(f"[red]❌ App '{app}' not found in project config[/red]")
+            return
+        
+        vm_role = apps[app].get("vm", "core")
+        
+        # Get VM IP from Terraform outputs or inventory
+        inventory_path = projects_dir / project / "inventory.ini"
+        if not inventory_path.exists():
+            console.print(f"[red]❌ Inventory not found. Run: superdeploy up -p {project}[/red]")
+            return
+        
+        # Parse inventory to get VM IP
+        inventory_content = inventory_path.read_text()
+        import re
+        pattern = rf"{project}-{vm_role}-\d+\s+ansible_host=(\S+)"
+        match = re.search(pattern, inventory_content)
+        
+        if not match:
+            console.print(f"[red]❌ VM not found in inventory for role: {vm_role}[/red]")
+            return
+        
+        ssh_host = match.group(1)
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        return
+    
+    # SSH config
+    ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
+    ssh_user = "superdeploy"
 
     follow_flag = "-f" if follow else ""
     # Container naming: {project}-{app}
