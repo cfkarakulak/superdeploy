@@ -40,7 +40,8 @@ jobs:
       - name: Checkout superdeploy repo
         uses: actions/checkout@v4
       
-      - uses: ./.forgejo/actions/deploy
+      - name: Deploy to VM
+        uses: ./.forgejo/actions/deploy
         with:
           project: ${{ inputs.project }}
           service: ${{ inputs.service }}
@@ -60,7 +61,8 @@ jobs:
       - name: Checkout superdeploy repo
         uses: actions/checkout@v4
       
-      - uses: ./.forgejo/actions/deploy
+      - name: Deploy to VM
+        uses: ./.forgejo/actions/deploy
         with:
           project: ${{ inputs.project }}
           service: ${{ inputs.service }}
@@ -80,7 +82,8 @@ jobs:
       - name: Checkout superdeploy repo
         uses: actions/checkout@v4
       
-      - uses: ./.forgejo/actions/deploy
+      - name: Deploy to VM
+        uses: ./.forgejo/actions/deploy
         with:
           project: ${{ inputs.project }}
           service: ${{ inputs.service }}
