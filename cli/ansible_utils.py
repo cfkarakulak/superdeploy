@@ -88,7 +88,7 @@ def generate_ansible_extra_vars(project_config, env_vars=None, project_root=None
 
 
 def build_ansible_command(
-    ansible_dir, project_root, project_config, env_vars, tags=None, project_name=None, ask_become_pass=False
+    ansible_dir, project_root, project_config, env_vars, tags=None, project_name=None, ask_become_pass=False, start_at_task=None
 ):
     """
     Build complete Ansible playbook command with all necessary variables
@@ -101,6 +101,7 @@ def build_ansible_command(
         tags (str): Optional Ansible tags to run (e.g. 'foundation', 'addons', 'project')
         project_name (str): Project name for dynamic inventory file selection
         ask_become_pass (bool): Whether to prompt for sudo password
+        start_at_task (str): Optional task name to resume from (e.g. 'Install Docker')
 
     Returns:
         str: Complete ansible-playbook command
@@ -120,6 +121,9 @@ def build_ansible_command(
     
     # Add --ask-become-pass if needed (for first-time setup before passwordless sudo is configured)
     become_pass_str = "--ask-become-pass" if ask_become_pass else ""
+    
+    # Add --start-at-task if provided (resume from specific task)
+    start_at_task_str = f"--start-at-task '{start_at_task}'" if start_at_task else ""
 
     # Use project-specific inventory file if project_name is provided
     if not project_name:
@@ -129,7 +133,7 @@ def build_ansible_command(
     # Build the command
     cmd = f"""
 cd {ansible_dir} && \\
-SUPERDEPLOY_ROOT={project_root} ansible-playbook -i {inventory_file} playbooks/site.yml {tags_str} {become_pass_str} \\
+SUPERDEPLOY_ROOT={project_root} ansible-playbook -i {inventory_file} playbooks/site.yml {tags_str} {become_pass_str} {start_at_task_str} \\
   --extra-vars '{extra_vars_json}'
 """
 

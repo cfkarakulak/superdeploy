@@ -211,10 +211,16 @@ def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=N
             
             vm_groups[role].append(vm_info)
     
-    # Build inventory content (DO NOT include orchestrator - it's managed separately)
+    # Build inventory content
     inventory_lines = []
     
-    # Add project VM groups only
+    # Add orchestrator group first (if provided)
+    if orchestrator_ip:
+        inventory_lines.append("[orchestrator]")
+        inventory_lines.append(f"orchestrator ansible_host={orchestrator_ip} ansible_user={env.get('SSH_USER', 'superdeploy')}")
+        inventory_lines.append("")
+    
+    # Add project VM groups
     for role in sorted(vm_groups.keys()):
         inventory_lines.append(f"[{role}]")
         for vm in sorted(vm_groups[role], key=lambda x: x["name"]):
@@ -404,7 +410,11 @@ def push_git_parallel(project_root, github_token, github_org, github_repo, forge
     "--tags",
     help="Run only specific Ansible tags (e.g. 'addons', 'project', 'foundation,addons')",
 )
-def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, tags):
+@click.option(
+    "--start-at-task",
+    help="Resume Ansible from a specific task (e.g. 'Install Docker'). Saves time when rerunning after failures.",
+)
+def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, tags, start_at_task):
     """
     Deploy infrastructure (like 'heroku create')
 
@@ -596,6 +606,11 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
 
         # Display deployment plan
         display_deployment_plan(enabled_addons, filtered_addons, skip)
+        
+        # Display resume point if provided
+        if start_at_task:
+            console.print(f"\n[yellow]⏩ Resuming from task: '{start_at_task}'[/yellow]")
+            console.print("[dim]Skipping all tasks before this point[/dim]\n")
 
         # Build Ansible command using shared utility
         # Use custom tags if provided, otherwise run all phases
@@ -609,6 +624,7 @@ def up(project, skip_terraform, skip_ansible, skip_git_push, skip_sync, skip, ta
             tags=ansible_tags,
             project_name=project,
             ask_become_pass=skip_terraform,  # Ask for password if skipping terraform (passwordless sudo not yet configured)
+            start_at_task=start_at_task,  # Resume from specific task if provided
         )
 
         # Run ansible with interactive input if asking for become password
