@@ -31,6 +31,7 @@ from cli.commands import (
     validate,
     metrics,
     orchestrator,
+    update_firewall,
 )
 
 console = Console()
@@ -91,6 +92,7 @@ cli.add_command(backup.backup)
 cli.add_command(validate.validate)
 cli.add_command(metrics.metrics)
 cli.add_command(orchestrator.orchestrator)
+cli.add_command(update_firewall.update_firewall, name="update-firewall")
 
 
 if __name__ == "__main__":

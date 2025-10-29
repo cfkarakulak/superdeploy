@@ -374,3 +374,20 @@ MIT
 ---
 
 **Made with ❤️ for devs who want Heroku-like experience on their own infra.**
+
+## Updating Ports
+
+If you change application ports in `project.yml`:
+
+```bash
+# 1. Edit project.yml and change port
+vim projects/myproject/project.yml
+
+# 2. Update firewall rules (fast, doesn't touch VMs)
+superdeploy update-firewall -p myproject
+
+# 3. Redeploy the app with new port
+git push origin production  # Triggers auto-deployment
+```
+
+The `update-firewall` command only updates GCP firewall rules, it doesn't recreate VMs.
