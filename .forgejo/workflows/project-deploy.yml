@@ -31,9 +31,8 @@ on:
 
 jobs:
   deploy:
-    # Use project-specific runner with label matching the project name
-    # This ensures the workflow runs on the correct VM for the project
-    runs-on: [self-hosted, "${{ inputs.project }}"]
+    # Use orchestrator's general runner (all projects share the orchestrator runner)
+    runs-on: ubuntu-latest
     
     env:
       PROJECT: ${{ inputs.project }}
