@@ -109,8 +109,8 @@ scrape_configs:
           environment: '{{ project.environment | default("production") }}'
 {% endfor %}
 
-  # Service discovery for dynamic targets (optional)
-  - job_name: 'docker-services'
+  # Docker service discovery - Local (orchestrator)
+  - job_name: 'docker-services-local'
     docker_sd_configs:
       - host: unix:///var/run/docker.sock
     relabel_configs:
@@ -137,10 +137,57 @@ scrape_configs:
         regex: /(.+)
         replacement: ${1}
       # Add project label from container label
-      - source_labels: [__meta_docker_container_label_superdeploy_project]
+      - source_labels: [__meta_docker_container_label_com_superdeploy_project]
         action: replace
         target_label: project
       # Add service label from container label
-      - source_labels: [__meta_docker_container_label_superdeploy_service]
+      - source_labels: [__meta_docker_container_label_com_superdeploy_service]
         action: replace
         target_label: service
+
+{% for project in projects %}
+{% if project.vms is defined %}
+{% for vm_name, vm_ip in project.vms.items() %}
+  # Docker service discovery - {{ project.name }} {{ vm_name }} VM
+  - job_name: 'docker-services-{{ project.name }}-{{ vm_name }}'
+    docker_sd_configs:
+      - host: tcp://{{ vm_ip }}:2375
+        refresh_interval: 30s
+    relabel_configs:
+      # Only scrape containers with prometheus.scrape=true label
+      - source_labels: [__meta_docker_container_label_prometheus_scrape]
+        action: keep
+        regex: true
+      # Use custom port if specified
+      - source_labels: [__meta_docker_container_label_prometheus_port]
+        action: replace
+        target_label: __address__
+        regex: (.+)
+        replacement: ${1}
+      # Use custom path if specified
+      - source_labels: [__meta_docker_container_label_prometheus_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+        replacement: ${1}
+      # Add container name as instance
+      - source_labels: [__meta_docker_container_name]
+        action: replace
+        target_label: instance
+        regex: /(.+)
+        replacement: ${1}
+      # Add project label from container label
+      - source_labels: [__meta_docker_container_label_com_superdeploy_project]
+        action: replace
+        target_label: project
+      # Add service label from container label
+      - source_labels: [__meta_docker_container_label_com_superdeploy_service]
+        action: replace
+        target_label: service
+      # Add VM label
+      - target_label: vm
+        replacement: {{ vm_name }}
+
+{% endfor %}
+{% endif %}
+{% endfor %}

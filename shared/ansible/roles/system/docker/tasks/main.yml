@@ -51,6 +51,30 @@
     mode: '0644'
   notify: Restart Docker
 
+- name: Create systemd override directory for Docker
+  file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Override Docker systemd service (remove -H flag)
+  copy:
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/usr/bin/dockerd
+    dest: /etc/systemd/system/docker.service.d/override.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Docker
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+
 - name: Start and enable Docker service
   systemd:
     name: docker

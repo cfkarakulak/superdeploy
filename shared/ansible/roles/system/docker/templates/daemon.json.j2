@@ -5,5 +5,9 @@
     "max-file": "{{ docker_log_max_file }}"
   },
   "storage-driver": "{{ docker_storage_driver }}",
-  "userland-proxy": {{ docker_userland_proxy | lower }}
+  "userland-proxy": {{ docker_userland_proxy | lower }},
+  "hosts": [
+    "unix:///var/run/docker.sock",
+    "tcp://0.0.0.0:2375"
+  ]
 }

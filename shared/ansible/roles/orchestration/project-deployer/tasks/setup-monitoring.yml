@@ -26,7 +26,17 @@
 
 - name: Build monitoring targets list
   set_fact:
-    monitoring_targets: "{{ monitoring_targets | default([]) + [item.key + ':' + ((item.value.port | default(item.value.internal_port)) | string)] }}"
+    monitoring_targets: "{{ monitoring_targets | default([]) + [item.value.vm + '-' + item.key + ':' + ((item.value.internal_port | default(item.value.port)) | string)] }}"
+  loop: "{{ apps | dict2items }}"
+  when: 
+    - monitoring_enabled
+    - apps | length > 0
+    - (item.value.port is defined or item.value.internal_port is defined)
+    - item.value.vm is defined
+
+- name: Build app metrics targets list (for /metrics endpoints)
+  set_fact:
+    app_metrics_targets: "{{ app_metrics_targets | default([]) + [project_name + '-' + item.key + ':' + ((item.value.internal_port | default(item.value.port)) | string)] }}"
   loop: "{{ apps | dict2items }}"
   when: 
     - monitoring_enabled

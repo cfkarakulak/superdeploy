@@ -22,21 +22,28 @@
   set_fact:
     monitoring_projects: []
   
-- name: Add current project to monitoring if not orchestrator
+- name: Build monitoring projects from inventory
   set_fact:
-    monitoring_projects: "{{ monitoring_projects + [{'name': project_name, 'targets': project_targets | default([]), 'environment': 'production'}] }}"
+    monitoring_projects: "{{ monitoring_projects + [{'name': item.split('-')[0], 'vms': {item.split('-')[1]: hostvars[item]['ansible_host']}}] }}"
+  loop: "{{ groups['all'] | select('match', '^[^orchestrator].*-.*-\\d+$') | list }}"
   when: 
-    - project_name is defined
-    - project_name != 'orchestrator'
-    - project_targets is defined
+    - groups['all'] is defined
+    - item.split('-') | length >= 2
 
-- name: Add all discovered projects from orchestrator deployment
+- name: Merge VMs for same project
   set_fact:
-    monitoring_projects: "{{ monitoring_projects + [{'name': 'all-projects', 'targets': project_targets | default([]), 'environment': 'production'}] }}"
-  when:
-    - project_name == 'orchestrator'
-    - project_targets is defined
-    - project_targets | length > 0
+    monitoring_projects_merged: {}
+
+- name: Group VMs by project
+  set_fact:
+    monitoring_projects_merged: "{{ monitoring_projects_merged | combine({item.name: {'name': item.name, 'vms': (monitoring_projects_merged[item.name].vms | default({})) | combine(item.vms), 'environment': 'production'}}) }}"
+  loop: "{{ monitoring_projects }}"
+  when: monitoring_projects | length > 0
+
+- name: Convert to list
+  set_fact:
+    monitoring_projects: "{{ monitoring_projects_merged.values() | list }}"
+  when: monitoring_projects_merged | length > 0
 
 - name: Generate Prometheus configuration
   template:
