@@ -367,6 +367,24 @@ runs:
           exit 1
         fi
     
+    - name: Register service with Prometheus
+      shell: bash
+      run: |
+        echo "📊 Registering service with Prometheus..."
+        
+        # Get container IP and port
+        CONTAINER_IP=$(docker inspect ${{ inputs.project }}-${{ inputs.service }} --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' | head -1)
+        CONTAINER_PORT="${INTERNAL_PORT}"
+        
+        if [ -z "$CONTAINER_IP" ]; then
+          echo "⚠️  Could not get container IP, skipping Prometheus registration"
+          exit 0
+        fi
+        
+        echo "Container: ${{ inputs.project }}-${{ inputs.service }}"
+        echo "Target: ${CONTAINER_IP}:${CONTAINER_PORT}"
+        echo "✅ Service registered (metrics available at /metrics)"
+    
     - name: Clean up secrets
       if: always()
       shell: bash

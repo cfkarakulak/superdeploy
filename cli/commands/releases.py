@@ -222,13 +222,35 @@ def rollback(project, app, version, force):
         table.add_column("SHA", style="yellow")
         table.add_column("Status", style="bold")
         
-        # Get current release
-        current_cmd = f"readlink /opt/apps/{project}/current/{app} 2>/dev/null || echo 'NONE'"
+        # Get current release from running container image tag (most reliable)
+        current_cmd = f"""
+        CONTAINER_NAME="{project}-{app}"
+        if docker ps --filter "name=$CONTAINER_NAME" --format "{{{{.Names}}}}" | grep -q "^$CONTAINER_NAME$"; then
+            # Get SHA from image tag (e.g., c100394/api:a89f68f...)
+            IMAGE=$(docker inspect $CONTAINER_NAME --format '{{{{.Config.Image}}}}' 2>/dev/null || echo '')
+            if [ -n "$IMAGE" ]; then
+                # Extract SHA from image tag (after colon)
+                CURRENT_SHA=$(echo "$IMAGE" | cut -d':' -f2)
+                if [ -n "$CURRENT_SHA" ]; then
+                    # Find release directory matching this SHA (first 7 chars)
+                    cd /opt/apps/{project}/releases/{app}/ 2>/dev/null || exit 0
+                    for dir in */; do
+                        if [[ "$dir" == *"${{CURRENT_SHA:0:7}}"* ]]; then
+                            echo "${{dir%/}}"
+                            exit 0
+                        fi
+                    done
+                fi
+            fi
+        fi
+        # Fallback to symlink
+        readlink /opt/apps/{project}/current/{app} 2>/dev/null | xargs basename || echo 'NONE'
+        """
         current_release = ssh_command(
             host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=current_cmd
         ).strip()
         
-        current_name = current_release.split('/')[-1] if current_release != 'NONE' else None
+        current_name = current_release if current_release != 'NONE' else None
         
         for idx, release in enumerate(releases[:10], 1):
             parts = release.split('_')
@@ -285,8 +307,20 @@ def rollback(project, app, version, force):
         # Update symlink (atomic operation)
         ln -sfn /opt/apps/{project}/releases/{app}/{target_release} /opt/apps/{project}/current/{app}
         
-        # Restart container with old image
-        docker compose -f docker-compose-{app}.yml up -d --force-recreate --wait
+        # Copy .env to /tmp/decrypted.env for docker-compose
+        cp .env /tmp/decrypted.env
+        
+        # Stop and remove existing container (graceful)
+        if docker ps -q --filter "name={project}-{app}" | grep -q .; then
+            docker stop {project}-{app} 2>/dev/null || true
+            docker rm {project}-{app} 2>/dev/null || true
+        fi
+        
+        # Start container with old image (labels are in compose file)
+        docker compose -f docker-compose-{app}.yml up -d --wait
+        
+        # Cleanup
+        rm -f /tmp/decrypted.env
         
         echo "ROLLBACK_SUCCESS"
         """

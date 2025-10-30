@@ -24,6 +24,7 @@ from cli.commands import (
     config,
     env,
     releases,
+    switch,
     down,
     project,
     promote,
@@ -88,6 +89,7 @@ cli.add_command(config.config_group)
 cli.add_command(env.env_group)
 cli.add_command(releases.releases)
 cli.add_command(releases.rollback)
+cli.add_command(switch.switch)
 cli.add_command(project.project)
 cli.add_command(promote.promote)
 cli.add_command(backup.backup)
