@@ -40,3 +40,9 @@ variable "app_ports" {
   default     = []
 }
 
+variable "orchestrator_ip" {
+  description = "Orchestrator VM IP for metrics collection"
+  type        = string
+  default     = ""
+}
+

@@ -1,0 +1,54 @@
+# Orchestrator Configuration Template
+# Copy this to config.yml and customize for your setup
+
+gcp:
+  project_id: YOUR_GCP_PROJECT_ID  # e.g., my-project-12345
+  region: us-central1
+  zone: us-central1-a
+
+ssh:
+  key_path: ~/.ssh/superdeploy_deploy
+  public_key_path: ~/.ssh/superdeploy_deploy.pub
+  user: superdeploy
+
+vm:
+  name: orchestrator
+  machine_type: e2-medium
+  disk_size: 50
+
+forgejo:
+  version: 13.0.1
+  port: 3001
+  ssh_port: 2222
+  admin_user: YOUR_USERNAME  # e.g., admin
+  admin_email: YOUR_EMAIL@example.com
+  org: YOUR_ORG  # e.g., mycompany
+  repo: superdeploy
+  db_name: forgejo
+  db_user: forgejo
+
+network:
+  vpc_name: superdeploy-network
+  subnet_cidr: 10.128.0.0/20
+
+monitoring:
+  enabled: true
+  prometheus: true
+  grafana: true
+  grafana_port: 3000
+  prometheus_port: 9090
+  # Optional: Set domains for HTTPS access (requires Caddy)
+  # Leave empty for IP-based access only
+  grafana_domain: ""  # e.g., grafana.yourdomain.com
+  prometheus_domain: ""  # e.g., prometheus.yourdomain.com
+
+caddy:
+  # Enable Caddy for domain-based HTTPS access to monitoring
+  enabled: false
+  version: 2-alpine
+  http_port: 80
+  https_port: 443
+  admin_port: 2019
+  ssl_email: ""  # Required if enabled, e.g., admin@yourdomain.com
+
+deployment_mode: auto  # auto, manual, or skip

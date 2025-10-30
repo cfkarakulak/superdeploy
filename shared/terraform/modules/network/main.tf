@@ -187,3 +187,21 @@ resource "google_compute_firewall" "allow_monitoring" {
   description = "Allow Grafana (3000) and Prometheus (9090) - PUBLIC ACCESS"
 }
 
+# Firewall: Allow Prometheus metrics from orchestrator
+resource "google_compute_firewall" "allow_metrics_from_orchestrator" {
+  count   = var.orchestrator_ip != "" ? 1 : 0
+  name    = "${var.network_name}-allow-metrics-from-orchestrator"
+  network = google_compute_network.vpc.name
+  project = var.project_id
+
+  allow {
+    protocol = "tcp"
+    ports    = ["2019"]  # Caddy metrics
+  }
+
+  source_ranges = ["${var.orchestrator_ip}/32"]
+  target_tags   = var.vm_roles
+
+  description = "Allow Prometheus metrics collection from orchestrator"
+}
+

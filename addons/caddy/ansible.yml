@@ -2,6 +2,22 @@
 # Caddy Addon Deployment Tasks
 # Handles deployment and certificate management for Caddy reverse proxy
 
+# Check if this is orchestrator deployment
+- name: Check if orchestrator deployment
+  set_fact:
+    is_orchestrator: "{{ project_name == 'orchestrator' }}"
+
+# Include orchestrator-specific tasks if needed
+- name: Include orchestrator-specific Caddy deployment
+  include_tasks: "{{ addon_path }}/ansible.orchestrator.yml"
+  when: is_orchestrator | bool
+
+# Skip regular deployment for orchestrator
+- name: Skip regular Caddy deployment for orchestrator
+  meta: end_play
+  when: is_orchestrator | bool
+
+# Regular project Caddy deployment continues below
 - name: Create {{ addon_name }} directories
   file:
     path: "{{ item }}"

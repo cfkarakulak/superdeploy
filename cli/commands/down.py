@@ -331,7 +331,19 @@ def down(project, yes, keep_infra):
         except Exception as cleanup_error:
             console.print(f"[yellow]⚠️  State cleanup warning: {cleanup_error}[/yellow]")
 
-    # Step 5: Clean up local files
+    # Step 5: Release subnet allocation
+    console.print("\n[cyan]Releasing subnet allocation...[/cyan]")
+    try:
+        from cli.subnet_allocator import SubnetAllocator
+        allocator = SubnetAllocator()
+        if allocator.release_subnet(project):
+            console.print("  [green]✓[/green] Subnet released for reuse")
+        else:
+            console.print("  [dim]✓ No subnet allocation found[/dim]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Subnet release warning: {e}[/yellow]")
+
+    # Step 6: Clean up local files
     console.print("\n[cyan]Cleaning up local files...[/cyan]")
 
     # Clean VM IPs from .env file

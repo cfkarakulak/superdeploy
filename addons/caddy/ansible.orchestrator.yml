@@ -1,0 +1,76 @@
+---
+# Caddy Addon Deployment Tasks for Orchestrator
+# Special configuration for monitoring reverse proxy
+
+- name: Create {{ addon_name }} directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0755'
+  loop:
+    - "{{ addon_base_path }}/{{ addon_name }}"
+    - "{{ addon_base_path }}/{{ addon_name }}/logs"
+
+- name: Generate Caddyfile for orchestrator
+  template:
+    src: "{{ addon_path }}/templates/Caddyfile.orchestrator.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/Caddyfile"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+  vars:
+    GRAFANA_DOMAIN: "{{ env_vars.GRAFANA_DOMAIN | default('') }}"
+    PROMETHEUS_DOMAIN: "{{ env_vars.PROMETHEUS_DOMAIN | default('') }}"
+    FORGEJO_DOMAIN: "{{ env_vars.FORGEJO_DOMAIN | default('') }}"
+    CADDY_EMAIL: "{{ env_vars.CADDY_EMAIL | default('admin@example.com') }}"
+
+- name: Generate docker-compose.yml for orchestrator Caddy
+  template:
+    src: "{{ addon_path }}/templates/compose.orchestrator.yml.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/docker-compose.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+
+- name: Generate {{ addon_name }} environment file
+  template:
+    src: "{{ addon_path }}/templates/caddy.env.j2"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/.env"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0600'
+
+- name: Start {{ addon_name }} service
+  community.docker.docker_compose_v2:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: present
+    pull: "always"
+  become_user: "{{ superdeploy_user }}"
+  register: caddy_compose_result
+
+- name: Wait for Caddy to be ready
+  wait_for:
+    host: localhost
+    port: "{{ env_vars.CADDY_ADMIN_PORT | default(2019) }}"
+    delay: 3
+    timeout: 30
+    state: started
+
+- name: Verify Caddy is accessible
+  uri:
+    url: "http://localhost:{{ env_vars.CADDY_ADMIN_PORT | default(2019) }}/config/"
+    status_code: 200
+  register: caddy_health
+  until: caddy_health.status == 200
+  retries: 5
+  delay: 3
+
+- name: Display {{ addon_name }} deployment status
+  debug:
+    msg:
+      - "Caddy Admin API: http://{{ ansible_host }}:{{ env_vars.CADDY_ADMIN_PORT | default(2019) }}"
+      - "{% if env_vars.GRAFANA_DOMAIN %}Grafana: https://{{ env_vars.GRAFANA_DOMAIN }}{% else %}Grafana: http://{{ ansible_host }}:3000{% endif %}"
+      - "{% if env_vars.PROMETHEUS_DOMAIN %}Prometheus: https://{{ env_vars.PROMETHEUS_DOMAIN }}{% else %}Prometheus: http://{{ ansible_host }}:9090{% endif %}"
+      - "{% if env_vars.GRAFANA_DOMAIN or env_vars.PROMETHEUS_DOMAIN %}Note: Ensure DNS records point to {{ ansible_host }}{% endif %}"

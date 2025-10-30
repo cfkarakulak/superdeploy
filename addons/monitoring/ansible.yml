@@ -16,10 +16,11 @@
     - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning"
     - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/datasources"
     - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/dashboards"
+    - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/dashboards/json"
 
-- name: Discover all projects for monitoring
+- name: Initialize monitoring projects list
   set_fact:
-    monitoring_projects: "{{ monitoring_projects | default([]) }}"
+    monitoring_projects: []
   
 - name: Add current project to monitoring if not orchestrator
   set_fact:
@@ -28,6 +29,14 @@
     - project_name is defined
     - project_name != 'orchestrator'
     - project_targets is defined
+
+- name: Add all discovered projects from orchestrator deployment
+  set_fact:
+    monitoring_projects: "{{ monitoring_projects + [{'name': 'all-projects', 'targets': project_targets | default([]), 'environment': 'production'}] }}"
+  when:
+    - project_name == 'orchestrator'
+    - project_targets is defined
+    - project_targets | length > 0
 
 - name: Generate Prometheus configuration
   template:
@@ -38,6 +47,13 @@
     mode: '0644'
   vars:
     projects: "{{ monitoring_projects | default([]) }}"
+  register: prometheus_config_result
+
+- name: Copy Prometheus config to volume
+  shell: |
+    docker cp {{ addon_base_path }}/{{ addon_name }}/prometheus/prometheus.yml superdeploy-prometheus:/etc/prometheus/prometheus.yml
+  when: prometheus_config_result.changed
+  ignore_errors: yes
 
 - name: Generate Grafana datasource provisioning
   template:
@@ -58,6 +74,30 @@
     mode: '0644'
   vars:
     projects: "{{ monitoring_projects | default([]) }}"
+
+- name: Copy pre-built Grafana dashboards
+  copy:
+    src: "{{ addon_path }}/dashboards/{{ item }}"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/dashboards/json/{{ item }}"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+  loop:
+    - superdeploy-overview.json
+    - project-detail.json
+    - infrastructure.json
+    - alerts.json
+    - system-status.json
+    - live-traffic.json
+    - endpoint-analytics.json
+
+- name: Copy Prometheus alert rules
+  copy:
+    src: "{{ addon_path }}/alert-rules.yml"
+    dest: "{{ addon_base_path }}/{{ addon_name }}/prometheus/alert-rules.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
 
 # Note: docker-compose.yml is already rendered by orchestration/addon-deployer/tasks/render-templates.yml
 # This keeps the deployment logic clean and focused on service-specific tasks
@@ -101,6 +141,7 @@
   uri:
     url: "http://localhost:{{ PROMETHEUS_PORT | default(9090) }}/-/healthy"
     status_code: 200
+    timeout: 5
   register: prometheus_health
   until: prometheus_health.status == 200
   retries: 10
@@ -111,15 +152,25 @@
   uri:
     url: "http://localhost:{{ GRAFANA_PORT | default(3000) }}/api/health"
     status_code: 200
+    timeout: 5
   register: grafana_health
   until: grafana_health.status == 200
   retries: 10
   delay: 3
   failed_when: grafana_health.status != 200
 
+- name: Check if Caddy is enabled for domain access
+  set_fact:
+    caddy_enabled: "{{ 'caddy' in enabled_addons | default([]) }}"
+    grafana_domain: "{{ addon_configs.monitoring.grafana_domain | default('') }}"
+    prometheus_domain: "{{ addon_configs.monitoring.prometheus_domain | default('') }}"
+
 - name: Display {{ addon_name }} deployment status
   debug:
     msg:
-      - "Grafana URL: http://{{ ansible_host }}:{{ GRAFANA_PORT | default(3000) }}"
-      - "Prometheus URL: http://{{ ansible_host }}:{{ PROMETHEUS_PORT | default(9090) }}"
+      - "Grafana Direct: http://{{ ansible_host }}:{{ GRAFANA_PORT | default(3000) }}"
+      - "Prometheus Direct: http://{{ ansible_host }}:{{ PROMETHEUS_PORT | default(9090) }}"
       - "Grafana Admin User: {{ GRAFANA_ADMIN_USER }}"
+      - "{% if caddy_enabled and grafana_domain %}Grafana Domain: https://{{ grafana_domain }}{% endif %}"
+      - "{% if caddy_enabled and prometheus_domain %}Prometheus Domain: https://{{ prometheus_domain }}{% endif %}"
+      - "{% if caddy_enabled %}Note: Domain access requires DNS records and Caddy deployment{% endif %}"

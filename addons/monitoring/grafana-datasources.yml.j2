@@ -25,15 +25,12 @@ datasources:
     url: http://prometheus:9090
     isDefault: false
     editable: false
+    uid: 'prometheus-{{ project.name }}'
     jsonData:
       timeInterval: '15s'
       queryTimeout: '60s'
       httpMethod: 'POST'
-      # Pre-filter queries to this project
       customQueryParameters: 'project={{ project.name }}'
-    uid: 'prometheus-{{ project.name }}'
-    # Add project metadata
-    jsonData:
       customLabels:
         project: '{{ project.name }}'
         environment: '{{ project.environment | default("production") }}'

@@ -46,6 +46,18 @@ env_vars:
     default: "monitoring"
     required: true
     secret: false
+    
+  - name: GRAFANA_PORT
+    description: Grafana web interface port
+    default: "3000"
+    required: false
+    secret: false
+    
+  - name: PROMETHEUS_PORT
+    description: Prometheus server port
+    default: "9090"
+    required: false
+    secret: false
 
 # Docker compose configuration
 compose:

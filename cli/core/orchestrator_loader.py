@@ -144,6 +144,10 @@ class OrchestratorConfig:
         vm_config = self.get_vm_config()
         network_config = self.get_network_config()
         gcp_config = self.config.get('gcp', {})
+        
+        # Use reserved orchestrator subnet
+        from cli.subnet_allocator import SubnetAllocator
+        orchestrator_subnet = SubnetAllocator.get_orchestrator_subnet()
 
         return {
             "project_id": project_id,
@@ -164,7 +168,7 @@ class OrchestratorConfig:
                     },
                 }
             },
-            "subnet_cidr": network_config.get("subnet_cidr", "10.128.0.0/20"),
+            "subnet_cidr": orchestrator_subnet,  # Use reserved subnet
             "network_name": network_config.get("vpc_name", "superdeploy-network"),
             "ssh_pub_key_path": ssh_pub_key_path,
         }
@@ -180,12 +184,18 @@ class OrchestratorConfig:
 
         # Check if monitoring is enabled
         monitoring_config = self.config.get("monitoring", {})
+        caddy_config = self.config.get("caddy", {})
         enabled_addons = ["forgejo"]
         addon_configs = {"forgejo": forgejo_config}
         
         if monitoring_config.get("enabled", False):
             enabled_addons.append("monitoring")
             addon_configs["monitoring"] = monitoring_config
+        
+        # Add Caddy if enabled (for monitoring reverse proxy)
+        if caddy_config.get("enabled", False):
+            enabled_addons.append("caddy")
+            addon_configs["caddy"] = caddy_config
         
         return {
             "project_name": "orchestrator",

@@ -875,6 +875,65 @@ def up(
 
         console.print(f"[cyan]👤 Login:[/cyan]   {admin_user} / {admin_password}")
 
+    # Update orchestrator monitoring with new project targets
+    if orchestrator_ip and not skip_terraform:
+        console.print("\n[bold cyan]📊 Updating monitoring configuration...[/bold cyan]")
+        try:
+            from cli.monitoring_utils import update_orchestrator_monitoring
+            
+            # Get project IPs from env and map to services
+            env = load_env(project)
+            project_targets = []
+            vm_services_map = {}
+            
+            # Get VMs config to map IPs to services
+            vms_config = project_config_obj.get_vms()
+            apps_config = project_config_obj.get_apps()
+            
+            for key, value in env.items():
+                if key.endswith("_EXTERNAL_IP") and value:
+                    # Parse VM key from env var (e.g., "API_0_EXTERNAL_IP" -> "api")
+                    vm_key = key.replace("_EXTERNAL_IP", "").lower()
+                    # Extract role (e.g., "api_0" -> "api")
+                    vm_role = vm_key.rsplit("_", 1)[0]
+                    
+                    # Find service name from apps config
+                    service_name = vm_role  # Default to VM role
+                    for app_name, app_config in apps_config.items():
+                        if app_config.get('vm') == vm_role:
+                            service_name = app_name
+                            break
+                    
+                    target = f"{value}:2019"
+                    project_targets.append(target)
+                    vm_services_map[target] = {
+                        'service': service_name,
+                        'vm': vm_role
+                    }
+            
+            if project_targets:
+                # Get SSH config from cloud config
+                cloud_config = project_config_obj.raw_config.get("cloud", {})
+                ssh_config = cloud_config.get("ssh", {})
+                
+                success = update_orchestrator_monitoring(
+                    orchestrator_ip=orchestrator_ip,
+                    project_name=project,
+                    project_targets=project_targets,
+                    ssh_key_path=ssh_config.get('key_path', '~/.ssh/superdeploy_deploy'),
+                    ssh_user=ssh_config.get('user', 'superdeploy'),
+                    vm_services_map=vm_services_map
+                )
+                
+                if success:
+                    console.print("[green]✅ Monitoring updated![/green]")
+                else:
+                    console.print("[yellow]⚠️  Monitoring update failed (non-critical)[/yellow]")
+            else:
+                console.print("[dim]No external IPs found, skipping monitoring update[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Monitoring update failed: {e}[/yellow]")
+    
     # Auto-sync GitHub secrets (unless --skip-sync flag)
     if not skip_sync:
         console.print("\n[bold cyan]🔄 Syncing GitHub secrets...[/bold cyan]")

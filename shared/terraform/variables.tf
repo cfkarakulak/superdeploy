@@ -81,3 +81,9 @@ variable "app_ports" {
   default     = []
 }
 
+variable "orchestrator_ip" {
+  description = "Orchestrator VM IP for Prometheus metrics collection"
+  type        = string
+  default     = ""
+}
+

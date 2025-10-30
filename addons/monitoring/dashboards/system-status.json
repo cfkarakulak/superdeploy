@@ -1,0 +1,225 @@
+{
+  "title": "System Status - Real Data",
+  "tags": ["superdeploy", "status"],
+  "timezone": "browser",
+  "schemaVersion": 16,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Services Status",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "up",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Status"},
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {"type": "value", "value": "0", "text": "🔴 Down"},
+                  {"type": "value", "value": "1", "text": "🟢 Up"}
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "Prometheus Metrics Count",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "count({__name__=~\".+\"})",
+          "refId": "A",
+          "legendFormat": "Total Metrics"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Prometheus Targets",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 8},
+      "targets": [
+        {
+          "expr": "count(up)",
+          "refId": "A",
+          "legendFormat": "Total Targets"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Targets Up",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 8},
+      "targets": [
+        {
+          "expr": "sum(up == 1)",
+          "refId": "A",
+          "legendFormat": "Healthy"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": null, "color": "green"}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Prometheus Memory Usage",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{job=\"prometheus\"} / 1024 / 1024",
+          "refId": "A",
+          "legendFormat": "Memory (MB)"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "decmbytes"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Prometheus CPU Usage",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "targets": [
+        {
+          "expr": "rate(process_cpu_seconds_total{job=\"prometheus\"}[5m]) * 100",
+          "refId": "A",
+          "legendFormat": "CPU %"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "percent"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Available Metrics (Sample)",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 20},
+      "targets": [
+        {
+          "expr": "topk(20, count by (__name__) ({__name__=~\".+\"}))",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "__name__": "Metric Name",
+              "Value": "Series Count"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Series Count",
+            "desc": true
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -3,15 +3,20 @@
 
 {
     # Global options
-    email {{ CADDY_EMAIL }}
+    email {{ CADDY_EMAIL | default('admin@example.com') }}
     
     # Admin API
     admin :{{ CADDY_ADMIN_PORT | default('2019') }}
     
-    {% if CADDY_TLS_MODE == 'off' %}
+    # Enable metrics for Prometheus
+    servers {
+        metrics
+    }
+    
+    {% if (CADDY_TLS_MODE | default('auto')) == 'off' %}
     # TLS disabled
     auto_https off
-    {% elif CADDY_TLS_MODE == 'internal' %}
+    {% elif (CADDY_TLS_MODE | default('auto')) == 'internal' %}
     # Internal TLS (self-signed)
     auto_https internal
     {% endif %}
@@ -24,10 +29,10 @@
 {% if app_config.vm == vm_role %}
 
 # {{ app_name }} service
-{% if CADDY_TLS_MODE == 'off' %}
+{% if (CADDY_TLS_MODE | default('auto')) == 'off' %}
 :80 {
 {% else %}
-{{ CADDY_DOMAIN }} {
+{{ CADDY_DOMAIN | default(vm_domain) }} {
 {% endif %}
     # Enable compression
     encode gzip zstd
@@ -59,6 +64,6 @@
 {% endif %}
 
 # Metrics endpoint (Prometheus)
-:{{ monitoring.metrics_port | default('2019') }} {
+:{{ (monitoring | default({})).get('metrics_port', '2019') }} {
     metrics /metrics
 }

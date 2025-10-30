@@ -1,0 +1,123 @@
+groups:
+  - name: superdeploy_alerts
+    interval: 30s
+    rules:
+      # Service Down Alert
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.project }}/{{ $labels.job }} has been down for more than 2 minutes."
+          
+      # High Error Rate
+      - alert: HighErrorRate
+        expr: |
+          (sum by (project) (rate(caddy_http_requests_total{status=~"5.."}[5m])) 
+          / sum by (project) (rate(caddy_http_requests_total[5m]))) * 100 > 5
+        for: 5m
+        labels:
+          severity: warning
+          category: errors
+        annotations:
+          summary: "High error rate in {{ $labels.project }}"
+          description: "{{ $labels.project }} has {{ $value | humanizePercentage }} error rate (5xx responses)."
+          
+      # Slow Response Time
+      - alert: SlowResponseTime
+        expr: |
+          histogram_quantile(0.95, 
+            sum by (project, le) (rate(caddy_http_request_duration_seconds_bucket[5m]))
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "Slow response time in {{ $labels.project }}"
+          description: "{{ $labels.project }} p95 response time is {{ $value | humanizeDuration }}."
+          
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: |
+          (sum by (project) (rate(process_cpu_seconds_total[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+          category: resources
+        annotations:
+          summary: "High CPU usage in {{ $labels.project }}"
+          description: "{{ $labels.project }} CPU usage is {{ $value | humanizePercentage }}."
+          
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: |
+          (sum by (project) (process_resident_memory_bytes) / 1024 / 1024 / 1024) > 2
+        for: 10m
+        labels:
+          severity: warning
+          category: resources
+        annotations:
+          summary: "High memory usage in {{ $labels.project }}"
+          description: "{{ $labels.project }} is using {{ $value | humanize }}GB of memory."
+          
+      # Too Many Goroutines (Go services)
+      - alert: TooManyGoroutines
+        expr: |
+          sum by (project) (go_goroutines) > 10000
+        for: 10m
+        labels:
+          severity: warning
+          category: resources
+        annotations:
+          summary: "Too many goroutines in {{ $labels.project }}"
+          description: "{{ $labels.project }} has {{ $value }} goroutines running."
+          
+      # Prometheus Target Down
+      - alert: PrometheusTargetDown
+        expr: up{job="prometheus"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: monitoring
+        annotations:
+          summary: "Prometheus is down"
+          description: "Prometheus monitoring service is not responding."
+          
+      # Grafana Down
+      - alert: GrafanaDown
+        expr: up{job="grafana"} == 0
+        for: 1m
+        labels:
+          severity: warning
+          category: monitoring
+        annotations:
+          summary: "Grafana is down"
+          description: "Grafana dashboard service is not responding."
+          
+      # High Request Rate (potential DDoS)
+      - alert: HighRequestRate
+        expr: |
+          sum by (project) (rate(caddy_http_requests_total[1m])) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "Unusually high request rate in {{ $labels.project }}"
+          description: "{{ $labels.project }} is receiving {{ $value | humanize }} requests/second."
+          
+      # Disk Space Low (if node_exporter is available)
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 20
+        for: 10m
+        labels:
+          severity: warning
+          category: resources
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Only {{ $value | humanizePercentage }} disk space remaining."

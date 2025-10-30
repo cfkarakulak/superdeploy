@@ -13,11 +13,14 @@ services:
       - '--web.enable-lifecycle'
     volumes:
       - prometheus-data:/prometheus
-      - prometheus-config:/etc/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
     networks:
       - monitoring-network
     ports:
       - "9090:9090"
+    expose:
+      - "9090"
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9090/-/healthy || exit 1"]
       interval: 30s
@@ -44,11 +47,13 @@ services:
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
     volumes:
       - grafana-data:/var/lib/grafana
-      - grafana-provisioning:/etc/grafana/provisioning
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
     networks:
       - monitoring-network
     ports:
       - "3000:3000"
+    expose:
+      - "3000"
     depends_on:
       - prometheus
     healthcheck:
@@ -64,12 +69,8 @@ services:
 volumes:
   prometheus-data:
     name: superdeploy-prometheus-data
-  prometheus-config:
-    name: superdeploy-prometheus-config
   grafana-data:
     name: superdeploy-grafana-data
-  grafana-provisioning:
-    name: superdeploy-grafana-provisioning
 
 networks:
   monitoring-network:

@@ -41,6 +41,24 @@ env_vars:
     default: "auto"
     required: true
     secret: false
+    
+  - name: GRAFANA_DOMAIN
+    description: Domain for Grafana (orchestrator only)
+    default: ""
+    required: false
+    secret: false
+    
+  - name: PROMETHEUS_DOMAIN
+    description: Domain for Prometheus (orchestrator only)
+    default: ""
+    required: false
+    secret: false
+    
+  - name: FORGEJO_DOMAIN
+    description: Domain for Forgejo (orchestrator only)
+    default: ""
+    required: false
+    secret: false
 
 # Docker compose configuration
 compose:

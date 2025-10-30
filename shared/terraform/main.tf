@@ -15,6 +15,7 @@ module "network" {
   environment         = var.environment
   vm_roles            = local.vm_roles  # Pass dynamic VM roles
   app_ports           = var.app_ports   # Pass app ports from project config
+  orchestrator_ip     = var.orchestrator_ip  # Pass orchestrator IP for metrics
 }
 
 # Dynamic VM creation based on project configuration

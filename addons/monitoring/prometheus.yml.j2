@@ -9,6 +9,10 @@ global:
     monitor: 'superdeploy-monitor'
     environment: '{{ environment | default("production") }}'
 
+# Alert rules
+rule_files:
+  - '/etc/prometheus/alert-rules.yml'
+
 # Alertmanager configuration (optional)
 {% if alertmanager_url is defined %}
 alerting:
@@ -67,7 +71,7 @@ scrape_configs:
         replacement: '${1}'
 
   # Project: {{ project.name }} - Node Exporter (if enabled)
-{% if project.node_exporter_enabled | default(true) %}
+{% if project.node_exporter_enabled | default(false) and project.host is defined %}
   - job_name: '{{ project.name }}-node'
     static_configs:
       - targets: ['{{ project.host }}:9100']
@@ -79,7 +83,7 @@ scrape_configs:
 {% endif %}
 
   # Project: {{ project.name }} - Docker metrics (if enabled)
-{% if project.docker_metrics_enabled | default(true) %}
+{% if project.docker_metrics_enabled | default(false) and project.host is defined %}
   - job_name: '{{ project.name }}-docker'
     static_configs:
       - targets: ['{{ project.host }}:9323']
@@ -90,6 +94,19 @@ scrape_configs:
           service: 'docker'
 {% endif %}
 
+{% endfor %}
+
+  # Application metrics (from app containers)
+{% for project in projects %}
+  - job_name: '{{ project.name }}-app-metrics'
+    static_configs:
+      - targets:
+{% for target in project.app_targets | default([]) %}
+          - '{{ target }}'
+{% endfor %}
+        labels:
+          project: '{{ project.name }}'
+          environment: '{{ project.environment | default("production") }}'
 {% endfor %}
 
   # Service discovery for dynamic targets (optional)

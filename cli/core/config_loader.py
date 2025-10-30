@@ -182,6 +182,11 @@ class ProjectConfig:
         cloud_config = self.raw_config.get("cloud", {})
         gcp_config = cloud_config.get("gcp", {})
         ssh_config = cloud_config.get("ssh", {})
+        
+        # Get unique subnet for this project
+        from cli.subnet_allocator import SubnetAllocator
+        allocator = SubnetAllocator()
+        project_subnet = allocator.get_subnet(self.project_name)
 
         # Load existing IPs if preserve_ip is enabled
         existing_ips = {}
@@ -258,16 +263,29 @@ class ProjectConfig:
         # Remove duplicates and sort
         app_ports = sorted(list(set(app_ports)))
 
+        # Get orchestrator IP for metrics firewall
+        orchestrator_ip = ""
+        try:
+            from cli.core.orchestrator_loader import OrchestratorLoader
+            from pathlib import Path
+            project_root = self.project_dir.parent.parent if self.project_dir.parent.name == "projects" else self.project_dir.parent
+            orch_loader = OrchestratorLoader(project_root / "shared")
+            orch_config = orch_loader.load()
+            orchestrator_ip = orch_config.get_ip() or ""
+        except:
+            pass  # Orchestrator not deployed yet, that's ok
+        
         return {
             "project_id": gcp_config.get("project_id", ""),
             "project_name": self.project_name,
             "region": gcp_config.get("region", "us-central1"),
             "zone": gcp_config.get("zone", "us-central1-a"),
             "vm_groups": vm_groups,
-            "subnet_cidr": network_config.get("vpc_subnet", "10.128.0.0/20"),
+            "subnet_cidr": project_subnet,  # Use allocated subnet instead of config
             "network_name": f"{self.project_name}-network",
             "ssh_pub_key_path": ssh_config.get("public_key_path", "~/.ssh/id_rsa.pub"),
             "app_ports": app_ports,
+            "orchestrator_ip": orchestrator_ip,
         }
 
     def to_ansible_vars(self) -> Dict[str, Any]:

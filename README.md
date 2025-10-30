@@ -97,6 +97,7 @@ superdeploy up -p myproject           # Deploy infrastructure
 superdeploy sync -p myproject         # Sync secrets to GitHub
 superdeploy validate -p myproject     # Validate configuration
 superdeploy doctor                    # Health check
+superdeploy subnets                   # View subnet allocations
 ```
 
 ### Daily Operations
@@ -333,6 +334,8 @@ superdeploy rollback v41 -a api
 - **[docs/OPERATIONS.md](docs/OPERATIONS.md)** - Daily operations & troubleshooting
 - **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Deployment flow details
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture
+- **[docs/SUBNET_ALLOCATION.md](docs/SUBNET_ALLOCATION.md)** - Automatic subnet allocation
+- **[docs/MONITORING_SETUP.md](docs/MONITORING_SETUP.md)** - Monitoring & dashboards setup
 - **[docs/OVERVIEW.md](docs/OVERVIEW.md)** - High-level overview
 
 ---

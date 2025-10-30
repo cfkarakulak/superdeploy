@@ -1,0 +1,176 @@
+{
+  "title": "🎯 Endpoint Analytics",
+  "tags": ["superdeploy", "endpoints", "analytics"],
+  "timezone": "browser",
+  "schemaVersion": 16,
+  "version": 1,
+  "refresh": "10s",
+  "time": {"from": "now-15m", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "project",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus-main"},
+        "query": "label_values(app_http_requests_total, project)",
+        "refresh": 1,
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus-main"},
+        "query": "label_values(app_http_requests_total{project=\"$project\"}, service)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": false,
+        "allValue": ".*"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "🔥 Top 10 Hottest Endpoints",
+      "type": "table",
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "topk(10, sum by (path, method) (rate(app_http_requests_total{project=\"$project\",service=~\"$service\"}[5m])))",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [],
+      "options": {"showHeader": true}
+    },
+    {
+      "id": 2,
+      "title": "🐌 Top 10 Slowest Endpoints (p95)",
+      "type": "table",
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum by (path, method, le) (rate(app_http_request_duration_seconds_bucket{project=\"$project\",service=~\"$service\"}[5m]))))",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [],
+      "options": {"showHeader": true}
+    },
+    {
+      "id": 3,
+      "title": "Request Rate by Endpoint",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 10},
+      "targets": [
+        {
+          "expr": "sum by (path) (rate(app_http_requests_total{project=\"$project\",service=~\"$service\"}[1m]))",
+          "refId": "A",
+          "legendFormat": "{{path}}"
+        }
+      ],
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull", "max"]}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 10},
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Response Time by Endpoint (p95)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 18},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (path, le) (rate(app_http_request_duration_seconds_bucket{project=\"$project\",service=~\"$service\"}[1m])))",
+          "refId": "A",
+          "legendFormat": "{{path}}"
+        }
+      ],
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull", "max"]}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 10},
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Error Rate by Endpoint",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 26},
+      "targets": [
+        {
+          "expr": "sum by (path) (rate(app_http_requests_total{project=\"$project\",service=~\"$service\",status=~\"5..\"}[1m]))",
+          "refId": "A",
+          "legendFormat": "{{path}}"
+        }
+      ],
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull", "max"]}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 20},
+          "unit": "reqps",
+          "color": {"mode": "fixed", "fixedColor": "red"}
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "HTTP Method Distribution",
+      "type": "piechart",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 34},
+      "targets": [
+        {
+          "expr": "sum by (method) (increase(app_http_requests_total{project=\"$project\",service=~\"$service\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "{{method}}"
+        }
+      ],
+      "options": {"legend": {"displayMode": "table", "placement": "right"}, "pieType": "donut"}
+    },
+    {
+      "id": 7,
+      "title": "Status Code Distribution",
+      "type": "piechart",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 34},
+      "targets": [
+        {
+          "expr": "sum by (status) (increase(app_http_requests_total{project=\"$project\",service=~\"$service\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "options": {"legend": {"displayMode": "table", "placement": "right"}, "pieType": "donut"}
+    },
+    {
+      "id": 8,
+      "title": "Active Requests by Endpoint",
+      "type": "bargauge",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 34},
+      "targets": [
+        {
+          "expr": "sum by (path) (app_http_requests_in_progress{project=\"$project\",service=~\"$service\"})",
+          "refId": "A",
+          "legendFormat": "{{path}}"
+        }
+      ],
+      "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    }
+  ]
+}

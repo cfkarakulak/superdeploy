@@ -1,0 +1,493 @@
+{
+  "title": "Project Detail",
+  "tags": [
+    "superdeploy",
+    "project"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 16,
+  "version": 1,
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "project",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus-main"
+        },
+        "query": "label_values(up, project)",
+        "refresh": 1,
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "selected": false,
+          "text": "cheapa",
+          "value": "cheapa"
+        }
+      },
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus-main"
+        },
+        "query": "label_values(up{project=\"$project\"}, service)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "allValue": ".*"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Service Health",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(up{project=\"$project\",service=~\"$service\"})",
+          "refId": "A",
+          "legendFormat": "Services Up"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value",
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 1,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Request Rate (5m avg)",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(caddy_http_requests_total{project=\"$project\",service=~\"$service\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "req/s"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value",
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Avg Response Time (p95)",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(caddy_http_request_duration_seconds_bucket{project=\"$project\",service=~\"$service\"}[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "p95"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value",
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 0.5,
+                "color": "yellow"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "HTTP Requests per Second",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(caddy_http_requests_total{project=\"$project\",service=~\"$service\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Response Time Distribution",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(caddy_http_request_duration_seconds_bucket{project=\"$project\",service=~\"$service\"}[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(caddy_http_request_duration_seconds_bucket{project=\"$project\",service=~\"$service\"}[5m])) by (le))",
+          "refId": "B",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(caddy_http_request_duration_seconds_bucket{project=\"$project\",service=~\"$service\"}[5m])) by (le))",
+          "refId": "C",
+          "legendFormat": "p99"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "HTTP Status Codes",
+      "type": "piechart",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "sum by (status) (increase(caddy_http_requests_total{project=\"$project\",service=~\"$service\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "pieType": "donut"
+      }
+    },
+    {
+      "id": 7,
+      "title": "Error Rate (%)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(caddy_http_requests_total{project=\"$project\",service=~\"$service\",status=~\"5..\"}[5m])) / sum(rate(caddy_http_requests_total{project=\"$project\",service=~\"$service\"}[5m])) * 100",
+          "refId": "A",
+          "legendFormat": "5xx errors"
+        },
+        {
+          "expr": "sum(rate(caddy_http_requests_total{project=\"$project\",service=~\"$service\",status=~\"4..\"}[5m])) / sum(rate(caddy_http_requests_total{project=\"$project\",service=~\"$service\"}[5m])) * 100",
+          "refId": "B",
+          "legendFormat": "4xx errors"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "yellow"
+              },
+              {
+                "value": 5,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Request Size",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(caddy_http_request_size_bytes_sum{project=\"$project\",service=~\"$service\"}[5m])) / sum(rate(caddy_http_request_size_bytes_count{project=\"$project\",service=~\"$service\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "Avg Request Size"
+        },
+        {
+          "expr": "sum(rate(caddy_http_response_size_bytes_sum{project=\"$project\",service=~\"$service\"}[5m])) / sum(rate(caddy_http_response_size_bytes_count{project=\"$project\",service=~\"$service\"}[5m]))",
+          "refId": "B",
+          "legendFormat": "Avg Response Size"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "bytes"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Top Endpoints by Request Count",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (handler) (increase(caddy_http_requests_total{project=\"$project\",service=~\"$service\"}[1h])))",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "handler": "Endpoint",
+              "Value": "Requests (1h)"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Requests (1h)",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "title": "Slowest Endpoints (p95)",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum by (handler, le) (rate(caddy_http_request_duration_seconds_bucket{project=\"$project\",service=~\"$service\"}[5m]))))",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "le": true
+            },
+            "renameByName": {
+              "handler": "Endpoint",
+              "Value": "Response Time (s)"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Response Time (s)",
+            "desc": true
+          }
+        ]
+      }
+    }
+  ]
+}
