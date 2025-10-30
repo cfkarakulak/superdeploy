@@ -37,16 +37,18 @@ class AppConfig:
 class ProjectConfig:
     """Represents a loaded and validated project configuration"""
 
-    def __init__(self, project_name: str, config_dict: dict):
+    def __init__(self, project_name: str, config_dict: dict, project_dir: Path = None):
         """
         Initialize project configuration
 
         Args:
             project_name: Name of the project
             config_dict: Raw configuration dictionary from project.yml
+            project_dir: Path to project directory (optional)
         """
         self.project_name = project_name
         self.raw_config = config_dict
+        self.project_dir = project_dir
         self._apply_defaults()
         self._validate()
 
@@ -162,12 +164,15 @@ class ProjectConfig:
         """
         return self.raw_config.get('addons', {})
 
-    def to_terraform_vars(self) -> Dict[str, Any]:
+    def to_terraform_vars(self, preserve_ip: bool = False) -> Dict[str, Any]:
         """
         Convert to Terraform variables format
 
         Dynamically builds vm_groups from project.yml vms section.
         Each VM is created with all its properties.
+
+        Args:
+            preserve_ip: Whether to preserve existing static IPs
 
         Returns:
             Dictionary suitable for Terraform tfvars
@@ -177,6 +182,31 @@ class ProjectConfig:
         cloud_config = self.raw_config.get("cloud", {})
         gcp_config = cloud_config.get("gcp", {})
         ssh_config = cloud_config.get("ssh", {})
+
+        # Load existing IPs if preserve_ip is enabled
+        existing_ips = {}
+        if preserve_ip:
+            from pathlib import Path
+            import click
+            env_file = Path(self.project_dir) / ".env"
+            click.echo(f"[DEBUG] preserve_ip=True, checking: {env_file}")
+            if env_file.exists():
+                from dotenv import dotenv_values
+                env_vars = dotenv_values(env_file)
+                click.echo(f"[DEBUG] Found {len(env_vars)} env vars in .env")
+                for key, value in env_vars.items():
+                    if key.endswith("_EXTERNAL_IP"):
+                        # Convert "API_0_EXTERNAL_IP" to "api-0"
+                        vm_key = key.replace("_EXTERNAL_IP", "").lower().replace("_", "-")
+                        existing_ips[vm_key] = value
+                        click.echo(f"[DEBUG] Preserving IP: {vm_key} = {value}")
+                
+                if existing_ips:
+                    click.echo(f"[DEBUG] Total IPs to preserve: {len(existing_ips)}")
+                else:
+                    click.echo("[DEBUG] No IPs found to preserve!")
+            else:
+                click.echo(f"[DEBUG] .env file not found at: {env_file}")
 
         # Build dynamic vm_groups
         # Format: { "vm-name-index": { role: "...", machine_type: "...", ... } }
@@ -201,7 +231,7 @@ class ProjectConfig:
                 # Build tags from role and services (always include ssh for firewall)
                 tags = [vm_role, "ssh"] + services
 
-                vm_groups[vm_key] = {
+                vm_config = {
                     "role": vm_role,
                     "index": i,
                     "machine_type": machine_type,
@@ -209,6 +239,12 @@ class ProjectConfig:
                     "tags": tags,
                     "labels": labels,
                 }
+
+                # Add existing IP if preserve_ip is enabled
+                if preserve_ip and vm_key in existing_ips:
+                    vm_config["preserve_ip"] = existing_ips[vm_key]
+
+                vm_groups[vm_key] = vm_config
 
         # Extract app ports from apps configuration
         apps_config = self.raw_config.get("apps", {})
@@ -295,7 +331,8 @@ class ConfigLoader:
         if not config_dict:
             raise ValueError(f"Empty or invalid configuration file: {config_file}")
 
-        return ProjectConfig(project_name, config_dict)
+        project_dir = self.projects_dir / project_name
+        return ProjectConfig(project_name, config_dict, project_dir)
 
     def list_projects(self) -> List[str]:
         """

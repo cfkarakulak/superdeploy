@@ -103,7 +103,7 @@
 - name: Set VM-specific domain for Caddy
   set_fact:
     vm_domain: "{{ project_config.vm_domains[vm_role] | default(project_config.domain | default(project_name + '.example.com')) }}"
-  when: addon_name == 'caddy'
+  when: addon_name == 'caddy' and vm_role is defined
 
 - name: Generate environment variables for addon
   include_tasks: generate-env.yml

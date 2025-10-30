@@ -38,6 +38,9 @@ module "vms" {
   # All VMs get external IP for now (can be configured per VM in future)
   create_external_ip = true
 
+  # Preserve existing IP if provided
+  preserve_ip_address = lookup(each.value, "preserve_ip", null)
+
   labels = merge(
     {
       project     = var.project_name

@@ -23,8 +23,14 @@ forgejo:
 network:
   vpc_name: superdeploy-network
   subnet_cidr: 10.128.0.0/20
+monitoring:
+  enabled: true
+  prometheus: true
+  grafana: true
+  grafana_port: 3000
+  prometheus_port: 9090
 deployment_mode: auto
 state:
   deployed: true
-  ip: 34.71.217.62
-  last_updated: '2025-10-29T12:15:15.941458'
+  ip: 34.63.14.178
+  last_updated: '2025-10-29T20:13:33.049713'

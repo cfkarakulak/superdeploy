@@ -6,11 +6,13 @@ Bu döküman, **hiçbir şey yokken başlayıp**, **tam çalışan bir productio
 
 ## 🎯 Kurulum Sonunda Ne Olacak?
 
-✅ GCP'de VM'ler çalışacak  
+✅ Orchestrator VM çalışacak (Forgejo + Monitoring + Caddy)  
+✅ Proje VM'leri çalışacak  
 ✅ GitHub'a her push otomatik deploy olacak  
+✅ Subdomain'ler ile SSL'li erişim (forgejo.domain.com, grafana.domain.com)  
 ✅ `superdeploy` CLI ile sistemi yönetebileceksin  
 
-**Süre:** ~15 dakika
+**Süre:** ~20 dakika
 
 ---
 
@@ -161,7 +163,99 @@ superdeploy --version
 
 ---
 
-## 🏗️ Adım 6: Proje Oluştur
+## 🏗️ Adım 6: Orchestrator Kurulumu
+
+### 6.1. Orchestrator Projesi Oluştur
+
+```bash
+superdeploy init -p orchestrator
+```
+
+### 6.2. Orchestrator project.yml Düzenle
+
+```yaml
+project: orchestrator
+description: Global Forgejo orchestrator for all projects
+
+cloud:
+  gcp:
+    project_id: "your-gcp-project"
+    region: "us-central1"
+    zone: "us-central1-a"
+
+vms:
+  orchestrator:
+    count: 1
+    machine_type: e2-medium
+    disk_size: 50
+    preserve_ip: true
+    services:
+      - forgejo
+      - monitoring
+      - caddy
+
+addons:
+  forgejo:
+    version: "1.21.0"
+    port: 3001
+    ssh_port: 2222
+    admin_user: "admin"
+    admin_email: "admin@yourdomain.com"
+    org: "myorg"
+    repo: "superdeploy"
+  
+  monitoring:
+    prometheus_port: 9090
+    grafana_port: 3000
+  
+  caddy:
+    domain: "yourdomain.com"
+    email: "admin@yourdomain.com"
+    subdomains:
+      forgejo: "forgejo"
+      grafana: "grafana"
+      prometheus: "prometheus"
+
+apps: {}
+```
+
+### 6.3. Orchestrator'ı Deploy Et
+
+```bash
+superdeploy orchestrator up
+```
+
+**Bu komut ne yapar?**
+- Orchestrator VM oluşturur
+- Forgejo + PostgreSQL kurar
+- Prometheus + Grafana kurar
+- Caddy reverse proxy kurar (SSL sertifikaları ile)
+- Orchestrator runner kurar
+
+**Süre:** ~8 dakika
+
+### 6.4. Orchestrator IP'sini Not Al
+
+```bash
+cat projects/orchestrator/.env | grep ORCHESTRATOR_EXTERNAL_IP
+# Örnek: 34.72.179.175
+```
+
+### 6.5. DNS Kayıtlarını Ekle
+
+Orchestrator IP'si için A kayıtları ekle:
+
+```
+forgejo.yourdomain.com    A    34.72.179.175
+grafana.yourdomain.com    A    34.72.179.175
+prometheus.yourdomain.com A    34.72.179.175
+```
+
+**Not:** DNS propagation ~5-10 dakika sürebilir.
+
+---
+
+## 🚀 Adım 7: Proje Oluştur
 
 ```bash
 superdeploy init -p myproject
@@ -193,6 +287,16 @@ projects/myproject/
 Add services for this project:
   Services: api,dashboard
 
+VM configuration:
+  VM roles: web,api
+
+Services per VM:
+  web VM services: postgres,redis
+  api VM services: (none)
+
+Orchestrator IP:
+  Orchestrator IP: 34.72.179.175
+
 Network subnet:
   Use auto-assigned subnet? [Y/n]: Y
 
@@ -200,8 +304,6 @@ GitHub organization:
   GitHub org name: myprojectio
 
 Generate secure passwords? [Y/n]: Y
-
-Enable monitoring? [Y/n]: Y
 ```
 
 ### Sonuç
@@ -213,7 +315,7 @@ Enable monitoring? [Y/n]: Y
 
 ---
 
-## 🚀 Adım 7: Infrastructure'ı Deploy Et
+## 🚀 Adım 8: Infrastructure'ı Deploy Et
 
 ```bash
 superdeploy up -p myproject
@@ -227,16 +329,19 @@ superdeploy up -p myproject
 [3/8] 🔧 Ansible inventory hazırlar
 [4/8] 🧹 SSH known_hosts temizler
 [5/8] 🚀 Ansible playbook çalıştırır
-[6/8] 🔐 Forgejo PAT oluşturur
+      ├── VM-specific addon filtering
+      ├── Container deployment
+      └── Forgejo runner kurulumu (orchestrator'a register)
+[6/8] 🔐 Orchestrator Forgejo PAT oluşturur
 [7/8] 🔄 GitHub secrets'ları sync eder
 [8/8] ✅ Tamamlandı!
 ```
 
-**Süre:** ~10 dakika
+**Süre:** ~8 dakika
 
 ---
 
-## 🔄 Adım 8: Secrets'ları Senkronize Et
+## 🔄 Adım 9: Secrets'ları Senkronize Et
 
 ```bash
 superdeploy sync -p myproject
@@ -338,7 +443,7 @@ passwords:
 
 1. **GitHub Repository Secrets**
 2. **GitHub Environment Secrets**
-3. **Forgejo Repository Secrets**
+3. **Orchestrator Forgejo Repository Secrets**
 4. **.env.superdeploy dosyaları**
 
 ### Şifreleri Manuel Değiştirme
@@ -356,7 +461,7 @@ superdeploy restart -p myproject
 
 ---
 
-## ✅ Adım 9: İlk Deployment'ı Test Et
+## ✅ Adım 10: İlk Deployment'ı Test Et
 
 ```bash
 cd ../app-repos/api
@@ -373,8 +478,9 @@ git push origin production
 ### Beklenen Sonuç
 
 1. **GitHub Actions:** Build başlayacak (~2 dakika)
-2. **Forgejo Actions:** Deploy başlayacak (~1 dakika)
-3. Container çalışacak
+2. **Orchestrator Forgejo:** Workflow'u alacak
+3. **Project VM Runner:** Deploy başlayacak (~1 dakika)
+4. Container çalışacak
 
 ---
 
@@ -390,14 +496,23 @@ Artık sistemi kullanmaya hazırsın.
 # VM'lerin durumunu kontrol et
 gcloud compute instances list
 
-# Servislerin durumunu kontrol et
+# Orchestrator durumunu kontrol et
+superdeploy orchestrator status
+
+# Proje durumunu kontrol et
 superdeploy status -p myproject
 
-# Forgejo'ya web browser'dan bağlan
-# http://[CORE_EXTERNAL_IP]:3001
+# Forgejo'ya web browser'dan bağlan (subdomain ile)
+# https://forgejo.yourdomain.com
+
+# Grafana'ya bağlan
+# https://grafana.yourdomain.com
 
 # GitHub secrets kontrol et
 gh secret list --repo myprojectio/api
+
+# Runner'ları kontrol et (Forgejo UI'da)
+# https://forgejo.yourdomain.com/admin/actions/runners
 ```
 
 ---
@@ -414,8 +529,9 @@ gh secret list --repo myprojectio/api
 - SSH key path'i doğru mu kontrol et
 
 ### "Forgejo PAT creation failed"
-- VM çalışıyor mu kontrol et
-- Forgejo container ayakta mı kontrol et
+- Orchestrator VM çalışıyor mu kontrol et
+- Orchestrator Forgejo container ayakta mı kontrol et
+- `superdeploy orchestrator status` ile kontrol et
 
 ---
 

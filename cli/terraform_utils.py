@@ -92,6 +92,34 @@ def workspace_exists(project_name: str) -> bool:
     return project_name in workspaces
 
 
+def workspace_exists(workspace_name: str) -> bool:
+    """
+    Check if a Terraform workspace exists
+
+    Args:
+        workspace_name: Name of the workspace to check
+
+    Returns:
+        True if workspace exists, False otherwise
+    """
+    import subprocess
+    terraform_dir = get_terraform_dir()
+    
+    try:
+        result = subprocess.run(
+            ["terraform", "workspace", "list"],
+            cwd=terraform_dir,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        # Parse workspace list (format: "  workspace1\n* workspace2\n  workspace3")
+        workspaces = [line.strip().lstrip('*').strip() for line in result.stdout.split('\n') if line.strip()]
+        return workspace_name in workspaces
+    except subprocess.CalledProcessError:
+        return False
+
+
 def select_workspace(project_name: str, create: bool = False):
     """
     Select a Terraform workspace
@@ -108,13 +136,17 @@ def select_workspace(project_name: str, create: bool = False):
         click.echo(f"Selecting/creating Terraform workspace: {project_name}")
         run_terraform_command(["workspace", "select", "-or-create", project_name])
     else:
-        # Just select, will fail if doesn't exist
+        # Check if workspace exists first
+        if not workspace_exists(project_name):
+            raise click.ClickException(f"Workspace '{project_name}' does not exist")
+        
+        # Just select
         click.echo(f"Selecting Terraform workspace: {project_name}")
         run_terraform_command(["workspace", "select", project_name])
 
 
 def generate_tfvars(
-    project_config: ProjectConfig, output_file: Optional[Path] = None
+    project_config: ProjectConfig, output_file: Optional[Path] = None, preserve_ip: bool = False
 ) -> Path:
     """
     Generate Terraform variables file from project configuration
@@ -122,6 +154,7 @@ def generate_tfvars(
     Args:
         project_config: Loaded project configuration
         output_file: Optional output file path (defaults to {project_name}.tfvars.json)
+        preserve_ip: Whether to preserve existing static IPs
 
     Returns:
         Path to generated tfvars file
@@ -131,7 +164,7 @@ def generate_tfvars(
         output_file = terraform_dir / f"{project_config.project_name}.tfvars.json"
 
     # Get Terraform variables from project config
-    tfvars = project_config.to_terraform_vars()
+    tfvars = project_config.to_terraform_vars(preserve_ip=preserve_ip)
 
     # Write to file
     with open(output_file, "w") as f:
@@ -177,6 +210,7 @@ def terraform_apply(
     project_config: ProjectConfig,
     var_file: Optional[Path] = None,
     auto_approve: bool = False,
+    preserve_ip: bool = False,
 ):
     """
     Run Terraform apply for a project
@@ -186,13 +220,14 @@ def terraform_apply(
         project_config: Loaded project configuration
         var_file: Optional path to tfvars file (will be generated if not provided)
         auto_approve: Whether to skip confirmation prompt
+        preserve_ip: Whether to preserve existing static IPs
     """
     # Select workspace
     select_workspace(project_name, create=True)
 
     # Generate tfvars if not provided
     if var_file is None:
-        var_file = generate_tfvars(project_config)
+        var_file = generate_tfvars(project_config, preserve_ip=preserve_ip)
 
     # Build command
     args = ["apply", f"-var-file={var_file}"]

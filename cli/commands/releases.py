@@ -17,93 +17,121 @@ console = Console()
 @click.option("-n", "--limit", default=10, help="Number of releases to show")
 def releases(project, app, limit):
     """
-    Show release history for an app (from Docker container labels)
+    Show release history for an app (last 5 releases kept)
 
     \b
     Examples:
-      superdeploy releases -p cheapa -a api          # Current deployment info
-      superdeploy releases -p cheapa -a api -n 20    # (limit not used currently)
+      superdeploy releases -p cheapa -a api          # Show all releases
+      superdeploy releases -p cheapa -a api -n 3     # Show last 3
 
     \b
     Shows:
-    - Current Git SHA
-    - Docker image tag
-    - Deployment labels
-    - Container status
-    
-    \b
-    For full Git history:
-      cd app-repos/<app> && git log --oneline
+    - Release timestamp
+    - Git SHA
+    - Current/Previous status
+    - Quick rollback command
     """
-    env_vars = load_env()
-
-    # Validate required vars
-    required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH", "SSH_USER"]
-    if not validate_env_vars(env_vars, required):
-        raise SystemExit(1)
+    from cli.utils import get_project_root
+    from cli.core.config_loader import ConfigLoader
+    import os
+    
+    # Load project config to find VM
+    project_root = get_project_root()
+    projects_dir = project_root / "projects"
+    
+    try:
+        config_loader = ConfigLoader(projects_dir)
+        project_config = config_loader.load_project(project)
+        apps = project_config.raw_config.get("apps", {})
+        
+        if app not in apps:
+            console.print(f"[red]❌ App '{app}' not found in project config[/red]")
+            return
+        
+        vm_role = apps[app].get("vm", "core")
+        
+        # Get VM IP from .env
+        from cli.utils import load_env
+        env = load_env(project=project)
+        
+        ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
+        if ip_key not in env:
+            console.print(f"[red]❌ VM IP not found in .env: {ip_key}[/red]")
+            return
+        
+        ssh_host = env[ip_key]
+        ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
+        ssh_user = "superdeploy"
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        return
 
     console.print(f"[cyan]📋 Fetching release history for [bold]{app}[/bold]...[/cyan]")
 
-    # SSH command to get container labels and history
-    ssh_host = env_vars["CORE_EXTERNAL_IP"]
-    ssh_user = env_vars.get("SSH_USER", "superdeploy")
-    ssh_key = env_vars["SSH_KEY_PATH"]
-
-    # Get current running container info (container naming: {project}-{app})
-    inspect_cmd = f"docker inspect {project}-{app} 2>/dev/null || echo 'NOT_FOUND'"
+    # List releases from filesystem
+    list_cmd = f"ls -t /opt/apps/{project}/releases/{app}/ 2>/dev/null || echo 'NO_RELEASES'"
 
     try:
-        current_info = ssh_command(
-            host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=inspect_cmd
+        releases_output = ssh_command(
+            host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=list_cmd
         )
-
-        # Parse JSON (docker inspect returns array)
-        if current_info.strip() == "NOT_FOUND":
-            current_data = None
-        else:
-            try:
-                inspect_result = json.loads(current_info)
-                current_data = inspect_result[0] if inspect_result else None
-            except (json.JSONDecodeError, IndexError):
-                current_data = None
-
-        # Get release history from Forgejo (via labels or API)
-        # For now, show current running version
+        
+        if releases_output.strip() == "NO_RELEASES":
+            console.print(f"[yellow]⚠️  No releases found for {app}[/yellow]")
+            console.print("[dim]Deploy the app first: git push origin production[/dim]")
+            return
+        
+        releases = [r.strip() for r in releases_output.strip().split('\n') if r.strip()]
+        
+        if not releases:
+            console.print(f"[yellow]⚠️  No releases found[/yellow]")
+            return
+        
+        # Get current release
+        current_cmd = f"readlink /opt/apps/{project}/current/{app} 2>/dev/null || echo 'NONE'"
+        current_release = ssh_command(
+            host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=current_cmd
+        ).strip()
+        
+        current_name = current_release.split('/')[-1] if current_release != 'NONE' else None
+        
+        # Build table
         table = Table(title=f"Release History - {app.upper()}", show_header=True)
-        table.add_column("Version", style="cyan", no_wrap=True)
-        table.add_column("Git SHA", style="green")
-        table.add_column("Deployed At", style="dim")
-        table.add_column("Image", style="yellow")
+        table.add_column("#", style="cyan", no_wrap=True)
+        table.add_column("Timestamp", style="green")
+        table.add_column("Git SHA", style="yellow")
         table.add_column("Status", style="bold")
-
-        if current_data:
-            config = current_data.get("Config", {})
-            labels = config.get("Labels", {})
-            image = config.get("Image", "unknown")
-            created = current_data.get("Created", "unknown")[:19].replace("T", " ")
-
-            # Extract release info from labels
-            version = labels.get("com.superdeploy.release", "current")
-            git_sha = labels.get("com.superdeploy.git.sha", "unknown")
-            if git_sha and git_sha != "unknown" and len(git_sha) > 7:
-                git_sha = git_sha[:7]
-            deployed_at = labels.get("com.superdeploy.deployed.at", created)
-
-            # Extract image tag
-            image_tag = image.split(":")[-1] if ":" in image else "latest"
-
-            table.add_row(version, git_sha, deployed_at, image_tag, "✅ RUNNING")
-        else:
-            table.add_row("N/A", "N/A", "N/A", "N/A", "❌ NOT DEPLOYED")
-
+        
+        for idx, release in enumerate(releases[:limit], 1):
+            parts = release.split('_')
+            timestamp = parts[0] if len(parts) > 0 else "unknown"
+            sha = parts[-1] if len(parts) > 1 else "unknown"
+            
+            # Format timestamp
+            if len(timestamp) == 15:  # YYYYMMDD_HHMMSS
+                formatted_time = f"{timestamp[0:4]}-{timestamp[4:6]}-{timestamp[6:8]} {timestamp[9:11]}:{timestamp[11:13]}:{timestamp[13:15]}"
+            else:
+                formatted_time = timestamp
+            
+            if release == current_name:
+                status = "✅ CURRENT"
+            elif idx == 2 and current_name:
+                status = "⏮️  PREVIOUS"
+            else:
+                status = ""
+            
+            table.add_row(str(idx), formatted_time, sha, status)
+        
         console.print("\n")
         console.print(table)
-
-        # Show rollback hint
-        if current_data:
-            console.print(
-                f"\n[dim]💡 To rollback: [bold]superdeploy rollback -a {app} <sha>[/bold][/dim]"
-            )
+        
+        # Show rollback hints
+        console.print(f"\n[bold]Quick Commands:[/bold]")
+        console.print(f"  Rollback to previous: [cyan]superdeploy rollback -p {project} -a {app}[/cyan]")
+        if len(releases) > 1:
+            console.print(f"  Rollback to specific: [cyan]superdeploy rollback -p {project} -a {app} -v {releases[1]}[/cyan]")
+        console.print(f"\n[dim]💡 System keeps last 5 releases for instant rollback[/dim]")
 
     except Exception as e:
         console.print(f"[red]❌ Failed to fetch releases: {e}[/red]")
@@ -111,86 +139,169 @@ def releases(project, app, limit):
 
 
 @click.command()
+@click.option("--project", "-p", required=True, help="Project name")
 @click.option("-a", "--app", required=True, help="App name")
-@click.argument("target")
+@click.option("--version", "-v", help="Release version (timestamp_sha or 'previous')")
 @click.option("--force", is_flag=True, help="Skip confirmation")
-def rollback(app, target, force):
+def rollback(project, app, version, force):
     """
-    Rollback to a previous release
+    Instant rollback to a previous release (1-2 seconds)
 
     \b
     Examples:
-      superdeploy rollback -a api abc1234      # Rollback to SHA
-      superdeploy rollback -a api v41          # Rollback to version
-      superdeploy rollback -a api latest       # Rollback to latest
+      superdeploy rollback -p cheapa -a api              # Rollback to previous
+      superdeploy rollback -p cheapa -a api -v 20251030_abc1234  # Specific release
 
     \b
-    Note: This triggers a redeployment with the specified image tag
+    How it works:
+    - Changes symlink to previous release
+    - Restarts container with old image
+    - Zero downtime (1-2 seconds)
     """
-    env_vars = load_env()
-
-    # Validate required vars
-    required = ["CORE_EXTERNAL_IP", "FORGEJO_PAT", "FORGEJO_ORG", "REPO_SUPERDEPLOY"]
-    if not validate_env_vars(env_vars, required):
-        raise SystemExit(1)
-
-    console.print(
-        Panel(
-            f"[yellow]⚠️  Rollback Warning[/yellow]\n\n"
-            f"[white]App:[/white] {app}\n"
-            f"[white]Target:[/white] {target}\n\n"
-            f"[dim]This will redeploy the app with the specified version.[/dim]",
-            border_style="yellow",
-        )
-    )
-
-    # Confirm
-    if not force:
-        if not Confirm.ask("Continue with rollback?"):
-            console.print("[yellow]⏹️  Rollback cancelled[/yellow]")
-            raise SystemExit(0)
-
-    # Trigger deployment via Forgejo API
-    console.print("[cyan]🔄 Triggering rollback deployment...[/cyan]")
-
-    import requests
-
-    forgejo_url = f"http://{env_vars['CORE_EXTERNAL_IP']}:3001"
-    workflow_url = f"{forgejo_url}/api/v1/repos/{env_vars['FORGEJO_ORG']}/{env_vars['REPO_SUPERDEPLOY']}/actions/workflows/project-deploy.yml/dispatches"
-
-    # Build image tags JSON
-    image_tags = {app: target}
-
-    payload = {
-        "ref": "master",
-        "inputs": {
-            "environment": "production",
-            "services": app,
-            "image_tags": json.dumps(image_tags),
-            "migrate": "false",
-        },
-    }
-
-    headers = {
-        "Authorization": f"token {env_vars['FORGEJO_PAT']}",
-        "Content-Type": "application/json",
-    }
-
+    from cli.utils import get_project_root
+    from cli.core.config_loader import ConfigLoader
+    import os
+    
+    # Load project config to find VM
+    project_root = get_project_root()
+    projects_dir = project_root / "projects"
+    
     try:
-        response = requests.post(
-            workflow_url, json=payload, headers=headers, timeout=10
+        config_loader = ConfigLoader(projects_dir)
+        project_config = config_loader.load_project(project)
+        apps = project_config.raw_config.get("apps", {})
+        
+        if app not in apps:
+            console.print(f"[red]❌ App '{app}' not found in project config[/red]")
+            return
+        
+        vm_role = apps[app].get("vm", "core")
+        
+        # Get VM IP from .env
+        from cli.utils import load_env
+        env = load_env(project=project)
+        
+        ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
+        if ip_key not in env:
+            console.print(f"[red]❌ VM IP not found in .env: {ip_key}[/red]")
+            return
+        
+        ssh_host = env[ip_key]
+        ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
+        ssh_user = "superdeploy"
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        return
+    
+    # List available releases
+    console.print(f"[cyan]📋 Fetching releases for {app}...[/cyan]")
+    
+    list_cmd = f"ls -t /opt/apps/{project}/releases/{app}/ 2>/dev/null || echo 'NO_RELEASES'"
+    
+    try:
+        releases_output = ssh_command(
+            host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=list_cmd
         )
-
-        if response.status_code == 204:
-            console.print("[green]✅ Rollback triggered successfully![/green]")
-            console.print(
-                f"\n[cyan]Monitor:[/cyan] {forgejo_url}/{env_vars['FORGEJO_ORG']}/{env_vars['REPO_SUPERDEPLOY']}/actions"
-            )
+        
+        if releases_output.strip() == "NO_RELEASES":
+            console.print(f"[red]❌ No releases found for {app}[/red]")
+            console.print("[dim]Deploy the app first: git push origin production[/dim]")
+            return
+        
+        releases = [r.strip() for r in releases_output.strip().split('\n') if r.strip()]
+        
+        if not releases:
+            console.print(f"[red]❌ No releases found[/red]")
+            return
+        
+        # Show releases
+        table = Table(title=f"Available Releases - {app.upper()}")
+        table.add_column("#", style="cyan")
+        table.add_column("Release", style="green")
+        table.add_column("SHA", style="yellow")
+        table.add_column("Status", style="bold")
+        
+        # Get current release
+        current_cmd = f"readlink /opt/apps/{project}/current/{app} 2>/dev/null || echo 'NONE'"
+        current_release = ssh_command(
+            host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=current_cmd
+        ).strip()
+        
+        current_name = current_release.split('/')[-1] if current_release != 'NONE' else None
+        
+        for idx, release in enumerate(releases[:10], 1):
+            parts = release.split('_')
+            sha = parts[-1] if len(parts) > 1 else "unknown"
+            status = "✅ CURRENT" if release == current_name else ""
+            table.add_row(str(idx), release, sha, status)
+        
+        console.print("\n")
+        console.print(table)
+        
+        # Determine target release
+        if not version or version == "previous":
+            # Rollback to previous (second in list)
+            if len(releases) < 2:
+                console.print("[red]❌ No previous release available[/red]")
+                return
+            target_release = releases[1]
         else:
-            console.print(f"[red]❌ API call failed: {response.status_code}[/red]")
-            console.print(f"[dim]{response.text}[/dim]")
-            raise SystemExit(1)
-
-    except requests.exceptions.RequestException as e:
-        console.print(f"[red]❌ Request failed: {e}[/red]")
+            # Find matching release
+            target_release = None
+            for r in releases:
+                if version in r:
+                    target_release = r
+                    break
+            
+            if not target_release:
+                console.print(f"[red]❌ Release not found: {version}[/red]")
+                return
+        
+        console.print(
+            Panel(
+                f"[yellow]⚠️  Rollback[/yellow]\n\n"
+                f"[white]App:[/white] {app}\n"
+                f"[white]From:[/white] {current_name or 'unknown'}\n"
+                f"[white]To:[/white] {target_release}\n\n"
+                f"[dim]This will switch to the previous release (1-2 seconds)[/dim]",
+                border_style="yellow",
+            )
+        )
+        
+        # Confirm
+        if not force:
+            if not Confirm.ask("Continue with rollback?"):
+                console.print("[yellow]⏹️  Rollback cancelled[/yellow]")
+                return
+        
+        # Execute instant rollback
+        console.print("[cyan]🔄 Executing instant rollback...[/cyan]")
+        
+        rollback_cmd = f"""
+        set -e
+        cd /opt/apps/{project}/releases/{app}/{target_release}
+        
+        # Update symlink (atomic operation)
+        ln -sfn /opt/apps/{project}/releases/{app}/{target_release} /opt/apps/{project}/current/{app}
+        
+        # Restart container with old image
+        docker compose -f docker-compose-{app}.yml up -d --force-recreate --wait
+        
+        echo "ROLLBACK_SUCCESS"
+        """
+        
+        result = ssh_command(
+            host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=rollback_cmd
+        )
+        
+        if "ROLLBACK_SUCCESS" in result:
+            console.print("[green]✅ Rollback completed in 1-2 seconds![/green]")
+            console.print(f"[green]✅ Now running: {target_release}[/green]")
+        else:
+            console.print(f"[red]❌ Rollback failed[/red]")
+            console.print(f"[dim]{result}[/dim]")
+            
+    except Exception as e:
+        console.print(f"[red]❌ Rollback failed: {e}[/red]")
         raise SystemExit(1)

@@ -1,0 +1,94 @@
+name: 'Send Deployment Notification'
+description: 'Send email notification after deployment'
+author: 'Superdeploy Team'
+
+inputs:
+  project:
+    description: 'Project name'
+    required: true
+  service:
+    description: 'Service name'
+    required: true
+  image:
+    description: 'Docker image deployed'
+    required: true
+  status:
+    description: 'Deployment status (success/failure)'
+    required: true
+    default: 'success'
+  git_sha:
+    description: 'Git commit SHA'
+    required: true
+  git_ref:
+    description: 'Git ref (branch/tag)'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Send email notification
+      shell: bash
+      run: |
+        set -e
+        
+        echo "📧 Sending deployment notification..."
+        
+        # Load environment variables for email config
+        if [ -f /tmp/decrypted.env ]; then
+          set -a
+          source /tmp/decrypted.env
+          set +a
+        fi
+        
+        # Check if email is configured
+        if [ -z "$ALERT_EMAIL" ]; then
+          echo "⚠️  ALERT_EMAIL not configured, skipping notification"
+          exit 0
+        fi
+        
+        # Prepare notification details
+        STATUS="${{ inputs.status }}"
+        PROJECT="${{ inputs.project }}"
+        SERVICE="${{ inputs.service }}"
+        IMAGE="${{ inputs.image }}"
+        GIT_SHA="${{ inputs.git_sha }}"
+        GIT_REF="${{ inputs.git_ref }}"
+        TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S %Z')
+        
+        if [ "$STATUS" = "success" ]; then
+          SUBJECT="✅ Deployment Success: $PROJECT/$SERVICE"
+          STATUS_EMOJI="✅"
+        else
+          SUBJECT="❌ Deployment Failed: $PROJECT/$SERVICE"
+          STATUS_EMOJI="❌"
+        fi
+        
+        # Install mailutils if not present
+        if ! command -v mail &> /dev/null; then
+          echo "📦 Installing mailutils..."
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update -qq && sudo apt-get install -y mailutils postfix 2>&1 | grep -v "^Get:" || {
+            echo "⚠️  Failed to install mailutils - email will be skipped"
+            exit 0
+          }
+        fi
+        
+        # Send email
+        {
+          echo "SuperDeploy Deployment Notification"
+          echo ""
+          echo "Status: $STATUS_EMOJI $STATUS"
+          echo "Project: $PROJECT"
+          echo "Service: $SERVICE"
+          echo "Image: $IMAGE"
+          echo "Git SHA: $GIT_SHA"
+          echo "Git Ref: $GIT_REF"
+          echo "Timestamp: $TIMESTAMP"
+          echo ""
+          echo "---"
+          echo "This is an automated notification from SuperDeploy"
+        } | mail -s "$SUBJECT" "$ALERT_EMAIL" 2>&1 && {
+          echo "✅ Email sent to $ALERT_EMAIL"
+        } || {
+          echo "⚠️  Email send failed (not critical)"
+        }

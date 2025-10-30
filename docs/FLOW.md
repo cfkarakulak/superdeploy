@@ -5,10 +5,11 @@ Bu doküman, SuperDeploy sisteminin iş mantığını ve parametrelerin sistem i
 ## İçindekiler
 
 1. [Başlangıç Akışı (init komutu)](#başlangıç-akışı-init-komutu)
-2. [Altyapı Sağlama Akışı (up komutu)](#altyapı-sağlama-akışı-up-komutu)
-3. [Sır Senkronizasyon Akışı (sync komutu)](#sır-senkronizasyon-akışı-sync-komutu)
-4. [Deployment Akışı (git push)](#deployment-akışı-git-push)
-5. [Parametre Akış Diyagramları](#parametre-akış-diyagramları)
+2. [Orchestrator Kurulum Akışı (orchestrator up)](#orchestrator-kurulum-akışı-orchestrator-up)
+3. [Proje Altyapı Sağlama Akışı (up komutu)](#proje-altyapı-sağlama-akışı-up-komutu)
+4. [Sır Senkronizasyon Akışı (sync komutu)](#sır-senkronizasyon-akışı-sync-komutu)
+5. [Deployment Akışı (git push)](#deployment-akışı-git-push)
+6. [Parametre Akış Diyagramları](#parametre-akış-diyagramları)
 
 ---
 
@@ -78,7 +79,63 @@ project.yml ────────────────┐
 
 ---
 
-## Altyapı Sağlama Akışı (up komutu)
+## Orchestrator Kurulum Akışı (orchestrator up)
+
+### Amaç
+Tüm projeler için merkezi Forgejo, monitoring ve reverse proxy altyapısını kurmak.
+
+### Ne Olur?
+
+**1. Orchestrator VM Oluşturma**
+- Terraform ile orchestrator VM provision edilir
+- Sabit IP adresi atanır (preserve_ip: true)
+- Firewall kuralları yapılandırılır
+
+**2. Temel Sistem Kurulumu**
+- Docker ve Docker Compose kurulumu
+- Sistem paketleri ve güvenlik yapılandırması
+
+**3. Forgejo Deployment**
+- PostgreSQL container (Forgejo için)
+- Forgejo container
+- Admin user oluşturma
+- Organization ve repository kurulumu
+
+**4. Monitoring Deployment**
+- Prometheus container
+- Grafana container
+- Otomatik proje keşfi yapılandırması
+
+**5. Caddy Reverse Proxy**
+- Subdomain-based routing
+- Otomatik SSL sertifikaları (Let's Encrypt)
+- forgejo.domain.com, grafana.domain.com, prometheus.domain.com
+
+**6. Orchestrator Runner**
+- Forgejo runner kurulumu
+- Label: [orchestrator, linux, docker, ubuntu-latest]
+
+### Parametre Akışı
+
+```
+orchestrator project.yml
+    ↓
+Terraform Variables
+    ↓
+GCP VM (orchestrator)
+    ↓
+Ansible Playbook
+    ├── Forgejo + PostgreSQL
+    ├── Monitoring (Prometheus + Grafana)
+    ├── Caddy (reverse proxy)
+    └── Orchestrator Runner
+    ↓
+Merkezi Altyapı Hazır
+```
+
+---
+
+## Proje Altyapı Sağlama Akışı (up komutu)
 
 ### Amaç
 Bulut altyapısını oluşturmak ve tüm servisleri çalışır hale getirmek.
@@ -134,19 +191,29 @@ Ansible Inventory (IP adresleri, host bilgileri)
 
 Her addon için:
 
-a. **Template Rendering**
+a. **VM-Specific Filtering**
+   - VM'nin services listesi kontrol edilir
+   - Sadece ilgili addon'lar deploy edilir
+   - Örnek: web VM'de sadece postgres ve redis
+
+b. **Template Rendering**
    - Addon template'i okunur
    - project.yml ve .passwords.yml değerleri enjekte edilir
    - Proje-spesifik Docker Compose dosyası oluşturulur
 
-b. **Environment Dosyası Oluşturma**
+c. **Environment Dosyası Oluşturma**
    - Addon'un `env.yml` dosyası okunur
    - Şifreler ve yapılandırma değerleri birleştirilir
 
-c. **Container Başlatma**
+d. **Container Başlatma**
    - Docker Compose ile container'lar başlatılır
    - Health check'ler yapılır
    - Servis hazır olana kadar beklenir
+
+**4. Forgejo Runner Kurulumu**
+- Her VM'de proje-specific runner kurulur
+- Orchestrator Forgejo'ya register edilir
+- Label: [{project}, {vm_role}, linux, docker, ubuntu-latest]
 
 ### Parametre Akışı - Detaylı
 
@@ -263,15 +330,29 @@ Uygulama kodundaki değişiklikleri otomatik olarak production ortamına deploy 
 **Ne Olur?**
 
 **1. Forgejo Workflow Tetikleme**
-- Forgejo API'sine POST request gönderilir
-- Parametreler: project, service, image, encrypted env
+- Orchestrator Forgejo API'sine POST request gönderilir
+- Endpoint: `http://ORCHESTRATOR_IP:3001/api/v1/repos/{org}/{repo}/actions/workflows/deploy.yml/dispatches`
+- Parametreler: project, service, image, encrypted env, vm_role
 
-#### Aşama 3: Forgejo Runner - Şifre Çözme ve Hazırlık
+#### Aşama 3: Orchestrator Forgejo - Workflow Routing
+
+**Ne Olur?**
+
+**1. Workflow Dispatch**
+- Orchestrator Forgejo workflow'u alır
+- runs-on label'ına göre runner seçer
+- Örnek: runs-on: [self-hosted, cheapa, api]
+
+**2. Proje-Specific Runner'a Yönlendirir**
+- Label matching ile doğru VM'deki runner'ı bulur
+- Job'u ilgili runner'a atar
+
+#### Aşama 4: Project VM Runner - Şifre Çözme ve Hazırlık
 
 **Ne Olur?**
 
 **1. Şifrelenmiş Dosyayı Alma**
-- Forgejo runner parametreleri alır
+- Project VM runner parametreleri alır
 
 **2. Şifre Çözme**
 - `env.age` dosyası AGE private key ile şifre çözülür
@@ -282,7 +363,7 @@ Uygulama kodundaki değişiklikleri otomatik olarak production ortamına deploy 
 **4. Environment Hazırlama**
 - Şifresi çözülmüş environment variable'lar hazırlanır
 
-#### Aşama 4: Forgejo Runner - Container Deployment
+#### Aşama 5: Project VM Runner - Container Deployment
 
 **Ne Olur?**
 
@@ -307,6 +388,17 @@ Uygulama kodundaki değişiklikleri otomatik olarak production ortamına deploy 
 ### 1. Proje Başlangıcından Deployment'a Tam Akış
 
 ```
+ORCHESTRATOR KURULUMU (Bir Kere)
+    ↓
+superdeploy orchestrator up
+    ↓
+Orchestrator VM
+├── Forgejo (merkezi)
+├── Monitoring (Prometheus + Grafana)
+└── Caddy (reverse proxy + SSL)
+    ↓
+PROJE KURULUMU
+    ↓
 KULLANICI GİRİŞİ
     ↓
 INIT KOMUTU
@@ -315,8 +407,8 @@ project.yml + .passwords.yml
     ↓
 UP KOMUTU
     ↓
-Terraform → VM'ler
-Ansible → Container'lar
+Terraform → Project VM'ler
+Ansible → Container'lar + Runners
     ↓
 SYNC KOMUTU
     ↓
@@ -326,7 +418,9 @@ GIT PUSH
     ↓
 GitHub Actions → Build
     ↓
-Forgejo Runner → Deploy
+Orchestrator Forgejo → Route to Project Runner
+    ↓
+Project VM Runner → Deploy
     ↓
 PRODUCTION CONTAINER
 ```
@@ -347,26 +441,34 @@ INSTANCE (myproject-postgres)
 
 ## Özet
 
-SuperDeploy, dört ana komut etrafında organize edilmiş bir deployment sistemidir:
+SuperDeploy, beş ana komut etrafında organize edilmiş bir deployment sistemidir:
 
-1. **init**: Proje yapılandırmasını ve güvenli şifreleri oluşturur
-2. **up**: Bulut altyapısını sağlar ve servisleri deploy eder
-3. **sync**: Şifreleri GitHub ve Forgejo'ya senkronize eder
-4. **git push**: Otomatik deployment pipeline'ını tetikler
+1. **orchestrator up**: Merkezi Forgejo, monitoring ve reverse proxy altyapısını kurar (bir kere)
+2. **init**: Proje yapılandırmasını ve güvenli şifreleri oluşturur
+3. **up**: Bulut altyapısını sağlar ve servisleri deploy eder
+4. **sync**: Şifreleri GitHub ve Forgejo'ya senkronize eder
+5. **git push**: Otomatik deployment pipeline'ını tetikler
 
 ### Temel Prensipler
 
-**1. Template-Based Architecture**
+**1. Orchestrator Pattern**
+- Merkezi Forgejo tüm projeler için
+- Merkezi monitoring (Prometheus + Grafana)
+- Caddy reverse proxy ile subdomain routing
+
+**2. Template-Based Architecture**
 - Addon'lar yeniden kullanılabilir template'lerdir
 - Her proje kendi instance'larını oluşturur
+- VM-specific filtering ile sadece ilgili addon'lar deploy edilir
 
-**2. Güvenli Şifre Yönetimi**
+**3. Güvenli Şifre Yönetimi**
 - Şifreler otomatik oluşturulur
 - Transit sırasında şifrelenir (AGE)
 
-**3. Environment Separation**
+**4. Environment Separation**
 - Local (.env) ve production (.env.superdeploy) ayrıdır
 
-**4. Otomatik Deployment**
+**5. Otomatik Deployment**
 - Git push otomatik deployment tetikler
+- Orchestrator Forgejo workflow'u proje-specific runner'a yönlendirir
 - Health check ve rollback built-in

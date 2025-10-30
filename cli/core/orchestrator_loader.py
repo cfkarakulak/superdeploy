@@ -178,6 +178,15 @@ class OrchestratorConfig:
         """
         forgejo_config = self.get_forgejo_config()
 
+        # Check if monitoring is enabled
+        monitoring_config = self.config.get("monitoring", {})
+        enabled_addons = ["forgejo"]
+        addon_configs = {"forgejo": forgejo_config}
+        
+        if monitoring_config.get("enabled", False):
+            enabled_addons.append("monitoring")
+            addon_configs["monitoring"] = monitoring_config
+        
         return {
             "project_name": "orchestrator",
             "project_config": {
@@ -185,11 +194,10 @@ class OrchestratorConfig:
                 "addons": {
                     "forgejo": forgejo_config
                 },
+                "monitoring": monitoring_config,
             },
-            "enabled_addons": ["forgejo"],
-            "addon_configs": {
-                "forgejo": forgejo_config
-            },
+            "enabled_addons": enabled_addons,
+            "addon_configs": addon_configs,
         }
 
 

@@ -553,5 +553,6 @@ runs-on: [self-hosted, cheapa]  # Runs on project VM
 
 - [Forgejo Actions Documentation](https://forgejo.org/docs/latest/user/actions/)
 - [SuperDeploy Architecture](./ARCHITECTURE.md)
-- [Multi-Project Setup](./MULTI_PROJECT.md)
-- [Deployment Guide](./DEPLOYMENT.md)
+- [Orchestrator Setup](./ORCHESTRATOR_SETUP.md)
+- [Operations Guide](./OPERATIONS.md)
+- [Setup Guide](./SETUP.md)

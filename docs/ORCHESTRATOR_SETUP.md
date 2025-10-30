@@ -29,20 +29,33 @@ vms:
     count: 1
     machine_type: e2-medium
     disk_size: 50
+    preserve_ip: true  # IP korunur
     services:
       - forgejo
+      - monitoring
+      - caddy
 
 addons:
   forgejo:
-    version: "13.0.1"
+    version: "1.21.0"
     port: 3001
     ssh_port: 2222
     admin_user: "admin"
-    admin_email: "admin@example.com"
+    admin_email: "admin@yourdomain.com"
     org: "myorg"
     repo: "superdeploy"
-    db_name: "forgejo"
-    db_user: "forgejo"
+  
+  monitoring:
+    prometheus_port: 9090
+    grafana_port: 3000
+  
+  caddy:
+    domain: "yourdomain.com"
+    email: "admin@yourdomain.com"
+    subdomains:
+      forgejo: "forgejo"
+      grafana: "grafana"
+      prometheus: "prometheus"
 
 apps: {}  # Orchestrator'da app yok
 ```
@@ -54,8 +67,10 @@ superdeploy up -p orchestrator
 ```
 
 **Bu şunları yapar:**
-- ✅ `orchestrator` VM oluşturur
+- ✅ `orchestrator` VM oluşturur (IP preservation ile)
 - ✅ Forgejo + PostgreSQL kurar
+- ✅ Prometheus + Grafana kurar
+- ✅ Caddy reverse proxy kurar (SSL sertifikaları ile)
 - ✅ `orchestrator-runner` kurar
 - ✅ Admin user oluşturur
 
@@ -166,7 +181,9 @@ superdeploy up -p orchestrator
 
 **Sonuç:**
 - VM: `orchestrator` (34.72.179.175)
-- Forgejo: http://34.72.179.175:3001
+- Forgejo: https://forgejo.yourdomain.com (veya http://34.72.179.175:3001)
+- Grafana: https://grafana.yourdomain.com (veya http://34.72.179.175:3000)
+- Prometheus: https://prometheus.yourdomain.com (veya http://34.72.179.175:9090)
 - Runner: `orchestrator-runner`
 
 ### Proje 1: cheapa
@@ -211,6 +228,19 @@ superdeploy up -p acme
 │  │  Forgejo (Port 3001)                │   │
 │  │  - myorg/superdeploy repo           │   │
 │  │  - Workflows for all projects       │   │
+│  │  - forgejo.yourdomain.com (SSL)     │   │
+│  └─────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────┐   │
+│  │  Monitoring                         │   │
+│  │  - Prometheus (Port 9090)           │   │
+│  │  - Grafana (Port 3000)              │   │
+│  │  - prometheus.yourdomain.com (SSL)  │   │
+│  │  - grafana.yourdomain.com (SSL)     │   │
+│  └─────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────┐   │
+│  │  Caddy (Ports 80, 443)              │   │
+│  │  - Reverse proxy                    │   │
+│  │  - Automatic SSL certificates       │   │
 │  └─────────────────────────────────────┘   │
 │  ┌─────────────────────────────────────┐   │
 │  │  orchestrator-runner                │   │
@@ -233,10 +263,14 @@ superdeploy up -p acme
 ## ✅ Avantajlar
 
 1. **Tek Forgejo:** Tüm projeler için merkezi yönetim
-2. **İzolasyon:** Her proje kendi VM'lerinde çalışır
-3. **Ölçeklenebilir:** Yeni proje = sadece yeni VM'ler
-4. **Maliyet:** Forgejo için tek VM yeterli
-5. **Bakım:** Forgejo güncellemesi tek yerde
+2. **Merkezi Monitoring:** Tüm projeler için tek Prometheus + Grafana
+3. **SSL Sertifikaları:** Caddy ile otomatik Let's Encrypt sertifikaları
+4. **Subdomain Routing:** Her servis için ayrı subdomain
+5. **İzolasyon:** Her proje kendi VM'lerinde çalışır
+6. **Ölçeklenebilir:** Yeni proje = sadece yeni VM'ler
+7. **Maliyet:** Forgejo ve monitoring için tek VM yeterli
+8. **Bakım:** Forgejo ve monitoring güncellemesi tek yerde
+9. **IP Preservation:** VM restart'ta IP korunur
 
 ## 🔧 Bakım
 
@@ -270,8 +304,11 @@ superdeploy up -p cheapa --tags runner
 1. **Orchestrator IP:** Tüm projelerde aynı IP kullanılmalı
 2. **Forgejo Org/Repo:** Tüm projelerde aynı olmalı
 3. **İlk Kurulum:** Orchestrator mutlaka ilk kurulmalı
-4. **Backup:** Orchestrator VM'i düzenli yedeklenmeli
-5. **Network:** Tüm VM'ler aynı VPC'de olmalı
+4. **DNS Kayıtları:** Subdomain'ler için A kayıtları gerekli
+5. **SSL Sertifikaları:** DNS propagation sonrası otomatik oluşur
+6. **Backup:** Orchestrator VM'i düzenli yedeklenmeli
+7. **Network:** Tüm VM'ler aynı VPC'de olmalı
+8. **IP Preservation:** preserve_ip: true ile IP korunur
 
 ## 📝 Troubleshooting
 

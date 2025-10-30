@@ -25,6 +25,7 @@ cli/
 ├── commands/                  # Komut implementasyonları
 │   ├── init.py               # Proje başlatma
 │   ├── up.py                 # Altyapı deployment
+│   ├── orchestrator.py       # Orchestrator VM yönetimi
 │   ├── sync.py               # Secret senkronizasyonu
 │   ├── deploy.py             # Uygulama deployment
 │   ├── status.py             # Sistem durumu
@@ -41,6 +42,7 @@ cli/
 - Kurulum için interaktif wizard'lar
 - Kapsamlı hata yönetimi
 - Mümkün olduğunda paralel operasyonlar
+- Orchestrator ve proje VM'leri için ayrı komutlar
 
 ### 2. Addon Sistemi (`addons/`)
 
@@ -55,10 +57,15 @@ addons/
 │   └── ansible.yml           # Deployment görevleri
 ├── redis/                     # Redis addon
 ├── rabbitmq/                  # RabbitMQ addon
-├── forgejo/                   # Git server + CI/CD
-├── caddy/                     # Reverse proxy
-└── monitoring/                # Prometheus + Grafana
+├── forgejo/                   # Git server + CI/CD (orchestrator'da)
+├── caddy/                     # Reverse proxy + SSL
+└── monitoring/                # Prometheus + Grafana (orchestrator'da)
 ```
+
+**Orchestrator-Specific Addon'lar:**
+- **forgejo**: Tüm projeler için merkezi Git server ve CI/CD
+- **monitoring**: Tüm projeler için merkezi monitoring (Prometheus + Grafana)
+- **caddy**: Subdomain-based routing ve otomatik SSL sertifikaları
 
 **Addon Yapısı:**
 
@@ -118,14 +125,18 @@ cloud:
 
 # VM konfigürasyonu
 vms:
-  core:
+  web:
     count: 1
-    machine_type: e2-medium
+    machine_type: e2-small
     disk_size: 20
     services:
       - postgres
       - redis
-      - forgejo
+  api:
+    count: 1
+    machine_type: e2-small
+    disk_size: 20
+    services: []
 
 # Addon konfigürasyonu
 addons:
@@ -135,21 +146,24 @@ addons:
     database: "myproject_db"
   redis:
     version: "7-alpine"
-  forgejo:
-    version: "13.0.1"
-    port: 3001
-    admin_user: "admin"
+
+# Orchestrator referansı (Forgejo merkezi)
+orchestrator:
+  host: "34.72.179.175"
+  port: 3001
+  org: "myorg"
+  repo: "superdeploy"
 
 # Uygulama servisleri
 apps:
   api:
     path: "../app-repos/api"
     port: 8000
-    vm: "core"
+    vm: "api"
   dashboard:
     path: "../app-repos/dashboard"
-    port: 8010
-    vm: "core"
+    port: 3000
+    vm: "web"
 
 # Network konfigürasyonu
 network:
@@ -184,6 +198,22 @@ shared/
 ---
 
 ## Deployment Mimarisi
+
+### Orchestrator Pattern
+
+SuperDeploy, **merkezi orchestrator VM** ve **proje-specific VM'ler** kullanan hibrit bir mimari kullanır:
+
+```
+Orchestrator VM (Global)
+├── Forgejo (tüm projeler için)
+├── Monitoring (Prometheus + Grafana)
+└── Caddy (reverse proxy + SSL)
+
+Project VMs (Proje-specific)
+├── Infrastructure services (postgres, redis, rabbitmq)
+├── Application containers
+└── Forgejo runners (deployment için)
+```
 
 ### Template → Instance Pattern
 
@@ -232,14 +262,22 @@ services:
 Her proje tam izolasyon için kendi Docker network'üne sahiptir:
 
 ```
-Docker Networks:
+Orchestrator VM:
+├── orchestrator-network
+│   ├── orchestrator-forgejo
+│   ├── orchestrator-postgres (forgejo için)
+│   ├── orchestrator-prometheus
+│   ├── orchestrator-grafana
+│   └── orchestrator-caddy
+
+Project VM (myproject):
 ├── myproject-network (172.30.0.0/24)
 │   ├── myproject-postgres
 │   ├── myproject-redis
-│   ├── myproject-forgejo
 │   ├── myproject-api
 │   └── myproject-dashboard
-│
+
+Project VM (otherapp):
 └── otherapp-network (172.31.0.0/24)
     ├── otherapp-postgres
     ├── otherapp-redis
@@ -251,6 +289,7 @@ Docker Networks:
 - Port çakışması yok
 - Bağımsız ölçeklendirme
 - Ayrı secret yönetimi
+- Merkezi Forgejo ve monitoring
 
 ---
 
@@ -277,7 +316,20 @@ Proje yapısını oluştur
 - Konfigürasyonu mevcut addon'lara karşı valide eder
 - Proje dizin yapısını oluşturur
 
-### 2. Altyapı Deployment (`superdeploy up`)
+### 2. Orchestrator Deployment (`superdeploy orchestrator up`)
+
+```
+Terraform Fazı:
+    Orchestrator VM oluştur
+    
+Ansible Fazı:
+    ├── Forgejo + PostgreSQL deploy et
+    ├── Monitoring (Prometheus + Grafana) deploy et
+    ├── Caddy reverse proxy deploy et
+    └── Orchestrator runner kur
+```
+
+### 3. Proje Deployment (`superdeploy up`)
 
 ```
 Terraform Fazı:
@@ -286,11 +338,13 @@ Terraform Fazı:
 Ansible Fazı:
     project.yml + .passwords.yml
         ↓
-    Addon'ları dinamik yükle
+    VM-specific addon'ları filtrele
         ↓
     Template'leri render et (compose.yml.j2, env.yml)
         ↓
     Container'ları deploy et
+        ↓
+    Proje-specific runner'ları kur
         ↓
     Health check'ler
         ↓
@@ -303,17 +357,19 @@ Ansible Fazı:
 3. Cloud provider'da VM'leri provision et
 4. Network'ü yapılandır (VPC, subnet'ler, firewall)
 5. VM IP'lerini proje `.env`'ine yaz
+6. IP preservation desteği (VM restart'ta IP korunur)
 
 **Ansible Fazı:**
 1. Sistem paketlerini ve Docker'ı kur
 2. Güvenliği yapılandır (firewall, SSH)
 3. Addon template'lerini dinamik yükle
-4. Template'leri proje-spesifik değerlerle render et
-5. Container'ları Docker Compose ile deploy et
-6. Health check'leri çalıştır
-7. Monitoring'i yapılandır
+4. VM-specific service filtering (sadece ilgili addon'lar deploy edilir)
+5. Template'leri proje-spesifik değerlerle render et
+6. Container'ları Docker Compose ile deploy et
+7. Proje-specific Forgejo runner'ları kur ve orchestrator'a register et
+8. Health check'leri çalıştır
 
-### 3. Secret Senkronizasyonu (`superdeploy sync`)
+### 4. Secret Senkronizasyonu (`superdeploy sync`)
 
 ```
 Kaynak Dosyalar:
@@ -334,7 +390,7 @@ Dağıt:
 2. Proje-spesifik secret'lar (`.passwords.yml`)
 3. Altyapı secret'ları (`superdeploy/.env`)
 
-### 4. Uygulama Deployment (git push)
+### 5. Uygulama Deployment (git push)
 
 ```
 Developer Push
@@ -343,9 +399,13 @@ GitHub Actions
     ├── Docker image build et
     ├── Registry'ye push et
     ├── Environment'ı şifrele (.env + .env.superdeploy)
-    └── Forgejo workflow'unu tetikle
+    └── Forgejo workflow'unu tetikle (orchestrator'da)
     ↓
-Forgejo Runner
+Orchestrator Forgejo
+    ├── Workflow'u proje-specific runner'a yönlendir
+    └── runs-on: [self-hosted, {project}, {vm_role}]
+    ↓
+Project VM Runner
     ├── Environment'ı decrypt et
     ├── Docker image'ı pull et
     ├── Eski container'ı durdur
@@ -533,6 +593,27 @@ Proje B:
 
 ## Monitoring ve Gözlemlenebilirlik
 
+### Merkezi Monitoring (Orchestrator)
+
+SuperDeploy, orchestrator VM'de çalışan **Prometheus** ve **Grafana** ile merkezi monitoring sağlar:
+
+**Prometheus:**
+- Tüm projeleri otomatik keşfeder
+- Her proje için ayrı scrape job'ları
+- Node exporter metrikleri (CPU, RAM, disk)
+- Container metrikleri
+
+**Grafana:**
+- Pre-configured dashboard'lar
+- Proje bazlı filtreleme
+- Alert yönetimi
+- Caddy üzerinden subdomain erişimi (grafana.yourdomain.com)
+
+**Caddy Reverse Proxy:**
+- Subdomain-based routing
+- Otomatik SSL sertifikaları (Let's Encrypt)
+- Forgejo, Grafana, Prometheus için ayrı subdomain'ler
+
 ### Health Check Sistemi
 
 SuperDeploy kapsamlı health check'ler uygular:
@@ -689,6 +770,18 @@ Deployment sonrası sistem şunları doğrular:
 - Endüstri standardı
 
 ---
+
+## Son Güncellemeler
+
+### Yeni Özellikler (2025)
+
+1. **Orchestrator Mimarisi:** Merkezi Forgejo ve monitoring
+2. **Caddy Reverse Proxy:** Subdomain-based routing + otomatik SSL
+3. **Merkezi Monitoring:** Prometheus + Grafana tüm projeler için
+4. **VM-Specific Service Filtering:** Sadece ilgili addon'lar deploy edilir
+5. **IP Preservation:** VM restart'ta IP adresleri korunur
+6. **Selective Addon Deployment:** `--addon` flag ile belirli addon'ları deploy et
+7. **GitHub Actions → Forgejo Integration:** Düzeltilmiş API endpoint'leri
 
 ## Gelecek Geliştirmeler
 

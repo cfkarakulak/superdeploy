@@ -232,13 +232,9 @@ def generate_ansible_inventory(env, ansible_dir, project_name, orchestrator_ip=N
     # Build inventory content
     inventory_lines = []
 
-    # Add orchestrator group first (if provided)
-    if orchestrator_ip:
-        inventory_lines.append("[orchestrator]")
-        inventory_lines.append(
-            f"orchestrator ansible_host={orchestrator_ip} ansible_user={env.get('SSH_USER', 'superdeploy')}"
-        )
-        inventory_lines.append("")
+    # NOTE: Orchestrator is NOT included in project inventory
+    # It has its own deployment via 'superdeploy orchestrator up'
+    # and should not receive project-specific addons
 
     # Add project VM groups
     for role in sorted(vm_groups.keys()):
@@ -444,13 +440,19 @@ def push_git_parallel(project_root, github_token, github_org, github_repo, forge
 @click.option("--skip-git-push", is_flag=True, help="Skip Git push")
 @click.option("--skip-sync", is_flag=True, help="Skip automatic GitHub secrets sync")
 @click.option("--skip", multiple=True, help="Skip specific addon(s) during deployment")
+@click.option("--addon", help="Deploy only specific addon(s), comma-separated (e.g. --addon caddy,postgres). Automatically sets --tags to addons.")
 @click.option(
     "--tags",
     help="Run only specific Ansible tags (e.g. 'addons', 'project', 'foundation,addons')",
 )
 @click.option(
     "--start-at-task",
-    help="Resume Ansible from a specific task (e.g. 'Install Docker'). Saves time when rerunning after failures.",
+    help="Resume Ansible from a specific task. Use partial match (e.g. 'caddy', 'Docker'). Saves time when rerunning after failures.",
+)
+@click.option(
+    "--preserve-ip",
+    is_flag=True,
+    help="Preserve existing static IPs (prevents IP changes on redeploy)",
 )
 def up(
     project,
@@ -459,8 +461,10 @@ def up(
     skip_git_push,
     skip_sync,
     skip,
+    addon,
     tags,
     start_at_task,
+    preserve_ip,
 ):
     """
     Deploy infrastructure (like 'heroku create')
@@ -562,7 +566,7 @@ def up(
             progress.advance(task1)
 
             # Generate tfvars from project config
-            tfvars_file = generate_tfvars(project_config_obj)
+            tfvars_file = generate_tfvars(project_config_obj, preserve_ip=preserve_ip)
 
             # Select workspace (creates if doesn't exist)
             select_workspace(project, create=True)
@@ -576,7 +580,7 @@ def up(
 
             # Apply
             terraform_apply(
-                project, project_config_obj, var_file=tfvars_file, auto_approve=True
+                project, project_config_obj, var_file=tfvars_file, auto_approve=True, preserve_ip=preserve_ip
             )
             progress.advance(task1)
             progress.advance(task1)
@@ -641,16 +645,39 @@ def up(
 
         # Get Ansible vars from ConfigLoader (includes enabled_addons, addon_configs, etc.)
         ansible_vars = project_config_obj.to_ansible_vars()
+        
+        # Add orchestrator info for forgejo runner setup
+        if orchestrator_ip:
+            ansible_vars["forgejo_base_url"] = f"http://{orchestrator_ip}:3001"
+            ansible_vars["orchestrator_ip"] = orchestrator_ip
 
-        # Filter addons based on --skip flags
+        # Filter addons based on --skip and --addon flags
         enabled_addons = ansible_vars.get("enabled_addons", [])
-        filtered_addons = filter_addons(enabled_addons, skip, project)
+        
+        # If --addon specified, pass it to Ansible to filter per-VM
+        if addon:
+            # Parse comma-separated addons
+            addon_list = [a.strip() for a in addon.split(',')]
+            console.print(f"\n[yellow]📦 Deploying only: {', '.join(addon_list)}[/yellow]")
+            console.print("[dim]Note: Each VM will only deploy addons in its services list[/dim]")
+            # Pass addon filter to Ansible
+            ansible_vars["addon_filter"] = addon_list
+            # Auto-set tags to addons only
+            if not tags:
+                tags = "addons"
+            filtered_addons = enabled_addons  # Don't filter here, let Ansible do it per-VM
+        else:
+            filtered_addons = filter_addons(enabled_addons, skip, project)
+            ansible_vars["addon_filter"] = []
 
-        # Update ansible_vars with filtered addons
+        # Update ansible_vars with filtered addons (for display only)
         ansible_vars["enabled_addons"] = filtered_addons
 
         # Display deployment plan
-        display_deployment_plan(enabled_addons, filtered_addons, skip)
+        if addon:
+            console.print(f"\n[cyan]📋 Will deploy to VMs based on their services configuration[/cyan]")
+        else:
+            display_deployment_plan(enabled_addons, filtered_addons, skip)
 
         # Display resume point if provided
         if start_at_task:
@@ -670,7 +697,7 @@ def up(
             env_vars=ansible_env_vars,
             tags=ansible_tags,
             project_name=project,
-            ask_become_pass=skip_terraform,  # Ask for password if skipping terraform (passwordless sudo not yet configured)
+            ask_become_pass=False,  # Passwordless sudo should be configured by foundation phase
             start_at_task=start_at_task,  # Resume from specific task if provided
         )
 

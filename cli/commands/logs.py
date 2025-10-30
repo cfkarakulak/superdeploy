@@ -46,8 +46,8 @@ def logs(project, app, follow, lines, environment):
         
         vm_role = apps[app].get("vm", "core")
         
-        # Get VM IP from Terraform outputs or inventory
-        inventory_path = projects_dir / project / "inventory.ini"
+        # Get VM IP from inventory
+        inventory_path = project_root / "shared" / "ansible" / "inventories" / f"{project}.ini"
         if not inventory_path.exists():
             console.print(f"[red]❌ Inventory not found. Run: superdeploy up -p {project}[/red]")
             return

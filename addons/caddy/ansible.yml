@@ -21,6 +21,7 @@
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
+  register: caddyfile_result
 
 # Note: docker-compose.yml is already rendered by orchestration/addon-deployer/tasks/render-templates.yml
 # This keeps the deployment logic clean and focused on service-specific tasks
@@ -39,6 +40,7 @@
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: present
     pull: "always"
+    recreate: "{{ 'always' if caddyfile_result.changed else 'auto' }}"
   become_user: "{{ superdeploy_user }}"
   register: caddy_compose_result
 

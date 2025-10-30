@@ -24,7 +24,9 @@ def orchestrator():
 @orchestrator.command()
 @click.option("--skip-terraform", is_flag=True, help="Skip Terraform (VM already exists)")
 @click.option("--preserve-ip", is_flag=True, help="Preserve static IP on destroy (for production)")
-def up(skip_terraform, preserve_ip):
+@click.option("--addon", help="Deploy only specific addon(s), comma-separated (e.g. --addon monitoring,caddy)")
+@click.option("--tags", help="Run only specific Ansible tags (e.g. 'addons', 'foundation')")
+def up(skip_terraform, preserve_ip, addon, tags):
     """Deploy orchestrator VM with Forgejo (runs Terraform + Ansible by default)"""
     console.print(
         Panel.fit(
@@ -76,6 +78,7 @@ def up(skip_terraform, preserve_ip):
             "FORGEJO_DB_PASSWORD": secrets_module.token_urlsafe(32),
             "FORGEJO_SECRET_KEY": secrets_module.token_urlsafe(48),  # 64 chars
             "FORGEJO_INTERNAL_TOKEN": secrets_module.token_urlsafe(79),  # 105 chars
+            "GRAFANA_ADMIN_PASSWORD": secrets_module.token_urlsafe(32),
         }
         
         # Save secrets to .env file
@@ -97,6 +100,9 @@ FORGEJO_SECRET_KEY={FORGEJO_SECRET_KEY}
 
 # Forgejo Internal Token (for API)
 FORGEJO_INTERNAL_TOKEN={FORGEJO_INTERNAL_TOKEN}
+
+# Monitoring Addon Secrets
+GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
 """.format(**project_secrets)
         
         with open(env_file, "w") as f:
@@ -210,7 +216,7 @@ DOCKER_TOKEN=
         console.print(f"[dim]✓ Generated: {tfvars_file.name}[/dim]")
 
         # Apply
-        terraform_apply("orchestrator", None, var_file=str(tfvars_file), auto_approve=True)
+        terraform_apply("orchestrator", None, var_file=str(tfvars_file), auto_approve=True, preserve_ip=preserve_ip)
 
         console.print("[green]✅ VM provisioned![/green]")
 
@@ -285,6 +291,36 @@ orchestrator ansible_host={orchestrator_ip} ansible_user=superdeploy
     if preserve_ip:
         ansible_vars["preserve_ip"] = True
         console.print("[yellow]⚠️  IP preservation enabled - static IP will be kept on destroy[/yellow]")
+    
+    # Discover all projects for monitoring
+    projects_dir = project_root / "projects"
+    project_targets = []
+    if projects_dir.exists():
+        for project_dir in projects_dir.iterdir():
+            if project_dir.is_dir() and (project_dir / ".env").exists():
+                from dotenv import dotenv_values
+                env_vars = dotenv_values(project_dir / ".env")
+                # Collect all external IPs for this project
+                for key, value in env_vars.items():
+                    if key.endswith("_EXTERNAL_IP") and value:
+                        # Add Caddy metrics endpoint (port 2019)
+                        project_targets.append(f"{value}:2019")
+    
+    ansible_vars["project_targets"] = project_targets
+    
+    # Handle --addon flag (selective addon deployment)
+    if addon:
+        addon_list = [a.strip() for a in addon.split(',')]
+        console.print(f"\n[yellow]📦 Deploying only: {', '.join(addon_list)}[/yellow]")
+        ansible_vars["addon_filter"] = addon_list
+        # Auto-set tags to addons only if not specified
+        if not tags:
+            tags = "addons"
+    else:
+        ansible_vars["addon_filter"] = []
+    
+    # Use custom tags if provided, otherwise run all phases
+    ansible_tags = tags if tags else "foundation,addons"
 
     # Build Ansible command
     ansible_cmd = build_ansible_command(
@@ -292,7 +328,7 @@ orchestrator ansible_host={orchestrator_ip} ansible_user=superdeploy
         project_root=project_root,
         project_config=ansible_vars,
         env_vars=project_secrets,  # Pass secrets as env vars
-        tags="foundation,addons",
+        tags=ansible_tags,
         project_name="orchestrator",
     )
 
@@ -315,73 +351,86 @@ orchestrator ansible_host={orchestrator_ip} ansible_user=superdeploy
     port = forgejo_config.get('port', 3001)
     
     # Wait for Forgejo API to be ready
-    console.print("[dim]Waiting for Forgejo API...[/dim]")
+    console.print(f"[dim]Waiting for Forgejo API at {orchestrator_ip}:{port}...[/dim]")
     forgejo_url = f"http://{orchestrator_ip}:{port}"
-    for attempt in range(30):
+    api_ready = False
+    for attempt in range(12):  # 12 attempts = 60 seconds max
         try:
-            response = requests.get(f"{forgejo_url}/api/v1/version", timeout=5)
+            console.print(f"[dim]Attempt {attempt + 1}/12: Checking {forgejo_url}/api/v1/version[/dim]")
+            response = requests.get(f"{forgejo_url}/api/v1/version", timeout=3)
+            console.print(f"[dim]Response: {response.status_code}[/dim]")
             if response.status_code == 200:
                 console.print("[dim]✓ Forgejo API is ready[/dim]")
+                api_ready = True
                 break
-        except:
-            pass
-        if attempt < 29:
+        except Exception as e:
+            console.print(f"[dim]Error: {str(e)[:100]}[/dim]")
+        
+        if attempt < 11:
             time.sleep(5)
     
-    # Create PAT
-    token_name = f"superdeploy-pat-{int(time.time())}"
-    try:
-        response = requests.post(
-            f"{forgejo_url}/api/v1/users/{admin_user}/tokens",
-            auth=(admin_user, admin_password),
-            json={
-                "name": token_name,
-                "scopes": [
-                    "write:activitypub",
-                    "write:admin",
-                    "write:issue",
-                    "write:misc",
-                    "write:notification",
-                    "write:organization",
-                    "write:package",
-                    "write:repository",
-                    "write:user",
-                ],
-            },
-            timeout=10,
-        )
-        
-        if response.status_code == 201:
-            forgejo_pat = response.json()["sha1"]
-            console.print("[green]✅ Forgejo PAT created[/green]")
+    if not api_ready:
+        console.print("[yellow]⚠️  Forgejo API not ready after 60 seconds[/yellow]")
+        console.print("[yellow]   Skipping PAT creation - you can create it manually later[/yellow]")
+        forgejo_pat = None
+    
+    # Create PAT (only if API is ready)
+    if api_ready:
+        token_name = f"superdeploy-pat-{int(time.time())}"
+        try:
+            response = requests.post(
+                f"{forgejo_url}/api/v1/users/{admin_user}/tokens",
+                auth=(admin_user, admin_password),
+                json={
+                    "name": token_name,
+                    "scopes": [
+                        "write:activitypub",
+                        "write:admin",
+                        "write:issue",
+                        "write:misc",
+                        "write:notification",
+                        "write:organization",
+                        "write:package",
+                        "write:repository",
+                        "write:user",
+                    ],
+                },
+                timeout=10,
+            )
             
-            # Save PAT to orchestrator .env
-            env_file = shared_dir / "orchestrator" / ".env"
-            with open(env_file, "r") as f:
-                lines = f.readlines()
-            
-            # Add or update FORGEJO_PAT
-            pat_found = False
-            for i, line in enumerate(lines):
-                if line.startswith("FORGEJO_PAT="):
-                    lines[i] = f"FORGEJO_PAT={forgejo_pat}\n"
-                    pat_found = True
-                    break
-            
-            if not pat_found:
-                # Just add PAT
-                lines.append(f"\n# Forgejo Personal Access Token\n")
-                lines.append(f"FORGEJO_PAT={forgejo_pat}\n")
-            
-            with open(env_file, "w") as f:
-                f.writelines(lines)
-            
-            console.print("[green]✅ PAT saved to shared/orchestrator/.env[/green]")
-        else:
-            console.print(f"[yellow]⚠️  PAT creation failed: {response.text}[/yellow]")
+            if response.status_code == 201:
+                forgejo_pat = response.json()["sha1"]
+                console.print("[green]✅ Forgejo PAT created[/green]")
+                
+                # Save PAT to orchestrator .env
+                env_file = shared_dir / "orchestrator" / ".env"
+                with open(env_file, "r") as f:
+                    lines = f.readlines()
+                
+                # Add or update FORGEJO_PAT
+                pat_found = False
+                for i, line in enumerate(lines):
+                    if line.startswith("FORGEJO_PAT="):
+                        lines[i] = f"FORGEJO_PAT={forgejo_pat}\n"
+                        pat_found = True
+                        break
+                
+                if not pat_found:
+                    # Just add PAT
+                    lines.append(f"\n# Forgejo Personal Access Token\n")
+                    lines.append(f"FORGEJO_PAT={forgejo_pat}\n")
+                
+                with open(env_file, "w") as f:
+                    f.writelines(lines)
+                
+                console.print("[green]✅ PAT saved to shared/orchestrator/.env[/green]")
+            else:
+                console.print(f"[yellow]⚠️  PAT creation failed: {response.text}[/yellow]")
+                forgejo_pat = None
+        except Exception as e:
+            console.print(f"[yellow]⚠️  PAT creation failed: {e}[/yellow]")
             forgejo_pat = None
-    except Exception as e:
-        console.print(f"[yellow]⚠️  PAT creation failed: {e}[/yellow]")
+    else:
         forgejo_pat = None
     
     # Push superdeploy repo to Forgejo
@@ -389,6 +438,7 @@ orchestrator ansible_host={orchestrator_ip} ansible_user=superdeploy
     
     # Wait for Forgejo to be fully ready
     console.print("[dim]Waiting for Forgejo to be ready...[/dim]")
+    forgejo_ready = False
     for attempt in range(30):
         try:
             result = subprocess.run(
@@ -398,11 +448,15 @@ orchestrator ansible_host={orchestrator_ip} ansible_user=superdeploy
             )
             if result.returncode == 0:
                 console.print("[dim]✓ Forgejo is ready[/dim]")
+                forgejo_ready = True
                 break
         except:
             pass
         if attempt < 29:
             time.sleep(5)
+    
+    if not forgejo_ready:
+        console.print("[yellow]⚠️  Forgejo not ready after 150 seconds, continuing anyway...[/yellow]")
     
     # Build Forgejo URL with credentials
     encoded_pass = urllib.parse.quote(admin_password)
@@ -498,12 +552,15 @@ def down(yes, preserve_ip):
     terraform_success = False
     
     # Check if workspace exists
-    terraform_state_dir = shared_dir / "terraform" / "terraform.tfstate.d" / "orchestrator"
-    if not terraform_state_dir.exists():
-        console.print("[dim]✓ No Terraform state found[/dim]")
+    from cli.terraform_utils import workspace_exists
+    
+    terraform_init()
+    
+    if not workspace_exists("orchestrator"):
+        console.print("[dim]✓ No Terraform workspace found, skipping terraform destroy[/dim]")
+        terraform_success = True
     else:
         try:
-            terraform_init()
             select_workspace("orchestrator", create=False)
             
             # Generate tfvars for destroy

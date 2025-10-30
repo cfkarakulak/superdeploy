@@ -17,7 +17,13 @@
     {% endif %}
 }
 
-# Main configuration - supports both domain and IP-based access
+# Main configuration - subdomain-based routing
+# Each app on this VM gets its own domain block
+{% if apps is defined %}
+{% for app_name, app_config in apps.items() %}
+{% if app_config.vm == vm_role %}
+
+# {{ app_name }} service
 {% if CADDY_TLS_MODE == 'off' %}
 :80 {
 {% else %}
@@ -28,7 +34,7 @@
     
     # Logging
     log {
-        output file /data/logs/access.log {
+        output file /data/logs/{{ app_name }}-access.log {
             roll_size 100mb
             roll_keep 5
         }
@@ -40,43 +46,17 @@
         respond "OK" 200
     }
     
-    {% if apps is defined %}
-    # Application routes (path-based routing)
-    {% for app_name, app_config in apps.items() %}
-    {% if app_name != 'dashboard' %}
-    # {{ app_name }} service on /{{ app_name }} path
-    handle /{{ app_name }}* {
-        uri strip_prefix /{{ app_name }}
-        reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
-            header_up Host {host}
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-        }
+    # Proxy to {{ app_name }} container
+    reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
     }
-    {% endif %}
-    {% endfor %}
-    
-    # Dashboard on root path (must be last to catch all remaining requests)
-    {% for app_name, app_config in apps.items() %}
-    {% if app_name == 'dashboard' %}
-    handle / {
-        reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
-            header_up Host {host}
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-        }
-    }
-    {% endif %}
-    {% endfor %}
-    {% endif %}
 }
-
-# Metrics endpoint (Prometheus)
-:{{ monitoring.metrics_port | default('2019') }} {
-    metrics /metrics
-}
+{% endif %}
+{% endfor %}
+{% endif %}
 
 # Metrics endpoint (Prometheus)
 :{{ monitoring.metrics_port | default('2019') }} {

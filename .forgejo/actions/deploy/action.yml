@@ -30,7 +30,7 @@ runs:
       shell: bash
       run: |
         if ! command -v age &> /dev/null; then
-          echo "� Inystalling age..."
+          echo "Installing age..."
           curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
           chmod +x age/age
           export PATH="$PWD/age:$PATH"
@@ -233,21 +233,121 @@ runs:
         
         echo "✅ Networks ready"
     
-    - name: Deploy service
+    - name: Deploy service with zero-downtime
       shell: bash
       run: |
         set -ex
         echo "🚀 Deploying service: ${{ inputs.service }}"
         
-        cd /opt/apps/${{ inputs.project }}/compose
+        PROJECT="${{ inputs.project }}"
+        SERVICE="${{ inputs.service }}"
+        IMAGE="${{ inputs.image }}"
+        GIT_SHA="${{ inputs.git_sha }}"
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        CONTAINER_NAME="${PROJECT}-${SERVICE}"
         
-        echo "📥 Pulling image: ${{ inputs.image }}"
-        docker pull ${{ inputs.image }}
+        # Create release directory structure
+        RELEASES_DIR="/opt/apps/${PROJECT}/releases/${SERVICE}"
+        CURRENT_LINK="/opt/apps/${PROJECT}/current/${SERVICE}"
+        RELEASE_DIR="${RELEASES_DIR}/${TIMESTAMP}_${GIT_SHA:0:7}"
         
-        echo "🐳 Starting service container..."
-        docker compose -f docker-compose-${{ inputs.service }}.yml up -d --wait
+        mkdir -p "${RELEASES_DIR}"
+        mkdir -p "$(dirname ${CURRENT_LINK})"
+        mkdir -p "${RELEASE_DIR}"
         
-        echo "✅ Service deployed!"
+        echo "📦 Release: ${RELEASE_DIR}"
+        
+        # Copy compose file and env to release directory
+        cp /opt/apps/${PROJECT}/compose/docker-compose-${SERVICE}.yml "${RELEASE_DIR}/"
+        cp /tmp/decrypted.env "${RELEASE_DIR}/.env"
+        
+        cd "${RELEASE_DIR}"
+        
+        echo "📥 Pulling new image: ${IMAGE}"
+        docker pull ${IMAGE}
+        
+        # Check if old container exists
+        if docker ps -a --filter "name=${CONTAINER_NAME}" --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
+          echo "🔄 Old container exists, performing zero-downtime update..."
+          
+          # Stop old container (keeps it for rollback)
+          echo "⏸️  Stopping old container..."
+          docker stop ${CONTAINER_NAME} || true
+          
+          # Rename old container for backup
+          OLD_BACKUP="${CONTAINER_NAME}-old-$(date +%s)"
+          docker rename ${CONTAINER_NAME} ${OLD_BACKUP} || true
+          echo "💾 Old container backed up as: ${OLD_BACKUP}"
+        fi
+        
+        # Start new container with same name
+        echo "🐳 Starting new container..."
+        docker compose -f docker-compose-${SERVICE}.yml up -d --wait
+        
+        # Wait for container to be ready
+        echo "⏳ Waiting for container to be ready..."
+        sleep 3
+        
+        # Check if container is running
+        if docker ps --filter "name=${CONTAINER_NAME}" --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
+          echo "✅ New container is running"
+          
+          # Wait a bit more for health check
+          sleep 5
+          
+          # Check health status
+          HEALTH_STATUS=$(docker inspect --format='{{.State.Health.Status}}' ${CONTAINER_NAME} 2>/dev/null || echo "none")
+          
+          if [ "$HEALTH_STATUS" = "healthy" ] || [ "$HEALTH_STATUS" = "none" ]; then
+            echo "✅ Container is healthy (status: ${HEALTH_STATUS})"
+            
+            # Update symlink to new release (atomic operation)
+            ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
+            echo "✅ Symlink updated to new release"
+            
+            # Remove old backup container
+            if docker ps -a --filter "name=${OLD_BACKUP}" --format "{{.Names}}" | grep -q "${OLD_BACKUP}"; then
+              echo "🗑️  Removing old backup container..."
+              docker rm -f ${OLD_BACKUP} || true
+            fi
+            
+            # Clean old releases (keep last 5)
+            echo "🧹 Cleaning old releases..."
+            cd "${RELEASES_DIR}"
+            ls -t | tail -n +6 | xargs -r rm -rf
+            echo "✅ Kept last 5 releases"
+            
+          else
+            echo "❌ Health check failed (status: ${HEALTH_STATUS})"
+            echo "🔙 Rolling back to old container..."
+            
+            # Stop failed container
+            docker stop ${CONTAINER_NAME} || true
+            docker rm ${CONTAINER_NAME} || true
+            
+            # Restore old container
+            if docker ps -a --filter "name=${OLD_BACKUP}" --format "{{.Names}}" | grep -q "${OLD_BACKUP}"; then
+              docker rename ${OLD_BACKUP} ${CONTAINER_NAME}
+              docker start ${CONTAINER_NAME}
+              echo "✅ Rolled back to previous version"
+            fi
+            
+            exit 1
+          fi
+        else
+          echo "❌ Container failed to start"
+          
+          # Restore old container if exists
+          if docker ps -a --filter "name=${OLD_BACKUP}" --format "{{.Names}}" | grep -q "${OLD_BACKUP}"; then
+            docker rename ${OLD_BACKUP} ${CONTAINER_NAME}
+            docker start ${CONTAINER_NAME}
+            echo "✅ Rolled back to previous version"
+          fi
+          
+          exit 1
+        fi
+        
+        echo "✅ Zero-downtime deployment complete!"
     
     - name: Verify deployment
       shell: bash
@@ -263,6 +363,145 @@ runs:
           docker ps -a --filter "name=${{ inputs.project }}-${{ inputs.service }}"
           exit 1
         fi
+    
+    - name: Send deployment notification email
+      if: success()
+      shell: bash
+      run: |
+        # Check if SMTP is configured
+        if [ -z "$SMTP_USERNAME" ] || [ -z "$SMTP_PASSWORD" ] || [ -z "$ALERT_EMAIL" ]; then
+          echo "⚠️  SMTP not configured, skipping email notification"
+          exit 0
+        fi
+        
+        echo "📧 Sending deployment notification..."
+        
+        # Get deployment info
+        PROJECT="${{ inputs.project }}"
+        SERVICE="${{ inputs.service }}"
+        GIT_SHA="${{ inputs.git_sha }}"
+        GIT_REF="${{ inputs.git_ref }}"
+        TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+        
+        # Create email body
+        cat > /tmp/email.txt <<EOF
+        Subject: ✅ Deployment Success: ${PROJECT}/${SERVICE}
+        From: SuperDeploy <${SMTP_USERNAME}>
+        To: ${ALERT_EMAIL}
+        Content-Type: text/html; charset=UTF-8
+        
+        <html>
+        <body style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2 style="color: #28a745;">✅ Deployment Successful</h2>
+          <table style="border-collapse: collapse; width: 100%; max-width: 600px;">
+            <tr>
+              <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa;"><strong>Project</strong></td>
+              <td style="padding: 8px; border: 1px solid #ddd;">${PROJECT}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa;"><strong>Service</strong></td>
+              <td style="padding: 8px; border: 1px solid #ddd;">${SERVICE}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa;"><strong>Git SHA</strong></td>
+              <td style="padding: 8px; border: 1px solid #ddd;"><code>${GIT_SHA:0:7}</code></td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa;"><strong>Branch</strong></td>
+              <td style="padding: 8px; border: 1px solid #ddd;">${GIT_REF}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa;"><strong>Deployed At</strong></td>
+              <td style="padding: 8px; border: 1px solid #ddd;">${TIMESTAMP}</td>
+            </tr>
+          </table>
+          <p style="margin-top: 20px; color: #666;">
+            <small>Automated deployment notification from SuperDeploy</small>
+          </p>
+        </body>
+        </html>
+        EOF
+        
+        # Send email using curl
+        curl --ssl-reqd \
+          --url "smtp://${SMTP_HOST}:${SMTP_PORT}" \
+          --user "${SMTP_USERNAME}:${SMTP_PASSWORD}" \
+          --mail-from "${SMTP_USERNAME}" \
+          --mail-rcpt "${ALERT_EMAIL}" \
+          --upload-file /tmp/email.txt \
+          --silent --show-error
+        
+        if [ $? -eq 0 ]; then
+          echo "✅ Email notification sent to ${ALERT_EMAIL}"
+        else
+          echo "⚠️  Failed to send email notification"
+        fi
+        
+        rm -f /tmp/email.txt
+    
+    - name: Send failure notification email
+      if: failure()
+      shell: bash
+      run: |
+        # Check if SMTP is configured
+        if [ -z "$SMTP_USERNAME" ] || [ -z "$SMTP_PASSWORD" ] || [ -z "$ALERT_EMAIL" ]; then
+          echo "⚠️  SMTP not configured, skipping email notification"
+          exit 0
+        fi
+        
+        echo "📧 Sending failure notification..."
+        
+        PROJECT="${{ inputs.project }}"
+        SERVICE="${{ inputs.service }}"
+        GIT_SHA="${{ inputs.git_sha }}"
+        TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+        
+        cat > /tmp/email.txt <<EOF
+        Subject: ❌ Deployment Failed: ${PROJECT}/${SERVICE}
+        From: SuperDeploy <${SMTP_USERNAME}>
+        To: ${ALERT_EMAIL}
+        Content-Type: text/html; charset=UTF-8
+        
+        <html>
+        <body style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2 style="color: #dc3545;">❌ Deployment Failed</h2>
+          <table style="border-collapse: collapse; width: 100%; max-width: 600px;">
+            <tr>
+              <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa;"><strong>Project</strong></td>
+              <td style="padding: 8px; border: 1px solid #ddd;">${PROJECT}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa;"><strong>Service</strong></td>
+              <td style="padding: 8px; border: 1px solid #ddd;">${SERVICE}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa;"><strong>Git SHA</strong></td>
+              <td style="padding: 8px; border: 1px solid #ddd;"><code>${GIT_SHA:0:7}</code></td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa;"><strong>Failed At</strong></td>
+              <td style="padding: 8px; border: 1px solid #ddd;">${TIMESTAMP}</td>
+            </tr>
+          </table>
+          <p style="margin-top: 20px;">
+            <strong>Action Required:</strong> Check Forgejo logs for details.
+          </p>
+          <p style="color: #666;">
+            <small>Automated deployment notification from SuperDeploy</small>
+          </p>
+        </body>
+        </html>
+        EOF
+        
+        curl --ssl-reqd \
+          --url "smtp://${SMTP_HOST}:${SMTP_PORT}" \
+          --user "${SMTP_USERNAME}:${SMTP_PASSWORD}" \
+          --mail-from "${SMTP_USERNAME}" \
+          --mail-rcpt "${ALERT_EMAIL}" \
+          --upload-file /tmp/email.txt \
+          --silent --show-error
+        
+        rm -f /tmp/email.txt
     
     - name: Clean up secrets
       if: always()

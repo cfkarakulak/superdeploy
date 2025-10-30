@@ -82,7 +82,7 @@
 # ============================================================================
 
 - name: Ensure superdeploy data directory exists
-  hosts: orchestrator
+  hosts: all
   become: yes
   tasks:
     - name: Create superdeploy data directory
@@ -100,11 +100,26 @@
         owner: "{{ superdeploy_user | default('superdeploy') }}"
         group: "{{ superdeploy_group | default('superdeploy') }}"
         mode: '0755'
+      when: project_name is defined
   tags:
     - addons
     - infrastructure
 
-- name: Deploy Infrastructure Addons
+- name: Deploy Infrastructure Addons (Orchestrator)
+  hosts: orchestrator
+  become: yes
+  roles:
+    - role: orchestration/addon-deployer
+  vars:
+    vm_role: orchestrator
+    # Orchestrator only deploys its own addons (forgejo, rabbitmq, postgres, caddy for forgejo)
+    # Override enabled_addons to prevent project addons from being deployed here
+    enabled_addons: "{{ enabled_addons | default([]) }}"
+  tags:
+    - addons
+    - infrastructure
+
+- name: Deploy Infrastructure Addons (Projects)
   hosts: all:!orchestrator
   become: yes
   roles:

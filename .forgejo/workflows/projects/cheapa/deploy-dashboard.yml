@@ -32,6 +32,7 @@ jobs:
           ref: master
       
       - name: Deploy to VM
+        id: deploy
         uses: ./.forgejo/actions/deploy
         with:
           project: cheapa
@@ -44,3 +45,14 @@ jobs:
           AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+      
+      - name: Send notification
+        if: always()
+        uses: ./.forgejo/actions/notify
+        with:
+          project: cheapa
+          service: dashboard
+          image: ${{ inputs.image }}
+          status: ${{ steps.deploy.outcome == 'success' && 'success' || 'failure' }}
+          git_sha: ${{ inputs.git_sha }}
+          git_ref: ${{ inputs.git_ref }}

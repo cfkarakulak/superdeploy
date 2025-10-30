@@ -17,6 +17,18 @@
     - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/datasources"
     - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/dashboards"
 
+- name: Discover all projects for monitoring
+  set_fact:
+    monitoring_projects: "{{ monitoring_projects | default([]) }}"
+  
+- name: Add current project to monitoring if not orchestrator
+  set_fact:
+    monitoring_projects: "{{ monitoring_projects + [{'name': project_name, 'targets': project_targets | default([]), 'environment': 'production'}] }}"
+  when: 
+    - project_name is defined
+    - project_name != 'orchestrator'
+    - project_targets is defined
+
 - name: Generate Prometheus configuration
   template:
     src: "{{ addon_path }}/prometheus.yml.j2"
@@ -24,6 +36,8 @@
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
+  vars:
+    projects: "{{ monitoring_projects | default([]) }}"
 
 - name: Generate Grafana datasource provisioning
   template:
@@ -32,6 +46,8 @@
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
+  vars:
+    projects: "{{ monitoring_projects | default([]) }}"
 
 - name: Generate Grafana dashboard provisioning
   template:
@@ -40,6 +56,8 @@
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
+  vars:
+    projects: "{{ monitoring_projects | default([]) }}"
 
 # Note: docker-compose.yml is already rendered by orchestration/addon-deployer/tasks/render-templates.yml
 # This keeps the deployment logic clean and focused on service-specific tasks

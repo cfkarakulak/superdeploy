@@ -19,8 +19,14 @@
 - name: Set default values for optional variables
   set_fact:
     enabled_addons: "{{ enabled_addons | default([]) }}"
+    addon_filter: "{{ addon_filter | default([]) }}"
     superdeploy_user: "{{ superdeploy_user | default('superdeploy') }}"
     superdeploy_group: "{{ superdeploy_group | default('superdeploy') }}"
+
+- name: Apply addon filter if specified (intersect with enabled_addons)
+  set_fact:
+    enabled_addons: "{{ enabled_addons | intersect(addon_filter) }}"
+  when: addon_filter | length > 0
 
 - name: Display addon deployment configuration
   debug:
@@ -36,6 +42,7 @@
   when: 
     - "'forgejo' not in enabled_addons"
     - "'orchestrator' in group_names"
+    - addon_filter | length == 0  # Only auto-add if no specific addon filter
 
 - name: Create project configuration directory
   file:

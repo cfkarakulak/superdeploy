@@ -7,6 +7,9 @@ Bu döküman, sistemi kurduktan sonra **günlük kullanımda** ihtiyaç duyacağ
 ## 🎯 Hızlı Referans
 
 ```bash
+# Orchestrator durumu
+superdeploy orchestrator status
+
 # Sistem durumu
 superdeploy status -p myproject
 
@@ -24,6 +27,9 @@ superdeploy sync -p myproject
 
 # Infrastructure
 superdeploy down -p myproject
+
+# Selective addon deployment
+superdeploy up -p myproject --addon postgres
 ```
 
 ---
@@ -42,20 +48,26 @@ superdeploy status -p myproject
 │ 🚀 SuperDeploy Status               │
 ╰─────────────────────────────────────╯
 
+Orchestrator Status:
+  ✅ Orchestrator VM: orchestrator (RUNNING)
+  ✅ External IP: 34.72.179.175
+  ✅ Forgejo: healthy (3001)
+  ✅ Prometheus: healthy (9090)
+  ✅ Grafana: healthy (3000)
+  ✅ Caddy: healthy (80, 443)
+
 Infrastructure Status:
   ✅ GCP Project: my-gcp-project
-  ✅ Core VM: myproject-core (RUNNING)
-  ✅ External IP: 34.42.105.169
+  ✅ Web VM: myproject-web-0 (RUNNING)
+  ✅ API VM: myproject-api-0 (RUNNING)
 
-Core Services:
+Services (Web VM):
   ✅ PostgreSQL: healthy (5432)
-  ✅ RabbitMQ: healthy (5672)
   ✅ Redis: healthy (6379)
-  ✅ Forgejo: healthy (3001)
 
 Application Services:
-  ✅ API: healthy (8000) - v45
-  ✅ Dashboard: healthy (3000) - v23
+  ✅ API: healthy (8000) - v45 (api VM)
+  ✅ Dashboard: healthy (3000) - v23 (web VM)
 ```
 
 ### Belirli Bir Service
@@ -153,16 +165,29 @@ superdeploy logs -p myproject -s postgres --tail 100
 
 # RabbitMQ logs
 superdeploy logs -p myproject -s rabbitmq --tail 100
+
+# Orchestrator Forgejo logs
+superdeploy orchestrator logs -s forgejo --tail 100
+
+# Prometheus logs
+superdeploy orchestrator logs -s prometheus --tail 100
+
+# Grafana logs
+superdeploy orchestrator logs -s grafana --tail 100
 ```
 
 ### VM'ye SSH ile Bağlanma
 
 ```bash
-# Otomatik
-superdeploy ssh
+# Orchestrator VM'ye bağlan
+superdeploy orchestrator ssh
 
-# Manuel
-ssh -i ~/.ssh/superdeploy_deploy superdeploy@34.42.105.169
+# Proje VM'ye bağlan (otomatik)
+superdeploy ssh -p myproject
+
+# Manuel (belirli VM)
+ssh -i ~/.ssh/superdeploy_deploy superdeploy@WEB_VM_IP
+ssh -i ~/.ssh/superdeploy_deploy superdeploy@API_VM_IP
 
 # Container'lara bak
 docker ps
@@ -385,6 +410,8 @@ docker volume prune -f
 
 ### VM restart edildi ve IP değişti, ne yapmalı?
 
+**Not:** IP preservation aktif olduğu için VM restart'ta IP korunur. Ancak VM silinip yeniden oluşturulursa:
+
 ```bash
 # 1. superdeploy up komutu otomatik günceller
 superdeploy up -p myproject
@@ -399,6 +426,24 @@ gh secret list --repo myprojectio/api | grep FORGEJO_BASE_URL
 cd app-repos/api
 git commit --allow-empty -m "test: verify new IP"
 git push origin production
+```
+
+### Orchestrator IP Değişimi
+
+Orchestrator IP değişirse tüm projeler etkilenir:
+
+```bash
+# 1. Orchestrator'ı yeniden deploy et
+superdeploy orchestrator up
+
+# 2. Tüm projelerin project.yml'ini güncelle
+# orchestrator.host: "YENİ_IP"
+
+# 3. Her projeyi yeniden deploy et
+superdeploy up -p myproject
+
+# 4. Runner'ları yeniden register et
+superdeploy up -p myproject --tags runner
 ```
 
 ---
@@ -421,19 +466,26 @@ gh auth login
 # Çözüm 1: up komutunu tekrar çalıştır
 superdeploy up -p myproject
 
-# Çözüm 2: Manuel kontrol et
-ssh superdeploy@CORE_IP
+# Çözüm 2: Manuel kontrol et (project VM'de)
+ssh superdeploy@PROJECT_VM_IP
+cat /opt/forgejo-runner/.age/key.txt
+
+# Çözüm 3: Orchestrator'da kontrol et
+superdeploy orchestrator ssh
 cat /opt/forgejo-runner/.age/key.txt
 ```
 
 ### "PAT creation failed" Hatası
 
 ```bash
-# Çözüm 1: Forgejo'nun çalıştığını kontrol et
-curl http://CORE_IP:3001/api/healthz
+# Çözüm 1: Orchestrator Forgejo'nun çalıştığını kontrol et
+curl http://ORCHESTRATOR_IP:3001/api/healthz
 
 # Çözüm 2: Admin şifresini kontrol et
-cat projects/myproject/.passwords.yml | grep FORGEJO_ADMIN_PASSWORD
+cat projects/orchestrator/.passwords.yml | grep FORGEJO_ADMIN_PASSWORD
+
+# Çözüm 3: Orchestrator durumunu kontrol et
+superdeploy orchestrator status
 ```
 
 ### Sync Sonrası Secret'lar Yüklenmiyor
@@ -452,20 +504,26 @@ superdeploy restart -p myproject --all
 ### Tüm Servisler Çöktü
 
 ```bash
-# 1. VM'ye bağlan
-ssh superdeploy@34.42.105.169
+# 1. Orchestrator'ı kontrol et
+superdeploy orchestrator status
+superdeploy orchestrator ssh
 
-# 2. Container durumunu kontrol et
+# 2. Orchestrator container'ları kontrol et
+docker ps -a
+docker compose -f /var/lib/superdeploy/orchestrator/compose/docker-compose.yml up -d
+
+# 3. Proje VM'ye bağlan
+ssh superdeploy@PROJECT_VM_IP
+
+# 4. Container durumunu kontrol et
 docker ps -a
 
-# 3. Core services'i başlat
+# 5. Services'i başlat
 cd /opt/superdeploy/projects/myproject/compose
 docker compose -f docker-compose.core.yml up -d
-
-# 4. App services'i başlat
 docker compose -f docker-compose.apps.yml up -d
 
-# 5. Logs kontrol et
+# 6. Logs kontrol et
 docker logs myproject-postgres --tail 100
 docker logs myproject-api --tail 100
 ```
@@ -501,11 +559,16 @@ sudo journalctl --vacuum-time=7d
 ### Manuel Health Check
 
 ```bash
+# Orchestrator Services
+curl http://ORCHESTRATOR_IP:3001/api/healthz  # Forgejo
+curl http://ORCHESTRATOR_IP:9090/-/healthy    # Prometheus
+curl http://ORCHESTRATOR_IP:3000/api/health   # Grafana
+
 # API
-curl http://34.42.105.169:8000/health
+curl http://API_VM_IP:8000/health
 
 # PostgreSQL
-ssh superdeploy@34.42.105.169
+ssh superdeploy@WEB_VM_IP
 docker exec myproject-postgres pg_isready -U superdeploy
 
 # RabbitMQ
@@ -522,12 +585,19 @@ docker exec myproject-redis redis-cli ping
 ### Sistem Güncelleme
 
 ```bash
-# VM packages güncelle
-ssh superdeploy@34.42.105.169
+# Orchestrator VM güncelle
+superdeploy orchestrator ssh
+sudo apt update && sudo apt upgrade -y
+
+# Proje VM'leri güncelle
+ssh superdeploy@PROJECT_VM_IP
 sudo apt update && sudo apt upgrade -y
 
 # Docker güncelle
 sudo apt install docker-ce docker-ce-cli containerd.io -y
+
+# Caddy güncelle (orchestrator'da)
+superdeploy orchestrator up --addon caddy
 ```
 
 ---
@@ -537,6 +607,7 @@ sudo apt install docker-ce docker-ce-cli containerd.io -y
 ### Tüm Infrastructure'ı Sil
 
 ```bash
+# Proje infrastructure'ını sil
 superdeploy destroy -p myproject
 # Confirm? (y/n): y
 
@@ -544,6 +615,10 @@ superdeploy destroy -p myproject
 # - GCP VM'leri siler
 # - Terraform state temizler
 # - .env'deki IP'leri temizler
+
+# Orchestrator'ı sil (DİKKATLİ! Tüm projeleri etkiler)
+superdeploy orchestrator destroy
+# Confirm? (y/n): y
 ```
 
 ### Sadece Bir Service'i Kaldır
@@ -557,11 +632,48 @@ docker compose -f docker-compose.apps.yml rm -f services
 
 ---
 
+## 🎯 Yeni Özellikler
+
+### Selective Addon Deployment
+
+Sadece belirli bir addon'ı deploy et:
+
+```bash
+# Sadece postgres'i deploy et
+superdeploy up -p myproject --addon postgres
+
+# Sadece caddy'yi güncelle (orchestrator'da)
+superdeploy orchestrator up --addon caddy
+
+# Sadece monitoring'i güncelle
+superdeploy orchestrator up --addon monitoring
+```
+
+### Monitoring Erişimi
+
+```bash
+# Grafana (subdomain ile)
+https://grafana.yourdomain.com
+
+# Prometheus (subdomain ile)
+https://prometheus.yourdomain.com
+
+# Forgejo (subdomain ile)
+https://forgejo.yourdomain.com
+
+# Direkt IP ile
+http://ORCHESTRATOR_IP:3000  # Grafana
+http://ORCHESTRATOR_IP:9090  # Prometheus
+http://ORCHESTRATOR_IP:3001  # Forgejo
+```
+
 ## 📚 Daha Fazla Bilgi
 
 - **ARCHITECTURE.md:** Genel mimari ve kavramlar
 - **SETUP.md:** İlk kurulum
 - **FLOW.md:** İş akışı ve parametre akışı
+- **ORCHESTRATOR_SETUP.md:** Orchestrator kurulum rehberi
+- **RUNNER_ARCHITECTURE.md:** Runner mimarisi
 
 ---
 
