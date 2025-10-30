@@ -8,17 +8,6 @@ networks:
 
 services:
 
-  dashboard:
-    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/dashboard:${DASHBOARD_TAG}
-    container_name: cheapa-dashboard
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    env_file:
-      - .env.dashboard
-    networks:
-      - cheapa-network
-
   api:
     image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/api:${API_TAG}
     container_name: cheapa-api
@@ -27,6 +16,17 @@ services:
       - "8000:8000"
     env_file:
       - .env.api
+    networks:
+      - cheapa-network
+
+  dashboard:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/dashboard:${DASHBOARD_TAG}
+    container_name: cheapa-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.dashboard
     networks:
       - cheapa-network
 

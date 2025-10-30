@@ -5,7 +5,7 @@ networks:
     driver: bridge
     ipam:
       config:
-      - subnet: 172.31.0.0/24
+      - subnet: 172.30.0.0/24
 volumes:
   rabbitmq-data:
     name: cheapa-rabbitmq-data

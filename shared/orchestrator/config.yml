@@ -29,17 +29,17 @@ monitoring:
   grafana: true
   grafana_port: 3000
   prometheus_port: 9090
-  grafana_domain: ""  # Optional: Set your domain (e.g., grafana.yourdomain.com)
-  prometheus_domain: ""  # Optional: Set your domain (e.g., prometheus.yourdomain.com)
+  grafana_domain: ''
+  prometheus_domain: ''
 caddy:
   enabled: true
   version: 2-alpine
   http_port: 80
   https_port: 443
   admin_port: 2019
-  ssl_email: ""  # Optional: Set your email for SSL certificates
+  ssl_email: ''
 deployment_mode: auto
 state:
-  deployed: true
-  ip: 34.63.14.178
-  last_updated: '2025-10-30T11:21:30.751329'
+  deployed: false
+  ip: ''
+  last_updated: ''

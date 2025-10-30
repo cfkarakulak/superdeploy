@@ -56,11 +56,7 @@
     projects: "{{ monitoring_projects | default([]) }}"
   register: prometheus_config_result
 
-- name: Copy Prometheus config to volume
-  shell: |
-    docker cp {{ addon_base_path }}/{{ addon_name }}/prometheus/prometheus.yml superdeploy-prometheus:/etc/prometheus/prometheus.yml
-  when: prometheus_config_result.changed
-  ignore_errors: yes
+# Config will be copied after container starts
 
 - name: Generate Grafana datasource provisioning
   template:
@@ -165,6 +161,21 @@
   retries: 10
   delay: 3
   failed_when: grafana_health.status != 200
+
+- name: Copy Prometheus config to running container
+  shell: |
+    docker cp {{ addon_base_path }}/{{ addon_name }}/prometheus/prometheus.yml superdeploy-prometheus:/etc/prometheus/prometheus.yml
+  when: prometheus_config_result.changed
+  ignore_errors: yes
+
+- name: Reload Prometheus configuration
+  uri:
+    url: "http://localhost:{{ PROMETHEUS_PORT | default(9090) }}/-/reload"
+    method: POST
+    status_code: 200
+    timeout: 5
+  when: prometheus_config_result.changed
+  ignore_errors: yes
 
 - name: Check if Caddy is enabled for domain access
   set_fact:
