@@ -298,6 +298,21 @@ def rollback(project, app, version, force):
         if "ROLLBACK_SUCCESS" in result:
             console.print("[green]✅ Rollback completed in 1-2 seconds![/green]")
             console.print(f"[green]✅ Now running: {target_release}[/green]")
+            
+            # Send email notification
+            try:
+                send_rollback_notification(
+                    project=project,
+                    app=app,
+                    from_version=current_name or "unknown",
+                    to_version=target_release,
+                    ssh_host=ssh_host,
+                    ssh_user=ssh_user,
+                    ssh_key=ssh_key,
+                    env=env
+                )
+            except Exception as e:
+                console.print(f"[yellow]⚠️  Email notification failed: {e}[/yellow]")
         else:
             console.print(f"[red]❌ Rollback failed[/red]")
             console.print(f"[dim]{result}[/dim]")
@@ -305,3 +320,70 @@ def rollback(project, app, version, force):
     except Exception as e:
         console.print(f"[red]❌ Rollback failed: {e}[/red]")
         raise SystemExit(1)
+
+
+def send_rollback_notification(project, app, from_version, to_version, ssh_host, ssh_user, ssh_key, env):
+    """Send email notification for rollback"""
+    import datetime
+    
+    alert_email = env.get("ALERT_EMAIL")
+    if not alert_email:
+        return
+    
+    console.print(f"[cyan]📧 Sending rollback notification to {alert_email}...[/cyan]")
+    
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+    
+    # Get service port
+    service_port = ""
+    if app == "api":
+        service_port = "8000"
+    elif app == "dashboard":
+        service_port = "3000"
+    elif app == "services":
+        service_port = "8001"
+    
+    email_cmd = f"""
+    ALERT_EMAIL="{alert_email}"
+    PROJECT="{project}"
+    SERVICE="{app}"
+    FROM_VERSION="{from_version}"
+    TO_VERSION="{to_version}"
+    TIMESTAMP="{timestamp}"
+    VM_IP="{ssh_host}"
+    SERVICE_PORT="{service_port}"
+    
+    # Install mailutils if needed
+    if ! command -v mail &> /dev/null; then
+        export DEBIAN_FRONTEND=noninteractive
+        sudo apt-get update -qq && sudo apt-get install -y mailutils postfix 2>&1 | grep -v "^Get:" || exit 0
+    fi
+    
+    # Send HTML email
+    {{
+        echo "Content-Type: text/html; charset=UTF-8"
+        echo "Subject: ⏮️  Rollback: $PROJECT/$SERVICE"
+        echo ""
+        echo "<html><body style='font-family: Arial, sans-serif; color: #333;'>"
+        echo "<h2 style='color: #ff9800;'>⏮️  Rollback Executed</h2>"
+        echo "<table style='border-collapse: collapse; width: 100%; max-width: 600px;'>"
+        echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>Project</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'>$PROJECT</td></tr>"
+        echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>Service</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'>$SERVICE</td></tr>"
+        echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>From</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'><code>$FROM_VERSION</code></td></tr>"
+        echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>To</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'><code style='color: #28a745;'>$TO_VERSION</code></td></tr>"
+        echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>VM</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'>$VM_IP</td></tr>"
+        if [ -n "$SERVICE_PORT" ]; then
+            echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>URL</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'><a href='http://$VM_IP:$SERVICE_PORT'>http://$VM_IP:$SERVICE_PORT</a></td></tr>"
+        fi
+        echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>Time</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'>$TIMESTAMP</td></tr>"
+        echo "</table>"
+        echo "<p style='margin-top: 20px; font-size: 12px; color: #666;'>SuperDeploy automated notification</p>"
+        echo "</body></html>"
+    }} | mail -a "Content-Type: text/html" -s "⏮️  Rollback: $PROJECT/$SERVICE" "$ALERT_EMAIL" 2>&1
+    """
+    
+    try:
+        ssh_command(host=ssh_host, user=ssh_user, key_path=ssh_key, cmd=email_cmd)
+        console.print("[green]✅ Email notification sent[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Email failed: {e}[/yellow]")

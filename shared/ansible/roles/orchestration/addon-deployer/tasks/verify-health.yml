@@ -40,7 +40,7 @@
 
 # Wait for container to be running before health checks
 - name: Wait for {{ addon_name }} container to be running
-  shell: docker inspect -f '{% raw %}{{.State.Running}}{% endraw %}' {{ project_name }}-{{ addon_name }}
+  shell: docker inspect -f '{% raw %}{{.State.Running}}{% endraw %}' {{ addon_health_container }}
   register: container_running
   until: container_running.stdout == 'true'
   retries: "{{ (health_check_start_period | int / 5) | int }}"
@@ -66,7 +66,7 @@
 # Command Health Check (from addon.yml)
 - name: Command health check for {{ addon_name }}
   shell: |
-    docker exec {{ project_name }}-{{ addon_name }} {{ addon_metadata.healthcheck.command }}
+    docker exec {{ addon_health_container }} {{ addon_metadata.healthcheck.command }}
   register: command_health_result
   until: command_health_result.rc == 0
   retries: "{{ health_check_retries }}"
