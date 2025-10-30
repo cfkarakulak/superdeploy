@@ -507,7 +507,7 @@ jobs:
             -H "Authorization: token $FORGEJO_PAT" \
             -H "Content-Type: application/json" \
             -d "{\"ref\":\"master\",\"inputs\":{\"image\":\"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}\",\"env_bundle\":\"${{ steps.env_bundle.outputs.encrypted }}\",\"git_sha\":\"${{ github.sha }}\"}}" \
-            "$FORGEJO_BASE_URL/api/v1/repos/$FORGEJO_ORG/superdeploy/actions/workflows/projects%%2F%(project_name)s%%2Fdeploy-%(app_name)s.yml/dispatches")
+            "$FORGEJO_BASE_URL/api/v1/repos/$FORGEJO_ORG/superdeploy/actions/workflows/projects%2F%(project_name)s%2Fdeploy-%(app_name)s.yml/dispatches")
           
           HTTP_CODE=$(echo "$RESPONSE" | head -n1 | cut -d' ' -f2)
           BODY=$(echo "$RESPONSE" | tail -n1)
