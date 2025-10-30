@@ -188,6 +188,9 @@ runs:
               com.superdeploy.service: "SERVICE_PLACEHOLDER"
               com.superdeploy.git.sha: "GIT_SHA_PLACEHOLDER"
               com.superdeploy.git.ref: "GIT_REF_PLACEHOLDER"
+              prometheus.scrape: "true"
+              prometheus.port: "{{INTERNAL_PORT}}"
+              prometheus.path: "/metrics"
             healthcheck:
               test: ["CMD", "curl", "-f", "http://localhost:{{INTERNAL_PORT}}/"]
               interval: 15s
