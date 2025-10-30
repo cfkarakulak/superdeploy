@@ -82,6 +82,12 @@ github:
   organization: "cheapaio"  # EDIT THIS - GitHub organization
 
 # =============================================================================
+# Forgejo Configuration (Orchestrator)
+# =============================================================================
+forgejo:
+  domain: ""  # Optional: Set to enable HTTPS for Forgejo (e.g., "git.cheapa.io")
+
+# =============================================================================
 # Network Configuration
 # =============================================================================
 network:
@@ -94,6 +100,8 @@ monitoring:
   enabled: true
   prometheus: true
   grafana: true
+  grafana_domain: ""  # Optional: Set to enable HTTPS for Grafana (e.g., "grafana.cheapa.io")
+  prometheus_domain: ""  # Optional: Set to enable HTTPS for Prometheus (e.g., "prometheus.cheapa.io")
 
 # =============================================================================
 # Domain Configuration

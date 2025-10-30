@@ -40,6 +40,6 @@ caddy:
   ssl_email: ''
 deployment_mode: auto
 state:
-  deployed: false
-  ip: ''
-  last_updated: ''
+  deployed: true
+  ip: 136.115.19.35
+  last_updated: '2025-10-30T16:08:30.026114'

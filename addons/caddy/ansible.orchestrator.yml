@@ -73,4 +73,4 @@
       - "Caddy Admin API: http://{{ ansible_host }}:{{ env_vars.CADDY_ADMIN_PORT | default(2019) }}"
       - "{% if env_vars.GRAFANA_DOMAIN is defined and env_vars.GRAFANA_DOMAIN %}Grafana: https://{{ env_vars.GRAFANA_DOMAIN }}{% else %}Grafana: http://{{ ansible_host }}:3000{% endif %}"
       - "{% if env_vars.PROMETHEUS_DOMAIN is defined and env_vars.PROMETHEUS_DOMAIN %}Prometheus: https://{{ env_vars.PROMETHEUS_DOMAIN }}{% else %}Prometheus: http://{{ ansible_host }}:9090{% endif %}"
-      - "{% if env_vars.GRAFANA_DOMAIN or env_vars.PROMETHEUS_DOMAIN %}Note: Ensure DNS records point to {{ ansible_host }}{% endif %}"
+      - "{% if (env_vars.GRAFANA_DOMAIN is defined and env_vars.GRAFANA_DOMAIN) or (env_vars.PROMETHEUS_DOMAIN is defined and env_vars.PROMETHEUS_DOMAIN) %}Note: Ensure DNS records point to {{ ansible_host }}{% endif %}"

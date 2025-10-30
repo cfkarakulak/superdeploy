@@ -27,13 +27,14 @@ from cli.terraform_utils import (
 console = Console()
 
 
-def filter_addons(enabled_addons, skip_addons, project):
+def filter_addons(enabled_addons, skip_addons, only_addons, project):
     """
-    Filter addon list based on --skip flags
+    Filter addon list based on --skip and --addon flags
 
     Args:
         enabled_addons: List of all enabled addons
         skip_addons: Tuple of addon names to skip
+        only_addons: String of comma-separated addon names to deploy (or None)
         project: Project name for error messages
 
     Returns:
@@ -42,6 +43,23 @@ def filter_addons(enabled_addons, skip_addons, project):
     if not enabled_addons:
         return []
 
+    # If --addon specified, only deploy those
+    if only_addons:
+        requested = [a.strip() for a in only_addons.split(',')]
+        filtered = []
+        for addon in requested:
+            if addon in enabled_addons:
+                filtered.append(addon)
+            else:
+                console.print(
+                    f"[yellow]⚠️  Warning: Addon '{addon}' not found in project (ignoring)[/yellow]"
+                )
+        
+        if filtered:
+            console.print(f"[cyan]📦 Deploying only: {', '.join(filtered)}[/cyan]")
+        return filtered
+
+    # Otherwise, start with all enabled addons
     filtered = list(enabled_addons)
 
     # Apply --skip filter
@@ -667,7 +685,7 @@ def up(
                 tags = "addons"
             filtered_addons = enabled_addons  # Don't filter here, let Ansible do it per-VM
         else:
-            filtered_addons = filter_addons(enabled_addons, skip, project)
+            filtered_addons = filter_addons(enabled_addons, skip, addon, project)
             ansible_vars["addon_filter"] = []
 
         # Update ansible_vars with filtered addons (for display only)
