@@ -41,6 +41,7 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Deploy to VM
+        id: deploy
         uses: ./.forgejo/actions/deploy
         with:
           project: ${{ inputs.project }}
@@ -53,6 +54,17 @@ jobs:
           AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+      
+      - name: Send notification
+        if: always()
+        uses: ./.forgejo/actions/notify
+        with:
+          project: ${{ inputs.project }}
+          service: ${{ inputs.service }}
+          image: ${{ inputs.image }}
+          status: ${{ steps.deploy.outcome == 'success' && 'success' || 'failure' }}
+          git_sha: ${{ inputs.git_sha }}
+          git_ref: ${{ inputs.git_ref }}
   
   deploy-web:
     if: ${{ inputs.service == 'dashboard' }}
@@ -62,6 +74,7 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Deploy to VM
+        id: deploy
         uses: ./.forgejo/actions/deploy
         with:
           project: ${{ inputs.project }}
@@ -74,6 +87,17 @@ jobs:
           AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+      
+      - name: Send notification
+        if: always()
+        uses: ./.forgejo/actions/notify
+        with:
+          project: ${{ inputs.project }}
+          service: ${{ inputs.service }}
+          image: ${{ inputs.image }}
+          status: ${{ steps.deploy.outcome == 'success' && 'success' || 'failure' }}
+          git_sha: ${{ inputs.git_sha }}
+          git_ref: ${{ inputs.git_ref }}
   
   deploy-worker:
     if: ${{ inputs.service == 'services' }}
@@ -83,6 +107,7 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Deploy to VM
+        id: deploy
         uses: ./.forgejo/actions/deploy
         with:
           project: ${{ inputs.project }}
@@ -95,3 +120,14 @@ jobs:
           AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+      
+      - name: Send notification
+        if: always()
+        uses: ./.forgejo/actions/notify
+        with:
+          project: ${{ inputs.project }}
+          service: ${{ inputs.service }}
+          image: ${{ inputs.image }}
+          status: ${{ steps.deploy.outcome == 'success' && 'success' || 'failure' }}
+          git_sha: ${{ inputs.git_sha }}
+          git_ref: ${{ inputs.git_ref }}

@@ -169,3 +169,21 @@ resource "google_compute_firewall" "allow_proxy_registry" {
   description = "Proxy Registry - PUBLIC ACCESS"
 }
 
+# Firewall: Monitoring (Grafana & Prometheus) - PUBLIC ACCESS
+resource "google_compute_firewall" "allow_monitoring" {
+  name    = "${var.network_name}-allow-monitoring"
+  network = google_compute_network.vpc.name
+  project = var.project_id
+
+  allow {
+    protocol = "tcp"
+    ports    = ["3000", "9090"]  # Grafana, Prometheus
+  }
+
+  source_ranges = ["0.0.0.0/0"]  # Public access
+  # Apply to all VMs (monitoring is shared)
+  target_tags   = var.vm_roles
+
+  description = "Allow Grafana (3000) and Prometheus (9090) - PUBLIC ACCESS"
+}
+

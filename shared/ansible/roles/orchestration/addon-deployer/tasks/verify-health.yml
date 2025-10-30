@@ -32,6 +32,22 @@
     health_check_retries: "{{ addon_metadata.healthcheck.retries | default(addon_health_check_retries) }}"
     health_check_delay: "{{ addon_metadata.healthcheck.interval | default(addon_health_check_delay ~ 's') | regex_replace('s', '') | int }}"
     health_check_start_period: "{{ addon_metadata.healthcheck.start_period | default('0s') | regex_replace('s', '') | int }}"
+    # Determine container name based on whether addon is shared
+    addon_container_name: >-
+      {%- if addon_metadata.shared | default(false) -%}
+        superdeploy-{{ addon_name }}
+      {%- else -%}
+        {{ project_name }}-{{ addon_name }}
+      {%- endif -%}
+    # For monitoring addon, use grafana as the primary container for health checks
+    addon_health_container: >-
+      {%- if addon_name == 'monitoring' -%}
+        superdeploy-grafana
+      {%- elif addon_metadata.shared | default(false) -%}
+        superdeploy-{{ addon_name }}
+      {%- else -%}
+        {{ project_name }}-{{ addon_name }}
+      {%- endif -%}
 
 - name: Display selected health check method
   debug:
@@ -79,9 +95,9 @@
 - name: Database health check for {{ addon_name }}
   shell: |
     {% if addon_name == 'postgres' %}
-    docker exec {{ project_name }}-{{ addon_name }} pg_isready -U {{ env_vars.POSTGRES_USER | default('postgres') }}
+    docker exec {{ addon_health_container }} pg_isready -U {{ env_vars.POSTGRES_USER | default('postgres') }}
     {% elif addon_name == 'mongodb' %}
-    docker exec {{ project_name }}-{{ addon_name }} mongosh --eval "db.runCommand({ ping: 1 })" --quiet
+    docker exec {{ addon_health_container }} mongosh --eval "db.runCommand({ ping: 1 })" --quiet
     {% else %}
     echo "Unknown database type: {{ addon_name }}"
     exit 1
@@ -98,7 +114,7 @@
 - name: Cache health check for {{ addon_name }}
   shell: |
     {% if addon_name == 'redis' %}
-    docker exec {{ project_name }}-{{ addon_name }} redis-cli ping
+    docker exec {{ addon_health_container }} redis-cli ping
     {% else %}
     echo "Unknown cache type: {{ addon_name }}"
     exit 1
@@ -115,7 +131,7 @@
 - name: Queue health check for {{ addon_name }}
   shell: |
     {% if addon_name == 'rabbitmq' %}
-    docker exec {{ project_name }}-{{ addon_name }} rabbitmq-diagnostics -q ping
+    docker exec {{ addon_health_container }} rabbitmq-diagnostics -q ping
     {% else %}
     echo "Unknown queue type: {{ addon_name }}"
     exit 1
@@ -132,12 +148,12 @@
 - name: Container status health check for {{ addon_name }}
   shell: |
     # First try to get health status if healthcheck is defined in compose
-    HEALTH_STATUS=$(docker inspect --format='{% raw %}{{.State.Health.Status}}{% endraw %}' {{ project_name }}-{{ addon_name }} 2>/dev/null || echo "none")
+    HEALTH_STATUS=$(docker inspect --format='{% raw %}{{.State.Health.Status}}{% endraw %}' {{ addon_health_container }} 2>/dev/null || echo "none")
     if [ "$HEALTH_STATUS" = "healthy" ]; then
       exit 0
     elif [ "$HEALTH_STATUS" = "none" ]; then
       # No healthcheck defined, check if container is running
-      STATUS=$(docker inspect --format='{% raw %}{{.State.Status}}{% endraw %}' {{ project_name }}-{{ addon_name }} 2>/dev/null || echo "not_found")
+      STATUS=$(docker inspect --format='{% raw %}{{.State.Status}}{% endraw %}' {{ addon_health_container }} 2>/dev/null || echo "not_found")
       if [ "$STATUS" = "running" ]; then
         exit 0
       else
@@ -196,19 +212,19 @@
 - name: Gather diagnostic information on health check failure
   block:
     - name: Get container logs for {{ addon_name }}
-      shell: docker logs --tail 100 {{ project_name }}-{{ addon_name }} 2>&1
+      shell: docker logs --tail 100 {{ addon_health_container }} 2>&1
       register: container_logs
       changed_when: false
       ignore_errors: yes
       
     - name: Get container status for {{ addon_name }}
-      shell: docker inspect {{ project_name }}-{{ addon_name }}
+      shell: docker inspect {{ addon_health_container }}
       register: container_inspect
       changed_when: false
       ignore_errors: yes
       
     - name: Get container processes for {{ addon_name }}
-      shell: docker top {{ project_name }}-{{ addon_name }}
+      shell: docker top {{ addon_health_container }}
       register: container_processes
       changed_when: false
       ignore_errors: yes
@@ -232,7 +248,7 @@
           Expected Status: {{ addon_metadata.healthcheck.status_code | default(200) }}
           Actual Status: {{ http_health_result.status | default('N/A') }}
           {% elif health_check_method == 'command' %}
-          Command: docker exec {{ project_name }}-{{ addon_name }} {{ addon_metadata.healthcheck.command }}
+          Command: docker exec {{ addon_health_container }} {{ addon_metadata.healthcheck.command }}
           Exit Code: {{ command_health_result.rc | default('N/A') }}
           Output: {{ command_health_result.stdout | default('') }}
           Error: {{ command_health_result.stderr | default('') }}
@@ -275,10 +291,10 @@
              docker ps -a | grep {{ addon_name }}
           
           2. Check full container logs:
-             docker logs {{ project_name }}-{{ addon_name }}
+             docker logs {{ addon_health_container }}
           
           3. Check container health status:
-             docker inspect {{ project_name }}-{{ addon_name }} | jq '.[0].State'
+             docker inspect {{ addon_health_container }} | jq '.[0].State'
           
           4. Verify configuration files:
              cat {{ addon_deployment_path }}/docker-compose.yml
@@ -289,15 +305,15 @@
           
           6. Try manual health check:
              {% if health_check_method == 'command' %}
-             docker exec {{ project_name }}-{{ addon_name }} {{ addon_metadata.healthcheck.command }}
+             docker exec {{ addon_health_container }} {{ addon_metadata.healthcheck.command }}
              {% elif health_check_method == 'database' and addon_name == 'postgres' %}
-             docker exec {{ project_name }}-{{ addon_name }} pg_isready -U {{ env_vars.POSTGRES_USER | default('postgres') }}
+             docker exec {{ addon_health_container }} pg_isready -U {{ env_vars.POSTGRES_USER | default('postgres') }}
              {% elif health_check_method == 'database' and addon_name == 'mongodb' %}
-             docker exec {{ project_name }}-{{ addon_name }} mongosh --eval "db.runCommand({ ping: 1 })"
+             docker exec {{ addon_health_container }} mongosh --eval "db.runCommand({ ping: 1 })"
              {% elif health_check_method == 'cache' %}
-             docker exec {{ project_name }}-{{ addon_name }} redis-cli ping
+             docker exec {{ addon_health_container }} redis-cli ping
              {% elif health_check_method == 'queue' %}
-             docker exec {{ project_name }}-{{ addon_name }} rabbitmq-diagnostics -q ping
+             docker exec {{ addon_health_container }} rabbitmq-diagnostics -q ping
              {% endif %}
           
           Common Issues:
