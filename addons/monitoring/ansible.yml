@@ -22,21 +22,21 @@
   set_fact:
     monitoring_projects: []
   
-- name: Build monitoring projects from inventory
+- name: Build monitoring projects from inventory with app targets
   set_fact:
-    monitoring_projects: "{{ monitoring_projects + [{'name': item.split('-')[0], 'vms': {item.split('-')[1]: hostvars[item]['ansible_host']}}] }}"
+    monitoring_projects: "{{ monitoring_projects + [{'name': item.split('-')[0], 'vms': {item.split('-')[1]: hostvars[item]['ansible_host']}, 'app_targets': [hostvars[item]['ansible_host'] + ':' + (hostvars[item]['app_port'] | default('8000'))]}] }}"
   loop: "{{ groups['all'] | select('match', '^[^orchestrator].*-.*-\\d+$') | list }}"
   when: 
     - groups['all'] is defined
     - item.split('-') | length >= 2
 
-- name: Merge VMs for same project
+- name: Merge VMs and app targets for same project
   set_fact:
     monitoring_projects_merged: {}
 
-- name: Group VMs by project
+- name: Group VMs and app targets by project
   set_fact:
-    monitoring_projects_merged: "{{ monitoring_projects_merged | combine({item.name: {'name': item.name, 'vms': (monitoring_projects_merged[item.name].vms | default({})) | combine(item.vms), 'environment': 'production'}}) }}"
+    monitoring_projects_merged: "{{ monitoring_projects_merged | combine({item.name: {'name': item.name, 'vms': (monitoring_projects_merged[item.name].vms | default({})) | combine(item.vms), 'app_targets': (monitoring_projects_merged[item.name].app_targets | default([])) + item.app_targets, 'environment': 'production'}}) }}"
   loop: "{{ monitoring_projects }}"
   when: monitoring_projects | length > 0
 

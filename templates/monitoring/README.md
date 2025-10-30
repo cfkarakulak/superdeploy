@@ -1,147 +1,74 @@
-# Application Metrics - Quick Setup
+# Prometheus Metrics Middleware
 
-## Python (Flask)
+Auto-detects your framework and adds `/metrics` endpoint with request tracking.
 
+## Quick Start
+
+### FastAPI / Starlette
 ```python
-# requirements.txt
-prometheus-client==0.19.0
-
-# app.py
-from flask import Flask
-from prometheus_middleware import setup_flask_metrics
-
-app = Flask(__name__)
-setup_flask_metrics(app)  # Add this line!
-
-@app.route('/')
-def index():
-    return 'Hello World'
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
-```
-
-## Python (FastAPI)
-
-```python
-# requirements.txt
-prometheus-client==0.19.0
-
-# main.py
 from fastapi import FastAPI
-from prometheus_middleware import setup_fastapi_metrics
+from prometheus_middleware import setup_metrics
 
 app = FastAPI()
-setup_fastapi_metrics(app)  # Add this line!
-
-@app.get('/')
-def index():
-    return {'message': 'Hello World'}
+setup_metrics(app)  # That's it!
 ```
 
-## Python (Django)
-
+### Flask
 ```python
-# requirements.txt
-prometheus-client==0.19.0
+from flask import Flask
+from prometheus_middleware import setup_metrics
 
-# settings.py
-MIDDLEWARE = [
-    'prometheus_middleware.DjangoPrometheusMiddleware',  # Add this!
-    # ... other middleware
-]
-
-# urls.py
-from prometheus_middleware import django_metrics_view
-
-urlpatterns = [
-    path('metrics/', django_metrics_view),  # Add this!
-    # ... other urls
-]
+app = Flask(__name__)
+setup_metrics(app)  # That's it!
 ```
 
-## Node.js (Express)
+## What It Tracks
+
+- **Request Count**: `app_http_requests_total{method, path, status}`
+- **Request Duration**: `app_http_request_duration_seconds{method, path}`
+- **Active Requests**: `app_http_requests_in_progress{method, path}`
+
+## Metrics Endpoint
+
+After setup, metrics are available at: `http://your-app:port/metrics`
+
+## Requirements
 
 ```bash
-npm install prom-client
+pip install prometheus-client
 ```
 
-```javascript
-// app.js
-const express = require('express');
-const { setupExpressMetrics } = require('./prometheus_middleware');
+## How It Works
 
-const app = express();
-setupExpressMetrics(app);  // Add this line!
+1. Auto-detects your framework (FastAPI or Flask)
+2. Adds middleware to track all HTTP requests
+3. Creates `/metrics` endpoint automatically
+4. Labels include: method, path, status code
 
-app.get('/', (req, res) => {
-  res.send('Hello World');
-});
+## Example Metrics Output
 
-app.listen(8000);
+```
+# HELP app_http_requests_total Total HTTP requests
+# TYPE app_http_requests_total counter
+app_http_requests_total{method="GET",path="/api/users",status="200"} 42.0
+
+# HELP app_http_request_duration_seconds HTTP request latency
+# TYPE app_http_request_duration_seconds histogram
+app_http_request_duration_seconds_sum{method="GET",path="/api/users"} 1.23
+app_http_request_duration_seconds_count{method="GET",path="/api/users"} 42
 ```
 
-## Go
+## Grafana Integration
 
-```go
-// go.mod
-require github.com/prometheus/client_golang v1.17.0
+These metrics work automatically with SuperDeploy's Endpoint Analytics dashboard:
+- Top 10 hottest endpoints
+- Top 10 slowest endpoints  
+- Request rate by endpoint
+- Error rate by endpoint
+- Response time distribution
 
-// main.go
-package main
+## Notes
 
-import (
-    "net/http"
-    "yourapp/monitoring"
-)
-
-func main() {
-    mux := http.NewServeMux()
-    
-    // Your routes
-    mux.HandleFunc("/", handleIndex)
-    
-    // Metrics endpoint
-    mux.Handle("/metrics", monitoring.MetricsHandler())
-    
-    // Wrap with middleware
-    handler := monitoring.PrometheusMiddleware(mux)
-    
-    http.ListenAndServe(":8000", handler)
-}
-```
-
-## Prometheus Configuration
-
-Add to your app's docker-compose labels:
-
-```yaml
-services:
-  api:
-    labels:
-      - "prometheus.scrape=true"
-      - "prometheus.port=8000"
-      - "prometheus.path=/metrics"
-```
-
-## Metrics Exposed
-
-- `app_http_requests_total{method, path, status}` - Total requests
-- `app_http_request_duration_seconds{method, path}` - Request latency
-- `app_http_requests_in_progress{method, path}` - Active requests
-
-## Grafana Queries
-
-```promql
-# Requests per second by endpoint
-rate(app_http_requests_total[5m])
-
-# Top 10 endpoints
-topk(10, sum by (path) (rate(app_http_requests_total[5m])))
-
-# Slowest endpoints (p95)
-histogram_quantile(0.95, sum by (path, le) (rate(app_http_request_duration_seconds_bucket[5m])))
-
-# Error rate by endpoint
-sum by (path) (rate(app_http_requests_total{status=~"5.."}[5m]))
-```
+- Metrics are collected per-process (not shared across workers)
+- Path parameters are preserved (e.g., `/users/123` not `/users/{id}`)
+- For high-cardinality paths, consider path normalization

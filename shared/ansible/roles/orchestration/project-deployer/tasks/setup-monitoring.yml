@@ -34,14 +34,12 @@
     - (item.value.port is defined or item.value.internal_port is defined)
     - item.value.vm is defined
 
-- name: Build app metrics targets list (for /metrics endpoints)
+- name: Set app port fact for monitoring
   set_fact:
-    app_metrics_targets: "{{ app_metrics_targets | default([]) + [project_name + '-' + item.key + ':' + ((item.value.internal_port | default(item.value.port)) | string)] }}"
-  loop: "{{ apps | dict2items }}"
-  when: 
+    app_port: "{{ (apps.values() | map(attribute='internal_port') | list | first) | default((apps.values() | map(attribute='port') | list | first) | default('8000')) }}"
+  when:
     - monitoring_enabled
     - apps | length > 0
-    - (item.value.port is defined or item.value.internal_port is defined)
 
 - name: Display monitoring targets
   debug:
