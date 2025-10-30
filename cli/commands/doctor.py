@@ -101,61 +101,78 @@ def doctor():
     # 3. Check configuration
     console.print("[cyan]━━━ Checking Configuration ━━━[/cyan]")
 
-    env_file = find_env_file()
-    if env_file:
-        table.add_row("✅ .env file", "[green]Found[/green]", str(env_file))
-
-        # Load and validate
-        env = load_env()
-
-        critical_vars = [
-            "GCP_PROJECT_ID",
-            "SSH_KEY_PATH",
-            "DOCKER_USERNAME",
-            "GITHUB_TOKEN",
-        ]
-
-        for var in critical_vars:
-            value = env.get(var)
-            if value and value not in [
-                "",
-                "your-project-id",
-                "your-dockerhub-username",
-                "your-github-token",
-            ]:
-                table.add_row(f"  ✅ {var}", "[green]Set[/green]", "")
-            else:
-                table.add_row(
-                    f"  ❌ {var}", "[red]Not configured[/red]", "Run: superdeploy init"
-                )
+    # Check if any projects exist
+    from pathlib import Path
+    from cli.utils import get_project_root
+    
+    project_root = get_project_root()
+    projects_dir = project_root / "projects"
+    
+    if projects_dir.exists():
+        projects = [d.name for d in projects_dir.iterdir() if d.is_dir() and not d.name.startswith('.') and (d / 'project.yml').exists()]
+        
+        if projects:
+            table.add_row("✅ Projects", "[green]Found[/green]", f"{len(projects)} project(s)")
+            
+            # Check first project as example
+            first_project = projects[0]
+            from cli.core.config_loader import ConfigLoader
+            try:
+                config_loader = ConfigLoader(projects_dir)
+                project_config = config_loader.load_project(first_project)
+                table.add_row(f"  ✅ {first_project}", "[green]Valid config[/green]", "")
+            except Exception as e:
+                table.add_row(f"  ❌ {first_project}", "[red]Invalid config[/red]", str(e)[:30])
+        else:
+            table.add_row("⏳ Projects", "[yellow]None found[/yellow]", "Run: superdeploy init -p myproject")
     else:
-        table.add_row("❌ .env file", "[red]Not found[/red]", "Run: superdeploy init")
+        table.add_row("⏳ Projects", "[yellow]None found[/yellow]", "Run: superdeploy init -p myproject")
 
     # 4. Check VMs (if deployed)
     console.print("[cyan]━━━ Checking Infrastructure ━━━[/cyan]")
 
-    if env_file:
-        env = load_env()
-
-        if env.get("CORE_EXTERNAL_IP"):
-            # Try to ping VM
-            try:
-                subprocess.run(
-                    ["ping", "-c", "1", "-W", "2", env["CORE_EXTERNAL_IP"]],
-                    check=True,
-                    capture_output=True,
-                )
-                table.add_row(
-                    "✅ Core VM", "[green]Reachable[/green]", env["CORE_EXTERNAL_IP"]
-                )
-            except subprocess.CalledProcessError:
-                table.add_row(
-                    "❌ Core VM", "[red]Unreachable[/red]", env["CORE_EXTERNAL_IP"]
-                )
+    # Check orchestrator
+    from cli.core.orchestrator_loader import OrchestratorLoader
+    try:
+        orch_loader = OrchestratorLoader(project_root / "shared")
+        orch_config = orch_loader.load()
+        
+        if orch_config.is_deployed():
+            orch_ip = orch_config.get_ip()
+            if orch_ip:
+                # Try to ping orchestrator
+                try:
+                    subprocess.run(
+                        ["ping", "-c", "1", "-W", "2", orch_ip],
+                        check=True,
+                        capture_output=True,
+                    )
+                    table.add_row("✅ Orchestrator", "[green]Reachable[/green]", orch_ip)
+                except subprocess.CalledProcessError:
+                    table.add_row("❌ Orchestrator", "[red]Unreachable[/red]", orch_ip)
+            else:
+                table.add_row("⏳ Orchestrator", "[yellow]IP not found[/yellow]", "")
         else:
-            table.add_row(
-                "⏳ VMs", "[yellow]Not deployed[/yellow]", "Run: superdeploy up"
-            )
+            table.add_row("⏳ Orchestrator", "[yellow]Not deployed[/yellow]", "Run: superdeploy orchestrator up")
+    except Exception:
+        table.add_row("⏳ Orchestrator", "[yellow]Not configured[/yellow]", "")
+    
+    # Check project VMs if projects exist
+    if projects_dir.exists() and projects:
+        first_project = projects[0]
+        try:
+            from cli.utils import load_env
+            env = load_env(project=first_project)
+            
+            # Check for any VM IPs
+            vm_ips = {k: v for k, v in env.items() if k.endswith('_EXTERNAL_IP')}
+            
+            if vm_ips:
+                table.add_row(f"✅ {first_project} VMs", "[green]Deployed[/green]", f"{len(vm_ips)} VM(s)")
+            else:
+                table.add_row(f"⏳ {first_project} VMs", "[yellow]Not deployed[/yellow]", f"Run: superdeploy up -p {first_project}")
+        except Exception:
+            table.add_row(f"⏳ {first_project} VMs", "[yellow]Not deployed[/yellow]", f"Run: superdeploy up -p {first_project}")
 
     # Print table
     console.print("\n")
