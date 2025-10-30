@@ -73,21 +73,39 @@ runs:
           }
         fi
         
-        # Send email
+        # Get VM info
+        HOSTNAME=$(hostname)
+        VM_IP=$(hostname -I | awk '{print $1}')
+        
+        # Get service URL from environment
+        SERVICE_PORT=""
+        case "$SERVICE" in
+          api) SERVICE_PORT="8000" ;;
+          dashboard) SERVICE_PORT="3000" ;;
+          services) SERVICE_PORT="8001" ;;
+        esac
+        
+        # Send email with HTML formatting
         {
-          echo "SuperDeploy Deployment Notification"
+          echo "Content-Type: text/html; charset=UTF-8"
+          echo "Subject: $SUBJECT"
           echo ""
-          echo "Status: $STATUS_EMOJI $STATUS"
-          echo "Project: $PROJECT"
-          echo "Service: $SERVICE"
-          echo "Image: $IMAGE"
-          echo "Git SHA: $GIT_SHA"
-          echo "Git Ref: $GIT_REF"
-          echo "Timestamp: $TIMESTAMP"
-          echo ""
-          echo "---"
-          echo "This is an automated notification from SuperDeploy"
-        } | mail -s "$SUBJECT" "$ALERT_EMAIL" 2>&1 && {
+          echo "<html><body style='font-family: Arial, sans-serif; color: #333;'>"
+          echo "<h2 style='color: $([ "$STATUS" = "success" ] && echo "#28a745" || echo "#dc3545");'>$STATUS_EMOJI Deployment $STATUS</h2>"
+          echo "<table style='border-collapse: collapse; width: 100%; max-width: 600px;'>"
+          echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>Project</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'>$PROJECT</td></tr>"
+          echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>Service</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'>$SERVICE</td></tr>"
+          echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>Image</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'><code>$IMAGE</code></td></tr>"
+          echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>VM</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'>$HOSTNAME ($VM_IP)</td></tr>"
+          if [ -n "$SERVICE_PORT" ]; then
+            echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>URL</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'><a href='http://$VM_IP:$SERVICE_PORT'>http://$VM_IP:$SERVICE_PORT</a></td></tr>"
+          fi
+          echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>Commit</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'><code>${GIT_SHA:0:8}</code> ($GIT_REF)</td></tr>"
+          echo "<tr><td style='padding: 8px; border-bottom: 1px solid #ddd;'><strong>Time</strong></td><td style='padding: 8px; border-bottom: 1px solid #ddd;'>$TIMESTAMP</td></tr>"
+          echo "</table>"
+          echo "<p style='margin-top: 20px; font-size: 12px; color: #666;'>SuperDeploy automated notification</p>"
+          echo "</body></html>"
+        } | mail -a "Content-Type: text/html" -s "$SUBJECT" "$ALERT_EMAIL" 2>&1 && {
           echo "✅ Email sent to $ALERT_EMAIL"
         } || {
           echo "⚠️  Email send failed (not critical)"
