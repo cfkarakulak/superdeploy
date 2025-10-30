@@ -367,23 +367,48 @@ runs:
           exit 1
         fi
     
-    - name: Register service with Prometheus
+    - name: Check metrics endpoint
       shell: bash
       run: |
-        echo "📊 Registering service with Prometheus..."
+        echo "📊 Checking metrics endpoint..."
         
-        # Get container IP and port
-        CONTAINER_IP=$(docker inspect ${{ inputs.project }}-${{ inputs.service }} --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' | head -1)
-        CONTAINER_PORT="${INTERNAL_PORT}"
+        # Wait for container to be ready
+        sleep 3
         
-        if [ -z "$CONTAINER_IP" ]; then
-          echo "⚠️  Could not get container IP, skipping Prometheus registration"
-          exit 0
+        # Check if /metrics endpoint exists
+        CONTAINER_NAME="${{ inputs.project }}-${{ inputs.service }}"
+        METRICS_CHECK=$(docker exec $CONTAINER_NAME curl -s -o /dev/null -w "%{http_code}" http://localhost:${INTERNAL_PORT}/metrics 2>/dev/null || echo "000")
+        
+        if [ "$METRICS_CHECK" = "200" ]; then
+          echo "✅ Metrics endpoint is available at /metrics"
+          echo "📈 Grafana: Endpoint Analytics dashboard will show this service"
+        elif [ "$METRICS_CHECK" = "404" ]; then
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 METRICS NOT CONFIGURED"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "To enable endpoint analytics in Grafana, add metrics to your app:"
+          echo ""
+          echo "1. Copy middleware file:"
+          echo "   curl -o prometheus_middleware.py https://raw.githubusercontent.com/superdeploy/templates/monitoring/prometheus_middleware.py"
+          echo ""
+          echo "2. Add to your app.py:"
+          echo "   from prometheus_middleware import setup_metrics"
+          echo "   setup_metrics(app)  # Auto-detects FastAPI/Flask"
+          echo ""
+          echo "3. Add to requirements.txt:"
+          echo "   prometheus-client==0.19.0"
+          echo ""
+          echo "4. Redeploy:"
+          echo "   superdeploy deploy -p ${{ inputs.project }} -a ${{ inputs.service }}"
+          echo ""
+          echo "📖 Full docs: superdeploy/templates/monitoring/README.md"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+        else
+          echo "⚠️  Could not check metrics endpoint (container may not have curl)"
         fi
-        
-        echo "Container: ${{ inputs.project }}-${{ inputs.service }}"
-        echo "Target: ${CONTAINER_IP}:${CONTAINER_PORT}"
-        echo "✅ Service registered (metrics available at /metrics)"
     
     - name: Clean up secrets
       if: always()

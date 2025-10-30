@@ -2,9 +2,22 @@
 
 Auto-detects your framework and adds `/metrics` endpoint with request tracking.
 
-## Quick Start
+## Quick Start (3 Steps)
 
-### FastAPI / Starlette
+### 1. Copy the middleware file
+```bash
+# From your app directory
+cp ../../superdeploy/templates/monitoring/prometheus_middleware.py .
+```
+
+Or download directly:
+```bash
+curl -o prometheus_middleware.py https://raw.githubusercontent.com/superdeploy/templates/monitoring/prometheus_middleware.py
+```
+
+### 2. Add to your app
+
+**FastAPI / Starlette:**
 ```python
 from fastapi import FastAPI
 from prometheus_middleware import setup_metrics
@@ -13,13 +26,24 @@ app = FastAPI()
 setup_metrics(app)  # That's it!
 ```
 
-### Flask
+**Flask:**
 ```python
 from flask import Flask
 from prometheus_middleware import setup_metrics
 
 app = Flask(__name__)
 setup_metrics(app)  # That's it!
+```
+
+### 3. Add dependency
+```bash
+# requirements.txt
+prometheus-client==0.19.0
+```
+
+Then redeploy:
+```bash
+superdeploy deploy -p myproject -a api
 ```
 
 ## What It Tracks
