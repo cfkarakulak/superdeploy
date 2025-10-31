@@ -63,9 +63,9 @@
 - name: Wait for {{ addon_name }} to be ready
   wait_for:
     host: localhost
-    port: "{{ CADDY_HTTP_PORT | default(80) }}"
+    port: "{{ CADDY_ADMIN_PORT | default(2019) }}"
     delay: 5
-    timeout: 60
+    timeout: 30
     state: started
   when: caddy_compose_result.changed
 
@@ -86,14 +86,12 @@
     method: GET
     status_code: 200
   register: caddy_certs
-  when: CADDY_TLS_MODE | default('auto') == 'auto'
   failed_when: false
 
 - name: Display {{ addon_name }} certificate information
   debug:
     msg: "Caddy TLS certificates: {{ caddy_certs.json | default('Not available') }}"
   when: 
-    - CADDY_TLS_MODE | default('auto') == 'auto'
     - caddy_certs is defined
     - caddy_certs.json is defined
 
@@ -104,7 +102,6 @@
     hour: "2"
     job: "docker exec {{ project_name }}-{{ addon_name }} caddy reload --config /etc/caddy/Caddyfile"
     user: "{{ superdeploy_user }}"
-  when: CADDY_TLS_MODE | default('auto') == 'auto'
 
 - name: Display {{ addon_name }} deployment status
   debug:

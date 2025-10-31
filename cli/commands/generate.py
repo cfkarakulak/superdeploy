@@ -112,8 +112,7 @@ def generate(project):
 #       from project.yml notifications section
 # =============================================================================
 
-# Docker Registry Credentials
-DOCKER_REGISTRY=docker.io
+# Docker Registry Credentials (registry is always docker.io)
 DOCKER_ORG=your-docker-org  # Your Docker Hub organization
 DOCKER_USERNAME=your-docker-username  # Your Docker Hub username
 DOCKER_TOKEN=  # Get from: https://hub.docker.com/settings/security
@@ -383,8 +382,8 @@ def generate_workflow(config, app_name, addons, template_merger):
     project_name = config["project"]["name"]
     # Docker org comes from .env, but we need it for workflow generation
     # Load from environment variables that were already loaded
-    from cli.utils import load_env_for_project
-    env = load_env_for_project(project_name)
+    from cli.utils import load_env
+    env = load_env(project_name)
     docker_org = env.get("DOCKER_ORG", project_name)
 
     # Build env section from addons (each line should already look like: "  FOO: ${{ secrets.FOO }}")

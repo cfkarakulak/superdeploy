@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from cli.commands import (
     init,
     generate,
-    up_v2,
+    up,
     sync,
     status,
     logs,
@@ -32,7 +32,6 @@ from cli.commands import (
     validate,
     metrics,
     orchestrator,
-    orchestrator_v2,
     update_firewall,
     monitoring,
     subnets,
@@ -76,8 +75,8 @@ def cli(ctx: click.Context) -> None:
 # Register commands
 cli.add_command(init.init)
 cli.add_command(generate.generate)
-# Register up command (V2 with improved logging)
-cli.add_command(up_v2.up)
+# Register up command (with improved logging)
+cli.add_command(up.up)
 cli.add_command(down.down)
 cli.add_command(sync.sync)
 cli.add_command(status.status)
@@ -97,9 +96,9 @@ cli.add_command(backup.backup)
 cli.add_command(validate.validate)
 cli.add_command(metrics.metrics)
 # Register orchestrator commands
-# init and down from orchestrator.py, up from orchestrator_v2.py (with improved logging)
+# Note: orchestrator.py has all commands (init, up, down, status)
+# up command uses DeployLogger for clean output
 cli.add_command(orchestrator.orchestrator)
-cli.add_command(orchestrator_v2.orchestrator)
 cli.add_command(update_firewall.update_firewall, name="update-firewall")
 cli.add_command(monitoring.monitoring)
 cli.add_command(subnets.subnets)

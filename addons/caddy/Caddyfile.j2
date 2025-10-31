@@ -13,13 +13,8 @@
         metrics
     }
     
-    {% if (CADDY_TLS_MODE | default('auto')) == 'off' %}
-    # TLS disabled
-    auto_https off
-    {% elif (CADDY_TLS_MODE | default('auto')) == 'internal' %}
-    # Internal TLS (self-signed)
-    auto_https internal
-    {% endif %}
+    # TLS mode: auto (Let's Encrypt)
+    # For production use with real domains
 }
 
 # Main configuration - subdomain-based routing
@@ -29,15 +24,9 @@
 {% if app_config.vm == vm_role %}
 
 # {{ app_name }} service
-{% if (CADDY_TLS_MODE | default('auto')) == 'off' %}
-:80 {
-{% else %}
 {% if app_config.domain %}
+# Domain-based routing (production)
 {{ app_config.domain }} {
-{% else %}
-{{ project_name }}-{{ app_name }}.local {
-{% endif %}
-{% endif %}
     # Enable compression
     encode gzip zstd
     
@@ -62,6 +51,13 @@
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
     }
+}
+{% else %}
+# Port-based routing (development - no domain yet)
+:{{ app_config.port }} {
+    # Simple pass-through to app
+    reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }}
+{% endif %}
 }
 {% endif %}
 {% endfor %}

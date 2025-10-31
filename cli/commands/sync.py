@@ -304,7 +304,7 @@ def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_s
         # Infrastructure (generic, no app-specific logic)
         "FORGEJO_HOST": forgejo_host,
         "FORGEJO_PAT": forgejo_pat,  # Add PAT so Forgejo can use it
-        "DOCKER_REGISTRY": env.get("DOCKER_REGISTRY", "docker.io"),
+        "DOCKER_REGISTRY": "docker.io",  # Always docker.io
         "DOCKER_ORG": env["DOCKER_ORG"],
         "DOCKER_USERNAME": env.get("DOCKER_USERNAME", ""),
         "DOCKER_TOKEN": env.get("DOCKER_TOKEN", ""),
@@ -528,9 +528,6 @@ def sync(project, skip_forgejo, skip_github, env_file):
         
         # Docker credentials are now in project .env (already loaded above)
         # Validate they exist
-        if not env.get("DOCKER_REGISTRY"):
-            env["DOCKER_REGISTRY"] = "docker.io"  # Default value
-        
         if not env.get("DOCKER_ORG"):
             console.print(f"[red]❌ DOCKER_ORG not found in projects/{project}/.env![/red]")
             console.print(f"[yellow]Edit projects/{project}/.env and fill in Docker credentials[/yellow]")
@@ -603,7 +600,7 @@ def sync(project, skip_forgejo, skip_github, env_file):
     required_env_vars = {
         "FORGEJO_ORG": env.get("FORGEJO_ORG"),
         "REPO_SUPERDEPLOY": env.get("REPO_SUPERDEPLOY"),
-        "DOCKER_REGISTRY": env.get("DOCKER_REGISTRY"),
+        "DOCKER_REGISTRY": "docker.io",  # Always docker.io
         "DOCKER_ORG": env.get("DOCKER_ORG"),
         "DOCKER_USERNAME": env.get("DOCKER_USERNAME"),
         "DOCKER_TOKEN": env.get("DOCKER_TOKEN"),

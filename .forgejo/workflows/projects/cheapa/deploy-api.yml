@@ -23,7 +23,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, cheapa, web]
+    runs-on: [self-hosted, cheapa, all]
     steps:
       - name: Checkout superdeploy repo
         uses: actions/checkout@v4

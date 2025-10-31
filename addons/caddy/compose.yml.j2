@@ -6,9 +6,7 @@ services:
     container_name: {{ project_name }}-{{ addon_name }}
     restart: unless-stopped
     environment:
-      CADDY_DOMAIN: ${CADDY_DOMAIN}
       CADDY_EMAIL: ${CADDY_EMAIL}
-      CADDY_TLS_MODE: ${CADDY_TLS_MODE}
     volumes:
       - {{ addon_name }}-data:/data
       - {{ addon_name }}-config:/config

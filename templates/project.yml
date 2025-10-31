@@ -82,11 +82,10 @@ vms:
     count: 1
     machine_type: e2-medium
     disk_size: 20
-    # Services that run on this VM
+    # Services that run on this VM (Caddy is automatically added to all VMs)
     services:
       - postgres
       - rabbitmq
-      - caddy
   
   # Add more VMs as needed:
   # worker:

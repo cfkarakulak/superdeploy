@@ -170,7 +170,7 @@ def generate_tfvars(
     with open(output_file, "w") as f:
         json.dump(tfvars, f, indent=2)
 
-    click.echo(f"Generated Terraform variables: {output_file}")
+    # Don't print - logger will handle this
     return output_file
 
 
@@ -309,6 +309,5 @@ def terraform_refresh(project_name: str, project_config: ProjectConfig):
     # Generate tfvars
     var_file = generate_tfvars(project_config)
 
-    # Run refresh
-    click.echo(f"\nRefreshing Terraform state for project: {project_name}")
-    run_terraform_command(["refresh", f"-var-file={var_file}"])
+    # Run refresh (capture output to avoid cluttering terminal)
+    run_terraform_command(["refresh", f"-var-file={var_file}"], capture_output=True)

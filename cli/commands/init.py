@@ -763,7 +763,7 @@ cloud:
     public_key_path: "~/.ssh/superdeploy_deploy.pub"
     user: "superdeploy"
 
-
+# =============================================================================
 # VMs (Infrastructure)
 # =============================================================================
 vms:
@@ -778,15 +778,14 @@ vms:
     for service in shared_services:
         project_yml_content += f"\n      - {service}"
     
-    # Create a VM for each app (with only Caddy)
+    # Create a VM for each app (Caddy is automatically added by config_loader)
     for app_name in apps_dict.keys():
         project_yml_content += f"""
   {app_name}:
     count: 1
     machine_type: e2-small
     disk_size: 20
-    services:
-      - caddy"""
+    services: []"""
     
     project_yml_content += """
 

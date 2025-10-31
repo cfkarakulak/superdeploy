@@ -95,7 +95,8 @@ def load_env(project: Optional[str] = None) -> Dict[str, Any]:
         'SSH_USER': ssh.get('user'),
         
         # Docker (loaded from .env, not from project.yml)
-        # DOCKER_REGISTRY, DOCKER_ORG, DOCKER_USERNAME, DOCKER_TOKEN
+        # DOCKER_REGISTRY is always docker.io (not configurable)
+        # DOCKER_ORG, DOCKER_USERNAME, DOCKER_TOKEN loaded from .env
         
         # GitHub
         'GITHUB_ORG': github_config.get('organization'),
