@@ -341,15 +341,22 @@ jobs:
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmations")
 def init(project, app, subnet, no_interactive, yes):
     """
-    Initialize a new project (creates config template)
+    Initialize a new project (interactive wizard)
 
     Example:
         superdeploy init -p acme
-        # Edit: projects/acme/project.yml
-        superdeploy generate -p acme
+        # Follow the wizard to configure your project
+        # Then: superdeploy generate -p acme
     """
-    console.print(f"\n[bold cyan]🎯 Initializing project: {project}[/bold cyan]")
-    console.print("━" * 40)
+    from rich.panel import Panel
+    
+    console.print(
+        Panel.fit(
+            f"[bold cyan]🎯 SuperDeploy Project Setup[/bold cyan]\n\n"
+            f"[white]Creating new project: [bold]{project}[/bold][/white]",
+            border_style="cyan",
+        )
+    )
 
     from cli.utils import get_project_root
 
@@ -359,9 +366,9 @@ def init(project, app, subnet, no_interactive, yes):
 
     # Check if project already exists
     if project_dir.exists():
-        console.print(f"[red]❌ Project '{project}' already exists![/red]")
-        console.print(f"[dim]Edit: {project_dir}/project.yml[/dim]")
-        console.print(f"[dim]Then run: superdeploy generate -p {project}[/dim]")
+        console.print(f"\n[red]❌ Project '{project}' already exists![/red]")
+        console.print(f"\n[dim]To modify:[/dim] {project_dir}/project.yml")
+        console.print(f"[dim]Then run:[/dim] [cyan]superdeploy generate -p {project}[/cyan]\n")
         return
 
     # Create project directory
@@ -394,10 +401,10 @@ def init(project, app, subnet, no_interactive, yes):
             apps[name] = app_path
     elif interactive:
         # Interactive app selection with paths
-        console.print("\n[bold]Application services:[/bold]")
-        console.print("  [dim]Add your app repos (name + path to repo)[/dim]")
-        console.print("  [dim]Example: api → ../app-repos/api[/dim]")
-        console.print("  [dim]Press ENTER with empty name to finish[/dim]\n")
+        console.print("\n[bold cyan]📦 Application Services[/bold cyan]")
+        console.print("[dim]Add your app repositories (name + path)[/dim]")
+        console.print("[dim]Example: api → ../app-repos/api[/dim]")
+        console.print("[dim]Press ENTER with empty name to finish[/dim]\n")
 
         service_num = 1
 
@@ -463,15 +470,15 @@ def init(project, app, subnet, no_interactive, yes):
     if subnet:
         project_subnet = subnet
     elif interactive:
-        console.print("\n[bold]Configure networking:[/bold]")
-        auto_subnet = Confirm.ask("  Auto-assign subnet?", default=True)
+        console.print("\n[bold cyan]🌐 Network Configuration[/bold cyan]")
+        auto_subnet = Confirm.ask("  [cyan]Auto-assign subnet?[/cyan]", default=True)
 
         if auto_subnet:
             project_subnet = find_next_subnet(used_subnets)
-            console.print(f"\n[green]✨ Auto-assigned subnet: {project_subnet}[/green]")
+            console.print(f"  [green]✓[/green] Auto-assigned: [cyan]{project_subnet}[/cyan]")
         else:
             project_subnet = Prompt.ask(
-                "  Enter custom subnet", default="172.30.0.0/24"
+                "  [cyan]Enter custom subnet[/cyan]", default="172.30.0.0/24"
             )
     else:
         project_subnet = find_next_subnet(used_subnets)
@@ -479,11 +486,11 @@ def init(project, app, subnet, no_interactive, yes):
     # Core services selection (addon-based)
     available_addons = get_available_addons()
 
-    # Filter to only show database, cache, queue, and proxy addons (not monitoring)
+    # Filter to only show database, cache, queue addons (exclude caddy, monitoring, forgejo)
     available_addons_list = [
         (addon["name"], f"{addon['description']} ({addon['version']})")
         for addon in available_addons
-        if addon["category"] in ["database", "cache", "queue", "proxy"]
+        if addon["category"] in ["database", "cache", "queue"] and addon["name"] != "caddy"
     ]
 
     # Fallback if no addons found - use empty list, user can add later
@@ -491,28 +498,23 @@ def init(project, app, subnet, no_interactive, yes):
         console.print("[yellow]⚠️  No addons found in addons/ directory[/yellow]")
         available_addons_list = []
 
-    # Set defaults based on common categories (database, queue)
+    # Set defaults: postgres, rabbitmq, redis, caddy
     selected_addons = []
     if available_addons_list:
-        # Auto-select database and queue addons as defaults
+        default_addons = ['postgres', 'rabbitmq', 'redis', 'caddy']
         for addon_name, addon_desc in available_addons_list:
-            addon_meta = next((a for a in available_addons if a["name"] == addon_name), None)
-            if addon_meta and addon_meta.get("category") in ["database", "queue"]:
+            if addon_name in default_addons:
                 selected_addons.append(addon_name)
-        
-        # If no defaults found, just use first two
-        if not selected_addons and len(available_addons_list) >= 2:
-            selected_addons = [available_addons_list[0][0], available_addons_list[1][0]]
 
     if interactive:
         import inquirer
 
-        console.print("\n[bold]Addons configuration:[/bold]")
-        console.print("  [dim]Use SPACE to select, ENTER to confirm[/dim]")
+        console.print("\n[bold cyan]🔧 Infrastructure Addons[/bold cyan]")
+        console.print("[dim]Use SPACE to select, ENTER to confirm[/dim]")
         console.print(
-            "  [dim]These services are SHARED by all apps (api, dashboard, etc.)[/dim]"
+            "[dim]These services are shared by all apps (databases, queues, etc.)[/dim]"
         )
-        console.print(f"  [dim]Available addons: {len(available_addons)} found[/dim]\n")
+        console.print(f"[dim]Available: {len(available_addons_list)} addons (Caddy is always included)[/dim]\n")
 
         questions = [
             inquirer.Checkbox(
@@ -536,12 +538,13 @@ def init(project, app, subnet, no_interactive, yes):
         else:
             console.print("[yellow]⚠️  No services selected, using defaults[/yellow]")
             # Keep the defaults we calculated earlier
+    
+    # Always ensure Caddy is included (required for reverse proxy)
+    if 'caddy' not in selected_addons:
+        selected_addons.append('caddy')
 
     # Password generation - always enabled (user can regenerate later)
     generate_passwords = True
-
-    # Monitoring - always enabled by default (user can disable in project.yml)
-    enable_monitoring = True
 
     # GitHub Organization - removed, user will set in project.yml
 
@@ -566,7 +569,6 @@ def init(project, app, subnet, no_interactive, yes):
     table.add_row("Database:", "PostgreSQL 15")
     table.add_row("Queue:", "RabbitMQ 3.12")
     table.add_row("Cache:", "Redis 7")
-    table.add_row("Monitoring:", "✓ Enabled" if enable_monitoring else "✗ Disabled")
     if project_domain:
         table.add_row("Domain:", project_domain)
 
@@ -738,9 +740,12 @@ def init(project, app, subnet, no_interactive, yes):
 # Edit this file, then run: superdeploy generate -p {project}
 # =============================================================================
 
-project: {project}
-description: {project} project
-created_at: {datetime.now().isoformat()}
+# Project Information
+project:
+  name: {project}
+  description: {project} project
+  created_at: {datetime.now().isoformat()}
+  ssl_email: ""  # For Let's Encrypt certificates (e.g., admin@{project_domain})
 
 # =============================================================================
 # Cloud Provider Configuration
@@ -758,16 +763,7 @@ cloud:
     public_key_path: "~/.ssh/superdeploy_deploy.pub"
     user: "superdeploy"
 
-# =============================================================================
-# Docker Registry Configuration
-# =============================================================================
-docker:
-  registry: "docker.io"  # Docker Hub or custom registry
-  organization: "your-docker-org"  # EDIT THIS - Docker organization
-  username: "your-docker-username"  # EDIT THIS
-  # Note: Docker credentials (DOCKER_TOKEN) are managed in shared/config/.env
 
-# =============================================================================
 # VMs (Infrastructure)
 # =============================================================================
 vms:
@@ -775,10 +771,24 @@ vms:
     count: 1
     machine_type: e2-medium
     disk_size: 20
+    services:"""
+    
+    # Add shared services (databases, message queues) to core VM
+    shared_services = [s for s in selected_addons if s in ['postgres', 'rabbitmq', 'redis', 'mongodb', 'elasticsearch']]
+    for service in shared_services:
+        project_yml_content += f"\n      - {service}"
+    
+    # Create a VM for each app (with only Caddy)
+    for app_name in apps_dict.keys():
+        project_yml_content += f"""
+  {app_name}:
+    count: 1
+    machine_type: e2-small
+    disk_size: 20
     services:
-      - postgres
-      - rabbitmq
-      # Note: Forgejo is managed globally by orchestrator
+      - caddy"""
+    
+    project_yml_content += """
 
 # =============================================================================
 # Addons Configuration
@@ -786,7 +796,7 @@ vms:
 addons:
 """
 
-    # Add all addons (including forgejo)
+    # Add all addons
     for service, config in addons_dict.items():
         project_yml_content += f"  {service}:\n"
         for key, value in config.items():
@@ -799,38 +809,31 @@ addons:
 apps:
 """
 
-    # Add apps
+    # Add apps - each app on its own VM
     for app_name, app_config in apps_dict.items():
         project_yml_content += f"  {app_name}:\n"
         project_yml_content += f"    path: {app_config['path']}\n"
-        project_yml_content += f"    vm: {app_config['vm']}\n"
+        project_yml_content += f"    vm: {app_name}\n"  # VM name matches app name
         project_yml_content += f"    port: {app_config['port']}\n"
+        # Add domain field
+        if project_domain:
+            project_yml_content += f"    domain: \"{app_name}.{project_domain}\"\n"
+        else:
+            project_yml_content += f"    domain: \"\"  # e.g., {app_name}.example.com\n"
 
     project_yml_content += f"""
 # =============================================================================
 # GitHub Configuration
 # =============================================================================
 github:
-  organization: "your-github-org"  # EDIT THIS - GitHub organization
+  organization: "your-github-org"  # EDIT THIS
+  # Variables: GITHUB_TOKEN (from .env)
 
 # =============================================================================
 # Network Configuration
 # =============================================================================
 network:
   docker_subnet: {project_subnet}
-
-# =============================================================================
-# Monitoring (Optional)
-# =============================================================================
-monitoring:
-  enabled: {str(enable_monitoring).lower()}
-  prometheus: true
-  grafana: true
-
-# =============================================================================
-# Domain (Optional)
-# =============================================================================
-domain: "{project_domain}"
 """
 
     # Write project.yml
@@ -839,16 +842,18 @@ domain: "{project_domain}"
     console.print(f"  [green]✓[/green] Created: {project_yml_path}")
 
     # Success message
-    console.print("\n[green]✅ Project initialized successfully![/green]")
-
+    console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
+    console.print("[bold green]✅ Project Initialized![/bold green]")
+    console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
+    
+    console.print(f"\n[cyan]📄 Config saved to:[/cyan] {project_yml_path}")
+    
     # Next steps
-    console.print("\n[bold]📝 Next steps:[/bold]")
-    console.print("\n1. Generate deployment files:")
-    console.print(f"   [cyan]superdeploy generate -p {project}[/cyan]")
-    console.print("\n2. Deploy infrastructure:")
-    console.print(f"   [cyan]superdeploy up -p {project}[/cyan]")
-    console.print("\n3. Check status:")
-    console.print(f"   [cyan]superdeploy status -p {project}[/cyan]")
+    console.print("\n[bold]Next steps:[/bold]")
+    console.print("  1. [dim]Generate deployment files:[/dim] [cyan]superdeploy generate -p {project}[/cyan]".format(project=project))
+    console.print("  2. [dim]Deploy infrastructure:[/dim] [cyan]superdeploy up -p {project}[/cyan]".format(project=project))
+    console.print("  3. [dim]Check status:[/dim] [cyan]superdeploy status -p {project}[/cyan]".format(project=project))
+    console.print()
 
     return  # Skip old instructions
 

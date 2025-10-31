@@ -112,8 +112,7 @@
     - role: orchestration/addon-deployer
   vars:
     vm_role: orchestrator
-    # Orchestrator only deploys its own addons (forgejo, rabbitmq, postgres, caddy for forgejo)
-    # Override enabled_addons to prevent project addons from being deployed here
+    # enabled_addons is passed from CLI (already filtered if --addon flag was used)
     enabled_addons: "{{ enabled_addons | default([]) }}"
   tags:
     - addons
@@ -128,8 +127,8 @@
         project_name: "{{ project_name }}"
         project_config: "{{ project_config }}"
         addons_base_path: "/var/lib/superdeploy/{{ project_name }}/addons"
-        # Filter addons based on VM's services list
-        enabled_addons: "{{ vm_services | default([]) }}"
+        # enabled_addons is already filtered (either by --addon flag or by vm_services)
+        enabled_addons: "{{ enabled_addons | default(vm_services | default([])) }}"
         addon_configs: "{{ addon_configs }}"
         project_secrets: "{{ project_secrets | default({}) }}"
   tags:
@@ -141,7 +140,7 @@
 # ============================================================================
 
 - name: Deploy Project Applications
-  hosts: all
+  hosts: all:!orchestrator
   become: yes
   roles:
     - role: orchestration/project-deployer
@@ -151,7 +150,7 @@
         project_base_path: "/opt/superdeploy/projects/{{ project_name }}"
         apps: "{{ project_config.apps | default({}) }}"
         network_subnet: "{{ project_config.network.docker_subnet | default('172.30.0.0/24') }}"
-        monitoring_enabled: "{{ project_config.monitoring.enabled | default(false) }}"
+        monitoring_enabled: true  # Monitoring is always enabled
   tags:
     - project
     - applications

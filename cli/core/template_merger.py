@@ -24,7 +24,12 @@ class TemplateMerger:
         Returns:
             String containing the complete docker-compose.core.yml content
         """
-        project_name = project_config.get("project", "project")
+        # Extract project name from nested structure
+        project_info = project_config.get("project", {})
+        if isinstance(project_info, dict):
+            project_name = project_info.get("name", "project")
+        else:
+            project_name = str(project_info)
         network_subnet = project_config.get("network", {}).get(
             "docker_subnet", "172.30.0.0/24"
         )
@@ -57,6 +62,7 @@ class TemplateMerger:
                 template_vars[var_name] = value
 
             # Build template context
+            # Note: Order matters - later items override earlier ones
             context = {
                 "project_name": project_name,
                 "addon_name": addon_name,
@@ -64,8 +70,10 @@ class TemplateMerger:
                 "healthcheck": addon.metadata.get("healthcheck", {}),
                 "monitoring": addon.metadata.get("monitoring", {}),
                 "resources": addon.metadata.get("resources", {}),
-                **addon.metadata,
-                **addon_config,
+                # Only include specific metadata fields to avoid conflicts
+                "category": addon.metadata.get("category", ""),
+                "description": addon.metadata.get("description", ""),
+                # Add template vars (uppercase versions of config)
                 **template_vars,
             }
 
@@ -118,7 +126,12 @@ class TemplateMerger:
         Returns:
             String containing the complete .env.superdeploy content
         """
-        project_name = project_config.get("project", "project")
+        # Extract project name from nested structure
+        project_info = project_config.get("project", {})
+        if isinstance(project_info, dict):
+            project_name = project_info.get("name", "project")
+        else:
+            project_name = str(project_info)
 
         lines = [
             "# SuperDeploy - Production Environment Overrides",
@@ -128,6 +141,19 @@ class TemplateMerger:
             "# These values OVERRIDE your local .env in production",
             "",
         ]
+
+        # Add notification config from project.yml
+        notifications = project_config.get("notifications", {})
+        alert_email = notifications.get("alert_email", "")
+        smtp_user = notifications.get("smtp_user", "")
+        
+        if alert_email or smtp_user:
+            lines.append("# Email/SMTP Configuration (from project.yml)")
+            if alert_email:
+                lines.append(f"ALERT_EMAIL={alert_email}")
+            if smtp_user:
+                lines.append(f"SMTP_USER={smtp_user}")
+            lines.append("")
 
         # Add environment variables from each addon
         for addon_name, addon in addons.items():
@@ -179,7 +205,12 @@ class TemplateMerger:
         Returns:
             List of Ansible task dictionaries
         """
-        project_name = project_config.get("project", "project")
+        # Extract project name from nested structure
+        project_info = project_config.get("project", {})
+        if isinstance(project_info, dict):
+            project_name = project_info.get("name", "project")
+        else:
+            project_name = str(project_info)
         all_tasks = []
 
         for addon_name, addon in addons.items():

@@ -19,30 +19,16 @@
 - name: Set default values for optional variables
   set_fact:
     enabled_addons: "{{ enabled_addons | default([]) }}"
-    addon_filter: "{{ addon_filter | default([]) }}"
     superdeploy_user: "{{ superdeploy_user | default('superdeploy') }}"
     superdeploy_group: "{{ superdeploy_group | default('superdeploy') }}"
 
-- name: Apply addon filter if specified (intersect with enabled_addons)
-  set_fact:
-    enabled_addons: "{{ enabled_addons | intersect(addon_filter) }}"
-  when: addon_filter | length > 0
-
-- name: Display addon deployment configuration
+- name: Display addon deployment plan
   debug:
     msg:
       - "Project: {{ project_name }}"
       - "Addons base path: {{ addons_base_path }}"
-      - "Enabled addons: {{ enabled_addons | join(', ') if enabled_addons | length > 0 else 'none' }}"
-    verbosity: 1
-
-- name: Ensure Forgejo is included as required addon (orchestrator only)
-  set_fact:
-    enabled_addons: "{{ (['forgejo'] + enabled_addons) | unique }}"
-  when: 
-    - "'forgejo' not in enabled_addons"
-    - "'orchestrator' in group_names"
-    - addon_filter | length == 0  # Only auto-add if no specific addon filter
+      - "Addons to deploy: {{ enabled_addons | join(', ') if enabled_addons | length > 0 else 'none' }}"
+    verbosity: 0
 
 - name: Create project configuration directory
   file:
@@ -80,10 +66,6 @@
       - "Deployment order:"
       - "{{ enabled_addons | map('regex_replace', '^(.*)$', '  - \\1') | list | join('\n') }}"
       - "=========================================="
-
-- name: Display final addon list
-  debug:
-    msg: "Deploying addons: {{ enabled_addons | join(', ') }}"
 
 # Loop through each enabled addon and deploy it
 - name: Deploy each addon

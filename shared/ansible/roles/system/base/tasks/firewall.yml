@@ -147,16 +147,14 @@
   when: 
     - project_config is defined
     - project_config.monitoring is defined
-    - project_config.monitoring.enabled | default(false) | bool
     - project_config.monitoring.prometheus_port is defined
 
-- name: Add Grafana port if monitoring enabled
+- name: Add Grafana port (monitoring always enabled)
   set_fact:
     addon_ports: "{{ addon_ports + [project_config.monitoring.grafana_port | default(3000)] }}"
   when: 
     - project_config is defined
     - project_config.monitoring is defined
-    - project_config.monitoring.enabled | default(false) | bool
     - project_config.monitoring.grafana_port is defined
 
 - name: Allow addon ports

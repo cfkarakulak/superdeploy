@@ -94,10 +94,8 @@ def load_env(project: Optional[str] = None) -> Dict[str, Any]:
         'SSH_PUBLIC_KEY_PATH': ssh.get('public_key_path'),
         'SSH_USER': ssh.get('user'),
         
-        # Docker
-        'DOCKER_REGISTRY': docker_config.get('registry', 'docker.io'),
-        'DOCKER_ORG': docker_config.get('organization'),
-        'DOCKER_USERNAME': docker_config.get('username'),
+        # Docker (loaded from .env, not from project.yml)
+        # DOCKER_REGISTRY, DOCKER_ORG, DOCKER_USERNAME, DOCKER_TOKEN
         
         # GitHub
         'GITHUB_ORG': github_config.get('organization'),
@@ -125,17 +123,7 @@ def load_env(project: Optional[str] = None) -> Dict[str, Any]:
         'ENABLE_MONITORING': str(config.get('monitoring', {}).get('enabled', True)).lower(),
     }
     
-    # Load shared config (Docker credentials, etc.)
-    from dotenv import dotenv_values
-    shared_config_file = project_root / "shared" / "config" / ".env"
-    if shared_config_file.exists():
-        shared_config = dotenv_values(shared_config_file)
-        # Only load Docker credentials from shared config
-        for key in ['DOCKER_REGISTRY', 'DOCKER_ORG', 'DOCKER_USERNAME', 'DOCKER_TOKEN']:
-            if shared_config.get(key):
-                env_vars[key] = shared_config[key]
-    
-    # Load sensitive values from project's .env file (overrides shared config)
+    # Load sensitive values from project's .env file (including Docker credentials)
     project_path = project_root / "projects" / project
     project_env_file = project_path / ".env"
     if project_env_file.exists():

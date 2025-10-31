@@ -146,6 +146,12 @@
       GF_ORG_NAME: "SuperDeploy"
       GF_ORG_ROLE: "Viewer"
       GF_PATHS_PROVISIONING: "/etc/grafana/provisioning"
+      # SMTP settings for email alerts (optional)
+      GF_SMTP_ENABLED: "{{ grafana_smtp_enabled | default('false') }}"
+      GF_SMTP_HOST: "{{ grafana_smtp_host | default('') }}"
+      GF_SMTP_USER: "{{ grafana_smtp_user | default('') }}"
+      GF_SMTP_PASSWORD: "{{ grafana_smtp_password | default('') }}"
+      GF_SMTP_FROM_ADDRESS: "{{ grafana_smtp_user | default('grafana@localhost') }}"
     volumes:
       - "superdeploy-grafana-data:/var/lib/grafana"
       - "/opt/superdeploy/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro"

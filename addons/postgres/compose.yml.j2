@@ -30,14 +30,12 @@ services:
           memory: {{ resources.memory }}
           cpus: '{{ resources.cpu }}'
 {% endif %}
-{% if monitoring.enabled %}
     labels:
       - "prometheus.scrape=true"
       - "prometheus.port={{ monitoring.metrics_port | default(9090) }}"
       - "prometheus.path=/metrics"
       - "project={{ project_name }}"
       - "service={{ addon_name }}"
-{% endif %}
 
 volumes:
   {{ addon_name }}-data:

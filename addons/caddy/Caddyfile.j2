@@ -32,7 +32,11 @@
 {% if (CADDY_TLS_MODE | default('auto')) == 'off' %}
 :80 {
 {% else %}
-{{ CADDY_DOMAIN | default(vm_domain) }} {
+{% if app_config.domain %}
+{{ app_config.domain }} {
+{% else %}
+{{ project_name }}-{{ app_name }}.local {
+{% endif %}
 {% endif %}
     # Enable compression
     encode gzip zstd

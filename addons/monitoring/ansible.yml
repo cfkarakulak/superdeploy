@@ -162,20 +162,27 @@
   delay: 3
   failed_when: grafana_health.status != 200
 
-- name: Copy Prometheus config to running container
-  shell: |
-    docker cp {{ addon_base_path }}/{{ addon_name }}/prometheus/prometheus.yml superdeploy-prometheus:/etc/prometheus/prometheus.yml
-  when: prometheus_config_result.changed
-  ignore_errors: yes
-
-- name: Reload Prometheus configuration
+- name: Reload Prometheus configuration (config is volume-mounted)
   uri:
     url: "http://localhost:{{ PROMETHEUS_PORT | default(9090) }}/-/reload"
     method: POST
     status_code: 200
     timeout: 5
   when: prometheus_config_result.changed
-  ignore_errors: yes
+  register: prometheus_reload_result
+  failed_when: false
+  
+- name: Restart Prometheus if reload failed
+  community.docker.docker_compose_v2:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    services:
+      - prometheus
+    state: restarted
+  become_user: "{{ superdeploy_user }}"
+  when: 
+    - prometheus_config_result.changed
+    - prometheus_reload_result.status is defined
+    - prometheus_reload_result.status != 200
 
 - name: Check if Caddy is enabled for domain access
   set_fact:

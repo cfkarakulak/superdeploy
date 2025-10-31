@@ -193,7 +193,9 @@ Instance (myproject-postgres container)
 
 ## 📊 Monitoring
 
-### Merkezi Monitoring (Orchestrator)
+### Global Monitoring (Orchestrator)
+
+Grafana ve Prometheus orchestrator VM'de çalışır ve **tüm projeleri** izler:
 
 - **Prometheus**: Tüm projeleri otomatik keşfeder
 - **Grafana**: Pre-configured dashboard'lar

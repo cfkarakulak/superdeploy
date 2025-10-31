@@ -717,7 +717,13 @@ class ValidationEngine:
                     if config:
                         network_config = config.get('network', {})
                         subnet = network_config.get('docker_subnet') or network_config.get('subnet')
-                        project_name = config.get('project', project_dir.name)
+                        
+                        # Get project name (handle both dict and string format)
+                        project_field = config.get('project', project_dir.name)
+                        if isinstance(project_field, dict):
+                            project_name = project_field.get('name', project_dir.name)
+                        else:
+                            project_name = project_field
                         
                         if subnet:
                             used[subnet] = project_name
@@ -751,7 +757,13 @@ class ValidationEngine:
                         config = yaml.safe_load(f)
                     
                     if config:
-                        project_name = config.get('project', project_dir.name)
+                        # Get project name (handle both dict and string format)
+                        project_field = config.get('project', project_dir.name)
+                        if isinstance(project_field, dict):
+                            project_name = project_field.get('name', project_dir.name)
+                        else:
+                            project_name = project_field
+                        
                         apps = config.get('apps', {})
                         
                         for app_name, app_config in apps.items():

@@ -54,6 +54,8 @@ resource "google_compute_firewall" "allow_http_https" {
 }
 
 # Firewall: Allow proxy ports - PUBLIC ACCESS (for testing)
+# ⚠️  SECURITY WARNING: This is open to the internet for development/debugging
+# 🔒 For production, change source_ranges to var.admin_source_ranges or remove
 resource "google_compute_firewall" "allow_proxy" {
   name    = "${var.network_name}-allow-proxy"
   network = google_compute_network.vpc.name
@@ -65,10 +67,12 @@ resource "google_compute_firewall" "allow_proxy" {
   }
 
   source_ranges = ["0.0.0.0/0"]  # Public access for testing
+  # For production: source_ranges = var.admin_source_ranges or disable this rule
+  
   # Apply to all VMs (any can run proxy services)
   target_tags   = var.vm_roles
 
-  description = "Allow proxy connections - PUBLIC ACCESS"
+  description = "Allow proxy connections - PUBLIC ACCESS (DEV MODE)"
 }
 
 # Firewall: Allow internal communication between all VMs
@@ -152,6 +156,8 @@ resource "google_compute_firewall" "allow_app_ports" {
 }
 
 # Firewall: Proxy Registry - PUBLIC ACCESS (for testing)
+# ⚠️  SECURITY WARNING: This is open to the internet for development/debugging
+# 🔒 For production, change source_ranges to var.admin_source_ranges
 resource "google_compute_firewall" "allow_proxy_registry" {
   name    = "${var.network_name}-allow-proxy-registry"
   network = google_compute_network.vpc.name
@@ -163,13 +169,17 @@ resource "google_compute_firewall" "allow_proxy_registry" {
   }
 
   source_ranges = ["0.0.0.0/0"]  # Public access for testing
+  # For production: source_ranges = var.admin_source_ranges
+  
   # Apply to all VMs (any can run registry)
   target_tags   = var.vm_roles
 
-  description = "Proxy Registry - PUBLIC ACCESS"
+  description = "Proxy Registry - PUBLIC ACCESS (DEV MODE)"
 }
 
 # Firewall: Monitoring (Grafana & Prometheus) - PUBLIC ACCESS
+# ⚠️  SECURITY WARNING: This is open to the internet for development/debugging
+# 🔒 For production, change source_ranges to var.admin_source_ranges
 resource "google_compute_firewall" "allow_monitoring" {
   name    = "${var.network_name}-allow-monitoring"
   network = google_compute_network.vpc.name
@@ -180,11 +190,13 @@ resource "google_compute_firewall" "allow_monitoring" {
     ports    = ["3000", "9090"]  # Grafana, Prometheus
   }
 
-  source_ranges = ["0.0.0.0/0"]  # Public access
+  source_ranges = ["0.0.0.0/0"]  # Public access for testing
+  # For production: source_ranges = var.admin_source_ranges
+  
   # Apply to all VMs (monitoring is shared)
   target_tags   = var.vm_roles
 
-  description = "Allow Grafana (3000) and Prometheus (9090) - PUBLIC ACCESS"
+  description = "Allow Grafana (3000) and Prometheus (9090) - PUBLIC ACCESS (DEV MODE)"
 }
 
 # Firewall: Allow Prometheus metrics from orchestrator

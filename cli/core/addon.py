@@ -42,7 +42,12 @@ class Addon:
             Dictionary of environment variable names to values
         """
         env_vars = {}
-        project_name = project_config.get('project', '')
+        # Extract project name from nested structure
+        project_info = project_config.get('project', {})
+        if isinstance(project_info, dict):
+            project_name = project_info.get('name', '')
+        else:
+            project_name = str(project_info)
         
         # Get addon-specific config from project.yml
         addon_config = project_config.get('addons', {}).get(self.name, {})

@@ -194,8 +194,15 @@
     name: "{{ item.name }}"
     value: "{{ item.value }}"
     state: present
-    reload: yes
+    sysctl_file: /etc/sysctl.d/99-hardening.conf
+    reload: no
   loop: "{{ sysctl_hardening_params }}"
+  register: sysctl_hardening_result
+
+- name: Reload sysctl after hardening changes
+  command: sysctl --system
+  when: sysctl_hardening_result.changed
+  changed_when: false
 
 - name: Harden SSH configuration
   include_tasks: ssh-config.yml

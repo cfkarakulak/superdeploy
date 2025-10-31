@@ -62,11 +62,7 @@ class ProjectConfig:
         if "docker_subnet" not in self.raw_config["network"]:
             self.raw_config["network"]["docker_subnet"] = "172.30.0.0/24"
 
-        # Ensure monitoring section exists with defaults
-        if "monitoring" not in self.raw_config:
-            self.raw_config["monitoring"] = {}
-        if "enabled" not in self.raw_config["monitoring"]:
-            self.raw_config["monitoring"]["enabled"] = True
+        # Note: Monitoring config removed - now only in orchestrator config
 
     def _validate(self) -> None:
         """Validate configuration"""
@@ -74,10 +70,27 @@ class ProjectConfig:
         if "project" not in self.raw_config:
             raise ValueError("Missing required field: 'project'")
 
-        # Validate project name matches
-        if self.raw_config["project"] != self.project_name:
+        # Project must be a dict with 'name' field
+        project_field = self.raw_config["project"]
+        if not isinstance(project_field, dict):
             raise ValueError(
-                f"Project name mismatch: config has '{self.raw_config['project']}' "
+                "Invalid 'project' field: must be a dict with 'name', 'description', 'created_at'\n"
+                "Example:\n"
+                "project:\n"
+                "  name: myproject\n"
+                "  description: My project\n"
+                "  created_at: 2025-10-31T10:00:00"
+            )
+        
+        if "name" not in project_field:
+            raise ValueError("Missing required field: 'project.name'")
+        
+        config_project_name = project_field["name"]
+        
+        # Validate project name matches
+        if config_project_name != self.project_name:
+            raise ValueError(
+                f"Project name mismatch: config has '{config_project_name}' "
                 f"but expected '{self.project_name}'"
             )
 
@@ -148,12 +161,15 @@ class ProjectConfig:
 
     def get_monitoring_config(self) -> Dict[str, Any]:
         """
-        Get monitoring configuration
+        Get monitoring configuration (combines grafana, prometheus)
 
         Returns:
             Dictionary with monitoring settings
         """
-        return self.raw_config.get("monitoring", {})
+        return {
+            "grafana": self.raw_config.get("grafana", {}),
+            "prometheus": self.raw_config.get("prometheus", {})
+        }
 
     def get_addons(self) -> Dict[str, Dict[str, Any]]:
         """

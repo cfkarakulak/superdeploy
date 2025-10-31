@@ -429,7 +429,6 @@ def sync(project, skip_forgejo, skip_github, env_file):
     required_files = {
         "shared/orchestrator/config.yml": project_root / "shared" / "orchestrator" / "config.yml",
         "shared/orchestrator/.env": project_root / "shared" / "orchestrator" / ".env",
-        "shared/config/.env": project_root / "shared" / "config" / ".env",
     }
     
     missing_files = []
@@ -527,34 +526,24 @@ def sync(project, skip_forgejo, skip_github, env_file):
             console.print("[red]❌ forgejo.repo not found in orchestrator config![/red]")
             raise SystemExit(1)
         
-        # Load Docker credentials from shared/config/.env
-        from dotenv import dotenv_values
-        shared_config_file = project_root / "shared" / "config" / ".env"
+        # Docker credentials are now in project .env (already loaded above)
+        # Validate they exist
+        if not env.get("DOCKER_REGISTRY"):
+            env["DOCKER_REGISTRY"] = "docker.io"  # Default value
         
-        if not shared_config_file.exists():
-            console.print("[red]❌ Shared config not found: shared/config/.env![/red]")
-            console.print("[yellow]Run 'superdeploy orchestrator up' to create it[/yellow]")
+        if not env.get("DOCKER_ORG"):
+            console.print(f"[red]❌ DOCKER_ORG not found in projects/{project}/.env![/red]")
+            console.print(f"[yellow]Edit projects/{project}/.env and fill in Docker credentials[/yellow]")
             raise SystemExit(1)
         
-        shared_config = dotenv_values(shared_config_file)
-        
-        env["DOCKER_REGISTRY"] = shared_config.get("DOCKER_REGISTRY", "docker.io")
-        env["DOCKER_ORG"] = shared_config.get("DOCKER_ORG", "")
-        if not env["DOCKER_ORG"]:
-            console.print("[red]❌ DOCKER_ORG not found in shared/config/.env![/red]")
-            console.print("[yellow]Edit shared/config/.env and fill in Docker credentials[/yellow]")
+        if not env.get("DOCKER_USERNAME"):
+            console.print(f"[red]❌ DOCKER_USERNAME not found in projects/{project}/.env![/red]")
+            console.print(f"[yellow]Edit projects/{project}/.env and fill in Docker credentials[/yellow]")
             raise SystemExit(1)
         
-        env["DOCKER_USERNAME"] = shared_config.get("DOCKER_USERNAME", "")
-        if not env["DOCKER_USERNAME"]:
-            console.print("[red]❌ DOCKER_USERNAME not found in shared/config/.env![/red]")
-            console.print("[yellow]Edit shared/config/.env and fill in Docker credentials[/yellow]")
-            raise SystemExit(1)
-        
-        env["DOCKER_TOKEN"] = shared_config.get("DOCKER_TOKEN", "")
-        if not env["DOCKER_TOKEN"]:
-            console.print("[red]❌ DOCKER_TOKEN not found in shared/config/.env![/red]")
-            console.print("[yellow]Edit shared/config/.env and fill in Docker credentials[/yellow]")
+        if not env.get("DOCKER_TOKEN"):
+            console.print(f"[red]❌ DOCKER_TOKEN not found in projects/{project}/.env![/red]")
+            console.print(f"[yellow]Edit projects/{project}/.env and fill in Docker credentials[/yellow]")
             raise SystemExit(1)
         
     except FileNotFoundError:
@@ -633,8 +622,8 @@ def sync(project, skip_forgejo, skip_github, env_file):
             console.print(error)
         console.print("\n[yellow]Fix these issues:[/yellow]")
         console.print("  • FORGEJO_ORG, REPO_SUPERDEPLOY: shared/orchestrator/config.yml")
-        console.print("  • DOCKER_*: shared/config/.env")
-        console.print("  • SSH_KEY_PATH: projects/{project}/project.yml")
+        console.print(f"  • DOCKER_*: projects/{project}/.env")
+        console.print(f"  • SSH_KEY_PATH: projects/{project}/project.yml")
         console.print("\n[yellow]Run 'superdeploy orchestrator up' to create missing files[/yellow]")
         raise SystemExit(1)
     

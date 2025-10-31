@@ -5,9 +5,12 @@
 # Edit this file, then run: superdeploy generate -p {{PROJECT}}
 # =============================================================================
 
-project: {{PROJECT}}
-description: {{PROJECT}} project
-created_at: {{CREATED_AT}}
+# Project Information
+project:
+  name: {{PROJECT}}
+  description: {{PROJECT}} project
+  created_at: {{CREATED_AT}}
+  ssl_email: ""  # For Let's Encrypt certificates (e.g., admin@{{PROJECT}}.com)
 
 # =============================================================================
 # Cloud Provider Configuration
@@ -26,16 +29,7 @@ cloud:
     user: "superdeploy"
 
 # =============================================================================
-# Docker Registry Configuration
-# =============================================================================
-docker:
-  registry: "docker.io"  # Docker Hub or custom registry
-  organization: "your-docker-org"  # EDIT THIS
-  username: "your-docker-username"  # EDIT THIS
-  # Note: Docker token should be set as environment variable DOCKER_TOKEN
-  # or stored in a secure location
 
-# =============================================================================
 # Infrastructure Configuration
 # =============================================================================
 # Core infrastructure services (always deployed)
@@ -92,7 +86,7 @@ vms:
     services:
       - postgres
       - rabbitmq
-      - forgejo
+      - caddy
   
   # Add more VMs as needed:
   # worker:
@@ -164,22 +158,13 @@ apps:
 # =============================================================================
 github:
   organization: {{PROJECT}}io  # EDIT THIS
+  # Variables: GITHUB_TOKEN (from .env)
 
 # =============================================================================
 # Network Configuration
 # =============================================================================
 network:
   subnet: {{SUBNET}}
-
-# =============================================================================
-# Monitoring (Optional)
-# =============================================================================
-monitoring:
-  enabled: true
-  prometheus: true
-  grafana: true
-
-# =============================================================================
-# Domain (Optional)
-# =============================================================================
-domain: ""  # e.g., myproject.com
+#   dashboard:
+#     domain: "dashboard.{{PROJECT}}.com"
+# DNS A records must point to the VM's IP where the app runs
