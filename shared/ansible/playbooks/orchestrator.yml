@@ -1,0 +1,114 @@
+---
+# Orchestrator Playbook - Deploy orchestrator infrastructure
+# 
+# Usage:
+#   ansible-playbook -i inventories/orchestrator.ini playbooks/orchestrator.yml
+#
+# This playbook deploys:
+#   - Base system setup
+#   - Docker
+#   - Monitoring agent
+#   - Forgejo (Git server)
+#   - PostgreSQL (for Forgejo)
+#   - Prometheus (metrics)
+#   - Grafana (dashboards)
+
+# ============================================================================
+# PHASE 1: System Foundation
+# ============================================================================
+
+- name: Setup Base System
+  hosts: orchestrator
+  become: yes
+  roles:
+    - role: system/base
+  tags:
+    - system
+    - system-base
+    - foundation
+
+- name: Install and Configure Docker
+  hosts: orchestrator
+  become: yes
+  roles:
+    - role: system/docker
+  tags:
+    - system
+    - docker
+    - foundation
+
+- name: Install System Monitoring Agent
+  hosts: orchestrator
+  become: yes
+  roles:
+    - role: system/monitoring-agent
+  tags:
+    - system
+    - monitoring-agent
+    - foundation
+
+# ============================================================================
+# PHASE 2: Addon Deployment
+# ============================================================================
+
+- name: Ensure superdeploy data directory exists
+  hosts: orchestrator
+  become: yes
+  tasks:
+    - name: Create superdeploy data directory
+      file:
+        path: /var/lib/superdeploy
+        state: directory
+        owner: "{{ superdeploy_user | default('superdeploy') }}"
+        group: "{{ superdeploy_group | default('superdeploy') }}"
+        mode: '0755'
+    
+    - name: Create orchestrator data directory
+      file:
+        path: "/var/lib/superdeploy/orchestrator"
+        state: directory
+        owner: "{{ superdeploy_user | default('superdeploy') }}"
+        group: "{{ superdeploy_group | default('superdeploy') }}"
+        mode: '0755'
+  tags:
+    - addons
+    - infrastructure
+
+- name: Deploy Orchestrator Addons
+  hosts: orchestrator
+  become: yes
+  roles:
+    - role: orchestration/addon-deployer
+      vars:
+        project_name: orchestrator
+        vm_role: orchestrator
+        # Orchestrator always deploys: forgejo, postgres, prometheus, grafana
+        enabled_addons: ['forgejo', 'postgres', 'prometheus', 'grafana']
+  tags:
+    - addons
+    - infrastructure
+
+# ============================================================================
+# PHASE 3: Verification
+# ============================================================================
+
+- name: Verify deployment
+  hosts: orchestrator
+  become: yes
+  tasks:
+    - name: Check Docker is running
+      service:
+        name: docker
+        state: started
+      
+    - name: Check orchestrator containers
+      command: docker ps --format '{{.Names}}'
+      register: containers
+      changed_when: false
+      
+    - name: Display running containers
+      debug:
+        msg: "Running containers: {{ containers.stdout_lines }}"
+  tags:
+    - verify
+    - health

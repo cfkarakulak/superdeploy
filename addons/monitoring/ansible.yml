@@ -114,11 +114,22 @@
     mode: '0600'
   when: addon_path is defined and addon_path | length > 0
 
-- name: Start {{ addon_name }} services
+- name: Stop and remove existing {{ addon_name }} containers (idempotent cleanup)
+  community.docker.docker_compose_v2:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: absent
+    remove_orphans: true
+  become_user: "{{ superdeploy_user }}"
+  failed_when: false
+  ignore_errors: true
+
+- name: Start {{ addon_name }} services (fresh deployment)
   community.docker.docker_compose_v2:
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: present
     pull: "always"
+    recreate: "always"
+    remove_orphans: true
   become_user: "{{ superdeploy_user }}"
   register: monitoring_compose_result
 

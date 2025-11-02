@@ -25,7 +25,7 @@
 # ============================================================================
 
 - name: Setup Base System
-  hosts: "{{ 'all:!orchestrator' if project_name is defined and project_name != 'orchestrator' else 'all' }}"
+  hosts: all:!orchestrator
   become: yes
   roles:
     - role: system/base
@@ -38,7 +38,7 @@
     skip_firewall_reset: "{{ 'orchestrator' in group_names and project_name is defined }}"
 
 - name: Install and Configure Docker
-  hosts: "{{ 'all:!orchestrator' if project_name is defined and project_name != 'orchestrator' else 'all' }}"
+  hosts: all:!orchestrator
   become: yes
   roles:
     - role: system/docker
@@ -48,7 +48,7 @@
     - foundation
 
 - name: Install System Monitoring Agent
-  hosts: "{{ 'all:!orchestrator' if project_name is defined and project_name != 'orchestrator' else 'all' }}"
+  hosts: all:!orchestrator
   become: yes
   roles:
     - role: system/monitoring-agent
@@ -72,7 +72,7 @@
 # ============================================================================
 
 - name: Ensure superdeploy data directory exists
-  hosts: all
+  hosts: all:!orchestrator
   become: yes
   tasks:
     - name: Create superdeploy data directory
@@ -95,64 +95,20 @@
     - addons
     - infrastructure
 
-- name: Deploy Infrastructure Addons (Orchestrator)
-  hosts: orchestrator
-  become: yes
-  # Skip orchestrator addon deployment during project deployments
-  # Orchestrator should only be deployed via: superdeploy orchestrator up
-  when: project_name is not defined or project_name == 'orchestrator'
-  roles:
-    - role: orchestration/addon-deployer
-      vars:
-        vm_role: orchestrator
-        # Orchestrator always deploys: forgejo, postgres, prometheus, grafana
-        enabled_addons: ['forgejo', 'postgres', 'prometheus', 'grafana']
-  tags:
-    - addons
-    - infrastructure
-
 - name: Deploy Infrastructure Addons (Projects)
   hosts: all:!orchestrator
   become: yes
-  pre_tasks:
-    - name: Parse vm_services from inventory (if string)
-      set_fact:
-        parsed_vm_services: "{{ vm_services | from_json }}"
-      when: 
-        - vm_services is defined
-        - vm_services is string
-      
-    - name: Use vm_services as-is (if already list)
-      set_fact:
-        parsed_vm_services: "{{ vm_services }}"
-      when: 
-        - vm_services is defined
-        - vm_services is not string
-    
-    - name: Set empty list if vm_services undefined
-      set_fact:
-        parsed_vm_services: []
-      when: vm_services is not defined
-      
-    - name: Debug vm_services parsing for this host
-      debug:
-        msg:
-          - "Host: {{ inventory_hostname }}"
-          - "VM Role: {{ vm_role | default('undefined') }}"
-          - "Raw vm_services: {{ vm_services | default('undefined') }}"
-          - "Parsed vm_services: {{ parsed_vm_services }}"
-          - "Addons to deploy: {{ parsed_vm_services | join(', ') if parsed_vm_services | length > 0 else 'none' }}"
   roles:
     - role: orchestration/addon-deployer
       vars:
         project_name: "{{ project_name }}"
         project_config: "{{ project_config }}"
         addons_base_path: "/var/lib/superdeploy/{{ project_name }}/addons"
-        # Use parsed vm_services (this is per-host variable)
-        # NO DEFAULT - fail fast if undefined
-        enabled_addons: "{{ enabled_addons | default(parsed_vm_services) }}"
+        # Pass vm_services directly - role will parse it
+        # NO DEFAULT - fail fast if vm_services is not defined in inventory
+        enabled_addons: "{{ vm_services }}"
         addon_configs: "{{ addon_configs }}"
-        # NO DEFAULT - fail fast if secrets missing
+        # NO DEFAULT - fail fast if project_secrets is not defined
         project_secrets: "{{ project_secrets }}"
   tags:
     - addons
@@ -185,7 +141,7 @@
 # ============================================================================
 
 - name: Verify deployment
-  hosts: all
+  hosts: all:!orchestrator
   become: yes
   tasks:
     - name: Check Docker is running
@@ -193,13 +149,23 @@
         name: docker
         state: started
       
-    - name: Check if project directory exists
+    - name: Check if project compose directory exists
       stat:
-        path: "/opt/superdeploy/projects/{{ project_name }}"
-      register: project_dir
+        path: "/opt/superdeploy/projects/{{ project_name }}/compose"
+      register: compose_dir
       when: project_name is defined
       
-    - name: Verify Docker Compose services (if project deployed)
+    - name: Check if docker-compose file exists
+      find:
+        paths: "/opt/superdeploy/projects/{{ project_name }}/compose"
+        patterns: "docker-compose*.yml"
+      register: compose_files
+      when: 
+        - project_name is defined
+        - compose_dir is defined
+        - compose_dir.stat.exists
+      
+    - name: Verify Docker Compose services (if compose files exist)
       command: docker compose ps
       args:
         chdir: "/opt/superdeploy/projects/{{ project_name }}"
@@ -207,8 +173,9 @@
       ignore_errors: yes
       when: 
         - project_name is defined
-        - project_dir is defined
-        - project_dir.stat.exists
+        - compose_files is defined
+        - compose_files.matched is defined
+        - compose_files.matched > 0
       
     - name: Display service status
       debug:

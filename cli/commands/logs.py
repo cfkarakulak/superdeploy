@@ -5,7 +5,9 @@ import os
 import click
 import subprocess
 from rich.console import Console
+from rich.panel import Panel
 from cli.utils import load_env, validate_env_vars
+from cli.logger import DeployLogger
 
 console = Console()
 
@@ -16,7 +18,8 @@ console = Console()
 @click.option("-f", "--follow", is_flag=True, help="Follow logs (tail -f)")
 @click.option("-n", "--lines", default=100, help="Number of lines")
 @click.option("-e", "--env", "environment", default="production", help="Environment")
-def logs(project, app, follow, lines, environment):
+@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
+def logs(project, app, follow, lines, environment, verbose):
     """
     View application logs
 
@@ -29,9 +32,20 @@ def logs(project, app, follow, lines, environment):
     from cli.utils import get_project_root
     from cli.core.config_loader import ConfigLoader
     
-    console.print(f"[cyan]📋 Fetching logs for [bold]{project}/{app}[/bold]...[/cyan]")
+    if not verbose:
+        console.print(
+            Panel.fit(
+                f"[bold cyan]📋 Application Logs[/bold cyan]\n\n"
+                f"[white]Project: {project}[/white]\n"
+                f"[white]App: {app}[/white]",
+                border_style="cyan",
+            )
+        )
+    
+    logger = DeployLogger(project, f"logs-{app}", verbose=verbose)
     
     # Load config to find VM
+    logger.step("Loading project configuration")
     project_root = get_project_root()
     projects_dir = project_root / "projects"
     
@@ -39,10 +53,11 @@ def logs(project, app, follow, lines, environment):
         config_loader = ConfigLoader(projects_dir)
         project_config = config_loader.load_project(project)
         apps = project_config.raw_config.get("apps", {})
+        logger.success("Configuration loaded")
         
         if app not in apps:
-            console.print(f"[red]❌ App '{app}' not found in project config[/red]")
-            return
+            logger.log_error(f"App '{app}' not found in project config")
+            raise SystemExit(1)
         
         vm_role = apps[app].get("vm", "core")
         
@@ -59,14 +74,15 @@ def logs(project, app, follow, lines, environment):
         match = re.search(pattern, inventory_content)
         
         if not match:
-            console.print(f"[red]❌ VM not found in inventory for role: {vm_role}[/red]")
-            return
+            logger.log_error(f"VM not found in inventory for role: {vm_role}")
+            raise SystemExit(1)
         
         ssh_host = match.group(1)
+        logger.log(f"Found VM: {ssh_host}")
         
     except Exception as e:
-        console.print(f"[red]❌ Error: {e}[/red]")
-        return
+        logger.log_error(f"Error: {e}")
+        raise SystemExit(1)
     
     # SSH config
     ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
@@ -86,8 +102,12 @@ def logs(project, app, follow, lines, environment):
         docker_cmd,
     ]
 
+    process = None
     try:
         # Stream logs to terminal
+        logger.step(f"Streaming logs from {app}")
+        logger.log("Press Ctrl+C to stop")
+        
         process = subprocess.Popen(
             ssh_cmd,
             stdout=subprocess.PIPE,
@@ -96,17 +116,17 @@ def logs(project, app, follow, lines, environment):
             bufsize=1,
         )
 
-        console.print(f"[green]✅ Streaming logs from {app}...[/green]")
-        console.print("[dim]Press Ctrl+C to stop[/dim]\n")
-
-        for line in process.stdout:
-            print(line, end="")
+        if process.stdout:
+            for line in process.stdout:
+                print(line, end="")
 
         process.wait()
+        logger.success("Log streaming complete")
 
     except KeyboardInterrupt:
-        console.print("\n[yellow]⏹️  Stopped[/yellow]")
-        process.terminate()
+        logger.warning("Stopped by user")
+        if process:
+            process.terminate()
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]❌ Failed to fetch logs: {e}[/red]")
+        logger.log_error(f"Failed to fetch logs: {e}")
         raise SystemExit(1)

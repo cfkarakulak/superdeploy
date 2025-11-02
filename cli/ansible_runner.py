@@ -1,138 +1,97 @@
-"""Ansible runner for SuperDeploy"""
+"""
+Ansible runner with custom callback plugin
+"""
 
 import subprocess
-from pathlib import Path
-from typing import Dict, Optional, List
-from rich.console import Console
-
-console = Console()
+import os
 
 
 class AnsibleRunner:
-    """Run Ansible playbooks with proper inventory and variables"""
-    
-    def __init__(self, project_root: Path):
-        self.project_root = project_root
-        self.ansible_dir = project_root / "shared" / "ansible"
-        self.playbook_dir = self.ansible_dir / "playbooks"
-        self.inventory_dir = self.ansible_dir / "inventories"
-    
-    def run_playbook(
-        self,
-        playbook: str,
-        project_name: str,
-        project_config: dict,
-        extra_vars: Optional[Dict] = None,
-        tags: Optional[List[str]] = None,
-        skip_tags: Optional[List[str]] = None,
-        limit: Optional[str] = None,
-        check: bool = False
-    ) -> bool:
-        """
-        Run an Ansible playbook
+    """Run Ansible with clean tree view using custom callback"""
+
+    def __init__(self, logger, title="Configuring", verbose=False):
+        self.logger = logger
+        self.title = title
+        self.verbose = verbose
+
+    def run(self, ansible_cmd, cwd):
+        """Run Ansible command"""
         
-        Args:
-            playbook: Playbook filename (e.g., 'site.yml')
-            project_name: Name of the project
-            project_config: Project configuration dictionary
-            extra_vars: Additional variables to pass
-            tags: List of tags to run
-            skip_tags: List of tags to skip
-            limit: Limit execution to specific hosts/groups
-            check: Run in check mode (dry-run)
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        playbook_path = self.playbook_dir / playbook
+        self.logger.log_command(ansible_cmd)
         
-        if not playbook_path.exists():
-            console.print(f"[red]❌ Playbook not found: {playbook_path}[/red]")
-            return False
+        # Create Ansible-specific log file (raw output, no prefixes)
+        # This will contain full verbose Ansible output for debugging
+        ansible_log_path = self.logger.log_path.parent / f"{self.logger.log_path.stem}_ansible.log"
         
-        # Build command
-        cmd = [
-            "ansible-playbook",
-            str(playbook_path),
-            "-i", str(self.inventory_dir / "dev.ini"),  # Use static inventory for now
-        ]
+        # Setup environment for VERBOSE logging to file
+        env_verbose = os.environ.copy()
+        env_verbose.update({
+            "PYTHONUNBUFFERED": "1",
+            "ANSIBLE_STDOUT_CALLBACK": "default",  # RAW output for log file
+            "ANSIBLE_DISPLAY_SKIPPED_HOSTS": "false",
+            "ANSIBLE_LOG_PATH": str(ansible_log_path),
+            "ANSIBLE_NOCOLOR": "true",  # No colors in log file
+        })
         
-        # Add limit (project-specific hosts)
-        if limit:
-            cmd.extend(["--limit", limit])
-        elif project_name:
-            # Limit to project-specific hosts
-            cmd.extend(["--limit", "core"])  # For now, all projects use 'core' group
+        # Run Ansible in background for logging (captures to file)
+        # This runs with default callback for full details
+        import threading
         
-        # Add tags
-        if tags:
-            cmd.extend(["--tags", ",".join(tags)])
-        
-        # Add skip tags
-        if skip_tags:
-            cmd.extend(["--skip-tags", ",".join(skip_tags)])
-        
-        # Add check mode
-        if check:
-            cmd.append("--check")
-        
-        # Build extra vars
-        all_vars = {
-            "project_name": project_name,
-            "project_config": project_config,
-        }
-        
-        if extra_vars:
-            all_vars.update(extra_vars)
-        
-        # Add extra vars as JSON
-        import json
-        cmd.extend(["--extra-vars", json.dumps(all_vars)])
-        
-        # Add verbose output
-        cmd.append("-v")
-        
-        # Run command
-        console.print(f"[dim]Running: {' '.join(cmd[:4])}...[/dim]")
-        
-        try:
-            result = subprocess.run(
-                cmd,
-                cwd=str(self.ansible_dir),
-                check=True,
-                capture_output=False,  # Show output in real-time
-                text=True
+        def run_ansible_logger():
+            """Background thread to capture full Ansible output to log file"""
+            subprocess.run(
+                ansible_cmd,
+                shell=True,
+                cwd=str(cwd),
+                env=env_verbose,
+                stdout=subprocess.DEVNULL,  # We don't need this output
+                stderr=subprocess.DEVNULL,
             )
-            return result.returncode == 0
-        except subprocess.CalledProcessError as e:
-            console.print(f"[red]❌ Ansible playbook failed with exit code {e.returncode}[/red]")
-            return False
-        except Exception as e:
-            console.print(f"[red]❌ Failed to run Ansible: {e}[/red]")
-            return False
-    
-    def update_inventory(self, project_name: str, vm_ip: str, ssh_user: str = "superdeploy"):
-        """
-        Update static inventory file for a project
         
-        Args:
-            project_name: Name of the project
-            vm_ip: VM IP address
-            ssh_user: SSH username
-        """
-        inventory_file = self.inventory_dir / "dev.ini"
+        # Start background logging thread
+        log_thread = threading.Thread(target=run_ansible_logger, daemon=True)
+        log_thread.start()
         
-        # For now, we use a simple static inventory
-        # In the future, we can generate project-specific inventories
-        content = f"""[core]
-vm-core-1 ansible_host={vm_ip} ansible_user={ssh_user}
-
-[project_{project_name}:children]
-core
-
-[project_{project_name}:vars]
-project_name={project_name}
-"""
+        self.logger.log(f"Ansible detailed log: {ansible_log_path}", "INFO")
         
-        inventory_file.write_text(content)
-        console.print(f"[dim]✓ Updated inventory: {inventory_file}[/dim]")
+        # Setup environment for TERMINAL output
+        env_terminal = os.environ.copy()
+        env_terminal.update({
+            "PYTHONUNBUFFERED": "1",
+            "ANSIBLE_STDOUT_CALLBACK": "tree_minimal" if not self.verbose else "default",
+            "ANSIBLE_DISPLAY_SKIPPED_HOSTS": "false",
+            # Don't write to log file from this process
+        })
+        
+        # Run Ansible for terminal output (tree_minimal or default)
+        process = subprocess.Popen(
+            ansible_cmd,
+            shell=True,
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env_terminal,
+        )
+        
+        # Pass through output (to both main log and console)
+        if process.stdout:
+            for line in process.stdout:
+                line_stripped = line.rstrip()
+                
+                # Log to main log file (with tree_minimal or default output)
+                try:
+                    self.logger.log_output(line_stripped, "ansible")
+                except (BlockingIOError, OSError):
+                    pass
+                
+                # Print to console (always, both verbose and non-verbose)
+                print(line_stripped)
+        
+        returncode = process.wait()
+        
+        # Wait for background logger to finish
+        log_thread.join(timeout=5)
+        
+        return returncode

@@ -77,11 +77,23 @@ ansible-playbook -i inventories/dev.ini playbooks/project_deploy.yml \\
   {extra_vars_str}
 """
 
-    try:
-        subprocess.run(ansible_cmd, shell=True, check=True)
-        console.print(f"[green]✅ Project '{project}' deployed successfully![/green]")
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]❌ Deployment failed: {e}[/red]")
+    # Run ansible with clean tree view
+    from cli.ansible_runner import AnsibleRunner
+    from cli.logger import DeployLogger
+    
+    verbose = False  # Can be made a CLI option later
+    with DeployLogger("project", project, verbose=verbose) as logger:
+        logger.step("Deploying project services")
+        
+        runner = AnsibleRunner(logger, title=f"Deploying {project}", verbose=verbose)
+        returncode = runner.run(ansible_cmd, cwd=project_root)
+        
+        if returncode != 0:
+            logger.log_error("Deployment failed", context="Check logs for details")
+            raise SystemExit(1)
+        
+        logger.success("Project deployed successfully")
+        console.print(f"\n[green]✅ Project '{project}' deployed successfully![/green]")
 
 
 def _create_project_deploy_playbook(ansible_dir):

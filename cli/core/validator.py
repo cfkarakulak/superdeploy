@@ -450,11 +450,9 @@ class ValidationEngine:
         network_config = project_config.get('network', {})
         subnet_str = network_config.get('docker_subnet') or network_config.get('subnet')
         
+        # If no subnet specified, it will be auto-allocated by SubnetAllocator
+        # Skip validation in this case
         if not subnet_str:
-            errors.append(ValidationError(
-                error_type='missing_subnet',
-                message=f"Project '{project_name}' is missing network.docker_subnet configuration"
-            ))
             return errors
         
         # Validate subnet format

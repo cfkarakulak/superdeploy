@@ -16,9 +16,25 @@
         - Docs: See shared/ansible/roles/orchestration/addon-deployer/README.md
     quiet: true
 
+- name: Parse enabled_addons from JSON string (if string)
+  set_fact:
+    enabled_addons_list: "{{ enabled_addons | from_json }}"
+  when: 
+    - enabled_addons is defined
+    - enabled_addons is string
+
+- name: Use enabled_addons as-is if already a list
+  set_fact:
+    enabled_addons_list: "{{ enabled_addons }}"
+  when: 
+    - enabled_addons is defined
+    - enabled_addons is not string
+
 - name: Set default values for optional variables
   set_fact:
-    enabled_addons: "{{ enabled_addons | default([]) }}"
+    # NO DEFAULT for enabled_addons - must be explicitly passed
+    enabled_addons: "{{ enabled_addons_list }}"
+    # These are OK - reasonable defaults for system users
     superdeploy_user: "{{ superdeploy_user | default('superdeploy') }}"
     superdeploy_group: "{{ superdeploy_group | default('superdeploy') }}"
 
@@ -46,14 +62,57 @@
     group: "{{ superdeploy_group }}"
     mode: '0644'
 
+- name: Check if project Docker network exists
+  shell: "docker network inspect {{ project_name }}-network >/dev/null 2>&1"
+  register: network_exists
+  changed_when: false
+  failed_when: false
+  become_user: "{{ superdeploy_user }}"
+
+- name: Get current network subnet (if exists)
+  shell: "docker network inspect {{ project_name }}-network --format '{{'{{range .IPAM.Config}}{{.Subnet}}{{end}}'}}'  2>/dev/null || echo ''"
+  register: current_subnet
+  changed_when: false
+  failed_when: false
+  become_user: "{{ superdeploy_user }}"
+  when: network_exists.rc == 0
+
+- name: Stop containers using old network (if subnet changed)
+  shell: "docker ps -q --filter network={{ project_name }}-network | xargs -r docker stop"
+  become_user: "{{ superdeploy_user }}"
+  when: 
+    - network_exists.rc == 0
+    - current_subnet.stdout != ""
+    # NO DEFAULT - fail fast if subnet not configured
+    - current_subnet.stdout != project_config.network.docker_subnet
+  ignore_errors: yes
+
+- name: Remove existing project Docker network (if subnet changed)
+  docker_network:
+    name: "{{ project_name }}-network"
+    state: absent
+    force: yes
+  become_user: "{{ superdeploy_user }}"
+  when: 
+    - network_exists.rc == 0
+    - current_subnet.stdout != ""
+    # NO DEFAULT - fail fast if subnet not configured
+    - current_subnet.stdout != project_config.network.docker_subnet
+  ignore_errors: yes
+
 - name: Create project Docker network
   docker_network:
     name: "{{ project_name }}-network"
     driver: bridge
     ipam_config:
-      - subnet: "{{ project_config.network.docker_subnet | default('172.30.0.0/24') }}"
+      # NO DEFAULT - fail fast if subnet not configured
+      - subnet: "{{ project_config.network.docker_subnet }}"
     state: present
   become_user: "{{ superdeploy_user }}"
+  register: network_create
+  failed_when: 
+    - network_create.failed
+    - "'already exists' not in network_create.msg | default('')"
 
 - name: Display deployment plan
   debug:

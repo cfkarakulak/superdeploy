@@ -80,3 +80,44 @@
       - "Repository: {{ FORGEJO_ADMIN_USER }}/{{ FORGEJO_REPO }}"
       - "Web URL: http://{{ FORGEJO_DOMAIN }}:{{ FORGEJO_PORT }}"
       - "Git Clone: http://{{ FORGEJO_DOMAIN }}:{{ FORGEJO_PORT }}/{{ FORGEJO_ADMIN_USER }}/{{ FORGEJO_REPO }}.git"
+
+- name: Create Personal Access Token (PAT) for CI/CD
+  uri:
+    url: "http://localhost:{{ FORGEJO_PORT }}/api/v1/users/{{ FORGEJO_ADMIN_USER }}/tokens"
+    method: POST
+    user: "{{ FORGEJO_ADMIN_USER }}"
+    password: "{{ FORGEJO_ADMIN_PASSWORD }}"
+    force_basic_auth: yes
+    body_format: json
+    body:
+      name: "superdeploy-cicd-{{ ansible_date_time.epoch }}"
+      scopes:
+        - write:activitypub
+        - write:admin
+        - write:issue
+        - write:misc
+        - write:notification
+        - write:organization
+        - write:package
+        - write:repository
+        - write:user
+    status_code: [201, 422]
+    timeout: 10
+  register: pat_create_result
+  failed_when: false
+  no_log: true
+
+- name: Save PAT to local orchestrator .env
+  lineinfile:
+    path: "{{ superdeploy_root }}/shared/orchestrator/.env"
+    regexp: '^FORGEJO_PAT='
+    line: "FORGEJO_PAT={{ pat_create_result.json.sha1 }}"
+    create: no
+    mode: '0600'
+  when: pat_create_result.status == 201
+  delegate_to: localhost
+  become: no
+
+- name: Display PAT creation result
+  debug:
+    msg: "{{ 'Personal Access Token created and saved to local .env' if pat_create_result.status == 201 else 'PAT already exists or creation skipped' }}"

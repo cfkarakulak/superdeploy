@@ -49,6 +49,8 @@ class ProjectConfig:
         self.project_name = project_name
         self.raw_config = config_dict
         self.project_dir = project_dir
+        self.config_path = project_dir / "project.yml" if project_dir else None
+        self.project_dir = project_dir
         self._apply_defaults()
         self._validate()
 
@@ -57,12 +59,40 @@ class ProjectConfig:
         # Ensure network section exists with defaults
         if "network" not in self.raw_config:
             self.raw_config["network"] = {}
+        
+        # Auto-allocate subnets using SubnetAllocator
+        project_name = self.raw_config.get("project", {}).get("name", "unknown")
+        subnet_allocated = False
+        
         if "vpc_subnet" not in self.raw_config["network"]:
-            self.raw_config["network"]["vpc_subnet"] = "10.128.0.0/20"
+            from cli.subnet_allocator import SubnetAllocator
+            allocator = SubnetAllocator()
+            self.raw_config["network"]["vpc_subnet"] = allocator.get_subnet(project_name)
+            subnet_allocated = True
+        
         if "docker_subnet" not in self.raw_config["network"]:
-            self.raw_config["network"]["docker_subnet"] = "172.30.0.0/24"
+            from cli.subnet_allocator import SubnetAllocator
+            allocator = SubnetAllocator()
+            self.raw_config["network"]["docker_subnet"] = allocator.get_docker_subnet(project_name)
+            subnet_allocated = True
+        
+        # Save allocated subnets back to yaml file for transparency
+        if subnet_allocated and self.config_path:
+            self._save_config()
 
         # Note: Monitoring config removed - now only in orchestrator config
+    
+    def _save_config(self) -> None:
+        """Save configuration back to yaml file"""
+        if not self.config_path or not self.config_path.exists():
+            return
+        
+        try:
+            with open(self.config_path, 'w') as f:
+                yaml.dump(self.raw_config, f, default_flow_style=False, sort_keys=False)
+        except Exception:
+            # Silently fail - not critical
+            pass
 
     def _validate(self) -> None:
         """Validate configuration"""
@@ -316,7 +346,8 @@ class ProjectConfig:
         return {
             "project_name": self.project_name,
             "project_config": self.raw_config,
-            "enabled_addons": list(addons.keys()),
+            # NOTE: enabled_addons is NOT included here because it's VM-specific
+            # It comes from inventory vm_services variable for each host
             "addon_configs": addons,
             "vm_config": self.get_vm_config(),
             "network_config": self.get_network_config(),

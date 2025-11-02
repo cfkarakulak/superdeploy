@@ -132,17 +132,15 @@ def select_workspace(project_name: str, create: bool = False):
         TerraformError: If workspace doesn't exist and create=False
     """
     if create:
-        # Use select -or-create to create if needed
-        click.echo(f"Selecting/creating Terraform workspace: {project_name}")
-        run_terraform_command(["workspace", "select", "-or-create", project_name])
+        # Use select -or-create to create if needed (suppress output)
+        run_terraform_command(["workspace", "select", "-or-create", project_name], capture_output=True)
     else:
         # Check if workspace exists first
         if not workspace_exists(project_name):
             raise click.ClickException(f"Workspace '{project_name}' does not exist")
         
-        # Just select
-        click.echo(f"Selecting Terraform workspace: {project_name}")
-        run_terraform_command(["workspace", "select", project_name])
+        # Just select (suppress output)
+        run_terraform_command(["workspace", "select", project_name], capture_output=True)
 
 
 def generate_tfvars(
@@ -174,12 +172,16 @@ def generate_tfvars(
     return output_file
 
 
-def terraform_init():
+def terraform_init(quiet: bool = False):
     """
     Initialize Terraform (download providers, etc.)
+    
+    Args:
+        quiet: If True, suppress output
     """
-    click.echo("Initializing Terraform...")
-    run_terraform_command(["init"])
+    if not quiet:
+        click.echo("Initializing Terraform...")
+    run_terraform_command(["init"], capture_output=quiet)
 
 
 def terraform_plan(
@@ -270,9 +272,8 @@ def terraform_destroy(
     if force:
         args.append("-lock=false")
 
-    # Run destroy
-    click.echo(f"\nDestroying Terraform infrastructure for project: {project_name}")
-    run_terraform_command(args)
+    # Run destroy (capture output to suppress verbose messages)
+    run_terraform_command(args, capture_output=True)
 
 
 def get_terraform_outputs(project_name: str) -> Dict[str, Any]:

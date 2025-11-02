@@ -14,4 +14,9 @@
     - { regexp: '^MaxAuthTries', line: 'MaxAuthTries 3' }
     - { regexp: '^ClientAliveInterval', line: 'ClientAliveInterval 300' }
     - { regexp: '^ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
-  notify: Restart SSH
+  register: ssh_config_changed
+
+- name: Note SSH config change (restart manually if needed)
+  debug:
+    msg: "SSH config updated. Changes will take effect on next SSH restart or reboot."
+  when: ssh_config_changed.changed

@@ -2,6 +2,7 @@
 
 import click
 from rich.console import Console
+from rich.panel import Panel
 
 console = Console()
 
@@ -18,15 +19,23 @@ def scale(project, vm_role, count):
     Example:
       superdeploy scale -p cheapa --vm-role api --count 3
     """
-    console.print(f"\n[bold cyan]📊 Scaling {vm_role} to {count} VMs[/bold cyan]\n")
+    console.print(
+        Panel.fit(
+            f"[bold cyan]📊 Scale Infrastructure[/bold cyan]\n\n"
+            f"[white]Project: {project}[/white]\n"
+            f"[white]VM Role: {vm_role}[/white]\n"
+            f"[white]Target Count: {count}[/white]",
+            border_style="cyan",
+        )
+    )
     
-    console.print("[bold]Steps:[/bold]")
+    console.print("\n[bold]Steps:[/bold]")
     console.print(f"1. Edit [green]projects/{project}/project.yml[/green]:")
     console.print(f"   [dim]vms:")
     console.print(f"     {vm_role}:")
     console.print(f"       count: {count}[/dim]\n")
     
     console.print("2. Apply changes:")
-    console.print(f"   [green]superdeploy up -p {project}[/green]\n")
+    console.print(f"   [cyan]superdeploy up -p {project}[/cyan]\n")
     
     console.print("[yellow]Note:[/yellow] Add load balancer (Caddy) to distribute traffic across VMs\n")

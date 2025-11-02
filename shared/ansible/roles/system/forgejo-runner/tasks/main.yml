@@ -1,269 +1,280 @@
 ---
 # Forgejo Actions Runner Setup (standalone, without Forgejo server)
 # This role installs runner on project VMs to enable distributed deployments
+# Note: Orchestrator is excluded in site.yml (hosts: all:!orchestrator)
 
-- name: Check if this is the orchestrator VM (skip if Forgejo addon will handle runner)
-  set_fact:
-    is_orchestrator_vm: "{{ 'orchestrator' in group_names }}"
-
-- name: Skip runner setup on orchestrator VM (handled by Forgejo addon)
-  debug:
-    msg: "Skipping standalone runner setup - this is orchestrator VM, Forgejo addon will handle it"
-  when: is_orchestrator_vm
-
-- name: Setup standalone runner on project VMs
-  block:
-    - name: Create deployment directories
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: "{{ superdeploy_user }}"
-        group: "{{ superdeploy_group | default(superdeploy_user) }}"
-        mode: '0755'
-      loop:
-        - /opt/apps
-        - /opt/superdeploy/projects
+- name: Create deployment directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0755'
+  loop:
+    - /opt/apps
+    - /opt/superdeploy/projects
     
-    - name: Check if Node.js is installed
-      command: node --version
-      register: node_check
-      failed_when: false
-      changed_when: false
+- name: Check if Node.js is installed
+  command: node --version
+  register: node_check
+  failed_when: false
+  changed_when: false
 
-    - name: Install Node.js (if not present)
-      block:
-        - name: Download Node.js setup script
-          get_url:
-            url: https://deb.nodesource.com/setup_20.x
-            dest: /tmp/nodesource_setup.sh
-            mode: '0755'
-          when: node_check.rc != 0
-
-        - name: Run Node.js setup script
-          command: bash /tmp/nodesource_setup.sh
-          when: node_check.rc != 0
-
-        - name: Install Node.js package
-          apt:
-            name: nodejs
-            state: present
-            update_cache: yes
-          when: node_check.rc != 0
-      when: ansible_os_family == "Debian"
-
-    - name: Check if age is installed
-      command: age --version
-      register: age_check
-      failed_when: false
-      changed_when: false
-
-    - name: Install age encryption tool
-      block:
-        - name: Download age binary
-          get_url:
-            url: "https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz"
-            dest: /tmp/age.tar.gz
-            mode: '0644'
-
-        - name: Extract age binary
-          unarchive:
-            src: /tmp/age.tar.gz
-            dest: /tmp/
-            remote_src: yes
-
-        - name: Install age binary
-          copy:
-            src: /tmp/age/age
-            dest: /usr/local/bin/age
-            mode: '0755'
-            remote_src: yes
-
-        - name: Install age-keygen binary
-          copy:
-            src: /tmp/age/age-keygen
-            dest: /usr/local/bin/age-keygen
-            mode: '0755'
-            remote_src: yes
-      when: age_check.rc != 0
-
-    - name: Create runner working directory
-      file:
-        path: /opt/forgejo-runner
-        state: directory
-        owner: "{{ superdeploy_user }}"
-        group: "{{ superdeploy_group | default(superdeploy_user) }}"
-        mode: '0755'
-
-    - name: Create age key directory
-      file:
-        path: /opt/forgejo-runner/.age
-        state: directory
-        owner: "{{ superdeploy_user }}"
-        group: "{{ superdeploy_group | default(superdeploy_user) }}"
-        mode: '0700'
-
-    - name: Check if age key already exists
-      stat:
-        path: /opt/forgejo-runner/.age/key.txt
-      register: age_key_check
-      become_user: "{{ superdeploy_user }}"
-
-    - name: Generate age encryption key
-      shell: age-keygen -o /opt/forgejo-runner/.age/key.txt 2>&1
-      args:
-        creates: /opt/forgejo-runner/.age/key.txt
-      become_user: "{{ superdeploy_user }}"
-      register: age_keygen_result
-
-    - name: Set age key file permissions
-      file:
-        path: /opt/forgejo-runner/.age/key.txt
-        owner: "{{ superdeploy_user }}"
-        group: "{{ superdeploy_group | default(superdeploy_user) }}"
-        mode: '0600'
-
-    - name: Display age public key
-      shell: cat /opt/forgejo-runner/.age/key.txt | grep "public key:"
-      register: age_public_key_output
-      changed_when: false
-      become_user: "{{ superdeploy_user }}"
-
-    - name: Show age public key for GitHub secrets
-      debug:
-        msg:
-          - "=== AGE Encryption Setup for {{ inventory_hostname }} ==="
-          - "Public Key (add to GitHub Secrets as AGE_PUBLIC_KEY):"
-          - "{{ age_public_key_output.stdout }}"
-          - "Private Key Location: /opt/forgejo-runner/.age/key.txt"
-      when: age_keygen_result is changed
-
-    - name: Check if Forgejo runner is already installed
-      stat:
-        path: /usr/local/bin/forgejo-runner
-      register: runner_binary_check
-
-    - name: Download Forgejo Actions runner
+- name: Install Node.js (if not present)
+  block:
+    - name: Download Node.js setup script
       get_url:
-        url: "https://code.forgejo.org/forgejo/runner/releases/download/v{{ forgejo_runner_version }}/forgejo-runner-{{ forgejo_runner_version }}-linux-amd64"
-        dest: /usr/local/bin/forgejo-runner
+        url: https://deb.nodesource.com/setup_20.x
+        dest: /tmp/nodesource_setup.sh
         mode: '0755'
-      when: not runner_binary_check.stat.exists
+      when: node_check.rc != 0
 
-    - name: Get Forgejo URL from orchestrator (via project config or inventory)
-      set_fact:
-        forgejo_url: >-
-          {%- if 'orchestrator' in groups and groups['orchestrator'] | length > 0 -%}
-          http://{{ hostvars[groups['orchestrator'][0]]['ansible_host'] }}:3001
-          {%- elif project_config is defined and project_config.orchestrator is defined and project_config.orchestrator.host is defined -%}
-          http://{{ project_config.orchestrator.host }}:{{ project_config.orchestrator.port | default(3001) }}
-          {%- else -%}
-          {{ forgejo_base_url | default('') }}
-          {%- endif -%}
+    - name: Run Node.js setup script
+      command: bash /tmp/nodesource_setup.sh
+      when: node_check.rc != 0
 
-    - name: Verify Forgejo URL is available
-      fail:
-        msg: |
-          Forgejo URL not found. Please ensure one of the following:
-          1. Orchestrator VM is in inventory with 'orchestrator' group
-          2. project_config.orchestrator.host is defined
-          3. forgejo_base_url variable is set
-      when: forgejo_url == '' or forgejo_url is not defined
+    - name: Install Node.js package
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+      when: node_check.rc != 0
+  when: ansible_os_family == "Debian"
 
-    - name: Check if runner is already registered
-      stat:
-        path: /opt/forgejo-runner/.runner
-      register: runner_registration_check
+- name: Check if age is installed
+  command: age --version
+  register: age_check
+  failed_when: false
+  changed_when: false
 
-    - name: Determine project name from inventory groups or project_name variable
-      set_fact:
-        runner_project_name: "{{ project_name | default(group_names | reject('in', ['all', 'ungrouped', 'orchestrator', 'core']) | first | default('unknown')) }}"
-
-    - name: Determine VM role from inventory groups (excluding special groups)
-      set_fact:
-        vm_role: "{{ group_names | reject('in', ['all', 'ungrouped', 'orchestrator']) | first | default('worker') }}"
-
-    - name: Generate runner registration token from Forgejo (on orchestrator VM)
-      command: docker exec -u 1000:1000 orchestrator-forgejo forgejo actions generate-runner-token
-      register: runner_token_result
-      when: 
-        - not runner_registration_check.stat.exists
-        - "'orchestrator' in groups"
-        - "groups['orchestrator'] | length > 0"
-      changed_when: false
-      delegate_to: "{{ groups['orchestrator'][0] }}"
-      failed_when: false
-
-    - name: Set runner token fact
-      set_fact:
-        runner_token: "{{ runner_token_result.stdout | trim }}"
-      when: 
-        - not runner_registration_check.stat.exists
-        - runner_token_result is defined
-        - runner_token_result.stdout is defined
-
-    - name: Check Forgejo connectivity
-      uri:
-        url: "{{ forgejo_url }}"
-        status_code: 200
-        timeout: 5
-      register: forgejo_connectivity
-      failed_when: false
-      when: not runner_registration_check.stat.exists
-
-    - name: Register Forgejo Actions runner (project-specific)
-      command: >
-        forgejo-runner register
-        --no-interactive
-        --instance "{{ forgejo_url }}"
-        --token "{{ runner_token }}"
-        --name "{{ runner_project_name }}-{{ vm_role }}-{{ inventory_hostname_short | default(inventory_hostname) }}"
-        --labels "self-hosted:host,project-runner:host,ubuntu-latest:host,{{ runner_project_name }}:host,{{ vm_role }}:host,linux:host,docker:host"
-      args:
-        chdir: /opt/forgejo-runner
-      become_user: "{{ superdeploy_user }}"
-      when: 
-        - not runner_registration_check.stat.exists
-        - runner_token is defined
-        - runner_token != ''
-        - forgejo_connectivity is defined
-        - forgejo_connectivity.status is defined
-        - forgejo_connectivity.status == 200
-      register: runner_register_result
-      async: 120
-      poll: 10
-
-    - name: Display runner registration result
-      debug:
-        msg: 
-          - "{{ 'Runner registered successfully!' if (runner_register_result is defined and runner_register_result.changed) else ('Runner already registered' if runner_registration_check.stat.exists else 'Runner registration skipped (token not available)') }}"
-          - "Runner Name: {{ runner_project_name }}-{{ vm_role }}-{{ inventory_hostname_short | default(inventory_hostname) }}"
-          - "Runner Labels: ubuntu-latest, {{ runner_project_name }}, {{ vm_role }}, linux, docker"
-          - "Project: {{ runner_project_name }}"
-          - "VM Role: {{ vm_role }}"
-          - ""
-          - "⚠️  Workflows should use: runs-on: [self-hosted, {{ runner_project_name }}]"
-          - "   Or for specific VM role: runs-on: [self-hosted, {{ runner_project_name }}, {{ vm_role }}]"
-
-    - name: Create runner systemd service file
-      template:
-        src: forgejo-runner.service.j2
-        dest: /etc/systemd/system/forgejo-runner.service
+- name: Install age encryption tool
+  block:
+    - name: Download age binary
+      get_url:
+        url: "https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz"
+        dest: /tmp/age.tar.gz
         mode: '0644'
 
-    - name: Reload systemd daemon
-      systemd:
-        daemon_reload: yes
+    - name: Extract age binary
+      unarchive:
+        src: /tmp/age.tar.gz
+        dest: /tmp/
+        remote_src: yes
 
-    - name: Enable runner service (will start after registration)
-      systemd:
-        name: forgejo-runner
-        enabled: yes
-      when: runner_registration_check.stat.exists
+    - name: Install age binary
+      copy:
+        src: /tmp/age/age
+        dest: /usr/local/bin/age
+        mode: '0755'
+        remote_src: yes
 
-    - name: Start runner service if already registered
-      systemd:
-        name: forgejo-runner
-        state: started
-      when: runner_registration_check.stat.exists
+    - name: Install age-keygen binary
+      copy:
+        src: /tmp/age/age-keygen
+        dest: /usr/local/bin/age-keygen
+        mode: '0755'
+        remote_src: yes
+  when: age_check.rc != 0
 
-  when: not is_orchestrator_vm
+- name: Create runner working directory
+  file:
+    path: /opt/forgejo-runner
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0755'
+
+- name: Create age key directory
+  file:
+    path: /opt/forgejo-runner/.age
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0700'
+
+- name: Check if age key already exists
+  stat:
+    path: /opt/forgejo-runner/.age/key.txt
+  register: age_key_check
+  become_user: "{{ superdeploy_user }}"
+
+- name: Generate age encryption key
+  shell: age-keygen -o /opt/forgejo-runner/.age/key.txt 2>&1
+  args:
+    creates: /opt/forgejo-runner/.age/key.txt
+  become_user: "{{ superdeploy_user }}"
+  register: age_keygen_result
+
+- name: Set age key file permissions
+  file:
+    path: /opt/forgejo-runner/.age/key.txt
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0600'
+
+- name: Display age public key
+  shell: cat /opt/forgejo-runner/.age/key.txt | grep "public key:"
+  register: age_public_key_output
+  changed_when: false
+  become_user: "{{ superdeploy_user }}"
+
+- name: Show age public key for GitHub secrets
+  debug:
+    msg:
+      - "=== AGE Encryption Setup for {{ inventory_hostname }} ==="
+      - "Public Key (add to GitHub Secrets as AGE_PUBLIC_KEY):"
+      - "{{ age_public_key_output.stdout }}"
+      - "Private Key Location: /opt/forgejo-runner/.age/key.txt"
+  when: age_keygen_result is changed
+
+- name: Check if Forgejo runner is already installed
+  stat:
+    path: /usr/local/bin/forgejo-runner
+  register: runner_binary_check
+
+- name: Download Forgejo Actions runner
+  get_url:
+    url: "https://code.forgejo.org/forgejo/runner/releases/download/v{{ forgejo_runner_version }}/forgejo-runner-{{ forgejo_runner_version }}-linux-amd64"
+    dest: /usr/local/bin/forgejo-runner
+    mode: '0755'
+  when: not runner_binary_check.stat.exists
+
+- name: Get Forgejo URL from orchestrator (via project config or inventory)
+  set_fact:
+    forgejo_url: >-
+      {%- if 'orchestrator' in groups and groups['orchestrator'] | length > 0 -%}
+      http://{{ hostvars[groups['orchestrator'][0]]['ansible_host'] }}:3001
+      {%- elif project_config is defined and project_config.orchestrator is defined and project_config.orchestrator.host is defined -%}
+      http://{{ project_config.orchestrator.host }}:{{ project_config.orchestrator.port | default(3001) }}
+      {%- else -%}
+      {{ forgejo_base_url | default('') }}
+      {%- endif -%}
+
+- name: Verify Forgejo URL is available
+  fail:
+    msg: |
+      Forgejo URL not found. Please ensure one of the following:
+      1. Orchestrator VM is in inventory with 'orchestrator' group
+      2. project_config.orchestrator.host is defined
+      3. forgejo_base_url variable is set
+  when: forgejo_url == '' or forgejo_url is not defined
+
+- name: Check if runner is already registered
+  stat:
+    path: /opt/forgejo-runner/.runner
+  register: runner_registration_check
+
+- name: Determine project name from inventory groups or project_name variable
+  set_fact:
+    runner_project_name: "{{ project_name | default(group_names | reject('in', ['all', 'ungrouped', 'orchestrator', 'core']) | first | default('unknown')) }}"
+
+- name: Get VM role from inventory
+  set_fact:
+    vm_role: "{{ hostvars[inventory_hostname].vm_role }}"
+
+- name: Check runner labels if already registered
+  shell: cat /opt/forgejo-runner/.runner | grep -o '"{{ vm_role }}:host"'
+  register: runner_label_check
+  failed_when: false
+  changed_when: false
+  when: runner_registration_check.stat.exists
+
+- name: Remove runner config if labels are incorrect
+  file:
+    path: /opt/forgejo-runner/.runner
+    state: absent
+  when:
+    - runner_registration_check.stat.exists
+    - runner_label_check.rc is defined
+    - runner_label_check.rc != 0
+  register: runner_removal_result
+
+- name: Re-check runner registration status
+  stat:
+    path: /opt/forgejo-runner/.runner
+  register: runner_registration_check
+
+- name: Generate runner registration token from Forgejo (on orchestrator VM)
+  command: docker exec -u 1000:1000 orchestrator-forgejo forgejo actions generate-runner-token
+  register: runner_token_result
+  when: 
+    - runner_registration_check.stat is defined
+    - not runner_registration_check.stat.exists
+    - "'orchestrator' in groups"
+    - "groups['orchestrator'] | length > 0"
+  changed_when: false
+  delegate_to: "{{ groups['orchestrator'][0] }}"
+  failed_when: false
+
+- name: Set runner token fact
+  set_fact:
+    runner_token: "{{ runner_token_result.stdout | trim }}"
+  when: 
+    - not runner_registration_check.stat.exists
+    - runner_token_result is defined
+    - runner_token_result.stdout is defined
+
+- name: Check Forgejo connectivity
+  uri:
+    url: "{{ forgejo_url }}"
+    status_code: 200
+    timeout: 5
+  register: forgejo_connectivity
+  failed_when: false
+  when: not runner_registration_check.stat.exists
+
+- name: Register Forgejo Actions runner (project-specific)
+  command: >
+    forgejo-runner register
+    --no-interactive
+    --instance "{{ forgejo_url }}"
+    --token "{{ runner_token }}"
+    --name "{{ runner_project_name }}-{{ vm_role }}-{{ inventory_hostname_short | default(inventory_hostname) }}"
+    --labels "self-hosted:host,project-runner:host,ubuntu-latest:host,{{ runner_project_name }}:host,{{ vm_role }}:host,linux:host,docker:host"
+  args:
+    chdir: /opt/forgejo-runner
+  become_user: "{{ superdeploy_user }}"
+  when: 
+    - not runner_registration_check.stat.exists
+    - runner_token is defined
+    - runner_token != ''
+    - forgejo_connectivity is defined
+    - forgejo_connectivity.status is defined
+    - forgejo_connectivity.status == 200
+  register: runner_register_result
+  async: 120
+  poll: 10
+
+- name: Display runner registration result
+  debug:
+    msg: 
+      - "{{ 'Runner registered successfully!' if (runner_register_result is defined and runner_register_result.changed) else ('Runner already registered' if runner_registration_check.stat.exists else 'Runner registration skipped (token not available)') }}"
+      - "Runner Name: {{ runner_project_name }}-{{ vm_role }}-{{ inventory_hostname_short | default(inventory_hostname) }}"
+      - "Runner Labels: ubuntu-latest, {{ runner_project_name }}, {{ vm_role }}, linux, docker"
+      - "Project: {{ runner_project_name }}"
+      - "VM Role: {{ vm_role }}"
+      - ""
+      - "⚠️  Workflows should use: runs-on: [self-hosted, {{ runner_project_name }}]"
+      - "   Or for specific VM role: runs-on: [self-hosted, {{ runner_project_name }}, {{ vm_role }}]"
+
+- name: Create runner systemd service file
+  template:
+    src: forgejo-runner.service.j2
+    dest: /etc/systemd/system/forgejo-runner.service
+    mode: '0644'
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+
+- name: Enable runner service (will start after registration)
+  systemd:
+    name: forgejo-runner
+    enabled: yes
+  when: runner_registration_check.stat.exists
+
+- name: Start runner service if already registered
+  systemd:
+    name: forgejo-runner
+    state: started
+  when: runner_registration_check.stat.exists

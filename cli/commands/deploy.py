@@ -5,7 +5,8 @@ import subprocess
 import os
 from pathlib import Path
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.panel import Panel
+from cli.logger import DeployLogger
 
 console = Console()
 
@@ -14,7 +15,8 @@ console = Console()
 @click.option("--project", "-p", required=True, help="Project name")
 @click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
 @click.option("--message", "-m", help="Commit message (optional)")
-def deploy(project, app, message):
+@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
+def deploy(project, app, message, verbose):
     """
     Deploy an application (direct push to Forgejo)
     
@@ -31,17 +33,31 @@ def deploy(project, app, message):
     With custom message:
       superdeploy deploy -p <project> -a <app> -m "Fix bug"
     """
-    console.print(f"\n[bold cyan]🚀 Deploying {app}[/bold cyan]\n")
+    if not verbose:
+        console.print(
+            Panel.fit(
+                f"[bold cyan]🚀 Deploying {app}[/bold cyan]\n\n"
+                f"[white]Project: {project}[/white]",
+                border_style="cyan",
+            )
+        )
+    
+    # Initialize logger
+    logger = DeployLogger(project, f"deploy-{app}", verbose=verbose)
     
     # Find app directory
+    logger.step("Locating app directory")
     app_dir = Path.home() / "Desktop/cheapa.io/hero/app-repos" / app
     
     if not app_dir.exists():
-        console.print(f"[red]❌ App directory not found: {app_dir}[/red]")
-        return
+        logger.log_error(f"App directory not found: {app_dir}")
+        raise SystemExit(1)
+    
+    logger.success(f"Found app directory: {app_dir}")
     
     try:
         # Check if there are changes
+        logger.step("Checking for changes")
         result = subprocess.run(
             ["git", "status", "--porcelain"],
             cwd=app_dir,
@@ -52,7 +68,7 @@ def deploy(project, app, message):
         has_changes = bool(result.stdout.strip())
         
         if has_changes:
-            console.print("[yellow]📝 Committing changes...[/yellow]")
+            logger.log("Changes detected, committing")
             
             # Add all changes
             subprocess.run(["git", "add", "-A"], cwd=app_dir, check=True)
@@ -65,12 +81,12 @@ def deploy(project, app, message):
                 check=True,
                 capture_output=True
             )
-            console.print("[green]✓ Changes committed[/green]")
+            logger.success("Changes committed")
         else:
-            console.print("[dim]No changes to commit[/dim]")
+            logger.log("No changes to commit")
         
         # Push to production
-        console.print("[yellow]📤 Pushing to Forgejo...[/yellow]")
+        logger.step("Pushing to Forgejo")
         result = subprocess.run(
             ["git", "push", "origin", "production"],
             cwd=app_dir,
@@ -79,15 +95,22 @@ def deploy(project, app, message):
         )
         
         if result.returncode == 0:
-            console.print("[green]✓ Pushed to production[/green]")
-            console.print("\n[bold]Deployment triggered![/bold]")
-            console.print(f"\n[dim]Monitor logs:[/dim]")
-            console.print(f"  [green]superdeploy logs -p {project} -a {app} -f[/green]\n")
+            logger.success("Pushed to production")
+            
+            if not verbose:
+                console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
+                console.print("[bold green]✅ Deployment Triggered![/bold green]")
+                console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
+                console.print(f"\n[dim]Monitor logs:[/dim]")
+                console.print(f"  [cyan]superdeploy logs -p {project} -a {app} -f[/cyan]")
+                console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
         else:
-            console.print(f"[red]❌ Push failed:[/red]")
-            console.print(result.stderr)
+            logger.log_error("Push failed", context=result.stderr)
+            raise SystemExit(1)
             
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]❌ Error: {e}[/red]")
+        logger.log_error(f"Git command failed: {e}")
+        raise SystemExit(1)
     except Exception as e:
-        console.print(f"[red]❌ Unexpected error: {e}[/red]")
+        logger.log_error(f"Unexpected error: {e}")
+        raise SystemExit(1)

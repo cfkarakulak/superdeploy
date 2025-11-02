@@ -5,14 +5,17 @@ import click
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
 from cli.utils import get_project_root, ssh_command, load_env
+from cli.logger import DeployLogger
 
 console = Console()
 
 
 @click.command()
 @click.option("--project", "-p", required=True, help="Project name")
-def status(project):
+@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
+def status(project, verbose):
     """
     Show infrastructure and application status
     
@@ -21,24 +24,35 @@ def status(project):
     - Container status per VM
     - Application health
     """
+    if not verbose:
+        console.print(
+            Panel.fit(
+                f"[bold cyan]📊 Infrastructure Status[/bold cyan]\n\n"
+                f"[white]Project: {project}[/white]",
+                border_style="cyan",
+            )
+        )
+    
+    logger = DeployLogger(project, "status", verbose=verbose)
+    
     project_root = get_project_root()
     projects_dir = project_root / "projects"
     
     # Load project config
+    logger.step("Loading project configuration")
     from cli.core.config_loader import ConfigLoader
     
     try:
         config_loader = ConfigLoader(projects_dir)
         project_config = config_loader.load_project(project)
         config = project_config.raw_config
+        logger.success("Configuration loaded")
     except FileNotFoundError:
-        console.print(f"[red]❌ Project '{project}' not found![/red]")
-        return
+        logger.log_error(f"Project '{project}' not found")
+        raise SystemExit(1)
     except ValueError as e:
-        console.print(f"[red]❌ Error loading config: {e}[/red]")
-        return
-    
-    console.print(f"[cyan]📊 Fetching status for {project}...[/cyan]\n")
+        logger.log_error(f"Error loading config: {e}")
+        raise SystemExit(1)
     
     # Load .env to get VM IPs
     env = load_env(project=project)
@@ -57,11 +71,14 @@ def status(project):
             }
     
     if not vms:
-        console.print(f"[yellow]⚠️  No VM IPs found in .env. Run: superdeploy up -p {project}[/yellow]")
-        return
+        logger.warning(f"No VM IPs found in .env")
+        logger.log(f"Run: superdeploy up -p {project}")
+        raise SystemExit(1)
     
     # Get apps and their VM assignments
     apps = config.get("apps", {})
+    
+    logger.step("Checking VM and container status")
     
     # Create table
     table = Table(title=f"{project} - Infrastructure Status")
@@ -135,16 +152,18 @@ def status(project):
             table.add_row(f"  containers", "❌ Error", str(e)[:40])
     
     console.print(table)
+    logger.success("Status check complete")
     
     # Show access URLs
-    console.print("\n[bold cyan]🌐 Access URLs:[/bold cyan]")
-    
-    for app_name, app_config in apps.items():
-        vm_role = app_config.get("vm", "core")
-        port = app_config.get("external_port") or app_config.get("port")
+    if not verbose:
+        console.print("\n[bold cyan]🌐 Access URLs:[/bold cyan]")
         
-        if vm_role in vms and port:
-            vm_ip = vms[vm_role]["ip"]
-            console.print(f"{app_name.capitalize():12} http://{vm_ip}:{port}")
-    
-    console.print()
+        for app_name, app_config in apps.items():
+            vm_role = app_config.get("vm", "core")
+            port = app_config.get("external_port") or app_config.get("port")
+            
+            if vm_role in vms and port:
+                vm_ip = vms[vm_role]["ip"]
+                console.print(f"{app_name.capitalize():12} http://{vm_ip}:{port}")
+        
+        console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")

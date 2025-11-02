@@ -79,16 +79,19 @@ def get_used_subnets():
 
 
 def find_next_subnet(used_subnets):
-    """Find next available subnet starting from 172.30.0.0/24 (Docker uses 172.17-172.29)"""
-    base = ipaddress.IPv4Network("172.30.0.0/24")
-
-    # Try subnets incrementally (avoid Docker's ranges)
-    for i in range(30, 255):  # 172.30.0.0 to 172.254.0.0
-        candidate = ipaddress.IPv4Network(f"172.{i}.0.0/24")
-        if str(candidate) not in used_subnets:
-            return str(candidate)
-
-    raise ValueError("No available subnets in 172.x.0.0/24 range")
+    """
+    Find next available subnet using SubnetAllocator
+    
+    Note: This function is kept for backward compatibility but now uses
+    SubnetAllocator for consistent subnet management across the system.
+    """
+    # Use SubnetAllocator for consistent subnet management
+    # The used_subnets parameter is ignored as SubnetAllocator maintains its own state
+    from cli.subnet_allocator import SubnetAllocator
+    
+    # Return a placeholder - actual allocation happens in config_loader
+    # when project config is loaded
+    return "auto"  # Will be replaced by SubnetAllocator
 
 
 def render_template(template_path, context):
@@ -498,9 +501,19 @@ def init(project, app, subnet, no_interactive, yes):
         console.print("[yellow]⚠️  No addons found in addons/ directory[/yellow]")
         available_addons_list = []
 
-    # Set defaults: postgres, rabbitmq, redis, caddy
+    # Set defaults for non-interactive mode: postgres, rabbitmq, caddy
     selected_addons = []
-    if available_addons_list:
+    if not interactive:
+        # Non-interactive defaults
+        default_addons = ['postgres', 'rabbitmq', 'caddy']
+        for addon_name, addon_desc in available_addons_list:
+            if addon_name in default_addons:
+                selected_addons.append(addon_name)
+        # Always add caddy
+        if 'caddy' not in selected_addons:
+            selected_addons.append('caddy')
+    elif available_addons_list:
+        # Interactive defaults
         default_addons = ['postgres', 'rabbitmq', 'redis', 'caddy']
         for addon_name, addon_desc in available_addons_list:
             if addon_name in default_addons:
@@ -550,6 +563,19 @@ def init(project, app, subnet, no_interactive, yes):
 
     # Domain - empty by default (user can set in project.yml)
     project_domain = ""
+    
+    # SSL Email for Let's Encrypt (required for Caddy)
+    ssl_email = ""
+    if interactive:
+        console.print("\n[bold cyan]🔐 SSL Configuration[/bold cyan]")
+        console.print("[dim]Email for Let's Encrypt certificate notifications[/dim]")
+        ssl_email = Prompt.ask(
+            "  [cyan]SSL Email[/cyan]",
+            default=f"admin@{project}.com"
+        )
+    else:
+        # Non-interactive: use default
+        ssl_email = f"admin@{project}.com"
 
     # Dynamic port assignments (no hardcoded service names!)
     base_external_port = 8000 + len(used_subnets) * 100  # Offset by 100 per project
@@ -612,12 +638,25 @@ def init(project, app, subnet, no_interactive, yes):
             "internal": internal_port,
         }
 
+    # Allocate subnets immediately during init
+    from cli.subnet_allocator import SubnetAllocator
+    allocator = SubnetAllocator()
+    vpc_subnet = allocator.get_subnet(project)
+    docker_subnet = allocator.get_docker_subnet(project)
+    
+    console.print(f"\n[cyan]📡 Network allocated:[/cyan]")
+    console.print(f"  VPC Subnet: {vpc_subnet}")
+    console.print(f"  Docker Subnet: {docker_subnet}")
+
     # Build temporary project config for validation
     # Note: Forgejo is managed globally by orchestrator, not per-project
     temp_config = {
         "project": project,
         "addons": {},
-        "network": {"docker_subnet": project_subnet},
+        "network": {
+            "vpc_subnet": vpc_subnet,
+            "docker_subnet": docker_subnet,
+        },
         "apps": {
             app_name: (
                 {
@@ -745,7 +784,7 @@ project:
   name: {project}
   description: {project} project
   created_at: {datetime.now().isoformat()}
-  ssl_email: ""  # For Let's Encrypt certificates (e.g., admin@{project_domain})
+  ssl_email: "{ssl_email}"  # For Let's Encrypt certificates
 
 # =============================================================================
 # Cloud Provider Configuration
@@ -832,7 +871,8 @@ github:
 # Network Configuration
 # =============================================================================
 network:
-  docker_subnet: {project_subnet}
+  vpc_subnet: {vpc_subnet}
+  docker_subnet: {docker_subnet}
 """
 
     # Write project.yml

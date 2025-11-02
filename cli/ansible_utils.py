@@ -95,7 +95,8 @@ def build_ansible_command(
     tags=None,
     project_name=None,
     ask_become_pass=False,
-    start_at_task=None,
+    enabled_addons=None,
+    playbook=None,
 ):
     """
     Build complete Ansible playbook command with all necessary variables
@@ -117,6 +118,10 @@ def build_ansible_command(
     extra_vars_dict = generate_ansible_extra_vars(
         project_config, env_vars, project_root
     )
+    
+    # Add enabled_addons if specified (for --addon flag)
+    if enabled_addons:
+        extra_vars_dict['enabled_addons'] = enabled_addons
 
     # Convert to JSON string for --extra-vars (with custom serializer for datetime)
     extra_vars_json = json.dumps(extra_vars_dict, default=json_serializer)
@@ -129,18 +134,32 @@ def build_ansible_command(
     # Add --ask-become-pass if needed (for first-time setup before passwordless sudo is configured)
     become_pass_str = "--ask-become-pass" if ask_become_pass else ""
 
-    # Add --start-at-task if provided (resume from specific task)
-    start_at_task_str = f"--start-at-task '{start_at_task}'" if start_at_task else ""
-
     # Use project-specific inventory file if project_name is provided
     if not project_name:
         project_name = extra_vars_dict.get("project_name", "dev")
     inventory_file = f"inventories/{project_name}.ini"
 
+    # Get SSH private key path from environment or use default
+    import os
+    ssh_key_path = os.path.expanduser(os.environ.get("SSH_KEY_PATH", "~/.ssh/superdeploy_deploy"))
+    private_key_str = f"--private-key {ssh_key_path}" if os.path.exists(ssh_key_path) else ""
+
+    # Determine which playbook to use
+    # orchestrator -> orchestrator.yml
+    # project -> project.yml
+    # default -> site.yml (legacy, for backward compatibility)
+    if playbook is None:
+        if project_name == 'orchestrator':
+            playbook = 'orchestrator.yml'
+        elif project_name:
+            playbook = 'project.yml'
+        else:
+            playbook = 'site.yml'
+
     # Build the command
     cmd = f"""
 cd {ansible_dir} && \\
-SUPERDEPLOY_ROOT={project_root} ansible-playbook -i {inventory_file} playbooks/site.yml {tags_str} {become_pass_str} {start_at_task_str} \\
+SUPERDEPLOY_ROOT={project_root} ansible-playbook -i {inventory_file} playbooks/{playbook} {tags_str} {become_pass_str} {private_key_str} \\
   --extra-vars '{extra_vars_json}'
 """
 

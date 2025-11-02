@@ -34,7 +34,30 @@ class OrchestratorConfig:
         if not config:
             raise ValueError(f"Empty orchestrator config: {self.config_path}")
 
+        # Auto-allocate subnets if not specified
+        if "network" not in config:
+            config["network"] = {}
+        
+        subnet_allocated = False
+        if "docker_subnet" not in config["network"]:
+            from cli.subnet_allocator import SubnetAllocator
+            config["network"]["docker_subnet"] = SubnetAllocator.get_orchestrator_docker_subnet()
+            subnet_allocated = True
+        
+        # Save allocated subnet back to config file for transparency
+        if subnet_allocated:
+            self._save_config(config)
+
         return config
+    
+    def _save_config(self, config: Dict[str, Any]) -> None:
+        """Save configuration back to yaml file"""
+        try:
+            with open(self.config_path, 'w') as f:
+                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        except Exception:
+            # Silently fail - not critical
+            pass
 
     def is_deployed(self) -> bool:
         """Check if orchestrator is already deployed by checking if IP exists in .env"""
@@ -175,6 +198,9 @@ class OrchestratorConfig:
         # Get project info for ssl_email
         project_config = self.config.get("project", {})
         
+        # Get network config
+        network_config = self.config.get("network", {})
+        
         return {
             "project_name": "orchestrator",
             "project_config": {
@@ -182,6 +208,7 @@ class OrchestratorConfig:
                     "name": "orchestrator",
                     "ssl_email": project_config.get("ssl_email", "")
                 },
+                "network": network_config,  # Add network config for subnet allocation
                 "addons": {
                     "forgejo": forgejo_config
                 },

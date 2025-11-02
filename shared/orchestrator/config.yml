@@ -10,13 +10,13 @@
 # =============================================================================
 project:
   name: orchestrator
-  ssl_email: "cradexco@gmail.com"  # For Let's Encrypt certificates (e.g., admin@yourdomain.com)
+  ssl_email: "cradexco@gmail.com"
 
 # =============================================================================
 # Cloud Provider Configuration
 # =============================================================================
 gcp:
-  project_id: "galvanic-camp-475519-d6"  # EDIT THIS (e.g., my-project-12345)
+  project_id: "galvanic-camp-475519-d6"
   region: "us-central1"
   zone: "us-central1-a"
 
@@ -42,6 +42,7 @@ vm:
 network:
   vpc_name: "superdeploy-network"
   subnet_cidr: "10.128.0.0/20"
+  docker_subnet: "172.20.0.0/24"  # Reserved for orchestrator
 
 # =============================================================================
 # Forgejo Configuration (Git Server + CI/CD)
@@ -50,9 +51,9 @@ forgejo:
   version: "13.0.1"
   port: 3001
   ssh_port: 2222
-  admin_user: "cradexco"  # EDIT THIS (e.g., admin)
-  admin_email: "cradexco@gmail.com"  # EDIT THIS
-  org: "cradexco"  # EDIT THIS (e.g., mycompany)
+  admin_user: "cradexco"
+  admin_email: "cradexco@gmail.com"
+  org: "cradexco"
   repo: "superdeploy"
   db_name: "forgejo"
   db_user: "forgejo"

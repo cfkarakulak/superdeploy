@@ -3,7 +3,6 @@ Logging system for SuperDeploy CLI
 Provides real-time logging to files with clean console output
 """
 
-import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, TextIO
@@ -45,12 +44,12 @@ class DeployLogger:
         from cli.utils import get_project_root
 
         project_root = get_project_root()
-        
+
         # Structure: logs/{project}/{date}/{time}_{operation}.log
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
         time_str = now.strftime("%H-%M-%S")
-        
+
         project_logs_dir = project_root / "logs" / project_name / date_str
         project_logs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -67,13 +66,13 @@ class DeployLogger:
     def _write_log_header(self):
         """Write log file header"""
         header = f"""
-{'=' * 80}
+{"=" * 80}
 SuperDeploy Deployment Log
-{'=' * 80}
+{"=" * 80}
 Project: {self.project_name}
 Operation: {self.operation}
 Started: {datetime.now().isoformat()}
-{'=' * 80}
+{"=" * 80}
 
 """
         self.log_file.write(header)
@@ -113,20 +112,46 @@ Started: {datetime.now().isoformat()}
     def log_output(self, output: str, stream: str = "stdout"):
         """
         Log command output
+        
+        IMPORTANT: This method ALWAYS writes to log file (regardless of verbose mode)
+        but only shows in console if verbose=True
 
         Args:
-            output: Command output
+            output: Command output (single line or multiline)
             stream: Stream name (stdout, stderr)
         """
         if not output:
             return
 
-        # Write to log file with stream indicator
-        for line in output.splitlines():
-            self.log_file.write(f"  [{stream}] {line}\n")
-        self.log_file.flush()
+        # Strip ANSI color codes for log file
+        import re
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        clean_output = ansi_escape.sub('', output)
 
-        # Show in console if verbose
+        # ALWAYS write to log file (regardless of verbose mode)
+        if self.log_file:
+            try:
+                # Handle both single line and multiline output
+                if "\n" in clean_output:
+                    for line in clean_output.splitlines():
+                        self.log_file.write(f"  [{stream}] {line}\n")
+                else:
+                    self.log_file.write(f"  [{stream}] {clean_output}\n")
+
+                # Flush periodically, but don't block terminal
+                # OS will eventually flush even if this fails
+                try:
+                    self.log_file.flush()
+                except (BlockingIOError, OSError, IOError):
+                    pass  # Skip flush if it would block
+            except (BlockingIOError, OSError, IOError):
+                # If write itself would block, skip this batch
+                # Terminal responsiveness is more important
+                pass
+
+        # Show in console ONLY if verbose (caller handles console output otherwise)
+        # Note: Most callers (like AnsibleRunner) print to console themselves
+        # This is just a fallback for direct log_output() calls
         if self.verbose:
             console.print(output)
 
@@ -142,9 +167,9 @@ Started: {datetime.now().isoformat()}
 
         # Write to log with clear markers for grepping
         error_block = f"""
-{'!' * 80}
+{"!" * 80}
 ERROR OCCURRED
-{'!' * 80}
+{"!" * 80}
 {error}
 """
         if context:
@@ -203,10 +228,10 @@ ERROR OCCURRED
         if self.log_file:
             # Write footer
             footer = f"""
-{'=' * 80}
+{"=" * 80}
 Completed: {datetime.now().isoformat()}
-Status: {'FAILED' if self.has_errors else 'SUCCESS'}
-{'=' * 80}
+Status: {"FAILED" if self.has_errors else "SUCCESS"}
+{"=" * 80}
 """
             self.log_file.write(footer)
             self.log_file.close()
@@ -256,11 +281,41 @@ def run_with_progress(
     logger.log_command(command)
 
     if logger.verbose:
-        # Verbose mode: show output directly
-        result = subprocess.run(
-            command, shell=True, cwd=cwd, capture_output=False, text=True
+        # Verbose mode: capture output for logging, show in real-time
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
         )
-        return result.returncode, "", ""
+        
+        stdout_lines = []
+        stderr_lines = []
+        
+        # Read stdout
+        if process.stdout:
+            for line in process.stdout:
+                line_stripped = line.rstrip()
+                stdout_lines.append(line_stripped)
+                # Log to file
+                logger.log_output(line_stripped, "stdout")
+                # Show in console
+                print(line_stripped)
+        
+        # Wait for process and get stderr
+        process.wait()
+        if process.stderr:
+            stderr_content = process.stderr.read()
+            if stderr_content:
+                stderr_lines = stderr_content.splitlines()
+                for line in stderr_lines:
+                    logger.log_output(line, "stderr")
+                    print(line)
+        
+        return process.returncode, "\n".join(stdout_lines), "\n".join(stderr_lines)
 
     # Non-verbose: show spinner, capture output
     with Live(
@@ -272,7 +327,7 @@ def run_with_progress(
             command, shell=True, cwd=cwd, capture_output=True, text=True
         )
 
-        # Log output
+        # ALWAYS log output to file (regardless of verbose mode)
         if result.stdout:
             logger.log_output(result.stdout, "stdout")
         if result.stderr:

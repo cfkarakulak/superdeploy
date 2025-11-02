@@ -386,7 +386,8 @@ def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_s
     multiple=True,
     help="Additional .env files to load (e.g., ../my-api/.env)",
 )
-def sync(project, skip_forgejo, skip_github, env_file):
+@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
+def sync(project, skip_forgejo, skip_github, env_file, verbose):
     """
     Sync ALL secrets to GitHub (magic!)
 
@@ -408,22 +409,27 @@ def sync(project, skip_forgejo, skip_github, env_file):
     """
     from cli.utils import validate_project, get_project_path, get_project_root
     from dotenv import dotenv_values
+    from cli.logger import DeployLogger
 
     # Validate project first
     validate_project(project)
     project_path = get_project_path(project)
 
-    console.print(
-        Panel.fit(
-            f"[bold cyan]🔄 SuperDeploy Secret Sync[/bold cyan]\n\n"
-            f"[white]Project: {project}[/white]\n"
-            f"[white]Automating GitHub secrets configuration...[/white]",
-            border_style="cyan",
+    if not verbose:
+        console.print(
+            Panel.fit(
+                f"[bold cyan]🔄 SuperDeploy Secret Sync[/bold cyan]\n\n"
+                f"[white]Project: {project}[/white]\n"
+                f"[white]Automating GitHub secrets configuration...[/white]",
+                border_style="cyan",
+            )
         )
-    )
+    
+    # Initialize logger
+    logger = DeployLogger(project, "sync", verbose=verbose)
     
     # Early validation: Check required files exist
-    console.print("\n[cyan]🔍 Checking required files...[/cyan]")
+    logger.step("Checking required files")
     project_root = get_project_root()
     
     required_files = {
@@ -434,18 +440,21 @@ def sync(project, skip_forgejo, skip_github, env_file):
     missing_files = []
     for file_desc, file_path in required_files.items():
         if file_path.exists():
-            console.print(f"  [green]✓[/green] {file_desc}")
+            logger.log(f"✓ {file_desc}")
         else:
-            console.print(f"  [red]✗[/red] {file_desc}")
+            logger.log(f"✗ {file_desc}")
             missing_files.append(file_desc)
     
     if missing_files:
-        console.print("\n[red]❌ Missing required files![/red]")
-        console.print("[yellow]Run 'superdeploy orchestrator up' to create them[/yellow]")
+        logger.log_error("Missing required files", context="Run 'superdeploy orchestrator up' to create them")
         raise SystemExit(1)
+    
+    logger.success("All required files found")
 
     # Load infrastructure .env
+    logger.step("Loading environment variables")
     env = load_env(project)
+    logger.log("Project .env loaded")
 
     # Load additional env files (from CLI args)
     additional_envs = {}
@@ -454,9 +463,9 @@ def sync(project, skip_forgejo, skip_github, env_file):
         if os.path.exists(env_path):
             file_envs = dotenv_values(env_path)
             additional_envs.update(file_envs)
-            console.print(f"[dim]✓ Loaded: {env_path}[/dim]")
+            logger.log(f"✓ Loaded: {env_path}")
         else:
-            console.print(f"[yellow]⚠️  Skipped (not found): {env_path}[/yellow]")
+            logger.warning(f"Skipped (not found): {env_path}")
 
     # All secrets are now in .env (already loaded via load_env)
     project_secrets = {}
@@ -468,22 +477,28 @@ def sync(project, skip_forgejo, skip_github, env_file):
 
         custom_secrets = dotenv_values(secrets_file)
         project_secrets.update(custom_secrets)
-        console.print(f"[dim]✓ Loaded custom secrets: {secrets_file}[/dim]")
+        logger.log(f"✓ Loaded custom secrets: {secrets_file}")
 
     # Merge all: infra → project passwords → custom secrets → additional
     env.update(project_secrets)
     env.update(additional_envs)
+    logger.success("Environment variables loaded")
 
     # Auto-generate missing required secrets based on project name
+    logger.step("Validating secrets")
     project_name = project
     if "POSTGRES_USER" not in env or not env["POSTGRES_USER"]:
         env["POSTGRES_USER"] = f"{project_name}_user"
+        logger.log(f"Auto-generated POSTGRES_USER: {env['POSTGRES_USER']}")
     if "POSTGRES_DB" not in env or not env["POSTGRES_DB"]:
         env["POSTGRES_DB"] = f"{project_name}_db"
+        logger.log(f"Auto-generated POSTGRES_DB: {env['POSTGRES_DB']}")
     if "RABBITMQ_USER" not in env or not env["RABBITMQ_USER"]:
         env["RABBITMQ_USER"] = f"{project_name}_user"
+        logger.log(f"Auto-generated RABBITMQ_USER: {env['RABBITMQ_USER']}")
 
     # Find which VM runs Forgejo by checking project config
+    logger.step("Loading project configuration")
     from cli.core.config_loader import ConfigLoader
     
     project_root = get_project_root()
@@ -492,11 +507,13 @@ def sync(project, skip_forgejo, skip_github, env_file):
     
     try:
         project_config_obj = config_loader.load_project(project)
+        logger.success("Project configuration loaded")
     except FileNotFoundError:
-        console.print(f"[red]✗[/red] Project config not found")
+        logger.log_error("Project config not found")
         raise SystemExit(1)
     
     # Get Forgejo from orchestrator (not from project VMs)
+    logger.step("Loading orchestrator configuration")
     from cli.core.orchestrator_loader import OrchestratorLoader
     
     orchestrator_loader = OrchestratorLoader(project_root / "shared")
@@ -505,11 +522,10 @@ def sync(project, skip_forgejo, skip_github, env_file):
         forgejo_host = orch_config.get_ip()
         
         if not forgejo_host:
-            console.print("[red]❌ Orchestrator not deployed![/red]")
-            console.print("[dim]Run 'superdeploy orchestrator up' first[/dim]")
+            logger.log_error("Orchestrator not deployed", context="Run 'superdeploy orchestrator up' first")
             raise SystemExit(1)
         
-        console.print(f"[dim]Using Forgejo from orchestrator: {forgejo_host}[/dim]")
+        logger.log(f"Using Forgejo from orchestrator: {forgejo_host}")
         
         # Load orchestrator config
         forgejo_config = orch_config.get_forgejo_config()
@@ -518,68 +534,55 @@ def sync(project, skip_forgejo, skip_github, env_file):
         env["FORGEJO_HOST"] = forgejo_host
         env["FORGEJO_ORG"] = forgejo_config.get("org")
         if not env["FORGEJO_ORG"]:
-            console.print("[red]❌ forgejo.org not found in orchestrator config![/red]")
+            logger.log_error("forgejo.org not found in orchestrator config")
             raise SystemExit(1)
         
         env["REPO_SUPERDEPLOY"] = forgejo_config.get("repo")
         if not env["REPO_SUPERDEPLOY"]:
-            console.print("[red]❌ forgejo.repo not found in orchestrator config![/red]")
+            logger.log_error("forgejo.repo not found in orchestrator config")
             raise SystemExit(1)
+        
+        logger.success("Orchestrator configuration loaded")
         
         # Docker credentials are now in project .env (already loaded above)
         # Validate they exist
+        logger.step("Validating Docker credentials")
         if not env.get("DOCKER_ORG"):
-            console.print(f"[red]❌ DOCKER_ORG not found in projects/{project}/.env![/red]")
-            console.print(f"[yellow]Edit projects/{project}/.env and fill in Docker credentials[/yellow]")
+            logger.log_error(f"DOCKER_ORG not found in projects/{project}/.env", context="Edit .env and fill in Docker credentials")
             raise SystemExit(1)
         
         if not env.get("DOCKER_USERNAME"):
-            console.print(f"[red]❌ DOCKER_USERNAME not found in projects/{project}/.env![/red]")
-            console.print(f"[yellow]Edit projects/{project}/.env and fill in Docker credentials[/yellow]")
+            logger.log_error(f"DOCKER_USERNAME not found in projects/{project}/.env", context="Edit .env and fill in Docker credentials")
             raise SystemExit(1)
         
         if not env.get("DOCKER_TOKEN"):
-            console.print(f"[red]❌ DOCKER_TOKEN not found in projects/{project}/.env![/red]")
-            console.print(f"[yellow]Edit projects/{project}/.env and fill in Docker credentials[/yellow]")
+            logger.log_error(f"DOCKER_TOKEN not found in projects/{project}/.env", context="Edit .env and fill in Docker credentials")
             raise SystemExit(1)
         
+        logger.success("Docker credentials validated")
+        
     except FileNotFoundError:
-        console.print("[red]❌ Orchestrator config not found![/red]")
-        console.print("[dim]Run 'superdeploy orchestrator up' first[/dim]")
+        logger.log_error("Orchestrator config not found", context="Run 'superdeploy orchestrator up' first")
         raise SystemExit(1)
 
     # Validate required vars
     required = ["SSH_KEY_PATH"]
     if not validate_env_vars(env, required):
+        logger.log_error("Missing required environment variables")
         raise SystemExit(1)
 
     # Check if gh CLI is available
+    logger.step("Checking GitHub CLI")
     try:
         subprocess.run(["gh", "--version"], capture_output=True, check=True)
+        logger.success("GitHub CLI available")
     except (subprocess.CalledProcessError, FileNotFoundError):
-        console.print(
-            "[yellow]⚠️  GitHub CLI (gh) not installed - skipping GitHub secrets sync[/yellow]"
-        )
-        console.print("[dim]Install: brew install gh[/dim]")
+        logger.warning("GitHub CLI (gh) not installed - skipping GitHub secrets sync")
+        logger.log("Install: brew install gh")
         skip_github = True
 
-    # Load project config
-    import yaml
-
-    # Try project.yml first (new format), fallback to config.yml (old format)
-    # Load project config using ConfigLoader
-    from cli.core.config_loader import ConfigLoader
-    
-    try:
-        project_root = get_project_root()
-        projects_dir = project_root / "projects"
-        config_loader = ConfigLoader(projects_dir)
-        project_config_obj = config_loader.load_project(project)
-        project_config = project_config_obj.raw_config
-    except FileNotFoundError:
-        console.print(f"[red]✗[/red] Project config not found: {project_path}/project.yml")
-        console.print(f"[yellow]Create project.yml for project '{project}'[/yellow]")
-        raise SystemExit(1)
+    # Load project config (already loaded above, reuse it)
+    project_config = project_config_obj.raw_config
 
     # GitHub repos from project config
     # Build repos dict from apps config: {app_name: "org/app_name"}
@@ -594,7 +597,7 @@ def sync(project, skip_forgejo, skip_github, env_file):
         raise SystemExit(1)
 
     # Validate all required values BEFORE starting
-    console.print("\n[cyan]🔍 Validating configuration...[/cyan]")
+    logger.step("Final configuration validation")
     validation_errors = []
     
     required_env_vars = {
@@ -609,121 +612,106 @@ def sync(project, skip_forgejo, skip_github, env_file):
     
     for var_name, var_value in required_env_vars.items():
         if not var_value:
-            validation_errors.append(f"  [red]✗[/red] {var_name} is missing or empty")
+            validation_errors.append(f"{var_name} is missing or empty")
+            logger.log(f"✗ {var_name}")
         else:
-            console.print(f"  [green]✓[/green] {var_name}")
+            logger.log(f"✓ {var_name}")
     
     if validation_errors:
-        console.print("\n[red]❌ Configuration validation failed:[/red]")
-        for error in validation_errors:
-            console.print(error)
-        console.print("\n[yellow]Fix these issues:[/yellow]")
-        console.print("  • FORGEJO_ORG, REPO_SUPERDEPLOY: shared/orchestrator/config.yml")
-        console.print(f"  • DOCKER_*: projects/{project}/.env")
-        console.print(f"  • SSH_KEY_PATH: projects/{project}/project.yml")
-        console.print("\n[yellow]Run 'superdeploy orchestrator up' to create missing files[/yellow]")
+        logger.log_error("Configuration validation failed", context="\n".join(validation_errors))
         raise SystemExit(1)
     
-    console.print("[green]✅ Configuration valid[/green]")
+    logger.success("Configuration valid")
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        # Step 1: Fetch AGE public key
-        task1 = progress.add_task("[cyan]Fetching AGE public key from VM...", total=1)
-        age_public_key = get_age_public_key(env, forgejo_host)
+    # Step 1: Fetch AGE public key
+    logger.step("Fetching AGE public key from VM")
+    age_public_key = get_age_public_key(env, forgejo_host)
 
-        if not age_public_key:
-            console.print("[red]❌ Failed to fetch AGE public key![/red]")
-            raise SystemExit(1)
+    if not age_public_key:
+        logger.log_error("Failed to fetch AGE public key")
+        raise SystemExit(1)
 
-        progress.advance(task1)
-        console.print(f"[green]✅ AGE Public Key: {age_public_key[:30]}...[/green]")
+    logger.success(f"AGE Public Key: {age_public_key[:30]}...")
 
-        # Step 2: Load Forgejo PAT from orchestrator
-        task2 = progress.add_task("[cyan]Loading Forgejo PAT...", total=1)
+    # Step 2: Load Forgejo PAT from orchestrator
+    logger.step("Loading Forgejo PAT")
 
-        # Load PAT from shared/orchestrator/.env
-        from cli.utils import get_project_root
-        from dotenv import dotenv_values
-        
-        project_root = get_project_root()
-        orchestrator_env_file = project_root / "shared" / "orchestrator" / ".env"
-        
-        if not orchestrator_env_file.exists():
-            console.print(f"[red]❌ Orchestrator .env not found: {orchestrator_env_file}[/red]")
-            console.print("[yellow]Run 'superdeploy orchestrator up' first to create Forgejo and PAT[/yellow]")
-            raise SystemExit(1)
-        
-        orchestrator_env = dotenv_values(orchestrator_env_file)
-        forgejo_pat = orchestrator_env.get("FORGEJO_PAT")
-        
-        if not forgejo_pat:
-            console.print("[red]❌ FORGEJO_PAT not found in orchestrator .env[/red]")
-            console.print("[yellow]Run 'superdeploy orchestrator up' to generate PAT[/yellow]")
-            raise SystemExit(1)
-        
-        # Test PAT validity
-        pat_valid = False
-        if not skip_forgejo:
-            try:
-                import requests
-                test_response = requests.get(
-                    f"http://{forgejo_host}:3001/api/v1/user",
-                    headers={"Authorization": f"token {forgejo_pat}"},
-                    timeout=5,
-                )
-                pat_valid = (test_response.status_code == 200)
-                if pat_valid:
-                    console.print("[green]✅ Forgejo PAT loaded from orchestrator[/green]")
-                else:
-                    console.print(f"[yellow]⚠️  PAT invalid (HTTP {test_response.status_code})[/yellow]")
-                    console.print("[yellow]Run 'superdeploy orchestrator up --force' to regenerate PAT[/yellow]")
-            except Exception as e:
-                console.print(f"[yellow]⚠️  Could not validate PAT: {e}[/yellow]")
-        
-        # Update env dict so it's used in GitHub secrets sync
-                env["FORGEJO_PAT"] = forgejo_pat
-
-        progress.advance(task2)
-
-        # Step 2.5: Get AGE secret key
-        age_secret_key = None
+    # Load PAT from shared/orchestrator/.env
+    from cli.utils import get_project_root
+    from dotenv import dotenv_values
+    
+    project_root = get_project_root()
+    orchestrator_env_file = project_root / "shared" / "orchestrator" / ".env"
+    
+    if not orchestrator_env_file.exists():
+        logger.log_error("Orchestrator .env not found", context="Run 'superdeploy orchestrator up' first")
+        raise SystemExit(1)
+    
+    orchestrator_env = dotenv_values(orchestrator_env_file)
+    forgejo_pat = orchestrator_env.get("FORGEJO_PAT")
+    
+    if not forgejo_pat:
+        logger.log_error("FORGEJO_PAT not found in orchestrator .env", context="Run 'superdeploy orchestrator up' to generate PAT")
+        raise SystemExit(1)
+    
+    # Test PAT validity
+    pat_valid = False
+    if not skip_forgejo:
         try:
-            age_key_file = ssh_command(
-                host=forgejo_host,
-                user=env.get("SSH_USER", "superdeploy"),
-                key_path=os.path.expanduser(env["SSH_KEY_PATH"]),
-                cmd="cat /opt/forgejo-runner/.age/key.txt",
+            import requests
+            test_response = requests.get(
+                f"http://{forgejo_host}:3001/api/v1/user",
+                headers={"Authorization": f"token {forgejo_pat}"},
+                timeout=5,
             )
-            # Extract secret key line (format: "AGE-SECRET-KEY-...")
-            for line in age_key_file.split("\n"):
-                if line.startswith("AGE-SECRET-KEY-"):
-                    age_secret_key = line.strip()
-                    break
+            pat_valid = (test_response.status_code == 200)
+            if pat_valid:
+                logger.success("Forgejo PAT loaded from orchestrator")
+            else:
+                logger.warning(f"PAT invalid (HTTP {test_response.status_code})")
+                logger.log("Run 'superdeploy orchestrator up --force' to regenerate PAT")
         except Exception as e:
-            console.print(f"[yellow]⚠️  Could not fetch AGE secret key: {e}[/yellow]")
-        
-        # Step 2.6: Sync secrets to Forgejo repository
-        if forgejo_pat:
-            console.print(
-                "\n[bold cyan]📝 Syncing secrets to Forgejo repository...[/bold cyan]"
-            )
-            sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_secrets, age_secret_key, project)
+            logger.warning(f"Could not validate PAT: {e}")
+    
+    # Update env dict so it's used in GitHub secrets sync
+    env["FORGEJO_PAT"] = forgejo_pat
 
-        if skip_github:
-            console.print("[yellow]⚠️  Skipping GitHub secrets sync[/yellow]")
-            return
+    # Step 2.5: Get AGE secret key
+    logger.step("Fetching AGE secret key")
+    age_secret_key = None
+    try:
+        age_key_file = ssh_command(
+            host=forgejo_host,
+            user=env.get("SSH_USER", "superdeploy"),
+            key_path=os.path.expanduser(env["SSH_KEY_PATH"]),
+            cmd="cat /opt/forgejo-runner/.age/key.txt",
+        )
+        # Extract secret key line (format: "AGE-SECRET-KEY-...")
+        for line in age_key_file.split("\n"):
+            if line.startswith("AGE-SECRET-KEY-"):
+                age_secret_key = line.strip()
+                break
+        if age_secret_key:
+            logger.success("AGE secret key fetched")
+        else:
+            logger.warning("AGE secret key not found in key file")
+    except Exception as e:
+        logger.warning(f"Could not fetch AGE secret key: {e}")
+    
+    # Step 2.6: Sync secrets to Forgejo repository
+    if forgejo_pat:
+        logger.step("Syncing secrets to Forgejo repository")
+        sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_secrets, age_secret_key, project)
 
-    # Step 3: Sync to GitHub (outside progress bar for better visibility)
-    console.print(
-        "\n[bold cyan]📤 Syncing secrets to GitHub repositories...[/bold cyan]"
-    )
+    if skip_github:
+        logger.warning("Skipping GitHub secrets sync")
+        return
+
+    # Step 3: Sync to GitHub
+    logger.step("Syncing secrets to GitHub repositories")
 
     for app_name, repo in repos.items():
-        console.print(f"\n[bold cyan]━━━ {app_name.upper()} ({repo}) ━━━[/bold cyan]")
+        logger.log(f"Syncing {app_name} ({repo})")
 
         # Repository secrets (infrastructure/build related)
         repo_secrets = {
@@ -733,6 +721,8 @@ def sync(project, skip_forgejo, skip_github, env_file):
             "FORGEJO_REPO": env["REPO_SUPERDEPLOY"],  # Use REPO_SUPERDEPLOY from env
             "FORGEJO_PAT": forgejo_pat,
             "PROJECT_NAME": project,  # ✅ Generic project name
+            "DOCKER_REGISTRY": "docker.io",
+            "DOCKER_ORG": env["DOCKER_ORG"],
             "DOCKER_USERNAME": env["DOCKER_USERNAME"],
             "DOCKER_TOKEN": env["DOCKER_TOKEN"],
         }
@@ -741,11 +731,11 @@ def sync(project, skip_forgejo, skip_github, env_file):
 
         # Environment-specific secrets (production & staging)
         for env_name in ["production", "staging"]:
-            console.print(f"\n[dim]Configuring {env_name} environment...[/dim]")
+            logger.log(f"Configuring {env_name} environment")
 
             # Create environment
             if not create_github_environment(repo, env_name):
-                console.print(f"[yellow]⚠️  Skipping {env_name} secrets[/yellow]")
+                logger.warning(f"Skipping {env_name} secrets")
                 continue
 
             # Environment secrets - merge infrastructure + project secrets
@@ -795,10 +785,13 @@ def sync(project, skip_forgejo, skip_github, env_file):
 
             set_github_env_secrets(repo, env_name, env_secrets)
 
-    console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
-    console.print("[bold green]🎉 Sync Complete![/bold green]")
-    console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
-    console.print("\n[white]Next steps:[/white]")
-    console.print("  1. Push to GitHub: [cyan]git push origin production[/cyan]")
-    console.print("  2. Deployment will auto-trigger!")
-    console.print("\n[dim]All secrets have been configured automatically.[/dim]")
+    logger.success("All secrets synced successfully")
+    
+    if not verbose:
+        console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
+        console.print("[bold green]🎉 Sync Complete![/bold green]")
+        console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
+        console.print("\n[white]Next steps:[/white]")
+        console.print("  1. Push to GitHub: [cyan]git push origin production[/cyan]")
+        console.print("  2. Deployment will auto-trigger!")
+        console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")

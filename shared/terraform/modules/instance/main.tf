@@ -110,7 +110,8 @@ resource "google_compute_instance" "vm" {
   lifecycle {
     ignore_changes = [
       metadata_startup_script,
-      metadata["ssh-keys"]
+      metadata["ssh-keys"],
+      service_account  # Ignore service account changes (GCP may auto-assign)
     ]
   }
 }

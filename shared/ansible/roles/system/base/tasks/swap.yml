@@ -16,22 +16,20 @@
   command: "fallocate -l {{ swap_size_mb }}M {{ swap_file_path }}"
   when: not swap_file.stat.exists
 
-- name: Set swap file permissions
+- name: Set swap file permissions (always ensure correct permissions)
   file:
     path: "{{ swap_file_path }}"
     mode: '0600'
     owner: root
     group: root
-  when: not swap_file.stat.exists
 
-- name: Set up swap
+- name: Format swap file
   command: "mkswap {{ swap_file_path }}"
   when: not swap_file.stat.exists
 
-- name: Enable swap
+- name: Enable swap file
   command: "swapon {{ swap_file_path }}"
   when: 
-    - swap_file.stat.exists
     - swap_active.rc != 0
 
 - name: Add swap to fstab

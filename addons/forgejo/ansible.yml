@@ -90,9 +90,9 @@
   include_tasks: "{{ addon_path }}/tasks/setup-admin.yml"
   when: env_vars.FORGEJO_ADMIN_USER is defined
 
-- name: "Setup {{ addon_name }} runner"
-  include_tasks: "{{ addon_path }}/tasks/setup-runner.yml"
-  when: 
+- name: "Push SuperDeploy code to {{ addon_name }}"
+  include_tasks: "{{ addon_path }}/tasks/push-code.yml"
+  when:
     - FORGEJO_ORG is defined
     - FORGEJO_REPO is defined
 
