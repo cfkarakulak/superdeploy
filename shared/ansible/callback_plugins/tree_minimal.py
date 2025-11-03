@@ -54,14 +54,37 @@ class CallbackModule(CallbackBase):
 
         self.current_task = task.get_name().strip()
 
-        # Skip noise
-        if any(x in self.current_task.lower() for x in ["gathering facts", "setup"]):
+        # Skip noise/verbose tasks
+        skip_tasks = [
+            "gathering facts", 
+            "setup", 
+            "deploy each addon", 
+            "set addon paths",
+            "display addon deployment info",
+            "check if addon exists",
+            "fail if addon does not exist",
+            "load addon metadata",
+            "fail if addon.yml is missing",
+            "validate addon metadata",
+            "check addon dependencies",
+        ]
+        if any(x in self.current_task.lower() for x in skip_tasks):
             self.current_task = None
             return
 
         # Clean task name (remove role prefix)
         if " : " in self.current_task:
             _, self.current_task = self.current_task.split(" : ", 1)
+
+        # Show phase headers [X/Y] immediately (from Ansible tasks like [3/3] Services)
+        import re
+        phase_pattern = r'^\[(\d+)/(\d+)\]\s+(.+)$'
+        phase_match = re.match(phase_pattern, self.current_task)
+        if phase_match:
+            self._display.display("")  # Blank line before phase
+            self._display.display(f"\033[33m▶ {self.current_task}\033[0m")
+            self.current_task = None  # Skip normal processing
+            return
 
         # Show addon deployment header immediately (don't wait for ok)
         if "▶ Deploy" in self.current_task and "addon" in self.current_task:

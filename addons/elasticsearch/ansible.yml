@@ -21,11 +21,43 @@
   failed_when: false
   ignore_errors: true
 
-- name: Force remove {{ addon_name }} container if still exists (running or stopped)
+- name: Force remove {{ addon_name }} container by name (1st attempt)
   shell: |
-    docker ps -a --filter "name={{ project_name }}-{{ addon_name }}" --format "{% raw %}{{.Names}}{% endraw %}" | xargs -r docker rm -f 2>/dev/null || true
+    docker rm -f {{ project_name }}-{{ addon_name }} 2>/dev/null || true
   become_user: "{{ superdeploy_user }}"
   changed_when: false
+  ignore_errors: true
+
+- name: Force remove all {{ addon_name }} related containers (2nd attempt)
+  shell: |
+    docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}" | xargs -r docker rm -f 2>/dev/null || true
+  become_user: "{{ superdeploy_user }}"
+  changed_when: false
+  ignore_errors: true
+
+- name: Wait for container cleanup to complete
+  pause:
+    seconds: 2
+
+- name: Verify {{ addon_name }} container is fully removed
+  shell: |
+    docker ps -a --filter "name={{ project_name }}-{{ addon_name }}" --format "{% raw %}{{.Names}}{% endraw %}"
+  become_user: "{{ superdeploy_user }}"
+  register: remaining_containers
+  changed_when: false
+
+- name: Force prune {{ addon_name }} container if still exists (final cleanup)
+  shell: |
+    docker rm -f $(docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}") 2>/dev/null || true
+    docker container prune -f --filter "label=com.docker.compose.project={{ project_name }}" 2>/dev/null || true
+  become_user: "{{ superdeploy_user }}"
+  when: remaining_containers.stdout != ""
+  changed_when: false
+  ignore_errors: true
+
+- name: Final wait before starting {{ addon_name }}
+  pause:
+    seconds: 1
 
 - name: Start {{ addon_name }} services (fresh deployment)
   community.docker.docker_compose_v2:

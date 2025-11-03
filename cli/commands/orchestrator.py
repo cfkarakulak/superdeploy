@@ -233,7 +233,7 @@ def down(yes, preserve_ip, verbose):
             return
 
     logger.step("[1/3] Preparing Destruction")
-    
+
     shared_dir = project_root / "shared"
 
     from cli.core.orchestrator_loader import OrchestratorLoader
@@ -245,8 +245,9 @@ def down(yes, preserve_ip, verbose):
     except FileNotFoundError as e:
         logger.log_error(str(e))
         raise SystemExit(1)
-    
+
     from rich.console import Console
+
     console = Console()
     console.print("  ✓ Configuration loaded")
 
@@ -266,7 +267,7 @@ def down(yes, preserve_ip, verbose):
         terraform_success = True
     else:
         logger.step("[2/3] Terraform Destroy")
-        
+
         # Switch to default workspace before init to avoid prompts
         subprocess.run(
             "terraform workspace select default 2>/dev/null || true",
@@ -328,7 +329,7 @@ def down(yes, preserve_ip, verbose):
 
         vms_deleted = 0
         ips_deleted = 0
-        
+
         # Delete VM
         result = subprocess.run(
             f"gcloud compute instances delete orchestrator-main-0 --zone={zone} --quiet",
@@ -353,7 +354,7 @@ def down(yes, preserve_ip, verbose):
         firewalls_deleted = 0
         subnets_deleted = 0
         networks_deleted = 0
-        
+
         # Delete Firewall Rules (all network rules)
         result = subprocess.run(
             "gcloud compute firewall-rules list --filter='network:superdeploy-network' --format='value(name)'",
@@ -395,7 +396,7 @@ def down(yes, preserve_ip, verbose):
         )
         if result.returncode == 0:
             networks_deleted += 1
-        
+
         # Show summary
         resources = []
         if vms_deleted > 0:
@@ -408,7 +409,7 @@ def down(yes, preserve_ip, verbose):
             resources.append(f"{networks_deleted} network(s)")
         if ips_deleted > 0:
             resources.append(f"{ips_deleted} IP(s)")
-        
+
         if resources:
             console.print(f"  ✓ GCP resources cleaned: {', '.join(resources)}")
         else:
@@ -420,8 +421,9 @@ def down(yes, preserve_ip, verbose):
     )
     if terraform_state_dir.exists():
         import shutil
+
         shutil.rmtree(terraform_state_dir)
-    
+
     # Clean .env (remove ORCHESTRATOR_IP)
     env_path = shared_dir / "orchestrator" / ".env"
     if env_path.exists():
@@ -442,11 +444,12 @@ def down(yes, preserve_ip, verbose):
     # Release subnet allocation
     try:
         from cli.subnet_allocator import SubnetAllocator
+
         allocator = SubnetAllocator()
         allocator.release_subnet("orchestrator")
     except Exception as e:
         logger.warning(f"Subnet release warning: {e}")
-    
+
     console.print("  ✓ Local files cleaned")
 
     console.print("\n[bold green]✅ Orchestrator Destroyed![/bold green]")
@@ -713,8 +716,9 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
         if returncode != 0:
             logger.log_error("Terraform apply failed", context=stderr)
             raise SystemExit(1)
-        
+
         from rich.console import Console
+
         console = Console()
         console.print("  ✓ VM provisioned")
 

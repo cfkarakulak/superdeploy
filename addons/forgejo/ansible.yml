@@ -62,6 +62,42 @@
   become_user: "{{ superdeploy_user }}"
   ignore_errors: true
 
+- name: "Force remove {{ addon_name }} container by name (1st attempt)"
+  shell: |
+    docker rm -f orchestrator-{{ addon_name }} 2>/dev/null || true
+    docker rm -f orchestrator-{{ addon_name }}-db 2>/dev/null || true
+    docker rm -f orchestrator-{{ addon_name }}-runner 2>/dev/null || true
+  changed_when: false
+  ignore_errors: true
+
+- name: "Force remove all {{ addon_name }} related containers (2nd attempt)"
+  shell: |
+    docker ps -aq --filter "name=orchestrator-forgejo" | xargs -r docker rm -f 2>/dev/null || true
+  changed_when: false
+  ignore_errors: true
+
+- name: "Wait for container cleanup to complete"
+  pause:
+    seconds: 2
+
+- name: "Verify {{ addon_name }} containers are fully removed"
+  shell: |
+    docker ps -a --filter "name=orchestrator-forgejo" --format "{% raw %}{{.Names}}{% endraw %}"
+  register: remaining_containers
+  changed_when: false
+
+- name: "Force prune {{ addon_name }} containers if still exist (final cleanup)"
+  shell: |
+    docker rm -f $(docker ps -aq --filter "name=orchestrator-forgejo") 2>/dev/null || true
+    docker container prune -f --filter "label=com.docker.compose.project=orchestrator" 2>/dev/null || true
+  when: remaining_containers.stdout != ""
+  changed_when: false
+  ignore_errors: true
+
+- name: "Final wait before starting {{ addon_name }}"
+  pause:
+    seconds: 1
+
 - name: "Deploy {{ addon_name }} services"
   community.docker.docker_compose_v2:
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
