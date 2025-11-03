@@ -74,11 +74,6 @@
   become_user: "{{ superdeploy_user }}"
   register: forgejo_compose_result
 
-- name: "Wait for {{ addon_name }} containers to be fully started"
-  pause:
-    seconds: 5
-  when: forgejo_compose_result.changed
-
 - name: "Wait for {{ addon_name }} database to be ready"
   shell: docker inspect -f '{{"{{"}}.State.Health.Status{{"}}"}}' orchestrator-forgejo-db
   register: db_health
