@@ -89,6 +89,28 @@
         echo "Removing $CID..."
         docker rm -fv "$CID" 2>&1 || echo "Failed to remove"
       done
+      
+      # WAIT for removal to complete (up to 30 seconds)
+      echo "Waiting for containers to be fully removed..."
+      for attempt in {1..30}; do
+        STILL_THERE=""
+        for CID in $CONTAINERS; do
+          if docker ps -aq --filter "id=$CID" 2>/dev/null | grep -q "$CID"; then
+            STILL_THERE="yes"
+            break
+          fi
+        done
+        if [ -z "$STILL_THERE" ]; then
+          echo "✓ All containers removed after $attempt seconds"
+          break
+        fi
+        echo "  Attempt $attempt: containers still exist, waiting..."
+        sleep 1
+      done
+      
+      if [ -n "$STILL_THERE" ]; then
+        echo "⚠ Warning: Some containers still exist after 30 seconds"
+      fi
     else
       echo ">>> No containers found by filter"
     fi
