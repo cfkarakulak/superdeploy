@@ -2,6 +2,10 @@
 # Deploy a single addon
 # This task orchestrates the complete deployment of one addon
 
+- name: "▶ Deploy {{ addon_name }} addon"
+  debug:
+    msg: "Starting deployment of {{ addon_name }}"
+
 - name: Set addon paths and configuration
   set_fact:
     addon_path: "{{ addons_source_path }}/{{ addon_name }}"
@@ -134,6 +138,8 @@
   include_tasks: verify-health.yml
   when: addon_metadata.healthcheck is defined
 
-- name: Display addon deployment success
+- name: "✓ {{ addon_name }} addon deployed successfully"
   debug:
-    msg: "✓ Successfully deployed {{ addon_name }} addon"
+    msg: 
+      - "{{ addon_name }} addon is now running"
+      - "To redeploy only this addon: superdeploy {{ 'orchestrator' if 'orchestrator' in group_names else 'up -p ' + project_name }} up --addon {{ addon_name }}"

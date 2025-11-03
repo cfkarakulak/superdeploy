@@ -114,17 +114,11 @@
     - network_create.failed
     - "'already exists' not in network_create.msg | default('')"
 
-- name: Display deployment plan
+- name: "▶ Deploy Orchestrator Addons"
   debug:
     msg:
-      - "=========================================="
-      - "ADDON DEPLOYMENT PLAN"
-      - "=========================================="
-      - "Project: {{ project_name }}"
-      - "Total addons: {{ enabled_addons | length }}"
-      - "Deployment order:"
-      - "{{ enabled_addons | map('regex_replace', '^(.*)$', '  - \\1') | list | join('\n') }}"
-      - "=========================================="
+      - "Deploying {{ enabled_addons | length }} addon(s): {{ enabled_addons | join(', ') }}"
+      - "Tip: To deploy only one addon, use --addon <name>"
 
 # Loop through each enabled addon and deploy it
 - name: Deploy each addon
