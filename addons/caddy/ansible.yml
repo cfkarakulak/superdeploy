@@ -53,45 +53,33 @@
 
 - name: CLEANUP - Nuclear option container removal
   shell: |
-    set -ex
+    set -e
     FILTER_NAME="{{ project_name }}-{{ addon_name }}"
-    
-    echo "========== CLEANUP START =========="
-    echo "Target: ${FILTER_NAME}"
-    echo "User: $(whoami)"
-    docker ps -a | grep "${FILTER_NAME}" || echo "No containers found initially"
-    echo "==================================="
     
     # Find all matching containers
     CONTAINERS=$(docker ps -aq --filter "name=${FILTER_NAME}" 2>/dev/null || echo "")
     
     if [ -n "$CONTAINERS" ]; then
-      echo ">>> Found containers to clean: $CONTAINERS"
-      
       # Kill all
       for CID in $CONTAINERS; do
-        echo "Killing $CID..."
-        docker kill "$CID" 2>&1 || echo "Failed to kill (already stopped?)"
-        docker stop -t 0 "$CID" 2>&1 || echo "Failed to stop"
+        docker kill "$CID" 2>/dev/null || true
+        docker stop -t 0 "$CID" 2>/dev/null || true
       done
       
       # Disconnect networks
       for CID in $CONTAINERS; do
         NETWORKS=$(docker inspect "$CID" --format '{% raw %}{{range $net, $_ := .NetworkSettings.Networks}}{{$net}} {{end}}{% endraw %}' 2>/dev/null || echo "")
         for NET in $NETWORKS; do
-          echo "Disconnecting $CID from $NET..."
-          docker network disconnect -f "$NET" "$CID" 2>&1 || echo "Failed to disconnect"
+          docker network disconnect -f "$NET" "$CID" 2>/dev/null || true
         done
       done
       
       # Remove all
       for CID in $CONTAINERS; do
-        echo "Removing $CID..."
-        docker rm -fv "$CID" 2>&1 || echo "Failed to remove"
+        docker rm -fv "$CID" 2>/dev/null || true
       done
       
       # WAIT for removal to complete (up to 30 seconds)
-      echo "Waiting for containers to be fully removed..."
       for attempt in {1..30}; do
         STILL_THERE=""
         for CID in $CONTAINERS; do
@@ -101,63 +89,43 @@
           fi
         done
         if [ -z "$STILL_THERE" ]; then
-          echo "✓ All containers removed after $attempt seconds"
           break
         fi
-        echo "  Attempt $attempt: containers still exist, waiting..."
         sleep 1
       done
-      
-      if [ -n "$STILL_THERE" ]; then
-        echo "⚠ Warning: Some containers still exist after 30 seconds"
-      fi
-    else
-      echo ">>> No containers found by filter"
     fi
     
-    # Try by name 5 times
+    # Try by name (final cleanup)
     for i in {1..5}; do
-      echo "Attempt $i: Removing by name..."
-      docker kill "${FILTER_NAME}" 2>&1 || true
-      docker stop -t 0 "${FILTER_NAME}" 2>&1 || true
-      docker rm -fv "${FILTER_NAME}" 2>&1 || true
+      docker kill "${FILTER_NAME}" 2>/dev/null || true
+      docker stop -t 0 "${FILTER_NAME}" 2>/dev/null || true
+      docker rm -fv "${FILTER_NAME}" 2>/dev/null || true
     done
     
-    # Prune
-    echo "Pruning containers..."
-    docker container prune -f --filter "label=com.docker.compose.project={{ project_name }}" 2>&1 || true
+    # Prune orphaned containers
+    docker container prune -f --filter "label=com.docker.compose.project={{ project_name }}" 2>/dev/null || true
     
     sleep 2
     
-    # Check if any remain
+    # Final check
     REMAINING=$(docker ps -aq --filter "name=${FILTER_NAME}" 2>/dev/null || echo "")
     
     if [ -n "$REMAINING" ]; then
-      echo "!!! REMAINING CONTAINERS: $REMAINING"
-      docker system prune -af --volumes --filter "label=com.docker.compose.service={{ addon_name }}" 2>&1 || true
+      # Last resort: system prune
+      docker system prune -af --volumes --filter "label=com.docker.compose.service={{ addon_name }}" 2>/dev/null || true
       sleep 1
       STILL_REMAINING=$(docker ps -aq --filter "name=${FILTER_NAME}" 2>/dev/null || echo "")
       if [ -n "$STILL_REMAINING" ]; then
-        echo "!!! CLEANUP FAILED - containers still exist: $STILL_REMAINING"
-        docker ps -a | grep "${FILTER_NAME}"
+        echo "ERROR: Failed to remove containers: $STILL_REMAINING"
         exit 1
       fi
     fi
-    
-    echo "========== CLEANUP SUCCESS =========="
-    docker ps -a | grep "${FILTER_NAME}" || echo "No containers remain - SUCCESS!"
-    echo "====================================="
   args:
     executable: /bin/bash
   become_user: "{{ superdeploy_user }}"
   register: cleanup_result
   changed_when: false
   failed_when: cleanup_result.rc != 0
-
-- name: DEBUG - Show cleanup output
-  debug:
-    msg: "{{ cleanup_result.stdout_lines }}"
-  when: cleanup_result.stdout_lines is defined
 
 - name: Start {{ addon_name }} services (fresh deployment)
   community.docker.docker_compose_v2:
