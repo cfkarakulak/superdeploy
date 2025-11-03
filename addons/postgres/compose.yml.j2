@@ -13,8 +13,8 @@ services:
       - {{ addon_name }}-data:/var/lib/postgresql/data
     networks:
       - {{ project_name }}-network
-    expose:
-      - "5432"
+    ports:
+      - "127.0.0.1:5432:5432"   # PostgreSQL (SSH tunnel only)
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
       test: ["CMD-SHELL", "{{ healthcheck.command }}"]

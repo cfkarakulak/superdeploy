@@ -14,8 +14,8 @@ services:
       - {{ addon_name }}-config:/data/configdb
     networks:
       - {{ project_name }}-network
-    expose:
-      - "27017"
+    ports:
+      - "127.0.0.1:27017:27017"   # MongoDB (SSH tunnel only)
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
       test: ["CMD-SHELL", "{{ healthcheck.command }}"]

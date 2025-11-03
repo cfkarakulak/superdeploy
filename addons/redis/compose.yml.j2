@@ -12,8 +12,8 @@ services:
       - {{ addon_name }}-data:/data
     networks:
       - {{ project_name }}-network
-    expose:
-      - "6379"
+    ports:
+      - "127.0.0.1:6379:6379"   # Redis (SSH tunnel only)
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
       test: ["CMD-SHELL", "{{ healthcheck.command }}"]

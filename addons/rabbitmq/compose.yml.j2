@@ -14,9 +14,9 @@ services:
       - {{ addon_name }}-data:/var/lib/rabbitmq
     networks:
       - {{ project_name }}-network
-    expose:
-      - "5672"
-      - "15672"
+    ports:
+      - "127.0.0.1:5672:5672"   # AMQP (SSH tunnel only)
+      - "127.0.0.1:15672:15672" # Management UI (SSH tunnel only)
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
       test: ["CMD-SHELL", "{{ healthcheck.command }}"]
