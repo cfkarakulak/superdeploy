@@ -64,17 +64,17 @@ apps:
     path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/api
     vm: app
     port: 8000
-    domain: ""  # e.g., api.example.com
+    domain: "api.cheapa.io"  # e.g., api.example.com
   dashboard:
     path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/dashboard
     vm: app
     port: 3000
-    domain: ""  # e.g., dashboard.example.com
+    domain: "dashboard.cheapa.io"  # e.g., dashboard.example.com
   services:
     path: /Users/cfkarakulak/Desktop/cheapa.io/hero/app-repos/services
     vm: app
     port: 8001
-    domain: ""  # e.g., services.example.com
+    domain: "services.cheapa.io"  # e.g., services.example.com
 
 # =============================================================================
 # GitHub Configuration
