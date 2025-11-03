@@ -318,11 +318,6 @@
     daemon_reload: yes
   when: runner_registration_check.stat.exists or runner_register_result is changed
 
-- name: Wait for runner to connect to Forgejo (5 seconds)
-  pause:
-    seconds: 5
-  when: runner_register_result is changed
-
 - name: Cleanup duplicate runner registrations (keep only newest)
   shell: |
     docker exec orchestrator-forgejo-db psql -U forgejo -d forgejo -c "
