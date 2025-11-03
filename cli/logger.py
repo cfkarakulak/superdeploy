@@ -112,7 +112,7 @@ Started: {datetime.now().isoformat()}
     def log_output(self, output: str, stream: str = "stdout"):
         """
         Log command output
-        
+
         IMPORTANT: This method ALWAYS writes to log file (regardless of verbose mode)
         but only shows in console if verbose=True
 
@@ -125,8 +125,9 @@ Started: {datetime.now().isoformat()}
 
         # Strip ANSI color codes for log file
         import re
-        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-        clean_output = ansi_escape.sub('', output)
+
+        ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+        clean_output = ansi_escape.sub("", output)
 
         # ALWAYS write to log file (regardless of verbose mode)
         if self.log_file:
@@ -291,10 +292,10 @@ def run_with_progress(
             text=True,
             bufsize=1,
         )
-        
+
         stdout_lines = []
         stderr_lines = []
-        
+
         # Read stdout
         if process.stdout:
             for line in process.stdout:
@@ -304,7 +305,7 @@ def run_with_progress(
                 logger.log_output(line_stripped, "stdout")
                 # Show in console
                 print(line_stripped)
-        
+
         # Wait for process and get stderr
         process.wait()
         if process.stderr:
@@ -314,7 +315,7 @@ def run_with_progress(
                 for line in stderr_lines:
                     logger.log_output(line, "stderr")
                     print(line)
-        
+
         return process.returncode, "\n".join(stdout_lines), "\n".join(stderr_lines)
 
     # Non-verbose: show spinner, capture output

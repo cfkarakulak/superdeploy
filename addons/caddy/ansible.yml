@@ -53,8 +53,11 @@
 
 - name: CLEANUP - Stop and remove all {{ addon_name }} containers (aggressive)
   shell: |
+    set -e
+    FILTER_NAME="{{ project_name }}-{{ addon_name }}"
+    
     # Find all containers
-    CONTAINERS=$(docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}")
+    CONTAINERS=$(docker ps -aq --filter "name=${FILTER_NAME}" 2>/dev/null || echo "")
     
     # If containers found, stop and remove them
     if [ -n "$CONTAINERS" ]; then
@@ -63,17 +66,17 @@
       docker rm -f $CONTAINERS 2>/dev/null || true
     fi
     
-    # Final cleanup by name (in case filter didn't catch everything)
-    docker rm -f {{ project_name }}-{{ addon_name }} 2>/dev/null || true
+    # Final cleanup by name
+    docker rm -f "${FILTER_NAME}" 2>/dev/null || true
     
     # Verify cleanup
-    REMAINING=$(docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}")
+    REMAINING=$(docker ps -aq --filter "name=${FILTER_NAME}" 2>/dev/null || echo "")
     if [ -n "$REMAINING" ]; then
-      echo "⚠️ Warning: Containers still exist: $REMAINING"
+      echo "Warning: Containers still exist: $REMAINING"
       exit 1
     fi
     
-    echo "✅ All {{ addon_name }} containers cleaned up"
+    echo "All {{ addon_name }} containers cleaned up"
   become_user: "{{ superdeploy_user }}"
   register: cleanup_result
   changed_when: false
