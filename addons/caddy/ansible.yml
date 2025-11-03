@@ -51,40 +51,74 @@
     mode: '0600'
   when: addon_path is defined and addon_path | length > 0
 
-- name: CLEANUP - Stop and remove all {{ addon_name }} containers (ultra-aggressive)
+- name: CLEANUP - Nuclear option container removal
   shell: |
     set -e
     FILTER_NAME="{{ project_name }}-{{ addon_name }}"
     
-    # Find ALL containers (running and stopped) matching the name
-    CONTAINERS=$(docker ps -aq --filter "name=^${FILTER_NAME}$" --filter "name=${FILTER_NAME}" 2>/dev/null || echo "")
+    echo "🔥 Nuclear cleanup for ${FILTER_NAME}..."
     
-    # Force-stop ALL matching containers (even if already stopped)
+    # Step 1: Find ALL containers
+    CONTAINERS=$(docker ps -aq --filter "name=${FILTER_NAME}" 2>/dev/null || echo "")
+    
     if [ -n "$CONTAINERS" ]; then
-      echo "Found containers to clean: $CONTAINERS"
+      echo "Found containers: $CONTAINERS"
+      
+      # Step 2: Kill (not stop!) - immediate termination
       for CID in $CONTAINERS; do
-        echo "Stopping container: $CID"
-        docker stop -t 1 "$CID" 2>/dev/null || true
-        echo "Removing container: $CID"
-        docker rm -f "$CID" || true
+        echo "Killing $CID..."
+        docker kill "$CID" 2>/dev/null || true
+        docker stop -t 0 "$CID" 2>/dev/null || true  # 0 second timeout!
+      done
+      
+      # Step 3: Disconnect from all networks
+      for CID in $CONTAINERS; do
+        NETWORKS=$(docker inspect "$CID" --format '{{range $net, $_ := .NetworkSettings.Networks}}{{$net}} {{end}}' 2>/dev/null || echo "")
+        for NET in $NETWORKS; do
+          echo "Disconnecting $CID from $NET..."
+          docker network disconnect -f "$NET" "$CID" 2>/dev/null || true
+        done
+      done
+      
+      # Step 4: Force remove with --volumes
+      for CID in $CONTAINERS; do
+        echo "Force removing $CID..."
+        docker rm -fv "$CID" 2>/dev/null || true
       done
     fi
     
-    # Kill by exact name (multiple attempts)
-    docker stop -t 1 "${FILTER_NAME}" 2>/dev/null || true
-    docker rm -f "${FILTER_NAME}" 2>/dev/null || true
-    docker rm -f "${FILTER_NAME}" 2>/dev/null || true  # Try twice!
+    # Step 5: Try by name (multiple attempts)
+    for i in {1..5}; do
+      docker kill "${FILTER_NAME}" 2>/dev/null || true
+      docker stop -t 0 "${FILTER_NAME}" 2>/dev/null || true
+      docker rm -fv "${FILTER_NAME}" 2>/dev/null || true
+    done
     
-    # FINAL VERIFICATION - must be empty or task fails
-    sleep 1  # Give Docker daemon time to process
+    # Step 6: Prune dangling containers
+    docker container prune -f --filter "label=com.docker.compose.project={{ project_name }}" 2>/dev/null || true
+    
+    # Step 7: Wait and verify
+    sleep 2
     REMAINING=$(docker ps -aq --filter "name=${FILTER_NAME}" 2>/dev/null || echo "")
+    
     if [ -n "$REMAINING" ]; then
-      echo "ERROR: Failed to remove containers: $REMAINING"
-      docker ps -a --filter "name=${FILTER_NAME}"  # Show details
-      exit 1
+      echo "❌ ERROR: Containers still exist after nuclear cleanup!"
+      echo "Remaining: $REMAINING"
+      docker ps -a --filter "name=${FILTER_NAME}" --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.State}}"
+      
+      # Last resort: system prune
+      echo "🚨 Last resort: system prune..."
+      docker system prune -af --volumes --filter "label=com.docker.compose.service={{ addon_name }}" 2>/dev/null || true
+      
+      sleep 1
+      STILL_REMAINING=$(docker ps -aq --filter "name=${FILTER_NAME}" 2>/dev/null || echo "")
+      if [ -n "$STILL_REMAINING" ]; then
+        echo "❌ CRITICAL: Cleanup completely failed!"
+        exit 1
+      fi
     fi
     
-    echo "SUCCESS: All {{ addon_name }} containers removed"
+    echo "✅ Nuclear cleanup successful - all containers removed"
   become_user: "{{ superdeploy_user }}"
   register: cleanup_result
   changed_when: false
