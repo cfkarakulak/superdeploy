@@ -10,3 +10,6 @@ ansible-runner>=2.3.0
 python-terraform>=0.10.1
 paramiko>=3.0.0
 
+# PERFORMANCE: Mitogen makes Ansible 3-7x faster!
+mitogen>=0.3.4
+

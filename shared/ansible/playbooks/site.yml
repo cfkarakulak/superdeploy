@@ -27,6 +27,9 @@
 - name: Setup Base System
   hosts: "{{ 'all:!orchestrator' if project_name is defined and project_name != 'orchestrator' else 'all' }}"
   become: yes
+  # PERFORMANCE: Run on all hosts in parallel
+  strategy: mitogen_linear
+  gather_facts: yes
   roles:
     - role: system/base
   tags:

@@ -55,6 +55,17 @@
   delay: 10
   register: apt_install
   until: apt_install is success
+  # PERFORMANCE: Run async (packages install in background)
+  async: 600
+  poll: 0
+  
+- name: Wait for essential packages installation
+  async_status:
+    jid: "{{ apt_install.ansible_job_id }}"
+  register: apt_install_result
+  until: apt_install_result.finished
+  retries: 60
+  delay: 10
 
 - name: Ensure superdeploy user exists
   user:

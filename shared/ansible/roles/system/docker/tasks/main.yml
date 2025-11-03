@@ -41,6 +41,17 @@
   delay: 10
   register: docker_install
   until: docker_install is success
+  # PERFORMANCE: Run async (Docker installs in background)
+  async: 900
+  poll: 0
+
+- name: Wait for Docker installation
+  async_status:
+    jid: "{{ docker_install.ansible_job_id }}"
+  register: docker_install_result
+  until: docker_install_result.finished
+  retries: 90
+  delay: 10
 
 - name: Configure Docker daemon
   template:
