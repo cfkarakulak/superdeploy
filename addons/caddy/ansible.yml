@@ -51,28 +51,51 @@
     mode: '0600'
   when: addon_path is defined and addon_path | length > 0
 
-- name: Stop and remove existing {{ addon_name }} containers (idempotent cleanup)
-  community.docker.docker_compose_v2:
-    project_src: "{{ addon_base_path }}/{{ addon_name }}"
-    state: absent
-    remove_orphans: true
+- name: CLEANUP - Find all {{ addon_name }} containers (running or stopped)
+  shell: |
+    docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}"
   become_user: "{{ superdeploy_user }}"
+  register: caddy_containers
+  changed_when: false
   failed_when: false
-  ignore_errors: true
 
-- name: Force remove {{ addon_name }} container by name (1st attempt)
+- name: CLEANUP - Stop all {{ addon_name }} containers
+  shell: |
+    docker stop {{ item }} 2>/dev/null || true
+  become_user: "{{ superdeploy_user }}"
+  loop: "{{ caddy_containers.stdout_lines }}"
+  when: caddy_containers.stdout_lines | length > 0
+  changed_when: false
+  failed_when: false
+
+- name: CLEANUP - Remove all {{ addon_name }} containers (by ID)
+  shell: |
+    docker rm -f {{ item }} 2>/dev/null || true
+  become_user: "{{ superdeploy_user }}"
+  loop: "{{ caddy_containers.stdout_lines }}"
+  when: caddy_containers.stdout_lines | length > 0
+  changed_when: false
+  failed_when: false
+
+- name: CLEANUP - Remove by name (final attempt)
   shell: |
     docker rm -f {{ project_name }}-{{ addon_name }} 2>/dev/null || true
   become_user: "{{ superdeploy_user }}"
   changed_when: false
-  ignore_errors: true
+  failed_when: false
 
-- name: Force remove all {{ addon_name }} related containers (2nd attempt)
+- name: CLEANUP - Verify all containers removed
   shell: |
-    docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}" | xargs -r docker rm -f 2>/dev/null || true
+    docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}"
   become_user: "{{ superdeploy_user }}"
+  register: remaining_containers
   changed_when: false
-  ignore_errors: true
+  failed_when: false
+
+- name: CLEANUP - Display remaining containers (if any)
+  debug:
+    msg: "⚠️ Warning: {{ remaining_containers.stdout_lines | length }} container(s) still exist!"
+  when: remaining_containers.stdout_lines | length > 0
 
 - name: Start {{ addon_name }} services (fresh deployment)
   community.docker.docker_compose_v2:
