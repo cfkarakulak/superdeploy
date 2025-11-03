@@ -43,7 +43,7 @@
       delay: 10
       register: nodejs_install
       until: nodejs_install is succeeded
-  when: ansible_os_family == "Debian"
+  when: ansible_facts['os_family'] == "Debian"
 
 - name: Check if age is installed
   command: age --version
