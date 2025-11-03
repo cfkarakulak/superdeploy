@@ -109,7 +109,6 @@ def build_ansible_command(
         tags (str): Optional Ansible tags to run (e.g. 'foundation', 'addons', 'project')
         project_name (str): Project name for dynamic inventory file selection
         ask_become_pass (bool): Whether to prompt for sudo password
-        start_at_task (str): Optional task name to resume from (e.g. 'Install Docker')
 
     Returns:
         str: Complete ansible-playbook command
@@ -118,10 +117,10 @@ def build_ansible_command(
     extra_vars_dict = generate_ansible_extra_vars(
         project_config, env_vars, project_root
     )
-    
+
     # Add enabled_addons if specified (for --addon flag)
     if enabled_addons:
-        extra_vars_dict['enabled_addons'] = enabled_addons
+        extra_vars_dict["enabled_addons"] = enabled_addons
 
     # Convert to JSON string for --extra-vars (with custom serializer for datetime)
     extra_vars_json = json.dumps(extra_vars_dict, default=json_serializer)
@@ -141,20 +140,25 @@ def build_ansible_command(
 
     # Get SSH private key path from environment or use default
     import os
-    ssh_key_path = os.path.expanduser(os.environ.get("SSH_KEY_PATH", "~/.ssh/superdeploy_deploy"))
-    private_key_str = f"--private-key {ssh_key_path}" if os.path.exists(ssh_key_path) else ""
+
+    ssh_key_path = os.path.expanduser(
+        os.environ.get("SSH_KEY_PATH", "~/.ssh/superdeploy_deploy")
+    )
+    private_key_str = (
+        f"--private-key {ssh_key_path}" if os.path.exists(ssh_key_path) else ""
+    )
 
     # Determine which playbook to use
     # orchestrator -> orchestrator.yml
     # project -> project.yml
     # default -> site.yml (legacy, for backward compatibility)
     if playbook is None:
-        if project_name == 'orchestrator':
-            playbook = 'orchestrator.yml'
+        if project_name == "orchestrator":
+            playbook = "orchestrator.yml"
         elif project_name:
-            playbook = 'project.yml'
+            playbook = "project.yml"
         else:
-            playbook = 'site.yml'
+            playbook = "site.yml"
 
     # Build the command
     cmd = f"""

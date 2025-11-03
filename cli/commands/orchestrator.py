@@ -516,16 +516,12 @@ from rich.console import Console
     "--tags", help="Run only specific Ansible tags (e.g. 'addons', 'foundation')"
 )
 @click.option(
-    "--start-at-task",
-    help="Resume Ansible from a specific task (e.g. 'Install Docker')",
-)
-@click.option(
     "--verbose",
     "-v",
     is_flag=True,
     help="Show all command output (default: clean UI with logs)",
 )
-def up(skip_terraform, preserve_ip, addon, tags, start_at_task, verbose):
+def up(skip_terraform, preserve_ip, addon, tags, verbose):
     """Deploy orchestrator VM with Forgejo (runs Terraform + Ansible by default)"""
 
     if not verbose:
@@ -551,7 +547,6 @@ def up(skip_terraform, preserve_ip, addon, tags, start_at_task, verbose):
                 preserve_ip,
                 addon,
                 tags,
-                start_at_task,
                 verbose,
             )
 
@@ -577,7 +572,6 @@ def _deploy_orchestrator_v2(
     preserve_ip,
     addon,
     tags,
-    start_at_task,
     verbose,
 ):
     """Internal function for orchestrator deployment with logging"""
@@ -888,8 +882,6 @@ ansible_python_interpreter=/usr/bin/python3
         enabled_addons_list = ["forgejo", "monitoring"]
 
     logger.log(f"Running ansible with tags: {ansible_tags}")
-    if start_at_task:
-        logger.log(f"Resuming from task: {start_at_task}")
 
     ansible_cmd = build_ansible_command(
         ansible_dir=ansible_dir,
@@ -899,7 +891,6 @@ ansible_python_interpreter=/usr/bin/python3
         tags=ansible_tags,
         project_name="orchestrator",
         ask_become_pass=False,
-        start_at_task=start_at_task,
         enabled_addons=enabled_addons_list,
     )
 
