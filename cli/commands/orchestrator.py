@@ -232,8 +232,8 @@ def down(yes, preserve_ip, verbose):
             logger.log("User cancelled destruction")
             return
 
-    logger.step("Destroying Orchestrator")
-    logger.log("Loading configuration...")
+    logger.step("[1/3] Preparing Destruction")
+    
     shared_dir = project_root / "shared"
 
     from cli.core.orchestrator_loader import OrchestratorLoader
@@ -242,10 +242,13 @@ def down(yes, preserve_ip, verbose):
 
     try:
         orch_config = orchestrator_loader.load()
-        logger.log("✓ Configuration loaded")
     except FileNotFoundError as e:
         logger.log_error(str(e))
         raise SystemExit(1)
+    
+    from rich.console import Console
+    console = Console()
+    console.print("  ✓ Configuration loaded")
 
     import subprocess
     from cli.terraform_utils import (
@@ -259,11 +262,11 @@ def down(yes, preserve_ip, verbose):
 
     # Check workspace before init
     if not workspace_exists("orchestrator"):
-        logger.log("No workspace found, skipping Terraform")
+        console.print("  ✓ No workspace found (already destroyed)")
         terraform_success = True
     else:
-        logger.log("Running Terraform destroy...")
-
+        logger.step("[2/3] Terraform Destroy")
+        
         # Switch to default workspace before init to avoid prompts
         subprocess.run(
             "terraform workspace select default 2>/dev/null || true",
@@ -298,29 +301,34 @@ def down(yes, preserve_ip, verbose):
             returncode, stdout, stderr = run_with_progress(
                 logger,
                 destroy_cmd,
-                "Destroying infrastructure",
+                "Destroying infrastructure (this may take 2-3 minutes)",
                 cwd=project_root,
             )
 
             if returncode == 0:
-                logger.success("Infrastructure destroyed")
+                console.print("  ✓ All resources destroyed")
                 terraform_success = True
             else:
                 logger.warning("Terraform destroy failed, attempting manual cleanup")
+                console.print("  ⚠ Partial destruction")
                 terraform_success = False
 
         except Exception as e:
             logger.warning(f"Terraform error: {e}")
+            console.print("  ⚠ Partial destruction")
             terraform_success = False
 
     # Manual cleanup with gcloud (only if terraform failed)
     if not terraform_success:
-        logger.step("Cleaning up with gcloud")
+        logger.step("[3/3] Manual Cleanup")
 
         gcp_config = orch_config.config.get("gcp", {})
         zone = gcp_config.get("zone", "us-central1-a")
         region = gcp_config.get("region", "us-central1")
 
+        vms_deleted = 0
+        ips_deleted = 0
+        
         # Delete VM
         result = subprocess.run(
             f"gcloud compute instances delete orchestrator-main-0 --zone={zone} --quiet",
@@ -329,35 +337,24 @@ def down(yes, preserve_ip, verbose):
             text=True,
         )
         if result.returncode == 0 or "not found" in result.stderr.lower():
-            logger.success("VM deleted")
+            vms_deleted += 1
 
         # Delete External IP (unless --preserve-ip flag is set)
-        if preserve_ip:
-            console.print(
-                "[yellow]  ⊙ External IP preserved (--preserve-ip flag)[/yellow]"
-            )
-        else:
-            console.print("[dim]Deleting External IP orchestrator-main-0-ip...[/dim]")
+        if not preserve_ip:
             result = subprocess.run(
                 f"gcloud compute addresses delete orchestrator-main-0-ip --region={region} --quiet",
                 shell=True,
                 capture_output=True,
                 text=True,
             )
-            if result.returncode == 0:
-                console.print("[green]  ✓ External IP deleted[/green]")
-            elif (
-                "not found" in result.stderr.lower()
-                or "could not fetch resource" in result.stderr.lower()
-            ):
-                console.print("[dim]  ✓ External IP not found (already deleted)[/dim]")
-            else:
-                console.print(
-                    f"[yellow]  ⚠ External IP deletion: {result.stderr.strip()[:100]}[/yellow]"
-                )
+            if result.returncode == 0 or "not found" in result.stderr.lower():
+                ips_deleted += 1
 
+        firewalls_deleted = 0
+        subnets_deleted = 0
+        networks_deleted = 0
+        
         # Delete Firewall Rules (all network rules)
-        console.print("[dim]Deleting Firewall Rules...[/dim]")
         result = subprocess.run(
             "gcloud compute firewall-rules list --filter='network:superdeploy-network' --format='value(name)'",
             shell=True,
@@ -377,34 +374,19 @@ def down(yes, preserve_ip, verbose):
                         text=True,
                     )
                     if result.returncode == 0:
-                        console.print(f"[green]  ✓ {rule} deleted[/green]")
-                    else:
-                        console.print(f"[yellow]  ⚠ {rule} deletion failed[/yellow]")
-        else:
-            console.print("[dim]  ✓ No firewall rules found[/dim]")
+                        firewalls_deleted += 1
 
         # Delete Subnet
-        console.print("[dim]Deleting Subnet superdeploy-network-subnet...[/dim]")
         result = subprocess.run(
             f"gcloud compute networks subnets delete superdeploy-network-subnet --region={region} --quiet",
             shell=True,
             capture_output=True,
             text=True,
         )
-        if result.returncode == 0:
-            console.print("[green]  ✓ Subnet deleted[/green]")
-        elif (
-            "not found" in result.stderr.lower()
-            or "could not fetch resource" in result.stderr.lower()
-        ):
-            console.print("[dim]  ✓ Subnet not found (already deleted)[/dim]")
-        else:
-            console.print(
-                f"[yellow]  ⚠ Subnet deletion: {result.stderr.strip()[:100]}[/yellow]"
-            )
+        if result.returncode == 0 or "not found" in result.stderr.lower():
+            subnets_deleted += 1
 
         # Delete Network
-        console.print("[dim]Deleting Network superdeploy-network...[/dim]")
         result = subprocess.run(
             "gcloud compute networks delete superdeploy-network --quiet",
             shell=True,
@@ -412,18 +394,25 @@ def down(yes, preserve_ip, verbose):
             text=True,
         )
         if result.returncode == 0:
-            console.print("[green]  ✓ Network deleted[/green]")
-        elif (
-            "not found" in result.stderr.lower()
-            or "could not fetch resource" in result.stderr.lower()
-        ):
-            console.print("[dim]  ✓ Network not found (already deleted)[/dim]")
+            networks_deleted += 1
+        
+        # Show summary
+        resources = []
+        if vms_deleted > 0:
+            resources.append(f"{vms_deleted} VM(s)")
+        if firewalls_deleted > 0:
+            resources.append(f"{firewalls_deleted} firewall rule(s)")
+        if subnets_deleted > 0:
+            resources.append(f"{subnets_deleted} subnet(s)")
+        if networks_deleted > 0:
+            resources.append(f"{networks_deleted} network(s)")
+        if ips_deleted > 0:
+            resources.append(f"{ips_deleted} IP(s)")
+        
+        if resources:
+            console.print(f"  ✓ GCP resources cleaned: {', '.join(resources)}")
         else:
-            console.print(
-                f"[yellow]  ⚠ Network deletion: {result.stderr.strip()[:100]}[/yellow]"
-            )
-
-        logger.success("Manual cleanup complete")
+            console.print("  ✓ No GCP resources found")
 
     # Clean Terraform state
     terraform_state_dir = (
@@ -431,11 +420,9 @@ def down(yes, preserve_ip, verbose):
     )
     if terraform_state_dir.exists():
         import shutil
-
         shutil.rmtree(terraform_state_dir)
-        console.print("[green]✅ Terraform state cleaned[/green]")
-
-    # 3. Clean .env (remove ORCHESTRATOR_IP)
+    
+    # Clean .env (remove ORCHESTRATOR_IP)
     env_path = shared_dir / "orchestrator" / ".env"
     if env_path.exists():
         env_lines = []
@@ -447,27 +434,22 @@ def down(yes, preserve_ip, verbose):
         with open(env_path, "w") as f:
             f.writelines(env_lines)
 
-        console.print("[green]✅ .env cleaned (ORCHESTRATOR_IP removed)[/green]")
-    else:
-        console.print("[dim]✓ .env not found (already clean)[/dim]")
-
-    # 4. Clean inventory
+    # Clean inventory
     inventory_file = shared_dir / "ansible" / "inventories" / "orchestrator.ini"
     if inventory_file.exists():
         inventory_file.unlink()
-        console.print("[green]✅ Inventory cleaned[/green]")
 
-    # 5. Release subnet allocation
+    # Release subnet allocation
     try:
         from cli.subnet_allocator import SubnetAllocator
-
         allocator = SubnetAllocator()
-        if allocator.release_subnet("orchestrator"):
-            console.print("[green]✅ Subnet allocation released[/green]")
+        allocator.release_subnet("orchestrator")
     except Exception as e:
-        console.print(f"[yellow]⚠️  Subnet release warning: {e}[/yellow]")
+        logger.warning(f"Subnet release warning: {e}")
+    
+    console.print("  ✓ Local files cleaned")
 
-    console.print("\n[green]✅ Orchestrator destroyed and cleaned up![/green]")
+    console.print("\n[bold green]✅ Orchestrator Destroyed![/bold green]")
 
 
 @orchestrator.command()
