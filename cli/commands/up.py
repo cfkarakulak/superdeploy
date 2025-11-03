@@ -295,15 +295,13 @@ def _deploy_project_v2(
         with open(env_file, "w") as f:
             f.writelines(env_lines)
 
-        logger.success("VM IPs updated in .env")
+        logger.log("✓ VM IPs updated in .env")
 
         # Wait for VMs
-        logger.step("Waiting for VMs to be ready")
+        logger.log("Waiting for VMs to be ready...")
 
         if public_ips:
             import time
-
-            logger.log(f"Found {len(public_ips)} VMs to check")
 
             ssh_key = env.get("SSH_KEY_PATH")
             ssh_user = env.get("SSH_USER", "superdeploy")
@@ -343,16 +341,15 @@ def _deploy_project_v2(
             if all_ready:
                 vm_count = len(public_ips)
                 vm_list = ", ".join(public_ips.keys())
-                logger.success(
-                    f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})"
-                )
             else:
                 logger.warning("Some VMs may not be fully ready, continuing...")
                 vm_count = len(public_ips)
                 vm_list = ", ".join(public_ips.keys())
-                logger.success(
-                    f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})"
-                )
+            
+            # Show phase 1 completion
+            from rich.console import Console
+            console = Console()
+            console.print(f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})")
         else:
             logger.log("No VMs found in outputs")
 
@@ -361,7 +358,9 @@ def _deploy_project_v2(
         env = load_env(project)
         vm_ips = {k: v for k, v in env.items() if "_EXTERNAL_IP" in k}
         vm_count = len(vm_ips)
-        logger.success(f"  ✓ Configuration • Environment • {vm_count} VMs (existing)")
+        from rich.console import Console
+        console = Console()
+        console.print(f"  ✓ Configuration • Environment • {vm_count} VMs (existing)")
 
     # Ansible
     if not skip_ansible:
@@ -371,17 +370,12 @@ def _deploy_project_v2(
         env = load_env(project)
 
         # Generate inventory
-        logger.log("Generating Ansible inventory")
         from cli.commands.up import generate_ansible_inventory
 
         ansible_dir = project_root / "shared" / "ansible"
         generate_ansible_inventory(
             env, ansible_dir, project, orchestrator_ip, project_config_obj
         )
-        logger.log("Inventory generated")
-
-        # SSH known_hosts already cleaned during VM checks
-        logger.log("SSH known_hosts cleaned")
 
         # Build ansible command
         from cli.ansible_utils import build_ansible_command
@@ -404,13 +398,10 @@ def _deploy_project_v2(
             # Deploy only specific addon(s)
             enabled_addons_list = [a.strip() for a in addon.split(",")]
             ansible_tags = "addons"  # Only run addons tag
-            logger.log(f"Deploying only addon(s): {', '.join(enabled_addons_list)}")
         elif tags:
             ansible_tags = tags
         else:
             ansible_tags = "foundation,addons,project"
-
-        logger.log(f"Running ansible with tags: {ansible_tags}")
 
         ansible_cmd = build_ansible_command(
             ansible_dir=ansible_dir,

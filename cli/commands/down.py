@@ -13,7 +13,7 @@ from cli.terraform_utils import (
     get_terraform_outputs,
 )
 from cli.core.config_loader import ConfigLoader
-from cli.logger import DeployLogger, run_with_progress
+from cli.logger import DeployLogger
 
 console = Console()
 
@@ -66,10 +66,10 @@ def down(project, yes, verbose, keep_infra):
     All data on VMs will be lost.
     """
     project_root = get_project_root()
-    
+
     # Initialize logger
     logger = DeployLogger(project, "down", verbose=verbose)
-    
+
     if not verbose:
         console.print(
             Panel.fit(
@@ -162,7 +162,7 @@ def down(project, yes, verbose, keep_infra):
 
     # Step 2: Check if workspace exists
     from cli.terraform_utils import workspace_exists, terraform_init
-    
+
     if not workspace_exists(project):
         logger.step("Skipping Terraform (no workspace found)")
     else:
@@ -175,7 +175,7 @@ def down(project, yes, verbose, keep_infra):
             cwd=terraform_dir,
             capture_output=True,
         )
-        
+
         # Step 3: Initialize Terraform (child task - no separate step)
         try:
             terraform_init(quiet=True)
@@ -193,7 +193,9 @@ def down(project, yes, verbose, keep_infra):
         if project_config_obj:
             # Use terraform_utils for proper destroy (with lock bypass)
             logger.log("Running terraform destroy")
-            terraform_destroy(project, project_config_obj, auto_approve=True, force=True)
+            terraform_destroy(
+                project, project_config_obj, auto_approve=True, force=True
+            )
             logger.success("All resources destroyed")
         else:
             # Fallback: Run destroy with minimal config
@@ -214,9 +216,9 @@ def down(project, yes, verbose, keep_infra):
 
         # ALWAYS do manual GCP cleanup (more reliable than terraform destroy)
         console.print("\n[cyan]🗑️  Force cleaning GCP resources...[/cyan]")
-        
+
         import time
-        
+
         # Get region/zone from config or use defaults
         if project_config_obj:
             gcp_config = project_config_obj.raw_config.get("cloud", {}).get("gcp", {})
@@ -266,7 +268,9 @@ def down(project, yes, verbose, keep_infra):
                             shell=True,
                             capture_output=True,
                         )
-                        console.print(f"    [green]✓[/green] Deleted firewall: {fw_name}")
+                        console.print(
+                            f"    [green]✓[/green] Deleted firewall: {fw_name}"
+                        )
             else:
                 console.print("    [dim]No firewall rules found[/dim]")
 
@@ -288,14 +292,16 @@ def down(project, yes, verbose, keep_infra):
                                 shell=True,
                                 capture_output=True,
                             )
-                            console.print(f"    [green]✓[/green] Deleted subnet: {subnet_name}")
+                            console.print(
+                                f"    [green]✓[/green] Deleted subnet: {subnet_name}"
+                            )
             else:
                 console.print("    [dim]No subnets found[/dim]")
 
             # 4. Delete Network (try multiple times, GCP can be slow)
             console.print("  [cyan]Deleting Network...[/cyan]")
             network_name = f"{project}-network"
-            
+
             # Try up to 3 times with delay
             for attempt in range(3):
                 result = subprocess.run(
@@ -305,16 +311,23 @@ def down(project, yes, verbose, keep_infra):
                     text=True,
                 )
                 if result.returncode == 0:
-                    console.print(f"    [green]✓[/green] Deleted network: {network_name}")
+                    console.print(
+                        f"    [green]✓[/green] Deleted network: {network_name}"
+                    )
                     break
-                elif "not found" in result.stderr.lower() or "was not found" in result.stderr.lower():
+                elif (
+                    "not found" in result.stderr.lower()
+                    or "was not found" in result.stderr.lower()
+                ):
                     console.print("    [dim]No network found[/dim]")
                     break
                 elif attempt < 2:
                     # Retry after delay
                     time.sleep(2)
                 else:
-                    console.print(f"    [yellow]⚠[/yellow] Network deletion failed: {result.stderr.strip()[:100]}")
+                    console.print(
+                        f"    [yellow]⚠[/yellow] Network deletion failed: {result.stderr.strip()[:100]}"
+                    )
 
             # 5. Delete External IPs (can be done anytime, do it last)
             console.print("  [cyan]Deleting External IPs...[/cyan]")
@@ -360,6 +373,7 @@ def down(project, yes, verbose, keep_infra):
     logger.step("Releasing subnet allocation")
     try:
         from cli.subnet_allocator import SubnetAllocator
+
         allocator = SubnetAllocator()
         if allocator.release_subnet(project):
             logger.log("Subnet released for reuse")
@@ -390,11 +404,13 @@ def down(project, yes, verbose, keep_infra):
         logger.log(f"Removed {tfvars_file.name}")
 
     logger.success("Cleanup complete")
-    
+
     # Final summary
     if not verbose:
         console.print("\n" + "━" * 60)
         console.print("[bold green]🎉 Destruction Complete![/bold green]")
         console.print("━" * 60)
-        console.print(f"\n[dim]To deploy again:[/dim] [cyan]superdeploy up -p {project}[/cyan]")
+        console.print(
+            f"\n[dim]To deploy again:[/dim] [cyan]superdeploy up -p {project}[/cyan]"
+        )
         console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
