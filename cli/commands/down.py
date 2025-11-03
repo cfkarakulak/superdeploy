@@ -12,7 +12,7 @@ from cli.terraform_utils import (
     get_terraform_outputs,
 )
 from cli.core.config_loader import ConfigLoader
-from cli.logger import DeployLogger
+from cli.logger import DeployLogger, run_with_progress
 
 console = Console()
 
@@ -186,8 +186,6 @@ def down(project, yes, verbose, keep_infra):
             logger.warning(f"  Workspace error: {e}")
 
         # Run Terraform destroy with spinner
-        from cli.progress import run_with_progress
-
         try:
             returncode, stdout, stderr = run_with_progress(
                 logger,

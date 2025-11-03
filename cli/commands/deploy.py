@@ -45,6 +45,7 @@ def deploy(project, app, message, verbose):
     logger = DeployLogger(project, f"deploy-{app}", verbose=verbose)
 
     from rich.console import Console
+
     console = Console()
 
     logger.step("[1/2] Preparing Deployment")

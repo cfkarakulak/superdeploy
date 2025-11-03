@@ -26,8 +26,7 @@
 
 - name: Force remove {{ addon_name }} container if still exists (running or stopped)
   shell: |
-    docker stop {{ project_name }}-{{ addon_name }} 2>/dev/null || true
-    docker rm -f {{ project_name }}-{{ addon_name }} 2>/dev/null || true
+    docker ps -a --filter "name={{ project_name }}-{{ addon_name }}" --format "{% raw %}{{.Names}}{% endraw %}" | xargs -r docker rm -f 2>/dev/null || true
   become_user: "{{ superdeploy_user }}"
   changed_when: false
 

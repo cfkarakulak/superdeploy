@@ -43,9 +43,7 @@
 
 - name: "Force stop and remove ALL orchestrator-forgejo* containers"
   shell: |
-    {% raw %}
-    docker ps -a --filter "name=orchestrator-forgejo" --format "{{ .Names }}" | xargs -r docker rm -f || true
-    {% endraw %}
+    docker ps -a --filter "name=orchestrator-forgejo" --format "{% raw %}{{.Names}}{% endraw %}" | xargs -r docker rm -f 2>/dev/null || true
   ignore_errors: true
 
 - name: "Stop existing {{ addon_name }} containers (if any)"
