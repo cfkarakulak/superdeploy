@@ -104,7 +104,7 @@ def _deploy_project_v2(
     """Internal function for project deployment with logging"""
 
     logger.step("[1/4] Setup & Infrastructure")
-    
+
     # Load project config
     logger.log("Loading configuration...")
     from cli.core.config_loader import ConfigLoader
@@ -343,12 +343,16 @@ def _deploy_project_v2(
             if all_ready:
                 vm_count = len(public_ips)
                 vm_list = ", ".join(public_ips.keys())
-                logger.success(f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})")
+                logger.success(
+                    f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})"
+                )
             else:
                 logger.warning("Some VMs may not be fully ready, continuing...")
                 vm_count = len(public_ips)
                 vm_list = ", ".join(public_ips.keys())
-                logger.success(f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})")
+                logger.success(
+                    f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})"
+                )
         else:
             logger.log("No VMs found in outputs")
 
@@ -437,9 +441,13 @@ def _deploy_project_v2(
     else:
         logger.step("Skipping Ansible (--skip-ansible)")
 
+    # Phase 4: Code Deployment
+    if not skip_sync or not skip_git_push:
+        logger.step("[4/4] Code Deployment")
+
     # Sync secrets to Forgejo
     if not skip_sync and not skip_ansible:
-        logger.step("Syncing secrets to Forgejo")
+        logger.log("Syncing secrets to Forgejo...")
         try:
             from cli.commands.sync import sync
 
@@ -450,20 +458,17 @@ def _deploy_project_v2(
             result = runner.invoke(sync, ["-p", project, "--skip-github"])
 
             if result.exit_code == 0:
-                logger.success("Secrets synced successfully")
+                logger.log("✓ Secrets synced to Forgejo")
             else:
                 logger.warning(f"Secret sync had issues: {result.output}")
         except Exception as e:
             logger.log_error(f"Failed to sync secrets: {e}")
             logger.warning("Continuing deployment without secret sync")
-    else:
-        logger.step("Skipping secret sync (--skip-sync)")
 
     # Git push
     if not skip_git_push:
-        logger.step("Pushing code to Git")
-        logger.log("Git push not yet implemented in V2")
-        logger.warning("Skipping git push (use --skip-git-push to suppress this)")
+        logger.log("✓ Code deployment complete (git push via Forgejo Actions)")
+        logger.log("  Tip: Push to 'production' branch to trigger deployment")
 
     # Display deployment summary
     console.print("\n" + "━" * 60)

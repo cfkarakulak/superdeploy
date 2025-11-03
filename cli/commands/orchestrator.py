@@ -232,7 +232,8 @@ def down(yes, preserve_ip, verbose):
             logger.log("User cancelled destruction")
             return
 
-    logger.step("Loading orchestrator configuration")
+    logger.step("Destroying Orchestrator")
+    logger.log("Loading configuration...")
     shared_dir = project_root / "shared"
 
     from cli.core.orchestrator_loader import OrchestratorLoader
@@ -241,7 +242,7 @@ def down(yes, preserve_ip, verbose):
 
     try:
         orch_config = orchestrator_loader.load()
-        logger.success("Configuration loaded")
+        logger.log("✓ Configuration loaded")
     except FileNotFoundError as e:
         logger.log_error(str(e))
         raise SystemExit(1)
@@ -258,10 +259,10 @@ def down(yes, preserve_ip, verbose):
 
     # Check workspace before init
     if not workspace_exists("orchestrator"):
-        logger.step("Skipping Terraform (no workspace found)")
+        logger.log("No workspace found, skipping Terraform")
         terraform_success = True
     else:
-        logger.step("Running Terraform destroy")
+        logger.log("Running Terraform destroy...")
 
         # Switch to default workspace before init to avoid prompts
         subprocess.run(

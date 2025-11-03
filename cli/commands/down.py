@@ -81,13 +81,14 @@ def down(project, yes, verbose, keep_infra):
         )
 
     # Load project config
-    logger.step("Loading project configuration")
+    logger.step("Destroying Project Infrastructure")
+    logger.log("Loading configuration...")
     projects_dir = project_root / "projects"
     config_loader = ConfigLoader(projects_dir)
 
     try:
         project_config_obj = config_loader.load_project(project)
-        logger.success("Configuration loaded")
+        logger.log("✓ Configuration loaded")
     except FileNotFoundError:
         logger.warning("Project config not found, will try to destroy anyway")
         project_config_obj = None
@@ -99,12 +100,12 @@ def down(project, yes, verbose, keep_infra):
     gcp_region = env.get("GCP_REGION", "us-central1")
 
     if not gcp_project:
-        console.print("[red]❌ GCP_PROJECT_ID not found in .env[/red]")
-        console.print("[yellow]💡 Trying to continue with Terraform state...[/yellow]")
+        logger.warning("GCP_PROJECT_ID not found in .env")
+        logger.log("Trying to continue with Terraform state...")
         gcp_project = "unknown"
 
     # Show what will be destroyed
-    logger.step("Analyzing resources to destroy")
+    logger.log("Analyzing resources...")
     if not verbose:
         console.print("\n[bold yellow]📋 Resources to be destroyed:[/bold yellow]")
 

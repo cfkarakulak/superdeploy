@@ -434,7 +434,8 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     logger = DeployLogger(project, "sync", verbose=verbose)
 
     # Early validation: Check required files exist
-    logger.step("Checking required files")
+    logger.step("Syncing Secrets to Forgejo")
+    logger.log("Checking required files...")
     project_root = get_project_root()
 
     required_files = {
@@ -447,10 +448,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
 
     missing_files = []
     for file_desc, file_path in required_files.items():
-        if file_path.exists():
-            logger.log(f"✓ {file_desc}")
-        else:
-            logger.log(f"✗ {file_desc}")
+        if not file_path.exists():
             missing_files.append(file_desc)
 
     if missing_files:
@@ -460,10 +458,10 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
         )
         raise SystemExit(1)
 
-    logger.success("All required files found")
+    logger.log("✓ Required files found")
 
     # Load infrastructure .env
-    logger.step("Loading environment variables")
+    logger.log("Loading environment...")
     env = load_env(project)
     logger.log("Project .env loaded")
 
