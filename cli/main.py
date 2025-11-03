@@ -28,6 +28,7 @@ from cli.commands import (
     down,
     project,
     promote,
+    domain,
     backup,
     validate,
     metrics,
@@ -93,6 +94,7 @@ cli.add_command(releases.releases)
 cli.add_command(switch.switch)
 cli.add_command(project.project)
 cli.add_command(promote.promote)
+cli.add_command(domain.domain)
 cli.add_command(backup.backup)
 cli.add_command(validate.validate)
 cli.add_command(metrics.metrics)
