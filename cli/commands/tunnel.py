@@ -31,9 +31,9 @@ PORT_MAPPINGS = {
     },
     "rabbitmq-amqp": {
         "remote": 5672,  # AMQP protocol
-        "local": 15672,
+        "local": 5673,
         "name": "RabbitMQ AMQP",
-        "connection": "amqp://localhost:15672",
+        "connection": "amqp://localhost:5673",
     },
     "redis": {
         "remote": 6379,
@@ -80,7 +80,7 @@ def tunnel(project, service, all_services, list_services):
 
     # Load project config
     from cli.utils import get_project_root
-    from cli.config_loader import ConfigLoader
+    from cli.core.config_loader import ConfigLoader
 
     project_root = get_project_root()
     projects_dir = project_root / "projects"
