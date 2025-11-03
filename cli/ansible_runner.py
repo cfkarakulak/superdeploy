@@ -25,10 +25,25 @@ class AnsibleRunner:
             self.logger.log_path.parent / f"{self.logger.log_path.stem}_ansible.log"
         )
 
-        # PERFORMANCE: Use venv Python for Mitogen support
+        # PERFORMANCE: Use venv Python + collections for Mitogen
         import sys
+        from pathlib import Path
 
         venv_python = sys.executable  # Current Python (from venv)
+        venv_root = Path(sys.executable).parent.parent
+        python_version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+        collections_path = (
+            venv_root / "lib" / python_version / "site-packages" / "ansible_collections"
+        )
+        mitogen_strategy_path = (
+            venv_root
+            / "lib"
+            / python_version
+            / "site-packages"
+            / "ansible_mitogen"
+            / "plugins"
+            / "strategy"
+        )
 
         # Setup environment for VERBOSE logging to file
         env_verbose = os.environ.copy()
@@ -39,8 +54,11 @@ class AnsibleRunner:
                 "ANSIBLE_DISPLAY_SKIPPED_HOSTS": "false",
                 "ANSIBLE_LOG_PATH": str(ansible_log_path),
                 "ANSIBLE_NOCOLOR": "true",  # No colors in log file
-                # PERFORMANCE: Use venv Python for Mitogen
-                "ANSIBLE_PYTHON_INTERPRETER": venv_python,
+                # COLLECTIONS: Use venv collections (both singular and plural for compatibility)
+                "ANSIBLE_COLLECTIONS_PATH": str(collections_path),
+                "ANSIBLE_COLLECTIONS_PATHS": str(collections_path),
+                # MITOGEN: Use venv Mitogen strategy plugins
+                "ANSIBLE_STRATEGY_PLUGINS": str(mitogen_strategy_path),
             }
         )
 
@@ -76,8 +94,11 @@ class AnsibleRunner:
                 "ANSIBLE_DISPLAY_SKIPPED_HOSTS": "false",
                 # Verbose mode: keep colors for better readability
                 "ANSIBLE_FORCE_COLOR": "true" if self.verbose else "false",
-                # PERFORMANCE: Use venv Python for Mitogen
-                "ANSIBLE_PYTHON_INTERPRETER": venv_python,
+                # COLLECTIONS: Use venv collections (both singular and plural for compatibility)
+                "ANSIBLE_COLLECTIONS_PATH": str(collections_path),
+                "ANSIBLE_COLLECTIONS_PATHS": str(collections_path),
+                # MITOGEN: Use venv Mitogen strategy plugins
+                "ANSIBLE_STRATEGY_PLUGINS": str(mitogen_strategy_path),
             }
         )
 

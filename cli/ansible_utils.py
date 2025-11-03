@@ -163,14 +163,14 @@ def build_ansible_command(
     # Use venv ansible-playbook (not system Ansible!)
     import sys
     from pathlib import Path
-    
+
     venv_bin = Path(sys.executable).parent
     ansible_playbook_path = venv_bin / "ansible-playbook"
-    
+
     # Fallback to system ansible-playbook if venv one doesn't exist
     if not ansible_playbook_path.exists():
         ansible_playbook_path = "ansible-playbook"
-    
+
     # Build the command
     cmd = f"""
 cd {ansible_dir} && \\

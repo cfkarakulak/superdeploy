@@ -10,7 +10,12 @@ python-terraform>=0.10.1
 paramiko>=3.0.0
 
 # PERFORMANCE: Ansible + Mitogen in venv (no system dependency!)
-ansible>=2.15.0,<3.0.0
+# Note: Ansible 9.x+ required for community.docker 5.0.0 compatibility (Python 3.10+)
+ansible>=9.0.0,<13.0.0
 ansible-runner>=2.3.0
 mitogen>=0.3.4
+
+# COLLECTIONS: community.docker with docker_compose_v2 support
+# Note: Will be auto-installed with ansible, but specify version for docker_compose_v2
+# Install manually: ansible-galaxy collection install community.docker:>=5.0.0
 
