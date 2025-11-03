@@ -35,6 +35,7 @@ from cli.commands import (
     update_firewall,
     monitoring,
     subnets,
+    tunnel,
 )
 
 console = Console()
@@ -102,6 +103,7 @@ cli.add_command(orchestrator.orchestrator)
 cli.add_command(update_firewall.update_firewall, name="update-firewall")
 cli.add_command(monitoring.monitoring)
 cli.add_command(subnets.subnets)
+cli.add_command(tunnel.tunnel)
 
 
 if __name__ == "__main__":

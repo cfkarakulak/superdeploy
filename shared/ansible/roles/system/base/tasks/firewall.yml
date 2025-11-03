@@ -114,7 +114,7 @@
     - project_config.addons.redis is defined
     - project_config.addons.redis.port is defined
 
-- name: Add RabbitMQ port if enabled
+- name: Add RabbitMQ port if enabled (ONLY if explicitly configured)
   set_fact:
     addon_ports: "{{ addon_ports + [project_config.addons.rabbitmq.port | default(5672)] }}"
   when: 
@@ -122,8 +122,9 @@
     - project_config.addons is defined
     - project_config.addons.rabbitmq is defined
     - project_config.addons.rabbitmq.port is defined
+    - project_config.addons.rabbitmq.expose | default(false)
 
-- name: Add RabbitMQ management port if enabled
+- name: Add RabbitMQ management port if enabled (ONLY if explicitly configured)
   set_fact:
     addon_ports: "{{ addon_ports + [project_config.addons.rabbitmq.management_port | default(15672)] }}"
   when: 
@@ -131,6 +132,7 @@
     - project_config.addons is defined
     - project_config.addons.rabbitmq is defined
     - project_config.addons.rabbitmq.management_port is defined
+    - project_config.addons.rabbitmq.expose | default(false)
 
 - name: Add MongoDB port if enabled
   set_fact:
