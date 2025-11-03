@@ -27,22 +27,150 @@ def domain():
 
 
 @domain.command(name="add")
-@click.option("-p", "--project", required=True, help="Project name")
+@click.option("-p", "--project", help="Project name")
+@click.option("--orchestrator", is_flag=True, help="Add domain to orchestrator service")
 @click.argument("app_name")
 @click.argument("domain")
-def add_domain(project: str, app_name: str, domain: str):
+def add_domain(project: str, orchestrator: bool, app_name: str, domain: str):
     """
-    Add a domain to an application.
+    Add a domain to an application or orchestrator service.
 
-    Example:
-        superdeploy domain:add -p cheapa api api.cheapa.io
-        superdeploy domain:add -p cheapa dashboard dashboard.cheapa.io
+    Examples:
+        # Project apps
+        superdeploy domain add -p cheapa api api.cheapa.io
+        superdeploy domain add -p cheapa dashboard dashboard.cheapa.io
+        
+        # Orchestrator services
+        superdeploy domain add --orchestrator grafana grafana.cheapa.io
+        superdeploy domain add --orchestrator prometheus prometheus.cheapa.io
+        superdeploy domain add --orchestrator forgejo forgejo.cheapa.io
     """
     try:
+        # Validate: either --orchestrator OR -p project (not both)
+        if orchestrator and project:
+            console.print("[red]✗ Cannot use both --orchestrator and -p project[/red]")
+            raise click.Abort()
+        
+        if not orchestrator and not project:
+            console.print("[red]✗ Must specify either --orchestrator or -p project[/red]")
+            raise click.Abort()
+        
         console.print(
             f"\n[bold yellow]▶[/bold yellow] Adding domain [cyan]{domain}[/cyan] to [cyan]{app_name}[/cyan]\n"
         )
 
+        # ORCHESTRATOR MODE
+        if orchestrator:
+            # Valid services: grafana, prometheus, forgejo
+            valid_services = ["grafana", "prometheus", "forgejo"]
+            if app_name not in valid_services:
+                console.print(f"[red]✗ Invalid orchestrator service '{app_name}'[/red]")
+                console.print(f"Available services: {', '.join(valid_services)}")
+                raise click.Abort()
+            
+            # Load orchestrator config
+            config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
+            if not config_file.exists():
+                console.print(f"[red]✗ Orchestrator config not found at {config_file}[/red]")
+                console.print("Run 'superdeploy orchestrator init' first")
+                raise click.Abort()
+            
+            with open(config_file, "r") as f:
+                config = yaml.safe_load(f)
+            
+            # Get orchestrator IP
+            terraform_dir = Path.cwd() / "shared" / "terraform"
+            try:
+                subprocess.run(
+                    ["terraform", "workspace", "select", "orchestrator"],
+                    cwd=terraform_dir,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                
+                result = subprocess.run(
+                    ["terraform", "output", "-json"],
+                    cwd=terraform_dir,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                outputs = json.loads(result.stdout)
+                vm_ip = outputs.get("orchestrator_ip", {}).get("value")
+                
+                if not vm_ip:
+                    console.print("[red]✗ Could not find orchestrator IP[/red]")
+                    raise click.Abort()
+            except Exception as e:
+                console.print("[red]✗ Failed to get orchestrator IP from Terraform[/red]")
+                console.print(f"[dim]Error: {e}[/dim]")
+                raise click.Abort()
+            
+            # Show DNS instruction
+            console.print()
+            console.print(
+                Panel(
+                    f"[bold yellow]DNS Configuration Required[/bold yellow]\n\n"
+                    f"Add the following A record to your DNS:\n\n"
+                    f"[cyan]Host:[/cyan] {domain}\n"
+                    f"[cyan]Type:[/cyan] A\n"
+                    f"[cyan]Value:[/cyan] {vm_ip}\n"
+                    f"[cyan]TTL:[/cyan] 3600 (or default)\n\n"
+                    f"[dim]Note: DNS propagation may take a few minutes[/dim]",
+                    title="📋 DNS Setup",
+                    border_style="yellow",
+                )
+            )
+            console.print()
+            
+            if not click.confirm(
+                f"Have you added the DNS record for {domain}?", default=False
+            ):
+                console.print("Aborted. Add the DNS record and try again.")
+                raise click.Abort()
+            
+            # Update orchestrator config
+            console.print("Updating orchestrator config.yml...")
+            config[app_name]["domain"] = domain
+            
+            with open(config_file, "w") as f:
+                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            
+            console.print(f"[green]✓ Updated {config_file}[/green]")
+            
+            # Redeploy Caddy on orchestrator
+            console.print(
+                "\n[bold yellow]▶[/bold yellow] Redeploying Caddy on orchestrator\n"
+            )
+            console.print("This will update Caddyfile and reload Caddy...")
+            
+            result = subprocess.run(
+                ["superdeploy", "orchestrator", "up", "--addon", "caddy"],
+                cwd=Path.cwd(),
+            )
+            
+            if result.returncode != 0:
+                console.print("[red]✗ Failed to redeploy Caddy[/red]")
+                raise click.Abort()
+            
+            # Success message
+            console.print()
+            console.print(
+                Panel(
+                    f"[bold green]✅ Domain Added Successfully![/bold green]\n\n"
+                    f"[cyan]Service:[/cyan] {app_name}\n"
+                    f"[cyan]Domain:[/cyan] https://{domain}\n"
+                    f"[cyan]VM:[/cyan] {vm_ip} (orchestrator)\n\n"
+                    f"[dim]Caddy will automatically obtain a Let's Encrypt TLS certificate.[/dim]\n"
+                    f"[dim]Your service is now accessible at: https://{domain}[/dim]",
+                    title="🎉 Success",
+                    border_style="green",
+                )
+            )
+            return
+        
+        # PROJECT MODE (existing code)
         # Load project config
         project_dir = Path.cwd() / "projects" / project
         config_file = project_dir / "project.yml"
@@ -80,7 +208,7 @@ def add_domain(project: str, app_name: str, domain: str):
                 text=True,
                 check=True,
             )
-            
+
             # Get outputs
             result = subprocess.run(
                 ["terraform", "output", "-json"],
@@ -103,7 +231,7 @@ def add_domain(project: str, app_name: str, domain: str):
                 console.print(f"[dim]Available roles: {list(vms_by_role.keys())}[/dim]")
                 raise click.Abort()
         except subprocess.CalledProcessError as e:
-            console.print(f"[red]✗ Failed to get VM IP from Terraform[/red]")
+            console.print("[red]✗ Failed to get VM IP from Terraform[/red]")
             console.print(f"[dim]Error: {e.stderr}[/dim]")
             raise click.Abort()
         except Exception as e:
@@ -188,15 +316,86 @@ def add_domain(project: str, app_name: str, domain: str):
 
 
 @domain.command(name="list")
-@click.option("-p", "--project", required=True, help="Project name")
-def list_domains(project: str):
+@click.option("-p", "--project", help="Project name")
+@click.option("--orchestrator", is_flag=True, help="List orchestrator service domains")
+def list_domains(project: str, orchestrator: bool):
     """
-    List all domains for a project.
+    List all domains for a project or orchestrator.
 
-    Example:
-        superdeploy domain:list -p cheapa
+    Examples:
+        superdeploy domain list -p cheapa
+        superdeploy domain list --orchestrator
     """
     try:
+        # Validate: either --orchestrator OR -p project (not both)
+        if orchestrator and project:
+            console.print("[red]✗ Cannot use both --orchestrator and -p project[/red]")
+            raise click.Abort()
+        
+        if not orchestrator and not project:
+            console.print("[red]✗ Must specify either --orchestrator or -p project[/red]")
+            raise click.Abort()
+        
+        # ORCHESTRATOR MODE
+        if orchestrator:
+            # Load orchestrator config
+            config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
+            if not config_file.exists():
+                console.print(f"[red]✗ Orchestrator config not found[/red]")
+                raise click.Abort()
+            
+            with open(config_file, "r") as f:
+                config = yaml.safe_load(f)
+            
+            # Get orchestrator IP
+            terraform_dir = Path.cwd() / "shared" / "terraform"
+            try:
+                subprocess.run(
+                    ["terraform", "workspace", "select", "orchestrator"],
+                    cwd=terraform_dir,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                
+                result = subprocess.run(
+                    ["terraform", "output", "-json"],
+                    cwd=terraform_dir,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                outputs = json.loads(result.stdout)
+                vm_ip = outputs.get("orchestrator_ip", {}).get("value", "-")
+            except:
+                vm_ip = "-"
+            
+            # Build table
+            table = Table(title="Orchestrator Service Domains", show_header=True)
+            table.add_column("Service", style="cyan")
+            table.add_column("Domain", style="green")
+            table.add_column("IP", style="blue")
+            
+            services = ["grafana", "prometheus", "forgejo"]
+            for service in services:
+                service_config = config.get(service, {})
+                domain = service_config.get("domain", "-")
+                table.add_row(service, domain, vm_ip)
+            
+            console.print()
+            console.print(table)
+            console.print()
+            
+            # Show summary
+            total_services = len(services)
+            services_with_domains = sum(1 for s in services if config.get(s, {}).get("domain"))
+            console.print(
+                f"[dim]Total services: {total_services} | With domains: {services_with_domains}[/dim]"
+            )
+            console.print()
+            return
+        
+        # PROJECT MODE (existing code)
         # Load project config
         project_dir = Path.cwd() / "projects" / project
         config_file = project_dir / "project.yml"
@@ -219,7 +418,7 @@ def list_domains(project: str):
                 text=True,
                 check=True,
             )
-            
+
             # Get outputs
             result = subprocess.run(
                 ["terraform", "output", "-json"],
