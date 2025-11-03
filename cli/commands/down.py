@@ -81,14 +81,11 @@ def down(project, yes, verbose, keep_infra):
         )
 
     # Load project config
-    logger.step("Destroying Project Infrastructure")
-    logger.log("Loading configuration...")
     projects_dir = project_root / "projects"
     config_loader = ConfigLoader(projects_dir)
 
     try:
         project_config_obj = config_loader.load_project(project)
-        logger.log("✓ Configuration loaded")
     except FileNotFoundError:
         logger.warning("Project config not found, will try to destroy anyway")
         project_config_obj = None
@@ -101,11 +98,9 @@ def down(project, yes, verbose, keep_infra):
 
     if not gcp_project:
         logger.warning("GCP_PROJECT_ID not found in .env")
-        logger.log("Trying to continue with Terraform state...")
         gcp_project = "unknown"
 
     # Show what will be destroyed
-    logger.log("Analyzing resources...")
     if not verbose:
         console.print("\n[bold yellow]📋 Resources to be destroyed:[/bold yellow]")
 
@@ -145,28 +140,31 @@ def down(project, yes, verbose, keep_infra):
             console.print("[yellow]❌ Destruction cancelled[/yellow]")
             raise SystemExit(0)
 
-    logger.step("Starting destruction")
+    logger.step("[1/3] Preparing Destruction")
 
     terraform_dir = get_terraform_dir()
 
-    # Step 1: Clean state lock (always)
-    logger.step("Cleaning state locks")
+    # Clean state lock (always)
     lock_file = (
         terraform_dir / "terraform.tfstate.d" / project / ".terraform.tfstate.lock.info"
     )
     if lock_file.exists():
         lock_file.unlink()
-        logger.log("Removed state lock file")
-    else:
-        logger.log("No locks to clean")
+    
+    console.print("  ✓ State locks cleaned")
 
-    # Step 2: Check if workspace exists
+    # Check if workspace exists
     from cli.terraform_utils import workspace_exists, terraform_init
 
     if not workspace_exists(project):
-        logger.step("Skipping Terraform (no workspace found)")
+        console.print("  ✓ No workspace found (already destroyed)")
+        skip_terraform = True
     else:
-        logger.step("Running Terraform destroy")
+        skip_terraform = False
+        console.print("  ✓ Workspace found")
+
+    if not skip_terraform:
+        logger.step("[2/3] Terraform Destroy")
         # Switch to default workspace before init to avoid prompts
         terraform_dir = project_root / "shared" / "terraform"
         subprocess.run(
@@ -176,46 +174,43 @@ def down(project, yes, verbose, keep_infra):
             capture_output=True,
         )
 
-        # Step 3: Initialize Terraform (child task - no separate step)
+        # Initialize Terraform
         try:
             terraform_init(quiet=True)
         except Exception as e:
             logger.warning(f"  Init warning: {e}")
 
-        # Step 4: Select workspace (child task - no separate step)
+        # Select workspace
         try:
             select_workspace(project, create=False)
         except Exception as e:
             logger.warning(f"  Workspace error: {e}")
 
-    # Run Terraform destroy
-    try:
-        if project_config_obj:
-            # Use terraform_utils for proper destroy (with lock bypass)
-            logger.log("Running terraform destroy")
-            terraform_destroy(
-                project, project_config_obj, auto_approve=True, force=True
+        # Run Terraform destroy with spinner
+        from cli.progress import run_with_progress
+        try:
+            returncode, stdout, stderr = run_with_progress(
+                logger,
+                f"cd {terraform_dir} && terraform destroy -auto-approve -lock=false -no-color",
+                "Destroying infrastructure (this may take 2-3 minutes)",
+                cwd=project_root,
             )
-            logger.success("All resources destroyed")
-        else:
-            # Fallback: Run destroy with minimal config
-            cmd = ["terraform", "destroy", "-auto-approve", "-lock=false"]
-
-            result = subprocess.run(
-                cmd, cwd=terraform_dir, capture_output=False, text=True
-            )
-
-            if result.returncode != 0:
-                logger.warning("Terraform destroy had issues, continuing with cleanup")
+            
+            if returncode == 0:
+                console.print("  ✓ All resources destroyed")
             else:
-                logger.success("All resources destroyed")
+                logger.warning(f"Terraform destroy had issues: {stderr}")
+                console.print("  ⚠ Partial destruction")
 
-    except Exception as e:
-        logger.log_error(f"Terraform destroy error: {e}")
-        logger.step("Attempting manual GCP cleanup")
+        except Exception as e:
+            logger.log_error(f"Terraform destroy error: {e}")
+            console.print("  ⚠ Partial destruction")
+    
+    # Manual GCP cleanup if needed
+    if not skip_terraform:
+        logger.step("[3/3] Manual Cleanup")
 
         # ALWAYS do manual GCP cleanup (more reliable than terraform destroy)
-        console.print("\n[cyan]🗑️  Force cleaning GCP resources...[/cyan]")
 
         import time
 
@@ -229,8 +224,11 @@ def down(project, yes, verbose, keep_infra):
             zone = "us-central1-a"
 
         try:
+            vms_deleted = 0
+            firewalls_deleted = 0
+            subnets_deleted = 0
+            
             # 1. Delete VMs FIRST (they block everything else)
-            console.print("  [cyan]Deleting VMs...[/cyan]")
             vm_list_cmd = f"gcloud compute instances list --filter='name~^{project}-' --format='value(name,zone)'"
             result = subprocess.run(
                 vm_list_cmd, shell=True, capture_output=True, text=True
@@ -247,14 +245,11 @@ def down(project, yes, verbose, keep_infra):
                                 shell=True,
                                 capture_output=True,
                             )
-                            console.print(f"    [green]✓[/green] Deleted VM: {vm_name}")
+                            vms_deleted += 1
                 # Wait for VMs to be fully deleted
                 time.sleep(3)
-            else:
-                console.print("    [dim]No VMs found[/dim]")
 
             # 2. Delete Firewall Rules (must be before network)
-            console.print("  [cyan]Deleting Firewall Rules...[/cyan]")
             fw_list_cmd = f"gcloud compute firewall-rules list --filter='network~{project}-network' --format='value(name)'"
             result = subprocess.run(
                 fw_list_cmd, shell=True, capture_output=True, text=True
@@ -268,14 +263,9 @@ def down(project, yes, verbose, keep_infra):
                             shell=True,
                             capture_output=True,
                         )
-                        console.print(
-                            f"    [green]✓[/green] Deleted firewall: {fw_name}"
-                        )
-            else:
-                console.print("    [dim]No firewall rules found[/dim]")
+                        firewalls_deleted += 1
 
             # 3. Delete Subnets (must be before network)
-            console.print("  [cyan]Deleting Subnets...[/cyan]")
             subnet_list_cmd = f"gcloud compute networks subnets list --filter='network~{project}-network' --format='value(name,region)'"
             result = subprocess.run(
                 subnet_list_cmd, shell=True, capture_output=True, text=True
@@ -292,14 +282,12 @@ def down(project, yes, verbose, keep_infra):
                                 shell=True,
                                 capture_output=True,
                             )
-                            console.print(
-                                f"    [green]✓[/green] Deleted subnet: {subnet_name}"
-                            )
-            else:
-                console.print("    [dim]No subnets found[/dim]")
+                            subnets_deleted += 1
 
+            networks_deleted = 0
+            ips_deleted = 0
+            
             # 4. Delete Network (try multiple times, GCP can be slow)
-            console.print("  [cyan]Deleting Network...[/cyan]")
             network_name = f"{project}-network"
 
             # Try up to 3 times with delay
@@ -311,26 +299,18 @@ def down(project, yes, verbose, keep_infra):
                     text=True,
                 )
                 if result.returncode == 0:
-                    console.print(
-                        f"    [green]✓[/green] Deleted network: {network_name}"
-                    )
+                    networks_deleted += 1
                     break
                 elif (
                     "not found" in result.stderr.lower()
                     or "was not found" in result.stderr.lower()
                 ):
-                    console.print("    [dim]No network found[/dim]")
                     break
                 elif attempt < 2:
                     # Retry after delay
                     time.sleep(2)
-                else:
-                    console.print(
-                        f"    [yellow]⚠[/yellow] Network deletion failed: {result.stderr.strip()[:100]}"
-                    )
 
             # 5. Delete External IPs (can be done anytime, do it last)
-            console.print("  [cyan]Deleting External IPs...[/cyan]")
             ip_list_cmd = f"gcloud compute addresses list --filter='name~^{project}-' --format='value(name,region)'"
             result = subprocess.run(
                 ip_list_cmd, shell=True, capture_output=True, text=True
@@ -347,63 +327,67 @@ def down(project, yes, verbose, keep_infra):
                                 shell=True,
                                 capture_output=True,
                             )
-                            console.print(f"    [green]✓[/green] Deleted IP: {ip_name}")
-            else:
-                console.print("    [dim]No IPs found[/dim]")
+                            ips_deleted += 1
 
-            console.print("\n[green]✅ GCP resources cleaned![/green]")
+            # Show summary
+            resources = []
+            if vms_deleted > 0:
+                resources.append(f"{vms_deleted} VM(s)")
+            if firewalls_deleted > 0:
+                resources.append(f"{firewalls_deleted} firewall rule(s)")
+            if subnets_deleted > 0:
+                resources.append(f"{subnets_deleted} subnet(s)")
+            if networks_deleted > 0:
+                resources.append(f"{networks_deleted} network(s)")
+            if ips_deleted > 0:
+                resources.append(f"{ips_deleted} IP(s)")
+            
+            if resources:
+                console.print(f"  ✓ GCP resources cleaned: {', '.join(resources)}")
+            else:
+                console.print("  ✓ No GCP resources found")
 
         except Exception as gcp_error:
-            console.print(f"[red]❌ GCP cleanup error: {gcp_error}[/red]")
-            console.print("[yellow]⚠️  Some resources may still exist in GCP[/yellow]")
+            logger.warning(f"GCP cleanup error: {gcp_error}")
+            console.print("  ⚠ Partial GCP cleanup")
 
         # Cleanup Terraform state workspace
         try:
-            console.print("\n[cyan]Cleaning up Terraform state...[/cyan]")
             state_dir = terraform_dir / "terraform.tfstate.d" / project
             if state_dir.exists():
                 import shutil
 
                 shutil.rmtree(state_dir)
-                console.print("  [green]✓[/green] Removed state directory")
+            console.print("  ✓ Terraform state cleaned")
         except Exception as cleanup_error:
-            console.print(f"[yellow]⚠️  State cleanup warning: {cleanup_error}[/yellow]")
+            logger.warning(f"State cleanup warning: {cleanup_error}")
 
-    # Step 5: Release subnet allocation
-    logger.step("Releasing subnet allocation")
-    try:
-        from cli.subnet_allocator import SubnetAllocator
+        # Release subnet allocation
+        try:
+            from cli.subnet_allocator import SubnetAllocator
 
-        allocator = SubnetAllocator()
-        if allocator.release_subnet(project):
-            logger.log("Subnet released for reuse")
-        else:
-            logger.log("No subnet allocation found")
-    except Exception as e:
-        logger.warning(f"Subnet release warning: {e}")
+            allocator = SubnetAllocator()
+            allocator.release_subnet(project)
+        except Exception as e:
+            logger.warning(f"Subnet release warning: {e}")
 
-    # Step 6: Clean up local files
-    logger.step("Cleaning up local files")
+        # Clean up local files
+        clean_vm_ips_from_env(project_root, project)
+        project_dir = projects_dir / project
 
-    # Clean VM IPs from .env file
-    clean_vm_ips_from_env(project_root, project)
-    project_dir = projects_dir / project
+        # Clean up inventory file
+        inventory_file = (
+            project_root / "shared" / "ansible" / "inventories" / f"{project}.ini"
+        )
+        if inventory_file.exists():
+            inventory_file.unlink()
 
-    # Clean up inventory file
-    inventory_file = (
-        project_root / "shared" / "ansible" / "inventories" / f"{project}.ini"
-    )
-    if inventory_file.exists():
-        inventory_file.unlink()
-        logger.log(f"Removed {inventory_file.name}")
+        # Clean up generated tfvars
+        tfvars_file = terraform_dir / f"{project}.tfvars.json"
+        if tfvars_file.exists():
+            tfvars_file.unlink()
 
-    # Clean up generated tfvars
-    tfvars_file = terraform_dir / f"{project}.tfvars.json"
-    if tfvars_file.exists():
-        tfvars_file.unlink()
-        logger.log(f"Removed {tfvars_file.name}")
-
-    logger.success("Cleanup complete")
+        console.print("  ✓ Local files cleaned")
 
     # Final summary
     if not verbose:
