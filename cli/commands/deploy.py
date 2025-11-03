@@ -45,19 +45,21 @@ def deploy(project, app, message, verbose):
     # Initialize logger
     logger = DeployLogger(project, f"deploy-{app}", verbose=verbose)
     
+    logger.step("Deploying App to Production")
+    
     # Find app directory
-    logger.step("Locating app directory")
+    logger.log(f"Locating {app}...")
     app_dir = Path.home() / "Desktop/cheapa.io/hero/app-repos" / app
     
     if not app_dir.exists():
         logger.log_error(f"App directory not found: {app_dir}")
         raise SystemExit(1)
     
-    logger.success(f"Found app directory: {app_dir}")
+    logger.log(f"✓ Found: {app_dir}")
     
     try:
         # Check if there are changes
-        logger.step("Checking for changes")
+        logger.log("Checking for changes...")
         result = subprocess.run(
             ["git", "status", "--porcelain"],
             cwd=app_dir,
@@ -81,12 +83,12 @@ def deploy(project, app, message, verbose):
                 check=True,
                 capture_output=True
             )
-            logger.success("Changes committed")
+            logger.log("✓ Changes committed")
         else:
-            logger.log("No changes to commit")
+            logger.log("✓ No changes to commit")
         
         # Push to production
-        logger.step("Pushing to Forgejo")
+        logger.log("Pushing to production...")
         result = subprocess.run(
             ["git", "push", "origin", "production"],
             cwd=app_dir,

@@ -345,11 +345,14 @@ def _deploy_project_v2(
                 logger.warning("Some VMs may not be fully ready, continuing...")
                 vm_count = len(public_ips)
                 vm_list = ", ".join(public_ips.keys())
-            
+
             # Show phase 1 completion
             from rich.console import Console
+
             console = Console()
-            console.print(f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})")
+            console.print(
+                f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})"
+            )
         else:
             logger.log("No VMs found in outputs")
 
@@ -359,6 +362,7 @@ def _deploy_project_v2(
         vm_ips = {k: v for k, v in env.items() if "_EXTERNAL_IP" in k}
         vm_count = len(vm_ips)
         from rich.console import Console
+
         console = Console()
         console.print(f"  ✓ Configuration • Environment • {vm_count} VMs (existing)")
 
