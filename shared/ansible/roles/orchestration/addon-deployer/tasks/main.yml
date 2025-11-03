@@ -114,11 +114,11 @@
     - network_create.failed
     - "'already exists' not in network_create.msg | default('')"
 
-- name: "▶ Deploy Orchestrator Addons"
+- name: "[3/3] Services"
   debug:
     msg:
       - "Deploying {{ enabled_addons | length }} addon(s): {{ enabled_addons | join(', ') }}"
-      - "Tip: To deploy only one addon, use --addon <name>"
+      - "Tip: To deploy only one addon, use: --addon <name>"
 
 # Loop through each enabled addon and deploy it
 - name: Deploy each addon

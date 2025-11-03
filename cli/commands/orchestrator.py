@@ -576,21 +576,23 @@ def _deploy_orchestrator_v2(
 ):
     """Internal function for orchestrator deployment with logging"""
 
+    logger.step("[1/3] Setup & Infrastructure")
+    
     # Load orchestrator config
-    logger.step("Loading orchestrator configuration")
+    logger.log("Loading configuration...")
     from cli.core.orchestrator_loader import OrchestratorLoader
 
     orchestrator_loader = OrchestratorLoader(shared_dir)
 
     try:
         orch_config = orchestrator_loader.load()
-        logger.success("Configuration loaded")
+        logger.log("✓ Configuration loaded")
     except FileNotFoundError as e:
         logger.log_error(str(e), context="Orchestrator config not found")
         raise SystemExit(1)
 
     # Generate and save secrets
-    logger.step("Checking secrets")
+    logger.log("Checking secrets...")
     import secrets as secrets_module
 
     orchestrator_dir = shared_dir / "orchestrator"
@@ -599,8 +601,7 @@ def _deploy_orchestrator_v2(
     env_file = orchestrator_dir / ".env"
 
     if env_file.exists():
-        logger.success("Using existing secrets from .env")
-        logger.log("Secrets file exists, skipping generation")
+        logger.log("✓ Secrets verified")
     else:
         logger.log("Generating new secrets")
         project_secrets = {
@@ -642,7 +643,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
             f.write(env_content)
 
         env_file.chmod(0o600)
-        logger.success("Secrets generated and saved")
+        logger.log("✓ Secrets generated")
 
     # Get GCP config
     gcp_config = orch_config.config.get("gcp", {})
@@ -657,7 +658,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
 
     # Terraform
     if not skip_terraform:
-        logger.step("Provisioning VM with Terraform")
+        logger.log("Provisioning VM (2-3 min)...")
 
         # First ensure we're on default workspace, then init
         logger.log("Ensuring default workspace")
@@ -726,10 +727,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
             logger.log_error("Terraform apply failed", context=stderr)
             raise SystemExit(1)
 
-        logger.success("VM provisioned successfully")
-
         # Get outputs
-        logger.log("Extracting VM IP from terraform outputs")
         # Ensure we're in orchestrator workspace
         try:
             select_workspace("orchestrator", create=False)
@@ -754,7 +752,6 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
         import json
 
         outputs = json.loads(result.stdout)
-        logger.log(f"Terraform outputs: {list(outputs.keys())}")
         
         orchestrator_ip = (
             outputs.get("vm_public_ips", {}).get("value", {}).get("main-0")
@@ -765,14 +762,11 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
             logger.log(f"Available outputs: {outputs}")
             raise SystemExit(1)
 
-        logger.log(f"Orchestrator IP: {orchestrator_ip}")
-
         # Save IP to .env
         orch_config.mark_deployed(orchestrator_ip)
-        logger.success(f"Orchestrator IP saved: {orchestrator_ip}")
 
         # Wait for SSH
-        logger.step("Waiting for VM to be ready")
+        logger.log("Waiting for SSH...")
         ssh_key = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
         ssh_user = ssh_config.get("user", "superdeploy")
 
@@ -799,20 +793,15 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
             logger.warning("VM may not be fully ready, continuing anyway...")
 
         # Clean SSH known_hosts
-        logger.log("Cleaning SSH known_hosts")
         subprocess.run(["ssh-keygen", "-R", orchestrator_ip], capture_output=True)
-        logger.log("SSH known_hosts cleaned")
 
     else:
-        logger.step("Skipping Terraform (--skip-terraform)")
         orchestrator_ip = orch_config.get_ip()
         if not orchestrator_ip:
             logger.log_error("Orchestrator IP not found. Deploy with Terraform first.")
             raise SystemExit(1)
-        logger.log(f"Using existing orchestrator IP: {orchestrator_ip}")
 
     # Create/Update Ansible inventory file (for both terraform and skip-terraform cases)
-    logger.log("Creating Ansible inventory")
     inventory_dir = shared_dir / "ansible" / "inventories"
     inventory_dir.mkdir(parents=True, exist_ok=True)
 
@@ -830,10 +819,11 @@ ansible_python_interpreter=/usr/bin/python3
     with open(inventory_file, "w") as f:
         f.write(inventory_content)
 
-    logger.success("Ansible inventory created")
+    # Phase 1 complete - show summary
+    logger.success(f"  ✓ Configuration • Secrets • VM @ {orchestrator_ip}")
 
-    # Ansible
-    logger.step("Configuring services with Ansible")
+    # Ansible - Phase 2 & 3
+    logger.step("[2/3] Base System")
 
     from cli.ansible_utils import build_ansible_command
 
