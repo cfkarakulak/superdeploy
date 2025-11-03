@@ -60,36 +60,48 @@ class AnsibleRunner:
             "PYTHONUNBUFFERED": "1",
             "ANSIBLE_STDOUT_CALLBACK": "tree_minimal" if not self.verbose else "default",
             "ANSIBLE_DISPLAY_SKIPPED_HOSTS": "false",
-            # Don't write to log file from this process
+            # Verbose mode: keep colors for better readability
+            "ANSIBLE_FORCE_COLOR": "true" if self.verbose else "false",
         })
         
-        # Run Ansible for terminal output (tree_minimal or default)
-        process = subprocess.Popen(
-            ansible_cmd,
-            shell=True,
-            cwd=str(cwd),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            env=env_terminal,
-        )
-        
-        # Pass through output (to both main log and console)
-        if process.stdout:
-            for line in process.stdout:
-                line_stripped = line.rstrip()
-                
-                # Log to main log file (with tree_minimal or default output)
-                try:
-                    self.logger.log_output(line_stripped, "ansible")
-                except (BlockingIOError, OSError):
-                    pass
-                
-                # Print to console (always, both verbose and non-verbose)
-                print(line_stripped)
-        
-        returncode = process.wait()
+        if self.verbose:
+            # VERBOSE MODE: Let Ansible write directly to terminal (no capture)
+            # This preserves colors, formatting, and native Ansible output
+            result = subprocess.run(
+                ansible_cmd,
+                shell=True,
+                cwd=str(cwd),
+                env=env_terminal,
+            )
+            returncode = result.returncode
+        else:
+            # NON-VERBOSE MODE: Capture and display with tree_minimal
+            process = subprocess.Popen(
+                ansible_cmd,
+                shell=True,
+                cwd=str(cwd),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                env=env_terminal,
+            )
+            
+            # Pass through output (to both main log and console)
+            if process.stdout:
+                for line in process.stdout:
+                    line_stripped = line.rstrip()
+                    
+                    # Log to main log file
+                    try:
+                        self.logger.log_output(line_stripped, "ansible")
+                    except (BlockingIOError, OSError):
+                        pass
+                    
+                    # Print to console
+                    print(line_stripped)
+            
+            returncode = process.wait()
         
         # Wait for background logger to finish
         log_thread.join(timeout=5)

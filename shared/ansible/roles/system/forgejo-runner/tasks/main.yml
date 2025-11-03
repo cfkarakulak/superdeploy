@@ -39,6 +39,10 @@
         state: present
         update_cache: yes
       when: node_check.rc != 0
+      retries: 5
+      delay: 10
+      register: nodejs_install
+      until: nodejs_install is succeeded
   when: ansible_os_family == "Debian"
 
 - name: Check if age is installed
@@ -92,40 +96,74 @@
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0700'
 
-- name: Check if age key already exists
+- name: Check if age key already exists (on first host)
   stat:
     path: /opt/forgejo-runner/.age/key.txt
   register: age_key_check
   become_user: "{{ superdeploy_user }}"
+  delegate_to: "{{ play_hosts[0] }}"
+  run_once: true
 
-- name: Generate age encryption key
+- name: Generate age encryption key (ONCE on first host)
   shell: age-keygen -o /opt/forgejo-runner/.age/key.txt 2>&1
   args:
     creates: /opt/forgejo-runner/.age/key.txt
   become_user: "{{ superdeploy_user }}"
   register: age_keygen_result
+  delegate_to: "{{ play_hosts[0] }}"
+  run_once: true
 
-- name: Set age key file permissions
+- name: Fetch age key from first host to controller
+  fetch:
+    src: /opt/forgejo-runner/.age/key.txt
+    dest: /tmp/age_key_shared.txt
+    flat: yes
+  become_user: "{{ superdeploy_user }}"
+  delegate_to: "{{ play_hosts[0] }}"
+  run_once: true
+
+- name: Distribute shared age key to all other hosts
+  copy:
+    src: /tmp/age_key_shared.txt
+    dest: /opt/forgejo-runner/.age/key.txt
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0600'
+  when: inventory_hostname != play_hosts[0]
+
+- name: Set age key file permissions on first host
   file:
     path: /opt/forgejo-runner/.age/key.txt
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0600'
+  delegate_to: "{{ play_hosts[0] }}"
+  run_once: true
 
-- name: Display age public key
+- name: Display age public key (from shared key)
   shell: cat /opt/forgejo-runner/.age/key.txt | grep "public key:"
   register: age_public_key_output
   changed_when: false
   become_user: "{{ superdeploy_user }}"
+  run_once: true
 
-- name: Show age public key for GitHub secrets
+- name: Show SHARED age public key for GitHub secrets
   debug:
     msg:
-      - "=== AGE Encryption Setup for {{ inventory_hostname }} ==="
+      - "=== AGE Encryption Setup (SHARED across all VMs) ==="
       - "Public Key (add to GitHub Secrets as AGE_PUBLIC_KEY):"
       - "{{ age_public_key_output.stdout }}"
-      - "Private Key Location: /opt/forgejo-runner/.age/key.txt"
-  when: age_keygen_result is changed
+      - "Private Key Location: /opt/forgejo-runner/.age/key.txt (on ALL VMs)"
+      - "✅ Same key is used on all runner VMs"
+  run_once: true
+
+- name: Clean up temporary age key file from controller
+  file:
+    path: /tmp/age_key_shared.txt
+    state: absent
+  delegate_to: localhost
+  run_once: true
+  become: no
 
 - name: Check if Forgejo runner is already installed
   stat:
@@ -200,11 +238,9 @@
   when: 
     - runner_registration_check.stat is defined
     - not runner_registration_check.stat.exists
-    - "'orchestrator' in groups"
-    - "groups['orchestrator'] | length > 0"
   changed_when: false
-  delegate_to: "{{ groups['orchestrator'][0] }}"
   failed_when: false
+  delegate_to: "{{ groups['orchestrator'][0] if ('orchestrator' in groups and groups['orchestrator'] | length > 0 and inventory_hostname not in groups['orchestrator']) else omit }}"
 
 - name: Set runner token fact
   set_fact:
@@ -223,14 +259,21 @@
   failed_when: false
   when: not runner_registration_check.stat.exists
 
+- name: Build runner labels (avoid duplicates)
+  set_fact:
+    runner_labels: "self-hosted:host,project-runner:host,ubuntu-latest:host,{{ runner_project_name }}:host{% if vm_role != runner_project_name %},{{ vm_role }}:host{% endif %},linux:host,docker:host"
+  when: 
+    - not runner_registration_check.stat.exists
+    - runner_token is defined
+
 - name: Register Forgejo Actions runner (project-specific)
   command: >
     forgejo-runner register
     --no-interactive
     --instance "{{ forgejo_url }}"
     --token "{{ runner_token }}"
-    --name "{{ runner_project_name }}-{{ vm_role }}-{{ inventory_hostname_short | default(inventory_hostname) }}"
-    --labels "self-hosted:host,project-runner:host,ubuntu-latest:host,{{ runner_project_name }}:host,{{ vm_role }}:host,linux:host,docker:host"
+    --name "{{ inventory_hostname_short | default(inventory_hostname) }}"
+    --labels "{{ runner_labels }}"
   args:
     chdir: /opt/forgejo-runner
   become_user: "{{ superdeploy_user }}"
@@ -249,8 +292,8 @@
   debug:
     msg: 
       - "{{ 'Runner registered successfully!' if (runner_register_result is defined and runner_register_result.changed) else ('Runner already registered' if runner_registration_check.stat.exists else 'Runner registration skipped (token not available)') }}"
-      - "Runner Name: {{ runner_project_name }}-{{ vm_role }}-{{ inventory_hostname_short | default(inventory_hostname) }}"
-      - "Runner Labels: ubuntu-latest, {{ runner_project_name }}, {{ vm_role }}, linux, docker"
+      - "Runner Name: {{ inventory_hostname_short | default(inventory_hostname) }}"
+      - "Runner Labels: self-hosted, project-runner, ubuntu-latest, {{ runner_project_name }}, {{ vm_role }}, linux, docker"
       - "Project: {{ runner_project_name }}"
       - "VM Role: {{ vm_role }}"
       - ""
@@ -267,14 +310,32 @@
   systemd:
     daemon_reload: yes
 
-- name: Enable runner service (will start after registration)
+- name: Enable and start runner service
   systemd:
     name: forgejo-runner
     enabled: yes
-  when: runner_registration_check.stat.exists
-
-- name: Start runner service if already registered
-  systemd:
-    name: forgejo-runner
     state: started
-  when: runner_registration_check.stat.exists
+    daemon_reload: yes
+  when: runner_registration_check.stat.exists or runner_register_result is changed
+
+- name: Wait for runner to connect to Forgejo (5 seconds)
+  pause:
+    seconds: 5
+  when: runner_register_result is changed
+
+- name: Cleanup duplicate runner registrations (keep only newest)
+  shell: |
+    docker exec orchestrator-forgejo-db psql -U forgejo -d forgejo -c "
+    DELETE FROM action_runner 
+    WHERE name = '{{ inventory_hostname_short | default(inventory_hostname) }}' 
+    AND id NOT IN (
+      SELECT MAX(id) FROM action_runner 
+      WHERE name = '{{ inventory_hostname_short | default(inventory_hostname) }}'
+    );"
+  delegate_to: "{{ groups['orchestrator'][0] }}"
+  when:
+    - runner_register_result is defined
+    - runner_register_result is changed
+    - "'orchestrator' in groups"
+  ignore_errors: true
+  changed_when: false

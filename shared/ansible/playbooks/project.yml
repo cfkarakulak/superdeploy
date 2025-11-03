@@ -148,6 +148,8 @@
       service:
         name: docker
         state: started
+      register: docker_check
+      failed_when: false
       
     - name: Check if project compose directory exists
       stat:

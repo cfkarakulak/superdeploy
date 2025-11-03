@@ -109,6 +109,8 @@
     label: "{{ item.question }}"
   environment:
     DEBIAN_FRONTEND: noninteractive
+  register: postfix_debconf_result
+  failed_when: false
 
 - name: Configure Postfix main.cf
   lineinfile:

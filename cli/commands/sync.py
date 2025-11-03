@@ -6,7 +6,6 @@ import click
 import subprocess
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from cli.utils import load_env, ssh_command, validate_env_vars
 
 console = Console()
@@ -15,38 +14,39 @@ console = Console()
 def build_service_patterns_from_addons(project, env):
     """
     Build service patterns dynamically from addon metadata.
-    
+
     Args:
         project (str): Project name
         env (dict): Environment variables
-        
+
     Returns:
         dict: Dictionary mapping addon names to their environment variable structure
     """
     from cli.core.addon_loader import AddonLoader
     from cli.utils import get_project_root
-    
+
     try:
         project_root = get_project_root()
         addons_dir = project_root / "addons"
         addon_loader = AddonLoader(addons_dir)
-        
+
         # Load project config to get enabled addons
         from cli.core.config_loader import ConfigLoader
+
         projects_dir = project_root / "projects"
         config_loader = ConfigLoader(projects_dir)
         project_config = config_loader.load_project(project)
-        
+
         # Load addons
         addons = addon_loader.load_addons_for_project(project_config.raw_config)
-        
+
         # Build patterns from addon env.yml
         patterns = {}
         for addon_name, addon in addons.items():
             addon_structure = addon.get_env_var_structure()
             if addon_structure:
                 patterns[addon_name] = addon_structure
-        
+
         return patterns
     except Exception as e:
         # Fallback to empty dict if addon loading fails
@@ -54,27 +54,25 @@ def build_service_patterns_from_addons(project, env):
         return {}
 
 
-def get_age_public_key(env, forgejo_host):
-    """Fetch AGE public key from runner VM"""
-    try:
-        # Read entire key file, then parse locally
-        key_file = ssh_command(
-            host=forgejo_host,
-            user=env.get("SSH_USER", "superdeploy"),
-            key_path=os.path.expanduser(env["SSH_KEY_PATH"]),
-            cmd="cat /opt/forgejo-runner/.age/key.txt",
-        )
+def get_age_public_key(env, runner_vm_ip):
+    """Fetch AGE public key from runner VM - FAILS if not found!"""
+    # Read entire key file, then parse locally
+    key_file = ssh_command(
+        host=runner_vm_ip,
+        user=env.get("SSH_USER", "superdeploy"),
+        key_path=os.path.expanduser(env["SSH_KEY_PATH"]),
+        cmd="cat /opt/forgejo-runner/.age/key.txt",
+        silent_on_error=False,  # Print error and exit if fails!
+    )
 
-        # Extract public key line (format: "# public key: age1...")
-        for line in key_file.split("\n"):
-            if "public key:" in line:
-                return line.split("public key:")[-1].strip()
+    # Extract public key line (format: "# public key: age1...")
+    for line in key_file.split("\n"):
+        if "public key:" in line:
+            return line.split("public key:")[-1].strip()
 
-        console.print("[red]❌ Could not find public key in AGE key file[/red]")
-        return None
-    except Exception as e:
-        console.print(f"[red]❌ Failed to fetch AGE key: {e}[/red]")
-        return None
+    # If we got here, key file exists but no public key found
+    console.print("[red]❌ AGE key file found but no public key line![/red]")
+    raise SystemExit(1)
 
 
 def create_forgejo_pat(env, forgejo_host):
@@ -87,7 +85,7 @@ def create_forgejo_pat(env, forgejo_host):
     # Get Forgejo port from orchestrator config
     from cli.core.orchestrator_loader import OrchestratorLoader
     from cli.utils import get_project_root
-    
+
     project_root = get_project_root()
     orch_loader = OrchestratorLoader(project_root / "shared")
     orch_config = orch_loader.load()
@@ -96,7 +94,7 @@ def create_forgejo_pat(env, forgejo_host):
     if not forgejo_port:
         console.print("[red]❌ forgejo.port not found in orchestrator config![/red]")
         return None
-    
+
     forgejo_url = f"http://{forgejo_host}:{forgejo_port}"
     token_name = f"github-actions-{int(time.time())}"
 
@@ -242,14 +240,21 @@ def set_github_env_secrets(repo, env_name, secrets):
     console.print(f"[dim]  → {success_count} success, {fail_count} failed[/dim]")
 
 
-def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_secret_key=None, project_name=None):
+def sync_forgejo_secrets(
+    env,
+    forgejo_pat,
+    forgejo_host,
+    project_env=None,
+    age_secret_key=None,
+    project_name=None,
+):
     """Sync all secrets to Forgejo repository"""
     import requests
 
     # Get Forgejo port from orchestrator config
     from cli.core.orchestrator_loader import OrchestratorLoader
     from cli.utils import get_project_root
-    
+
     project_root = get_project_root()
     orch_loader = OrchestratorLoader(project_root / "shared")
     orch_config = orch_loader.load()
@@ -258,13 +263,13 @@ def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_s
     if not forgejo_port:
         console.print("[red]❌ forgejo.port not found in orchestrator config![/red]")
         raise SystemExit(1)
-    
+
     forgejo_url = f"http://{forgejo_host}:{forgejo_port}"
     org = env.get("FORGEJO_ORG")
     if not org:
         console.print("[red]❌ FORGEJO_ORG not found in environment![/red]")
         raise SystemExit(1)
-    
+
     repo = env.get("REPO_SUPERDEPLOY")
     if not repo:
         console.print("[red]❌ REPO_SUPERDEPLOY not found in environment![/red]")
@@ -278,11 +283,11 @@ def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_s
             timeout=5,
         )
         if test_response.status_code == 401:
-            console.print(
-                f"[red]✗[/red] Forgejo PAT is invalid or expired (HTTP 401)"
-            )
+            console.print("[red]✗[/red] Forgejo PAT is invalid or expired (HTTP 401)")
             console.print(f"[dim]Response: {test_response.text}[/dim]")
-            console.print(f"[yellow]Run 'superdeploy sync -p {env.get('PROJECT', 'PROJECT')}' to regenerate PAT[/yellow]")
+            console.print(
+                f"[yellow]Run 'superdeploy sync -p {env.get('PROJECT', 'PROJECT')}' to regenerate PAT[/yellow]"
+            )
             return
         elif test_response.status_code != 200:
             console.print(
@@ -313,7 +318,7 @@ def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_s
         "FORGEJO_ORG": env["FORGEJO_ORG"],
         "REPO_SUPERDEPLOY": env["REPO_SUPERDEPLOY"],
     }
-    
+
     # Add AGE secret key if provided
     if age_secret_key:
         secrets["AGE_SECRET_KEY"] = age_secret_key
@@ -329,7 +334,7 @@ def sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_env=None, age_s
         # Fallback: try to get from repo name
         project_name = repo.split("/")[-1] if "/" in repo else repo
     core_service_patterns = build_service_patterns_from_addons(project_name, merged_env)
-    
+
     for service, fields in core_service_patterns.items():
         for field_key, env_key in fields.items():
             if env_key in merged_env:
@@ -424,19 +429,22 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
                 border_style="cyan",
             )
         )
-    
+
     # Initialize logger
     logger = DeployLogger(project, "sync", verbose=verbose)
-    
+
     # Early validation: Check required files exist
     logger.step("Checking required files")
     project_root = get_project_root()
-    
+
     required_files = {
-        "shared/orchestrator/config.yml": project_root / "shared" / "orchestrator" / "config.yml",
+        "shared/orchestrator/config.yml": project_root
+        / "shared"
+        / "orchestrator"
+        / "config.yml",
         "shared/orchestrator/.env": project_root / "shared" / "orchestrator" / ".env",
     }
-    
+
     missing_files = []
     for file_desc, file_path in required_files.items():
         if file_path.exists():
@@ -444,11 +452,14 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
         else:
             logger.log(f"✗ {file_desc}")
             missing_files.append(file_desc)
-    
+
     if missing_files:
-        logger.log_error("Missing required files", context="Run 'superdeploy orchestrator up' to create them")
+        logger.log_error(
+            "Missing required files",
+            context="Run 'superdeploy orchestrator up' to create them",
+        )
         raise SystemExit(1)
-    
+
     logger.success("All required files found")
 
     # Load infrastructure .env
@@ -500,69 +511,84 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     # Find which VM runs Forgejo by checking project config
     logger.step("Loading project configuration")
     from cli.core.config_loader import ConfigLoader
-    
+
     project_root = get_project_root()
     projects_dir = project_root / "projects"
     config_loader = ConfigLoader(projects_dir)
-    
+
     try:
         project_config_obj = config_loader.load_project(project)
         logger.success("Project configuration loaded")
     except FileNotFoundError:
         logger.log_error("Project config not found")
         raise SystemExit(1)
-    
+
     # Get Forgejo from orchestrator (not from project VMs)
     logger.step("Loading orchestrator configuration")
     from cli.core.orchestrator_loader import OrchestratorLoader
-    
+
     orchestrator_loader = OrchestratorLoader(project_root / "shared")
     try:
         orch_config = orchestrator_loader.load()
         forgejo_host = orch_config.get_ip()
-        
+
         if not forgejo_host:
-            logger.log_error("Orchestrator not deployed", context="Run 'superdeploy orchestrator up' first")
+            logger.log_error(
+                "Orchestrator not deployed",
+                context="Run 'superdeploy orchestrator up' first",
+            )
             raise SystemExit(1)
-        
+
         logger.log(f"Using Forgejo from orchestrator: {forgejo_host}")
-        
+
         # Load orchestrator config
         forgejo_config = orch_config.get_forgejo_config()
-        
+
         # Merge orchestrator values into env
         env["FORGEJO_HOST"] = forgejo_host
         env["FORGEJO_ORG"] = forgejo_config.get("org")
         if not env["FORGEJO_ORG"]:
             logger.log_error("forgejo.org not found in orchestrator config")
             raise SystemExit(1)
-        
+
         env["REPO_SUPERDEPLOY"] = forgejo_config.get("repo")
         if not env["REPO_SUPERDEPLOY"]:
             logger.log_error("forgejo.repo not found in orchestrator config")
             raise SystemExit(1)
-        
+
         logger.success("Orchestrator configuration loaded")
-        
+
         # Docker credentials are now in project .env (already loaded above)
         # Validate they exist
         logger.step("Validating Docker credentials")
         if not env.get("DOCKER_ORG"):
-            logger.log_error(f"DOCKER_ORG not found in projects/{project}/.env", context="Edit .env and fill in Docker credentials")
+            logger.log_error(
+                f"DOCKER_ORG not found in projects/{project}/.env",
+                context="Edit .env and fill in Docker credentials",
+            )
             raise SystemExit(1)
-        
+
         if not env.get("DOCKER_USERNAME"):
-            logger.log_error(f"DOCKER_USERNAME not found in projects/{project}/.env", context="Edit .env and fill in Docker credentials")
+            logger.log_error(
+                f"DOCKER_USERNAME not found in projects/{project}/.env",
+                context="Edit .env and fill in Docker credentials",
+            )
             raise SystemExit(1)
-        
+
         if not env.get("DOCKER_TOKEN"):
-            logger.log_error(f"DOCKER_TOKEN not found in projects/{project}/.env", context="Edit .env and fill in Docker credentials")
+            logger.log_error(
+                f"DOCKER_TOKEN not found in projects/{project}/.env",
+                context="Edit .env and fill in Docker credentials",
+            )
             raise SystemExit(1)
-        
+
         logger.success("Docker credentials validated")
-        
+
     except FileNotFoundError:
-        logger.log_error("Orchestrator config not found", context="Run 'superdeploy orchestrator up' first")
+        logger.log_error(
+            "Orchestrator config not found",
+            context="Run 'superdeploy orchestrator up' first",
+        )
         raise SystemExit(1)
 
     # Validate required vars
@@ -599,7 +625,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     # Validate all required values BEFORE starting
     logger.step("Final configuration validation")
     validation_errors = []
-    
+
     required_env_vars = {
         "FORGEJO_ORG": env.get("FORGEJO_ORG"),
         "REPO_SUPERDEPLOY": env.get("REPO_SUPERDEPLOY"),
@@ -609,26 +635,55 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
         "DOCKER_TOKEN": env.get("DOCKER_TOKEN"),
         "SSH_KEY_PATH": env.get("SSH_KEY_PATH"),
     }
-    
+
     for var_name, var_value in required_env_vars.items():
         if not var_value:
             validation_errors.append(f"{var_name} is missing or empty")
             logger.log(f"✗ {var_name}")
         else:
             logger.log(f"✓ {var_name}")
-    
+
     if validation_errors:
-        logger.log_error("Configuration validation failed", context="\n".join(validation_errors))
+        logger.log_error(
+            "Configuration validation failed", context="\n".join(validation_errors)
+        )
         raise SystemExit(1)
-    
+
     logger.success("Configuration valid")
 
-    # Step 1: Fetch AGE public key
-    logger.step("Fetching AGE public key from VM")
-    age_public_key = get_age_public_key(env, forgejo_host)
+    # Step 1: Fetch AGE public key from RUNNER VM (not orchestrator!)
+    # Runners are on project VMs, NOT on orchestrator
+    logger.step("Fetching AGE public key from runner VM")
+
+    # Find first available project VM with runner (dynamically from env)
+    runner_vm_ip = None
+    runner_vm_name = None
+
+    # Look for any VM IP in environment (format: {ROLE}_{INDEX}_EXTERNAL_IP)
+    for key, value in env.items():
+        if key.endswith("_EXTERNAL_IP") and value:
+            # Skip orchestrator
+            if "ORCHESTRATOR" in key:
+                continue
+            runner_vm_ip = value
+            runner_vm_name = key.replace("_EXTERNAL_IP", "").lower().replace("_", "-")
+            logger.log(f"Using runner VM: {key} ({runner_vm_ip})")
+            break
+
+    if not runner_vm_ip:
+        logger.log_error(
+            "No runner VM found",
+            context="Run 'superdeploy up -p " + project + "' to deploy VMs",
+        )
+        raise SystemExit(1)
+
+    age_public_key = get_age_public_key(env, runner_vm_ip)
 
     if not age_public_key:
-        logger.log_error("Failed to fetch AGE public key")
+        logger.log_error(
+            "AGE public key not found on runner VM",
+            context=f"Runner setup failed. SSH to check: ssh superdeploy@{runner_vm_ip} 'ls -la /opt/forgejo-runner/.age/'",
+        )
         raise SystemExit(1)
 
     logger.success(f"AGE Public Key: {age_public_key[:30]}...")
@@ -639,69 +694,113 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     # Load PAT from shared/orchestrator/.env
     from cli.utils import get_project_root
     from dotenv import dotenv_values
-    
+
     project_root = get_project_root()
     orchestrator_env_file = project_root / "shared" / "orchestrator" / ".env"
-    
+
     if not orchestrator_env_file.exists():
-        logger.log_error("Orchestrator .env not found", context="Run 'superdeploy orchestrator up' first")
+        logger.log_error(
+            "Orchestrator .env not found",
+            context="Run 'superdeploy orchestrator up' first",
+        )
         raise SystemExit(1)
-    
+
     orchestrator_env = dotenv_values(orchestrator_env_file)
     forgejo_pat = orchestrator_env.get("FORGEJO_PAT")
-    
+
     if not forgejo_pat:
-        logger.log_error("FORGEJO_PAT not found in orchestrator .env", context="Run 'superdeploy orchestrator up' to generate PAT")
+        logger.log_error(
+            "FORGEJO_PAT not found in orchestrator .env",
+            context="Run 'superdeploy orchestrator up' to generate PAT",
+        )
         raise SystemExit(1)
-    
+
     # Test PAT validity
     pat_valid = False
     if not skip_forgejo:
         try:
             import requests
+
             test_response = requests.get(
                 f"http://{forgejo_host}:3001/api/v1/user",
                 headers={"Authorization": f"token {forgejo_pat}"},
                 timeout=5,
             )
-            pat_valid = (test_response.status_code == 200)
+            pat_valid = test_response.status_code == 200
             if pat_valid:
                 logger.success("Forgejo PAT loaded from orchestrator")
             else:
                 logger.warning(f"PAT invalid (HTTP {test_response.status_code})")
-                logger.log("Run 'superdeploy orchestrator up --force' to regenerate PAT")
+                logger.log("Regenerating Forgejo PAT...")
+
+                # Create new PAT
+                new_pat = create_forgejo_pat(orchestrator_env, forgejo_host)
+                if new_pat:
+                    forgejo_pat = new_pat
+                    logger.success("New Forgejo PAT created")
+
+                    # Update orchestrator .env file
+                    with open(orchestrator_env_file, "r") as f:
+                        env_content = f.read()
+
+                    # Replace old PAT with new PAT
+                    import re
+
+                    env_content = re.sub(
+                        r"FORGEJO_PAT=.*", f"FORGEJO_PAT={new_pat}", env_content
+                    )
+
+                    with open(orchestrator_env_file, "w") as f:
+                        f.write(env_content)
+
+                    logger.success("Updated orchestrator .env with new PAT")
+                else:
+                    logger.log_error(
+                        "Failed to create new PAT",
+                        context="Check Forgejo admin credentials",
+                    )
+                    raise SystemExit(1)
         except Exception as e:
             logger.warning(f"Could not validate PAT: {e}")
-    
+
     # Update env dict so it's used in GitHub secrets sync
     env["FORGEJO_PAT"] = forgejo_pat
 
-    # Step 2.5: Get AGE secret key
-    logger.step("Fetching AGE secret key")
+    # Step 2.5: Get AGE secret key (optional - only if public key exists)
+    # Fetch AGE secret key from the SAME runner VM where public key was found
     age_secret_key = None
-    try:
-        age_key_file = ssh_command(
-            host=forgejo_host,
-            user=env.get("SSH_USER", "superdeploy"),
-            key_path=os.path.expanduser(env["SSH_KEY_PATH"]),
-            cmd="cat /opt/forgejo-runner/.age/key.txt",
-        )
-        # Extract secret key line (format: "AGE-SECRET-KEY-...")
-        for line in age_key_file.split("\n"):
-            if line.startswith("AGE-SECRET-KEY-"):
-                age_secret_key = line.strip()
-                break
-        if age_secret_key:
-            logger.success("AGE secret key fetched")
-        else:
-            logger.warning("AGE secret key not found in key file")
-    except Exception as e:
-        logger.warning(f"Could not fetch AGE secret key: {e}")
-    
+    if age_public_key:
+        logger.step("Fetching AGE secret key")
+        try:
+            age_key_file = ssh_command(
+                host=runner_vm_ip,  # Use runner VM, NOT orchestrator!
+                user=env.get("SSH_USER", "superdeploy"),
+                key_path=os.path.expanduser(env["SSH_KEY_PATH"]),
+                cmd="cat /opt/forgejo-runner/.age/key.txt",
+            )
+            # Extract secret key line (format: "AGE-SECRET-KEY-...")
+            for line in age_key_file.split("\n"):
+                if line.startswith("AGE-SECRET-KEY-"):
+                    age_secret_key = line.strip()
+                    break
+            if age_secret_key:
+                logger.success("AGE secret key fetched from runner VM")
+            else:
+                logger.log_error("AGE secret key not found in key file")
+                raise SystemExit(1)
+        except Exception as e:
+            logger.log_error(f"Could not fetch AGE secret key: {e}")
+            raise SystemExit(1)
+    else:
+        logger.log_error("Cannot fetch AGE secret key - public key not available")
+        raise SystemExit(1)
+
     # Step 2.6: Sync secrets to Forgejo repository
     if forgejo_pat:
         logger.step("Syncing secrets to Forgejo repository")
-        sync_forgejo_secrets(env, forgejo_pat, forgejo_host, project_secrets, age_secret_key, project)
+        sync_forgejo_secrets(
+            env, forgejo_pat, forgejo_host, project_secrets, age_secret_key, project
+        )
 
     if skip_github:
         logger.warning("Skipping GitHub secrets sync")
@@ -761,8 +860,10 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
                 env_secrets["SENTRY_DSN"] = merged_env["SENTRY_DSN"]
 
             # Add core service secrets dynamically from addon metadata
-            core_service_patterns = build_service_patterns_from_addons(project, merged_env)
-            
+            core_service_patterns = build_service_patterns_from_addons(
+                project, merged_env
+            )
+
             for service, fields in core_service_patterns.items():
                 for field_key, env_key in fields.items():
                     if env_key in merged_env:
@@ -786,7 +887,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
             set_github_env_secrets(repo, env_name, env_secrets)
 
     logger.success("All secrets synced successfully")
-    
+
     if not verbose:
         console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
         console.print("[bold green]🎉 Sync Complete![/bold green]")

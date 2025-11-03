@@ -26,11 +26,17 @@
 - name: Format swap file
   command: "mkswap {{ swap_file_path }}"
   when: not swap_file.stat.exists
+  register: mkswap_result
+  failed_when: false
+  changed_when: mkswap_result.rc == 0
 
 - name: Enable swap file
   command: "swapon {{ swap_file_path }}"
   when: 
     - swap_active.rc != 0
+  register: swap_enable_result
+  changed_when: swap_enable_result.rc == 0
+  failed_when: false
 
 - name: Add swap to fstab
   lineinfile:

@@ -55,6 +55,7 @@
     git commit -m "Initial commit from SuperDeploy"
   register: git_init_result
   changed_when: false
+  failed_when: false
   when: repo_contents_check.status == 404 or (repo_contents_check.json | default([]) | length == 0)
 
 - name: Push code to Forgejo

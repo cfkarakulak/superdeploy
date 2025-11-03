@@ -104,7 +104,6 @@ healthcheck:
   timeout: 5s
   retries: 10
   start_period: 30s
-  start_period: 30s
 
 # Dependencies (other addons required)
 requires: []

@@ -178,7 +178,7 @@ def _deploy_project_v2(
         logger.log("Ensuring default workspace")
         terraform_dir = project_root / "shared" / "terraform"
         terraform_state_dir = terraform_dir / ".terraform"
-        
+
         if terraform_state_dir.exists():
             # Try to switch to default workspace silently
             subprocess.run(
@@ -187,7 +187,7 @@ def _deploy_project_v2(
                 cwd=terraform_dir,
                 capture_output=True,
             )
-        
+
         # Init with migrate-state to automatically migrate workspaces without prompts
         logger.log("Running terraform init")
         returncode, stdout, stderr = run_with_progress(
@@ -208,9 +208,9 @@ def _deploy_project_v2(
 
         # Select or create workspace using terraform_utils
         logger.log(f"Setting up terraform workspace: {project}")
-        
+
         from cli.terraform_utils import select_workspace
-        
+
         try:
             select_workspace(project, create=True)
             logger.success("Workspace ready")
@@ -272,8 +272,12 @@ def _deploy_project_v2(
             line
             for line in env_lines
             if not (
-                line.startswith(("CORE_", "WEB_", "ALL_", "API_", "DASHBOARD_", "SERVICES_")) and "_IP=" in line
-            ) and "# VM IPs (Auto-populated by Terraform)" not in line
+                line.startswith(
+                    ("CORE_", "WEB_", "ALL_", "API_", "DASHBOARD_", "SERVICES_")
+                )
+                and "_IP=" in line
+            )
+            and "# VM IPs (Auto-populated by Terraform)" not in line
         ]
 
         # Remove trailing empty lines
@@ -284,7 +288,7 @@ def _deploy_project_v2(
         if env_lines and not env_lines[-1].endswith("\n"):
             env_lines[-1] += "\n"
         env_lines.append("\n# VM IPs (Auto-populated by Terraform)\n")
-        
+
         for vm_key, ip in sorted(public_ips.items()):
             env_key = vm_key.upper().replace("-", "_")
             env_lines.append(f"{env_key}_EXTERNAL_IP={ip}\n")
@@ -418,7 +422,9 @@ def _deploy_project_v2(
         result_returncode = runner.run(ansible_cmd, cwd=project_root)
 
         if result_returncode != 0:
-            logger.log_error("Ansible configuration failed", context="Check logs for details")
+            logger.log_error(
+                "Ansible configuration failed", context="Check logs for details"
+            )
             raise SystemExit(1)
 
         console.print("[green]✓ Services configured[/green]")
@@ -432,12 +438,13 @@ def _deploy_project_v2(
         logger.step("Syncing secrets to Forgejo")
         try:
             from cli.commands.sync import sync
-            
+
             # Call sync command programmatically
             from click.testing import CliRunner
+
             runner = CliRunner()
-            result = runner.invoke(sync, ['-p', project, '--skip-github'])
-            
+            result = runner.invoke(sync, ["-p", project, "--skip-github"])
+
             if result.exit_code == 0:
                 logger.success("Secrets synced successfully")
             else:
@@ -479,17 +486,17 @@ def _deploy_project_v2(
             forgejo_admin = orch_env.get("FORGEJO_ADMIN_USER", "admin")
             forgejo_pass = orch_env.get("FORGEJO_ADMIN_PASSWORD", "")
             grafana_pass = orch_env.get("GRAFANA_ADMIN_PASSWORD", "")
-            
+
             console.print(f"  [dim]Forgejo:[/dim] http://{orchestrator_ip}:3001")
             if forgejo_pass:
                 console.print(f"    Username: [bold]{forgejo_admin}[/bold]")
                 console.print(f"    Password: [bold]{forgejo_pass}[/bold]")
-            
+
             console.print(f"  [dim]Grafana:[/dim] http://{orchestrator_ip}:3000")
             if grafana_pass:
-                console.print(f"    Username: [bold]admin[/bold]")
+                console.print("    Username: [bold]admin[/bold]")
                 console.print(f"    Password: [bold]{grafana_pass}[/bold]")
-            
+
             console.print(f"  [dim]Prometheus:[/dim] http://{orchestrator_ip}:9090")
 
     # Project VMs and Apps
@@ -506,49 +513,63 @@ def _deploy_project_v2(
         console.print("  [dim]VMs:[/dim]")
         for vm_name, ip in sorted(vm_ips.items()):
             console.print(f"    • {vm_name}: {ip}")
-    
+
     # Display project credentials (postgres, rabbitmq, etc.)
-    console.print(f"\n[bold cyan]🔐 Project Credentials:[/bold cyan]")
-    
+    console.print("\n[bold cyan]🔐 Project Credentials:[/bold cyan]")
+
     # PostgreSQL
-    postgres_host = env.get("POSTGRES_HOST") or project_config_obj.raw_config.get("addons", {}).get("postgres", {}).get("host", "postgres")
-    postgres_user = env.get("POSTGRES_USER") or project_config_obj.raw_config.get("addons", {}).get("postgres", {}).get("user", f"{project}_user")
+    postgres_host = env.get("POSTGRES_HOST") or project_config_obj.raw_config.get(
+        "addons", {}
+    ).get("postgres", {}).get("host", "postgres")
+    postgres_user = env.get("POSTGRES_USER") or project_config_obj.raw_config.get(
+        "addons", {}
+    ).get("postgres", {}).get("user", f"{project}_user")
     postgres_pass = env.get("POSTGRES_PASSWORD", "")
-    postgres_db = env.get("POSTGRES_DB") or project_config_obj.raw_config.get("addons", {}).get("postgres", {}).get("database", f"{project}_db")
-    
+    postgres_db = env.get("POSTGRES_DB") or project_config_obj.raw_config.get(
+        "addons", {}
+    ).get("postgres", {}).get("database", f"{project}_db")
+
     if postgres_pass:
-        console.print(f"\n  [cyan]🐘 PostgreSQL:[/cyan]")
+        console.print("\n  [cyan]🐘 PostgreSQL:[/cyan]")
         console.print(f"    Host: [bold]{postgres_host}[/bold]")
         console.print(f"    Database: [bold]{postgres_db}[/bold]")
         console.print(f"    Username: [bold]{postgres_user}[/bold]")
         console.print(f"    Password: [bold]{postgres_pass}[/bold]")
-    
+
     # RabbitMQ
-    rabbitmq_host = env.get("RABBITMQ_HOST") or project_config_obj.raw_config.get("addons", {}).get("rabbitmq", {}).get("host", "rabbitmq")
-    rabbitmq_user = env.get("RABBITMQ_USER") or env.get("RABBITMQ_DEFAULT_USER") or project_config_obj.raw_config.get("addons", {}).get("rabbitmq", {}).get("user", f"{project}_user")
+    rabbitmq_host = env.get("RABBITMQ_HOST") or project_config_obj.raw_config.get(
+        "addons", {}
+    ).get("rabbitmq", {}).get("host", "rabbitmq")
+    rabbitmq_user = (
+        env.get("RABBITMQ_USER")
+        or env.get("RABBITMQ_DEFAULT_USER")
+        or project_config_obj.raw_config.get("addons", {})
+        .get("rabbitmq", {})
+        .get("user", f"{project}_user")
+    )
     rabbitmq_pass = env.get("RABBITMQ_PASSWORD") or env.get("RABBITMQ_DEFAULT_PASS", "")
-    
+
     # Find core VM IP for RabbitMQ management UI
     core_vm_ip = None
     for vm_name, ip in vm_ips.items():
         if "core" in vm_name:
             core_vm_ip = ip
             break
-    
+
     if rabbitmq_pass:
-        console.print(f"\n  [cyan]🐰 RabbitMQ:[/cyan]")
+        console.print("\n  [cyan]🐰 RabbitMQ:[/cyan]")
         console.print(f"    Host: [bold]{rabbitmq_host}[/bold]")
         console.print(f"    Username: [bold]{rabbitmq_user}[/bold]")
         console.print(f"    Password: [bold]{rabbitmq_pass}[/bold]")
         if core_vm_ip:
             console.print(f"    Management UI: http://{core_vm_ip}:15672")
-    
+
     # Redis (if exists)
     redis_host = env.get("REDIS_HOST", "")
     redis_pass = env.get("REDIS_PASSWORD", "")
-    
+
     if redis_pass:
-        console.print(f"\n  [cyan]📦 Redis:[/cyan]")
+        console.print("\n  [cyan]📦 Redis:[/cyan]")
         console.print(f"    Host: [bold]{redis_host}[/bold]")
         console.print(f"    Password: [bold]{redis_pass}[/bold]")
 
@@ -650,7 +671,7 @@ def generate_ansible_inventory(
             services_json = json.dumps(services).replace('"', '\\"')
 
             inventory_lines.append(
-                f"{vm['name']} ansible_host={vm['host']} ansible_user={vm['user']} vm_role={role} vm_services=\"{services_json}\""
+                f'{vm["name"]} ansible_host={vm["host"]} ansible_user={vm["user"]} vm_role={role} vm_services="{services_json}"'
             )
         inventory_lines.append("")  # Empty line between groups
 

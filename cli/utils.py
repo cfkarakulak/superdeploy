@@ -13,7 +13,7 @@ console = Console()
 def find_env_file() -> Optional[Path]:
     """
     Smart .env file detection (DEPRECATED - for backward compatibility only)
-    
+
     New behavior: SuperDeploy now uses environment variables instead of .env files.
     This function is kept for backward compatibility during migration.
     """
@@ -33,14 +33,14 @@ def find_env_file() -> Optional[Path]:
 def load_env(project: Optional[str] = None) -> Dict[str, Any]:
     """
     Load environment configuration from project.yml.
-    
+
     All configuration is now per-project in project.yml.
     This function loads the project config and converts it to env-like dict
     for backward compatibility with existing code.
-    
+
     Args:
         project: Project name to load config from
-    
+
     Returns:
         Dictionary of environment variables extracted from project.yml
     """
@@ -49,102 +49,97 @@ def load_env(project: Optional[str] = None) -> Dict[str, Any]:
         console.print("\n[cyan]Usage:[/cyan]")
         console.print("  superdeploy <command> -p <project>")
         raise SystemExit(1)
-    
+
     # Load project config
     from cli.core.config_loader import ConfigLoader
-    
+
     project_root = get_project_root()
     config_loader = ConfigLoader(project_root / "projects")
-    
+
     try:
         project_config = config_loader.load_project(project)
     except FileNotFoundError:
         console.print(f"[red]❌ Project '{project}' not found![/red]")
-        console.print(f"\n[cyan]Create it with:[/cyan]")
+        console.print("\n[cyan]Create it with:[/cyan]")
         console.print(f"  superdeploy init -p {project}")
         raise SystemExit(1)
     except ValueError as e:
         console.print(f"[red]❌ Invalid project config: {e}[/red]")
         raise SystemExit(1)
-    
+
     # Extract ALL non-sensitive config from project.yml
     config = project_config.raw_config
-    cloud = config.get('cloud', {})
-    gcp = cloud.get('gcp', {})
-    ssh = cloud.get('ssh', {})
-    docker_config = config.get('docker', {})
-    
+    cloud = config.get("cloud", {})
+    gcp = cloud.get("gcp", {})
+    ssh = cloud.get("ssh", {})
+    docker_config = config.get("docker", {})
+
     # Get addons from new unified section
     addons = project_config.get_addons()
-    forgejo = addons.get('forgejo', {})
-    postgres = addons.get('postgres', {})
-    rabbitmq = addons.get('rabbitmq', {})
-    
+    forgejo = addons.get("forgejo", {})
+    postgres = addons.get("postgres", {})
+    rabbitmq = addons.get("rabbitmq", {})
+
     # Get GitHub config
-    github_config = config.get('github', {})
-    
+    github_config = config.get("github", {})
+
     env_vars = {
         # GCP
-        'GCP_PROJECT_ID': gcp.get('project_id'),
-        'GCP_REGION': gcp.get('region', 'us-central1'),
-        'GCP_ZONE': gcp.get('zone', 'us-central1-a'),
-        
+        "GCP_PROJECT_ID": gcp.get("project_id"),
+        "GCP_REGION": gcp.get("region", "us-central1"),
+        "GCP_ZONE": gcp.get("zone", "us-central1-a"),
         # SSH
-        'SSH_KEY_PATH': ssh.get('key_path'),
-        'SSH_PUBLIC_KEY_PATH': ssh.get('public_key_path'),
-        'SSH_USER': ssh.get('user'),
-        
+        "SSH_KEY_PATH": ssh.get("key_path"),
+        "SSH_PUBLIC_KEY_PATH": ssh.get("public_key_path"),
+        "SSH_USER": ssh.get("user"),
         # Docker (loaded from .env, not from project.yml)
         # DOCKER_REGISTRY is always docker.io (not configurable)
         # DOCKER_ORG, DOCKER_USERNAME, DOCKER_TOKEN loaded from .env
-        
         # GitHub
-        'GITHUB_ORG': github_config.get('organization'),
-        'GITHUB_REPO': github_config.get('repository'),
-        
+        "GITHUB_ORG": github_config.get("organization"),
+        "GITHUB_REPO": github_config.get("repository"),
         # Forgejo (all non-sensitive config from project.yml)
-        'FORGEJO_PORT': str(forgejo.get('port')),
-        'FORGEJO_SSH_PORT': str(forgejo.get('ssh_port')),
-        'FORGEJO_ORG': forgejo.get('org'),
-        'FORGEJO_ADMIN_USER': forgejo.get('admin_user'),
-        'FORGEJO_ADMIN_EMAIL': forgejo.get('admin_email'),
-        'FORGEJO_REPO': forgejo.get('repo'),
-        'FORGEJO_DB_NAME': forgejo.get('db_name'),
-        'FORGEJO_DB_USER': forgejo.get('db_user'),
-        'REPO_SUPERDEPLOY': forgejo.get('repo'),
-        
+        "FORGEJO_PORT": str(forgejo.get("port")),
+        "FORGEJO_SSH_PORT": str(forgejo.get("ssh_port")),
+        "FORGEJO_ORG": forgejo.get("org"),
+        "FORGEJO_ADMIN_USER": forgejo.get("admin_user"),
+        "FORGEJO_ADMIN_EMAIL": forgejo.get("admin_email"),
+        "FORGEJO_REPO": forgejo.get("repo"),
+        "FORGEJO_DB_NAME": forgejo.get("db_name"),
+        "FORGEJO_DB_USER": forgejo.get("db_user"),
+        "REPO_SUPERDEPLOY": forgejo.get("repo"),
         # Postgres (non-sensitive config)
-        'POSTGRES_USER': postgres.get('user'),
-        'POSTGRES_DB': postgres.get('database'),
-        
+        "POSTGRES_USER": postgres.get("user"),
+        "POSTGRES_DB": postgres.get("database"),
         # RabbitMQ (non-sensitive config)
-        'RABBITMQ_USER': rabbitmq.get('user'),
-        
+        "RABBITMQ_USER": rabbitmq.get("user"),
         # Monitoring
-        'ENABLE_MONITORING': str(config.get('monitoring', {}).get('enabled', True)).lower(),
+        "ENABLE_MONITORING": str(
+            config.get("monitoring", {}).get("enabled", True)
+        ).lower(),
     }
-    
+
     # Load sensitive values from project's .env file (including Docker credentials)
     project_path = project_root / "projects" / project
     project_env_file = project_path / ".env"
     if project_env_file.exists():
         env_secrets = dotenv_values(project_env_file)
         env_vars.update(env_secrets)
-    
+
     # Load FORGEJO_PAT from orchestrator (global)
     orchestrator_env_file = project_root / "shared" / "orchestrator" / ".env"
     if orchestrator_env_file.exists():
         orchestrator_env = dotenv_values(orchestrator_env_file)
         if orchestrator_env.get("FORGEJO_PAT"):
             env_vars["FORGEJO_PAT"] = orchestrator_env["FORGEJO_PAT"]
-    
+
     # Override with environment variables if set (for CI/CD)
-    sensitive_vars = ['DOCKER_TOKEN', 'GITHUB_TOKEN', 'FORGEJO_PAT']
+    sensitive_vars = ["DOCKER_TOKEN", "GITHUB_TOKEN", "FORGEJO_PAT"]
     for var in sensitive_vars:
         if var in os.environ:
             env_vars[var] = os.environ[var]
-    
-    console.print(f"[dim]✓ Loaded config from project.yml[/dim]")
+
+    console.print("[dim]✓ Loaded config from project.yml[/dim]")
     return env_vars
 
 
@@ -210,8 +205,24 @@ def run_command(
         raise SystemExit(1)
 
 
-def ssh_command(host: str, user: str, key_path: str, cmd: str) -> str:
-    """Run SSH command on remote host"""
+def ssh_command(
+    host: str, user: str, key_path: str, cmd: str, silent_on_error: bool = False
+) -> str:
+    """Run SSH command on remote host
+
+    Args:
+        host: Remote host IP/hostname
+        user: SSH user
+        key_path: Path to SSH private key
+        cmd: Command to run
+        silent_on_error: If True, raises exception instead of printing and exiting
+
+    Returns:
+        Command output as string
+
+    Raises:
+        subprocess.CalledProcessError: If silent_on_error=True and command fails
+    """
     import os
 
     # Expand ~ to actual home directory
@@ -219,8 +230,20 @@ def ssh_command(host: str, user: str, key_path: str, cmd: str) -> str:
     ssh_cmd = (
         f"ssh -i {expanded_key_path} -o StrictHostKeyChecking=no {user}@{host} '{cmd}'"
     )
-    result = run_command(ssh_cmd, capture_output=True)
-    return result.stdout.strip()
+
+    if silent_on_error:
+        # Don't print errors, just raise exception
+        result = subprocess.run(
+            ssh_cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    else:
+        result = run_command(ssh_cmd, capture_output=True)
+        return result.stdout.strip()
 
 
 def get_project_root() -> Path:
@@ -234,11 +257,11 @@ def get_project_root() -> Path:
 def validate_env_vars(env: Dict, required_keys: list) -> bool:
     """
     Validate required environment variables are present.
-    
+
     Args:
         env: Dictionary of environment variables
         required_keys: List of required variable names
-        
+
     Returns:
         True if all required variables are present, False otherwise
     """

@@ -41,12 +41,36 @@
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
 
-- name: "Start {{ addon_name }} services"
+- name: "Force stop and remove ALL orchestrator-forgejo* containers"
+  shell: |
+    {% raw %}
+    docker ps -a --filter "name=orchestrator-forgejo" --format "{{ .Names }}" | xargs -r docker rm -f || true
+    {% endraw %}
+  ignore_errors: true
+
+- name: "Stop existing {{ addon_name }} containers (if any)"
+  community.docker.docker_compose_v2:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: stopped
+    remove_orphans: true
+  become_user: "{{ superdeploy_user }}"
+  ignore_errors: true
+
+- name: "Remove existing {{ addon_name }} containers (if any)"
+  community.docker.docker_compose_v2:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: absent
+    remove_orphans: true
+  become_user: "{{ superdeploy_user }}"
+  ignore_errors: true
+
+- name: "Deploy {{ addon_name }} services"
   community.docker.docker_compose_v2:
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: present
-    pull: "missing"
-    recreate: "auto"
+    pull: "always"
+    recreate: "always"
+    remove_orphans: true
   become_user: "{{ superdeploy_user }}"
   register: forgejo_compose_result
 

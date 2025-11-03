@@ -42,11 +42,33 @@
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0600'
 
-- name: Start {{ addon_name }} service
+- name: "Force stop and remove superdeploy-caddy container"
+  shell: docker rm -f superdeploy-caddy || true
+  ignore_errors: true
+
+- name: Stop and remove existing {{ addon_name }} containers (idempotent cleanup)
+  community.docker.docker_compose_v2:
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: absent
+    remove_orphans: true
+  become_user: "{{ superdeploy_user }}"
+  failed_when: false
+  ignore_errors: true
+
+- name: Force remove {{ addon_name }} container if still exists (running or stopped)
+  shell: |
+    docker stop orchestrator-{{ addon_name }} 2>/dev/null || true
+    docker rm -f orchestrator-{{ addon_name }} 2>/dev/null || true
+  become_user: "{{ superdeploy_user }}"
+  changed_when: false
+
+- name: Start {{ addon_name }} service (fresh deployment)
   community.docker.docker_compose_v2:
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: present
     pull: "always"
+    recreate: "always"
+    remove_orphans: true
   become_user: "{{ superdeploy_user }}"
   register: caddy_compose_result
 

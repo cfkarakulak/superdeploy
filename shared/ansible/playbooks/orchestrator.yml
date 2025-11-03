@@ -47,6 +47,10 @@
     - monitoring-agent
     - foundation
 
+# NOTE: Orchestrator does NOT need a runner!
+# Runners are installed on project VMs (api, web, worker) for deployments.
+# Orchestrator only hosts Forgejo (Git server) and workflows.
+
 # ============================================================================
 # PHASE 2: Addon Deployment
 # ============================================================================

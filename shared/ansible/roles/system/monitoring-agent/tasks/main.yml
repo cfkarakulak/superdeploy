@@ -61,17 +61,16 @@
     - name: Download node_exporter archive
       get_url:
         url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
-        dest: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+        dest: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
         mode: '0644'
       retries: 3
       delay: 5
 
     - name: Extract node_exporter archive
       unarchive:
-        src: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
         dest: "/tmp"
         remote_src: yes
-        creates: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64"
 
     - name: Copy node_exporter binary to bin path
       copy:
@@ -82,6 +81,8 @@
         mode: '0755'
         remote_src: yes
       notify: restart-node-exporter
+      register: copy_result
+      failed_when: false
 
     - name: Clean up temporary files
       file:
