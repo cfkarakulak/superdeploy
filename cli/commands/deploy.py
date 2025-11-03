@@ -44,21 +44,22 @@ def deploy(project, app, message, verbose):
     # Initialize logger
     logger = DeployLogger(project, f"deploy-{app}", verbose=verbose)
 
-    logger.step("Deploying App to Production")
+    from rich.console import Console
+    console = Console()
+
+    logger.step("[1/2] Preparing Deployment")
 
     # Find app directory
-    logger.log(f"Locating {app}...")
     app_dir = Path.home() / "Desktop/cheapa.io/hero/app-repos" / app
 
     if not app_dir.exists():
         logger.log_error(f"App directory not found: {app_dir}")
         raise SystemExit(1)
 
-    logger.log(f"✓ Found: {app_dir}")
+    console.print(f"  ✓ Located {app}")
 
     try:
         # Check if there are changes
-        logger.log("Checking for changes...")
         result = subprocess.run(
             ["git", "status", "--porcelain"],
             cwd=app_dir,
@@ -69,8 +70,6 @@ def deploy(project, app, message, verbose):
         has_changes = bool(result.stdout.strip())
 
         if has_changes:
-            logger.log("Changes detected, committing")
-
             # Add all changes
             subprocess.run(["git", "add", "-A"], cwd=app_dir, check=True)
 
@@ -82,12 +81,13 @@ def deploy(project, app, message, verbose):
                 check=True,
                 capture_output=True,
             )
-            logger.log("✓ Changes committed")
+            console.print("  ✓ Changes committed")
         else:
-            logger.log("✓ No changes to commit")
+            console.print("  ✓ No changes to commit")
+
+        logger.step("[2/2] Deploying to Production")
 
         # Push to production
-        logger.log("Pushing to production...")
         result = subprocess.run(
             ["git", "push", "origin", "production"],
             cwd=app_dir,
@@ -96,7 +96,7 @@ def deploy(project, app, message, verbose):
         )
 
         if result.returncode == 0:
-            logger.success("Pushed to production")
+            console.print("  ✓ Pushed to production")
 
             if not verbose:
                 console.print(

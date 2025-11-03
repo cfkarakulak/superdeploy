@@ -9,7 +9,6 @@ from cli.utils import load_env, get_project_root
 from cli.terraform_utils import (
     get_terraform_dir,
     select_workspace,
-    terraform_destroy,
     get_terraform_outputs,
 )
 from cli.core.config_loader import ConfigLoader
@@ -150,7 +149,7 @@ def down(project, yes, verbose, keep_infra):
     )
     if lock_file.exists():
         lock_file.unlink()
-    
+
     console.print("  ✓ State locks cleaned")
 
     # Check if workspace exists
@@ -188,6 +187,7 @@ def down(project, yes, verbose, keep_infra):
 
         # Run Terraform destroy with spinner
         from cli.progress import run_with_progress
+
         try:
             returncode, stdout, stderr = run_with_progress(
                 logger,
@@ -195,7 +195,7 @@ def down(project, yes, verbose, keep_infra):
                 "Destroying infrastructure (this may take 2-3 minutes)",
                 cwd=project_root,
             )
-            
+
             if returncode == 0:
                 console.print("  ✓ All resources destroyed")
             else:
@@ -205,7 +205,7 @@ def down(project, yes, verbose, keep_infra):
         except Exception as e:
             logger.log_error(f"Terraform destroy error: {e}")
             console.print("  ⚠ Partial destruction")
-    
+
     # Manual GCP cleanup if needed
     if not skip_terraform:
         logger.step("[3/3] Manual Cleanup")
@@ -227,7 +227,7 @@ def down(project, yes, verbose, keep_infra):
             vms_deleted = 0
             firewalls_deleted = 0
             subnets_deleted = 0
-            
+
             # 1. Delete VMs FIRST (they block everything else)
             vm_list_cmd = f"gcloud compute instances list --filter='name~^{project}-' --format='value(name,zone)'"
             result = subprocess.run(
@@ -286,7 +286,7 @@ def down(project, yes, verbose, keep_infra):
 
             networks_deleted = 0
             ips_deleted = 0
-            
+
             # 4. Delete Network (try multiple times, GCP can be slow)
             network_name = f"{project}-network"
 
@@ -341,7 +341,7 @@ def down(project, yes, verbose, keep_infra):
                 resources.append(f"{networks_deleted} network(s)")
             if ips_deleted > 0:
                 resources.append(f"{ips_deleted} IP(s)")
-            
+
             if resources:
                 console.print(f"  ✓ GCP resources cleaned: {', '.join(resources)}")
             else:
