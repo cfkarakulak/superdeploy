@@ -198,6 +198,10 @@ def _deploy_project_v2(
         if returncode != 0:
             logger.log_error("Terraform init failed", context=stderr)
             raise SystemExit(1)
+        
+        from rich.console import Console
+        console = Console()
+        console.print("  ✓ Terraform initialized")
 
         # Generate tfvars
         tfvars_file = generate_tfvars(project_config_obj, preserve_ip=preserve_ip)
@@ -233,6 +237,8 @@ def _deploy_project_v2(
         if returncode != 0:
             logger.log_error("Terraform apply failed", context=stderr)
             raise SystemExit(1)
+        
+        console.print("  ✓ VMs provisioned")
 
         # Get VM IPs
         from cli.terraform_utils import get_terraform_outputs
@@ -333,15 +339,14 @@ def _deploy_project_v2(
             if all_ready:
                 vm_count = len(public_ips)
                 vm_list = ", ".join(public_ips.keys())
+                console.print("  ✓ VMs ready")
             else:
                 logger.warning("Some VMs may not be fully ready, continuing...")
                 vm_count = len(public_ips)
                 vm_list = ", ".join(public_ips.keys())
+                console.print("  ⚠ VMs partially ready")
 
             # Show phase 1 completion
-            from rich.console import Console
-
-            console = Console()
             console.print(
                 f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})"
             )

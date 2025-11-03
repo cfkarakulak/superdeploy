@@ -731,6 +731,10 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
         if returncode != 0:
             logger.log_error("Terraform apply failed", context=stderr)
             raise SystemExit(1)
+        
+        from rich.console import Console
+        console = Console()
+        console.print("  ✓ VM provisioned")
 
         # Get outputs
         # Ensure we're in orchestrator workspace
@@ -788,7 +792,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
             logger.log_output(result.stderr, "stderr")
 
             if result.returncode == 0 and "root" in result.stdout:
-                logger.success("VM is ready and accessible")
+                console.print("  ✓ VM ready")
                 break
 
             if attempt < max_attempts:
@@ -796,6 +800,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
                 time.sleep(10)
         else:
             logger.warning("VM may not be fully ready, continuing anyway...")
+            console.print("  ⚠ VM partially ready")
 
         # Clean SSH known_hosts
         subprocess.run(["ssh-keygen", "-R", orchestrator_ip], capture_output=True)
