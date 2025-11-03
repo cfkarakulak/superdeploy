@@ -114,7 +114,7 @@
     - network_create.failed
     - "'already exists' not in network_create.msg | default('')"
 
-- name: "[3/3] Services"
+- name: "Deploy Infrastructure Addons"
   debug:
     msg:
       - "Deploying {{ enabled_addons | length }} addon(s): {{ enabled_addons | join(', ') }}"

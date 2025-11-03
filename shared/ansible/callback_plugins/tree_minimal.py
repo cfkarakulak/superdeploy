@@ -76,12 +76,14 @@ class CallbackModule(CallbackBase):
         if " : " in self.current_task:
             _, self.current_task = self.current_task.split(" : ", 1)
 
-        # Show phase headers [X/Y] immediately (from Ansible tasks like [3/3] Services)
+        # Show phase headers [X/Y] immediately (only from CLI, not Ansible tasks)
+        # These are injected by up.py/down.py/orchestrator.py as debug tasks
         import re
 
         phase_pattern = r"^\[(\d+)/(\d+)\]\s+(.+)$"
         phase_match = re.match(phase_pattern, self.current_task)
         if phase_match:
+            # Display as yellow arrow without tree indent (main phase header)
             self._display.display(f"\033[33m▶ {self.current_task}\033[0m")
             self.current_task = None  # Skip normal processing
             return

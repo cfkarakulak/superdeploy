@@ -333,10 +333,16 @@ def run_with_progress(
         if result.stderr:
             logger.log_output(result.stderr, "stderr")
 
-        # Update live display
+        # Update live display with proper formatting
         if result.returncode == 0:
-            live.update(Text(f"✓ {description}", style="green"))
+            # Only checkmark is green, description is default color
+            checkmark = Text("  ✓ ", style="green")
+            checkmark.append(description, style="")
+            live.update(checkmark)
         else:
-            live.update(Text(f"✗ {description}", style="red"))
+            # Only X is red, description is default color
+            x_mark = Text("  ✗ ", style="red")
+            x_mark.append(description, style="")
+            live.update(x_mark)
 
     return result.returncode, result.stdout, result.stderr
