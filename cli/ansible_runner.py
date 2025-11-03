@@ -23,6 +23,10 @@ class AnsibleRunner:
         # This will contain full verbose Ansible output for debugging
         ansible_log_path = self.logger.log_path.parent / f"{self.logger.log_path.stem}_ansible.log"
         
+        # PERFORMANCE: Use venv Python for Mitogen support
+        import sys
+        venv_python = sys.executable  # Current Python (from venv)
+        
         # Setup environment for VERBOSE logging to file
         env_verbose = os.environ.copy()
         env_verbose.update({
@@ -31,6 +35,8 @@ class AnsibleRunner:
             "ANSIBLE_DISPLAY_SKIPPED_HOSTS": "false",
             "ANSIBLE_LOG_PATH": str(ansible_log_path),
             "ANSIBLE_NOCOLOR": "true",  # No colors in log file
+            # PERFORMANCE: Use venv Python for Mitogen
+            "ANSIBLE_PYTHON_INTERPRETER": venv_python,
         })
         
         # Run Ansible in background for logging (captures to file)
@@ -62,6 +68,8 @@ class AnsibleRunner:
             "ANSIBLE_DISPLAY_SKIPPED_HOSTS": "false",
             # Verbose mode: keep colors for better readability
             "ANSIBLE_FORCE_COLOR": "true" if self.verbose else "false",
+            # PERFORMANCE: Use venv Python for Mitogen
+            "ANSIBLE_PYTHON_INTERPRETER": venv_python,
         })
         
         if self.verbose:
