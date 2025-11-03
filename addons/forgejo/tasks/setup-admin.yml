@@ -20,14 +20,17 @@
       --password "{{ FORGEJO_ADMIN_PASSWORD }}" \
       --email "{{ FORGEJO_ADMIN_EMAIL }}" \
       --admin \
-      --must-change-password=false
+      --must-change-password=false 2>&1
   register: admin_create_result
   failed_when: 
     - admin_create_result.rc != 0
+    - "'already exists' not in admin_create_result.stdout"
+    - "'is reserved' not in admin_create_result.stdout"
     - "'already exists' not in admin_create_result.stderr"
     - "'is reserved' not in admin_create_result.stderr"
   changed_when: 
     - admin_create_result.rc == 0
+    - "'already exists' not in admin_create_result.stdout"
     - "'already exists' not in admin_create_result.stderr"
 
 - name: Display admin user creation result
