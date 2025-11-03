@@ -188,7 +188,6 @@ def _deploy_project_v2(
             )
 
         # Init with migrate-state to automatically migrate workspaces without prompts
-        logger.log("Running terraform init")
         returncode, stdout, stderr = run_with_progress(
             logger,
             "cd shared/terraform && terraform init -upgrade -migrate-state -input=false -no-color",
@@ -201,35 +200,28 @@ def _deploy_project_v2(
             raise SystemExit(1)
 
         # Generate tfvars
-        logger.log("Generating terraform variables")
         tfvars_file = generate_tfvars(project_config_obj, preserve_ip=preserve_ip)
-        logger.log(f"Terraform vars saved to: {tfvars_file}")
 
         # Select or create workspace using terraform_utils
-        logger.log(f"Setting up terraform workspace: {project}")
-
         from cli.terraform_utils import select_workspace
 
         try:
             select_workspace(project, create=True)
-            logger.success("Workspace ready")
         except Exception as e:
             logger.log_error("Workspace setup failed", context=str(e))
             raise SystemExit(1)
 
         # Refresh state
-        logger.log("Refreshing terraform state")
         try:
             terraform_refresh(project, project_config_obj)
         except Exception:
-            logger.log("State refresh failed (may be empty), continuing...")
+            pass  # May fail on first run, that's ok
 
         # Apply
-        logger.log("Running terraform apply")
         apply_cmd = f"cd shared/terraform && terraform apply -auto-approve -no-color -compact-warnings -var-file={tfvars_file.name}"
 
         if preserve_ip:
-            logger.log("Preserve IP mode enabled")
+            pass  # Preserve IP mode (implicit in tfvars)
 
         returncode, stdout, stderr = run_with_progress(
             logger,

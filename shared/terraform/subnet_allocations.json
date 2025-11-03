@@ -1,4 +1,6 @@
 {
-  "vpc_subnets": {},
+  "vpc_subnets": {
+    "cheapa": "10.1.0.0/16"
+  },
   "docker_subnets": {}
 }

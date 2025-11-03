@@ -139,7 +139,6 @@ def load_env(project: Optional[str] = None) -> Dict[str, Any]:
         if var in os.environ:
             env_vars[var] = os.environ[var]
 
-    console.print("[dim]✓ Loaded config from project.yml[/dim]")
     return env_vars
 
 
