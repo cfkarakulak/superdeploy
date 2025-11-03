@@ -56,9 +56,9 @@ class CallbackModule(CallbackBase):
 
         # Skip noise/verbose tasks
         skip_tasks = [
-            "gathering facts", 
-            "setup", 
-            "deploy each addon", 
+            "gathering facts",
+            "setup",
+            "deploy each addon",
             "set addon paths",
             "display addon deployment info",
             "check if addon exists",
@@ -78,7 +78,8 @@ class CallbackModule(CallbackBase):
 
         # Show phase headers [X/Y] immediately (from Ansible tasks like [3/3] Services)
         import re
-        phase_pattern = r'^\[(\d+)/(\d+)\]\s+(.+)$'
+
+        phase_pattern = r"^\[(\d+)/(\d+)\]\s+(.+)$"
         phase_match = re.match(phase_pattern, self.current_task)
         if phase_match:
             self._display.display("")  # Blank line before phase
