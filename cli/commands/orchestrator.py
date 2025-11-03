@@ -149,8 +149,9 @@ def init():
     # Allocate Docker subnet for orchestrator
     console.print("\n[dim]Allocating network subnet...[/dim]")
     from cli.subnet_allocator import SubnetAllocator
+
     allocator = SubnetAllocator()
-    
+
     # Check if orchestrator already has a subnet allocated
     if "orchestrator" not in allocator.docker_allocations:
         # Allocate and save to file
@@ -160,21 +161,23 @@ def init():
         allocator._save_allocations()
     else:
         docker_subnet = allocator.docker_allocations["orchestrator"]
-    
+
     # Add docker_subnet line to network section (preserve formatting)
-    lines = config_content.split('\n')
+    lines = config_content.split("\n")
     new_lines = []
     for i, line in enumerate(lines):
         new_lines.append(line)
         # Add docker_subnet after subnet_cidr line
-        if 'subnet_cidr:' in line and 'docker_subnet' not in config_content:
+        if "subnet_cidr:" in line and "docker_subnet" not in config_content:
             # Get the indentation from current line
             indent = len(line) - len(line.lstrip())
-            new_lines.append(f'{" " * indent}docker_subnet: "{docker_subnet}"  # Reserved for orchestrator')
-    
-    config_content = '\n'.join(new_lines)
+            new_lines.append(
+                f'{" " * indent}docker_subnet: "{docker_subnet}"  # Reserved for orchestrator'
+            )
+
+    config_content = "\n".join(new_lines)
     console.print(f"[dim]✓ Docker subnet allocated: {docker_subnet}[/dim]")
-    
+
     # Write config
     with open(config_path, "w") as f:
         f.write(config_content)
@@ -259,7 +262,7 @@ def down(yes, preserve_ip, verbose):
         terraform_success = True
     else:
         logger.step("Running Terraform destroy")
-        
+
         # Switch to default workspace before init to avoid prompts
         subprocess.run(
             "terraform workspace select default 2>/dev/null || true",
@@ -267,7 +270,7 @@ def down(yes, preserve_ip, verbose):
             cwd=terraform_dir,
             capture_output=True,
         )
-        
+
         terraform_init(quiet=True)
         try:
             select_workspace("orchestrator", create=False)
@@ -290,7 +293,7 @@ def down(yes, preserve_ip, verbose):
 
             # Run destroy
             destroy_cmd = f"cd {terraform_dir} && terraform destroy -var-file={tfvars_file} -auto-approve -no-color"
-            
+
             returncode, stdout, stderr = run_with_progress(
                 logger,
                 destroy_cmd,
@@ -456,6 +459,7 @@ def down(yes, preserve_ip, verbose):
     # 5. Release subnet allocation
     try:
         from cli.subnet_allocator import SubnetAllocator
+
         allocator = SubnetAllocator()
         if allocator.release_subnet("orchestrator"):
             console.print("[green]✅ Subnet allocation released[/green]")
@@ -577,7 +581,7 @@ def _deploy_orchestrator_v2(
     """Internal function for orchestrator deployment with logging"""
 
     logger.step("[1/3] Setup & Infrastructure")
-    
+
     # Load orchestrator config
     logger.log("Loading configuration...")
     from cli.core.orchestrator_loader import OrchestratorLoader
@@ -677,7 +681,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
 
         # Init silently
         from cli.terraform_utils import terraform_init
-        
+
         try:
             terraform_init(quiet=True)
             logger.log("Terraform initialized")
@@ -687,7 +691,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
 
         # Select or create orchestrator workspace (silently)
         from cli.terraform_utils import select_workspace
-        
+
         try:
             select_workspace("orchestrator", create=True)
             logger.log("Workspace ready: orchestrator")
@@ -734,7 +738,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
         except Exception as e:
             logger.log_error("Failed to select orchestrator workspace", context=str(e))
             raise SystemExit(1)
-        
+
         # Get outputs from orchestrator workspace
         terraform_dir = shared_dir / "terraform"
         result = subprocess.run(
@@ -744,7 +748,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
             capture_output=True,
             text=True,
         )
-        
+
         if result.returncode != 0:
             logger.log_error("Failed to get terraform outputs", context=result.stderr)
             raise SystemExit(1)
@@ -752,7 +756,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
         import json
 
         outputs = json.loads(result.stdout)
-        
+
         orchestrator_ip = (
             outputs.get("vm_public_ips", {}).get("value", {}).get("main-0")
         )
@@ -902,29 +906,30 @@ ansible_python_interpreter=/usr/bin/python3
 
     # Display info and credentials (always show, regardless of verbose mode)
     from dotenv import dotenv_values
+
     env_file = shared_dir / "orchestrator" / ".env"
     secrets = dotenv_values(env_file) if env_file.exists() else {}
-    
+
     forgejo_admin = orch_config.config.get("forgejo", {}).get("admin_user", "admin")
     forgejo_pass = secrets.get("FORGEJO_ADMIN_PASSWORD", "")
     grafana_pass = secrets.get("GRAFANA_ADMIN_PASSWORD", "")
-    
+
     console.print("\n" + "━" * 60)
     console.print("[bold green]✅ Orchestrator Deployed![/bold green]")
     console.print("━" * 60)
-    
+
     console.print(f"\n[cyan]📍 Orchestrator IP:[/cyan] {orchestrator_ip}")
-    console.print(f"\n[bold cyan]🔐 Access Credentials:[/bold cyan]")
-    console.print(f"\n[cyan]🌐 Forgejo (Git Server):[/cyan]")
+    console.print("\n[bold cyan]🔐 Access Credentials:[/bold cyan]")
+    console.print("\n[cyan]🌐 Forgejo (Git Server):[/cyan]")
     console.print(f"   URL: http://{orchestrator_ip}:3001")
     console.print(f"   Username: [bold]{forgejo_admin}[/bold]")
     console.print(f"   Password: [bold]{forgejo_pass}[/bold]")
-    console.print(f"\n[cyan]📊 Grafana (Monitoring):[/cyan]")
+    console.print("\n[cyan]📊 Grafana (Monitoring):[/cyan]")
     console.print(f"   URL: http://{orchestrator_ip}:3000")
-    console.print(f"   Username: [bold]admin[/bold]")
+    console.print("   Username: [bold]admin[/bold]")
     console.print(f"   Password: [bold]{grafana_pass}[/bold]")
-    console.print(f"\n[cyan]📈 Prometheus (Metrics):[/cyan]")
+    console.print("\n[cyan]📈 Prometheus (Metrics):[/cyan]")
     console.print(f"   URL: http://{orchestrator_ip}:9090")
-    console.print(f"   [dim](No authentication required)[/dim]")
-    
+    console.print("   [dim](No authentication required)[/dim]")
+
     console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")

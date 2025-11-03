@@ -103,8 +103,10 @@ def _deploy_project_v2(
 ):
     """Internal function for project deployment with logging"""
 
+    logger.step("[1/4] Setup & Infrastructure")
+    
     # Load project config
-    logger.step("Loading project configuration")
+    logger.log("Loading configuration...")
     from cli.core.config_loader import ConfigLoader
     from cli.core.orchestrator_loader import OrchestratorLoader
 
@@ -116,7 +118,7 @@ def _deploy_project_v2(
 
     try:
         project_config_obj = config_loader.load_project(project)
-        logger.success("Project configuration loaded")
+        logger.log("✓ Project configuration loaded")
     except FileNotFoundError as e:
         logger.log_error(str(e), context=f"Project '{project}' not found")
         raise SystemExit(1)
@@ -125,10 +127,8 @@ def _deploy_project_v2(
         raise SystemExit(1)
 
     # Load orchestrator config
-    logger.log("Loading orchestrator configuration")
     try:
         orchestrator_config = orchestrator_loader.load()
-        logger.log("Orchestrator configuration loaded")
 
         # Check if orchestrator is deployed
         if not orchestrator_config.is_deployed():
@@ -143,14 +143,13 @@ def _deploy_project_v2(
             logger.log_error("Orchestrator IP not found")
             raise SystemExit(1)
 
-        logger.log(f"Using orchestrator: {orchestrator_ip}")
+        logger.log(f"✓ Orchestrator @ {orchestrator_ip}")
 
     except FileNotFoundError as e:
         logger.log_error(str(e), context="Orchestrator config not found")
         raise SystemExit(1)
 
     # Load environment
-    logger.log("Loading environment variables")
     from cli.utils import load_env, validate_env_vars
 
     env = load_env(project)
@@ -163,11 +162,11 @@ def _deploy_project_v2(
         )
         raise SystemExit(1)
 
-    logger.success("Environment loaded")
+    logger.log("✓ Environment validated")
 
     # Terraform
     if not skip_terraform:
-        logger.step("Provisioning VMs with Terraform")
+        logger.log("Provisioning VMs (3-5 min)...")
 
         from cli.terraform_utils import (
             terraform_refresh,
@@ -243,10 +242,7 @@ def _deploy_project_v2(
             logger.log_error("Terraform apply failed", context=stderr)
             raise SystemExit(1)
 
-        logger.success("VMs provisioned successfully")
-
         # Get VM IPs
-        logger.step("Extracting VM IPs from terraform outputs")
         from cli.terraform_utils import get_terraform_outputs
 
         outputs = get_terraform_outputs(project)
@@ -254,7 +250,6 @@ def _deploy_project_v2(
         internal_ips = outputs.get("vm_internal_ips", {}).get("value", {})
 
         # Update .env with IPs
-        logger.log("Updating .env with VM IPs")
         env_file = project_root / "projects" / project / ".env"
 
         if not env_file.exists():
@@ -346,18 +341,27 @@ def _deploy_project_v2(
                     all_ready = False
 
             if all_ready:
-                logger.success("All VMs are ready")
+                vm_count = len(public_ips)
+                vm_list = ", ".join(public_ips.keys())
+                logger.success(f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})")
             else:
                 logger.warning("Some VMs may not be fully ready, continuing...")
+                vm_count = len(public_ips)
+                vm_list = ", ".join(public_ips.keys())
+                logger.success(f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})")
         else:
             logger.log("No VMs found in outputs")
 
     else:
-        logger.step("Skipping Terraform (--skip-terraform)")
+        # Skip terraform, still show phase completion
+        env = load_env(project)
+        vm_ips = {k: v for k, v in env.items() if "_EXTERNAL_IP" in k}
+        vm_count = len(vm_ips)
+        logger.success(f"  ✓ Configuration • Environment • {vm_count} VMs (existing)")
 
     # Ansible
     if not skip_ansible:
-        logger.step("Configuring services with Ansible")
+        logger.step("[2/4] Base System")
 
         # Reload env (IPs may have changed)
         env = load_env(project)
