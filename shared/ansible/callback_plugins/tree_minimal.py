@@ -82,7 +82,6 @@ class CallbackModule(CallbackBase):
         phase_pattern = r"^\[(\d+)/(\d+)\]\s+(.+)$"
         phase_match = re.match(phase_pattern, self.current_task)
         if phase_match:
-            self._display.display("")  # Blank line before phase
             self._display.display(f"\033[33m▶ {self.current_task}\033[0m")
             self.current_task = None  # Skip normal processing
             return
