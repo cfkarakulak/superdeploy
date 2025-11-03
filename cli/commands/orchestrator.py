@@ -213,14 +213,14 @@ def down(yes, preserve_ip, verbose):
     logger = DeployLogger("orchestrator", "down", verbose=verbose)
 
     if not verbose:
-    console.print(
-        Panel.fit(
-            "[bold red]⚠️  Orchestrator Destruction[/bold red]\n\n"
+        console.print(
+            Panel.fit(
+                "[bold red]⚠️  Orchestrator Destruction[/bold red]\n\n"
                 "[white]This will destroy the orchestrator VM and clean up all state[/white]\n"
                 "[yellow]Warning: This action is DESTRUCTIVE and cannot be undone![/yellow]",
-            border_style="red",
+                border_style="red",
+            )
         )
-    )
     
     if not yes:
         confirmed = Confirm.ask(

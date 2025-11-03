@@ -58,51 +58,51 @@ PORT_MAPPINGS = {
 def tunnel(project, service, all_services, list_services):
     """
     Create SSH tunnels to access database/addon services securely.
-    
+
     Examples:
         superdeploy tunnel -p cheapa postgres
         superdeploy tunnel -p cheapa rabbitmq
         superdeploy tunnel -p cheapa --all
         superdeploy tunnel -p cheapa --list
     """
-    
+
     # List available services
     if list_services:
         show_available_services()
         return
-    
+
     # Validate input
     if not service and not all_services:
         console.print("[red]❌ Error: Specify a service or use --all[/red]")
         console.print("\n[dim]Available services:[/dim]")
         show_available_services()
         sys.exit(1)
-    
+
     # Load project config
     from cli.utils import get_project_root
     from cli.config_loader import ConfigLoader
-    
+
     project_root = get_project_root()
     projects_dir = project_root / "projects"
-    
+
     try:
         config_loader = ConfigLoader(projects_dir)
         project_config = config_loader.load_project(project)
     except FileNotFoundError:
         console.print(f"[red]❌ Project '{project}' not found[/red]")
         sys.exit(1)
-    
+
     # Get VM IP (find first VM with services)
     from dotenv import dotenv_values
-    
+
     env_file = projects_dir / project / ".env"
     if not env_file.exists():
         console.print(f"[red]❌ Project .env not found: {env_file}[/red]")
         console.print("[yellow]Run 'superdeploy up -p {project}' first[/yellow]")
         sys.exit(1)
-    
+
     env = dotenv_values(env_file)
-    
+
     # Find VM IP (prefer core VM, fallback to any VM)
     vm_ip = None
     for key, value in env.items():
@@ -112,30 +112,32 @@ def tunnel(project, service, all_services, list_services):
                 break
             elif not vm_ip:
                 vm_ip = value
-    
+
     if not vm_ip:
         console.print("[red]❌ No VM IP found in .env[/red]")
         console.print("[yellow]Run 'superdeploy up -p {project}' first[/yellow]")
         sys.exit(1)
-    
+
     # Get SSH config
     from cli.core.orchestrator_loader import OrchestratorLoader
-    
+
     shared_dir = project_root / "shared"
     orch_loader = OrchestratorLoader(shared_dir)
-    
+
     try:
         orch_config = orch_loader.load()
         ssh_config = orch_config.config.get("ssh", {})
         ssh_user = ssh_config.get("user", "superdeploy")
-        ssh_key = Path(ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")).expanduser()
+        ssh_key = Path(
+            ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
+        ).expanduser()
     except Exception:
         ssh_user = "superdeploy"
         ssh_key = Path("~/.ssh/superdeploy_deploy").expanduser()
-    
+
     # Determine which services to tunnel
     services_to_tunnel = []
-    
+
     if all_services:
         # Tunnel all available services
         services_to_tunnel = list(PORT_MAPPINGS.keys())
@@ -151,7 +153,7 @@ def tunnel(project, service, all_services, list_services):
             console.print("\n[dim]Available services:[/dim]")
             show_available_services()
             sys.exit(1)
-    
+
     # Show banner
     console.print(
         Panel.fit(
@@ -162,50 +164,47 @@ def tunnel(project, service, all_services, list_services):
             border_style="cyan",
         )
     )
-    
+
     # Build SSH tunnel commands
     tunnel_commands = []
     for svc in services_to_tunnel:
         mapping = PORT_MAPPINGS[svc]
-        tunnel_commands.append(
-            f"-L {mapping['local']}:localhost:{mapping['remote']}"
-        )
-    
+        tunnel_commands.append(f"-L {mapping['local']}:localhost:{mapping['remote']}")
+
     # Build full SSH command
     ssh_cmd = [
         "ssh",
-        "-i", str(ssh_key),
+        "-i",
+        str(ssh_key),
         "-N",  # No remote command
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
     ]
-    
+
     # Add all tunnel mappings
     for tunnel in tunnel_commands:
         ssh_cmd.extend(tunnel.split())
-    
+
     # Add destination
     ssh_cmd.append(f"{ssh_user}@{vm_ip}")
-    
+
     # Show connection info
     table = Table(title="Active Tunnels", show_header=True)
     table.add_column("Service", style="cyan")
     table.add_column("Local Port", style="green")
     table.add_column("Connection", style="yellow")
-    
+
     for svc in services_to_tunnel:
         mapping = PORT_MAPPINGS[svc]
-        table.add_row(
-            mapping["name"],
-            str(mapping["local"]),
-            mapping["connection"]
-        )
-    
+        table.add_row(mapping["name"], str(mapping["local"]), mapping["connection"])
+
     console.print("\n")
     console.print(table)
     console.print("\n[bold green]✓ Tunnels active![/bold green]")
     console.print("[dim]Press Ctrl+C to stop tunnels...[/dim]\n")
-    
+
     # Run SSH tunnel (blocking)
     try:
         subprocess.run(ssh_cmd, check=True)
@@ -223,18 +222,16 @@ def show_available_services():
     table.add_column("Name", style="white")
     table.add_column("Local Port", style="green")
     table.add_column("Remote Port", style="yellow")
-    
+
     # Group services (skip rabbitmq-amqp, it's included in rabbitmq)
     services = {k: v for k, v in PORT_MAPPINGS.items() if k != "rabbitmq-amqp"}
-    
+
     for svc, mapping in services.items():
         table.add_row(
-            svc,
-            mapping["name"],
-            str(mapping["local"]),
-            str(mapping["remote"])
+            svc, mapping["name"], str(mapping["local"]), str(mapping["remote"])
         )
-    
-    console.print(table)
-    console.print("\n[dim]Note: 'rabbitmq' opens both UI (25672) and AMQP (15672)[/dim]")
 
+    console.print(table)
+    console.print(
+        "\n[dim]Note: 'rabbitmq' opens both UI (25672) and AMQP (15672)[/dim]"
+    )
