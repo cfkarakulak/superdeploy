@@ -63,6 +63,14 @@ class CallbackModule(CallbackBase):
         if ' : ' in self.current_task:
             _, self.current_task = self.current_task.split(' : ', 1)
         
+        # Show addon deployment header immediately (don't wait for ok)
+        if '▶ Deploy' in self.current_task and 'addon' in self.current_task:
+            # Extract addon name: "▶ Deploy rabbitmq addon" -> "rabbitmq"
+            addon_name = self.current_task.replace('▶ Deploy', '').replace('addon', '').strip()
+            self._display.display(f"├── \033[33m▶\033[0m \033[1m{addon_name}\033[0m")
+            self.current_task = None  # Skip normal processing
+            return
+        
         # Track start time
         if self.current_task not in self.task_status:
             self.task_status[self.current_task] = 'running'
