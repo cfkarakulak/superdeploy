@@ -4,6 +4,7 @@ Project deployment commands
 
 from pathlib import Path
 from rich.console import Console
+from cli.ui_components import show_header
 from dotenv import dotenv_values
 import click
 

@@ -353,7 +353,7 @@ def domain_list(project: str):
             subtitle="All domains across orchestrator and projects",
             console=console,
         )
-    
+
     try:
         # Get all available projects
         projects_dir = Path.cwd() / "projects"

@@ -5,6 +5,7 @@ import subprocess
 import yaml
 from rich.console import Console
 from rich.table import Table
+from cli.ui_components import show_header
 from cli.utils import load_env, get_project_root
 from cli.terraform_utils import get_terraform_outputs
 
@@ -24,14 +25,21 @@ def config_set(key_value, app, environment):
       superdeploy config:set API_DEBUG=false -a api
       superdeploy config:set SENTRY_DSN=https://... -a api
     """
-    env_vars = load_env()
-
-    # Parse key=value
+    # Parse key=value first
     try:
         key, value = key_value.split("=", 1)
     except ValueError:
         console.print("[red]❌ Invalid format! Use: KEY=VALUE[/red]")
         raise SystemExit(1)
+    
+    show_header(
+        title="Set Configuration",
+        app=app,
+        details={"Key": key, "Environment": environment},
+        console=console,
+    )
+    
+    env_vars = load_env()
 
     # Get GitHub org from environment or project config
     github_org = env_vars.get("GITHUB_ORG", f"{project}io")

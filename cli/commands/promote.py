@@ -2,6 +2,7 @@
 
 import click
 from rich.console import Console
+from cli.ui_components import show_header
 
 console = Console()
 

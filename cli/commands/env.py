@@ -3,6 +3,7 @@
 import click
 import getpass
 from rich.console import Console
+from cli.ui_components import show_header
 from rich.table import Table
 from rich.panel import Panel
 from cli.utils import load_env
@@ -107,6 +108,16 @@ def env_list(show_all, app, no_mask):
     - Full values require verification
     - Nothing is stored in history
     """
+    show_header(
+        title="Environment Variables",
+        details={
+            "Scope": "All" if show_all else "App secrets only",
+            "App": app if app else "All apps",
+            "Masked": "No" if no_mask else "Yes"
+        },
+        console=console,
+    )
+    
     env_vars = load_env()
 
     # Verification for unmasked view
@@ -233,11 +244,13 @@ def env_check():
     - No placeholder values
     - Secure password strength
     """
-    env_vars = load_env()
-
-    console.print(
-        Panel("[bold cyan]🔍 Environment Health Check[/bold cyan]", expand=False)
+    show_header(
+        title="Environment Health Check",
+        subtitle="Validating configuration and security",
+        console=console,
     )
+    
+    env_vars = load_env()
 
     issues = []
     warnings = []
