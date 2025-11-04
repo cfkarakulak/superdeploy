@@ -45,7 +45,7 @@ def releases_rollback(project, app, version, force):
         details={"Version": version if version else "Interactive"},
         console=console,
     )
-    
+
     from cli.utils import get_project_root
     from cli.core.config_loader import ConfigLoader
     import os

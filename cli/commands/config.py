@@ -31,14 +31,14 @@ def config_set(key_value, app, environment):
     except ValueError:
         console.print("[red]❌ Invalid format! Use: KEY=VALUE[/red]")
         raise SystemExit(1)
-    
+
     show_header(
         title="Set Configuration",
         app=app,
         details={"Key": key, "Environment": environment},
         console=console,
     )
-    
+
     env_vars = load_env()
 
     # Get GitHub org from environment or project config
@@ -87,6 +87,13 @@ def config_get(key, app):
     Examples:
       superdeploy config:get POSTGRES_PASSWORD -a api
     """
+    show_header(
+        title="Get Configuration",
+        app=app,
+        details={"Key": key},
+        console=console,
+    )
+    
     env_vars = load_env()
 
     value = env_vars.get(key)
@@ -109,6 +116,13 @@ def config_list(app):
       superdeploy config:list           # All vars
       superdeploy config:list -a api    # App-specific
     """
+    show_header(
+        title="Configuration List",
+        app=app,
+        details={"Filter": app if app else "All"},
+        console=console,
+    )
+    
     env_vars = load_env()
 
     # Create table
@@ -155,6 +169,13 @@ def config_unset(key, app, environment):
     Examples:
       superdeploy config:unset SENTRY_DSN -a api
     """
+    show_header(
+        title="Unset Configuration",
+        app=app,
+        details={"Key": key, "Environment": environment},
+        console=console,
+    )
+    
     # Map app to GitHub repo
     env_vars = load_env()
 
@@ -203,9 +224,14 @@ def config_show(project, mask):
       superdeploy config:show -p cheapa           # Show all configs
       superdeploy config:show -p cheapa --mask    # Mask passwords
     """
+    show_header(
+        title="Show Configuration",
+        project=project,
+        details={"Masked": "Yes" if mask else "No"},
+        console=console,
+    )
+    
     project_root = get_project_root()
-
-    console.print(f"\n[bold cyan]🔧 Configuration for: {project}[/bold cyan]\n")
 
     # Load project .env
     try:

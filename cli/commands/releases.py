@@ -36,7 +36,7 @@ def releases_list(project, app, limit):
         details={"Limit": str(limit)},
         console=console,
     )
-    
+
     from cli.utils import get_project_root
     from cli.core.config_loader import ConfigLoader
     import os

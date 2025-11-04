@@ -113,11 +113,11 @@ def env_list(show_all, app, no_mask):
         details={
             "Scope": "All" if show_all else "App secrets only",
             "App": app if app else "All apps",
-            "Masked": "No" if no_mask else "Yes"
+            "Masked": "No" if no_mask else "Yes",
         },
         console=console,
     )
-    
+
     env_vars = load_env()
 
     # Verification for unmasked view
@@ -249,7 +249,7 @@ def env_check():
         subtitle="Validating configuration and security",
         console=console,
     )
-    
+
     env_vars = load_env()
 
     issues = []
