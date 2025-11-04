@@ -38,6 +38,14 @@ def releases_rollback(project, app, version, force):
     - Zero-downtime switching (1-2 seconds)
     - Keeps last 5 releases for instant switching
     """
+    show_header(
+        title="Release Rollback",
+        project=project,
+        app=app,
+        details={"Version": version if version else "Interactive"},
+        console=console,
+    )
+    
     from cli.utils import get_project_root
     from cli.core.config_loader import ConfigLoader
     import os

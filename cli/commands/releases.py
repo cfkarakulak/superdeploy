@@ -29,6 +29,14 @@ def releases_list(project, app, limit):
     - Current/Previous status
     - Use 'superdeploy releases:rollback' to change versions
     """
+    show_header(
+        title="Release History",
+        project=project,
+        app=app,
+        details={"Limit": str(limit)},
+        console=console,
+    )
+    
     from cli.utils import get_project_root
     from cli.core.config_loader import ConfigLoader
     import os
