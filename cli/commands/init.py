@@ -628,25 +628,12 @@ def init(project, app, subnet, no_interactive, yes):
     # Common service ports (can be overridden by user later)
     port_assignments = {}
 
-    # Default port mappings for common services
-    # Format: service_name: (external_port, internal_port)
-    default_ports = {
-        "api": (8000, 8000),
-        "dashboard": (3000, 3000),
-        "services": (8001, 8000),  # External 8001, internal 8000 (proxy registry)
-        "worker": (8002, 8002),
-        "admin": (8003, 8003),
-    }
-
+    # Auto-assign ports generically (no hardcoded service names)
+    # Start from base port and increment by 10 for each service
     for idx, service in enumerate(selected_services):
-        # Use default port if available, otherwise auto-assign
-        if service in default_ports:
-            external_port, internal_port = default_ports[service]
-        else:
-            # Auto-assign starting from 8000, skipping known ports
-            port = base_external_port + (idx * 10)
-            external_port = port
-            internal_port = port
+        port = base_external_port + (idx * 10)
+        external_port = port
+        internal_port = port
 
         port_assignments[service] = {
             "external": external_port,

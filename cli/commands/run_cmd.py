@@ -61,6 +61,11 @@ def run(project, app, command, verbose, interactive):
 
         vm_role = apps[app].get("vm", "core")
 
+        # Get SSH config from project config
+        ssh_config = project_config.raw_config.get("cloud", {}).get("ssh", {})
+        ssh_key_path = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
+        ssh_user = ssh_config.get("user", "superdeploy")
+
         # Get VM IP from .env
         from cli.utils import load_env
 
@@ -81,8 +86,7 @@ def run(project, app, command, verbose, interactive):
 
     # SSH config
     logger.step(f"Executing command in {app} container")
-    ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
-    ssh_user = "superdeploy"
+    ssh_key = os.path.expanduser(ssh_key_path)
 
     # Auto-detect interactive commands (bash, sh, psql, etc.)
     interactive_commands = [

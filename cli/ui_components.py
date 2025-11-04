@@ -4,19 +4,8 @@ Standardized headers, logos, and UI elements
 """
 
 from rich.console import Console
-from rich.panel import Panel
 
-# ASCII Art Logo
-LOGO = r"""
-   _____                       ____             __          
-  / ___/__  ______  ___  _____/ __ \___  ____  / /___  __  __
-  \__ \/ / / / __ \/ _ \/ ___/ / / / _ \/ __ \/ / __ \/ / / /
- ___/ / /_/ / /_/ /  __/ /  / /_/ /  __/ /_/ / / /_/ / /_/ / 
-/____/\__,_/ .___/\___/_/  /_____/\___/ .___/_/\____/\__, /  
-          /_/                        /_/            /____/   
-"""
-
-LOGO_COMPACT = "🚀 SuperDeploy"
+LOGO = "superdeploy"
 
 # Color scheme
 BRAND_COLOR = "cyan"
@@ -32,12 +21,12 @@ def show_header(
     project: str = None,
     app: str = None,
     details: dict = None,
-    show_logo: bool = False,
+    show_logo: bool = True,
     border_color: str = None,
     console: Console = None,
 ):
     """
-    Display a standardized SuperDeploy command header.
+    Display a standardized SuperDeploy command header with ASCII logo.
 
     Args:
         title: Main title (e.g., "Run Command", "Deploy Infrastructure")
@@ -45,7 +34,7 @@ def show_header(
         project: Project name (if applicable)
         app: App name (if applicable)
         details: Additional key-value pairs to display
-        show_logo: Show full ASCII logo (for major operations)
+        show_logo: Deprecated - ASCII logo is always shown
         border_color: Panel border color (default: cyan)
         console: Rich Console instance (creates new if None)
 
@@ -63,51 +52,36 @@ def show_header(
     if border_color is None:
         border_color = BRAND_COLOR
 
-    # Build header content
-    lines = []
-
-    # Logo (for major operations)
-    if show_logo:
-        lines.append(f"[dim]{LOGO}[/dim]")
-        lines.append("")
-    else:
-        # Compact logo with title
-        lines.append(
-            f"[bold {BRAND_COLOR}]{LOGO_COMPACT} • {title}[/bold {BRAND_COLOR}]"
-        )
+    # Heroku-style minimal header
+    console.print(
+        f" [bold color(214)]superdeploy[/bold color(214)] [dim]›[/dim] [bold white]{title}[/bold white]"
+    )
 
     # Subtitle
     if subtitle:
-        lines.append("")
-        lines.append(f"[white]{subtitle}[/white]")
+        console.print(
+            f" [bold color(214)]superdeploy[/bold color(214)] [dim]›[/dim] [dim]{subtitle}[/dim]"
+        )
 
-    # Project/App info (common fields)
-    if project or app or details:
-        lines.append("")
-
+    # Project/App info
     if project:
-        lines.append(f"[white]Project:[/white] [bold]{project}[/bold]")
-
+        console.print(
+            f" [bold color(214)]superdeploy[/bold color(214)] [dim]›[/dim] Project: [cyan]{project}[/cyan]"
+        )
     if app:
-        lines.append(f"[white]App:[/white] [bold]{app}[/bold]")
+        console.print(
+            f" [bold color(214)]superdeploy[/bold color(214)] [dim]›[/dim] App: [cyan]{app}[/cyan]"
+        )
 
     # Additional details
     if details:
         for key, value in details.items():
-            lines.append(f"[white]{key}:[/white] [bold]{value}[/bold]")
+            console.print(
+                f" [bold color(214)]superdeploy[/bold color(214)] [dim]›[/dim] {key}: [cyan]{value}[/cyan]"
+            )
 
-    # Create panel (NO PANEL.FIT - use regular Panel for proper width!)
-    content = "\n".join(lines)
-    panel = Panel(
-        content,
-        border_style=border_color,
-        padding=(0, 1),
-        expand=False,
-        width=80,  # Fixed width for consistency
-    )
-
-    console.print(panel)
-    console.print()  # Extra line after header
+    # Single blank line after header
+    console.print()
 
 
 def show_success(message: str, console: Console = None):

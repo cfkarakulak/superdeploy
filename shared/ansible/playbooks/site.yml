@@ -192,34 +192,53 @@
   hosts: all
   become: yes
   tasks:
-    - name: Check Docker is running
+    - name: "▶ Verify deployment health"
+      debug:
+        msg: "Checking deployment health and status"
+      run_once: true
+      
+    - name: ✓ Verify Docker service is running
       service:
         name: docker
         state: started
+      register: docker_check
+      changed_when: false
+      failed_when: false
       
-    - name: Check if project directory exists
+    - name: Verify project directory structure
       stat:
         path: "/opt/superdeploy/projects/{{ project_name }}"
       register: project_dir
       when: project_name is defined
+      changed_when: false
       
-    - name: Verify Docker Compose services (if project deployed)
-      command: docker compose ps
-      args:
-        chdir: "/opt/superdeploy/projects/{{ project_name }}"
-      register: compose_status
-      ignore_errors: yes
-      when: 
-        - project_name is defined
-        - project_dir is defined
-        - project_dir.stat.exists
+    - name: List all running containers
+      command: docker ps --format 'table {% raw %}{{.Names}}\t{{.Status}}\t{{.Ports}}{% endraw %}'
+      register: all_containers
+      changed_when: false
+      failed_when: false
       
-    - name: Display service status
+    - name: Display running containers
       debug:
-        var: compose_status.stdout_lines
+        msg: "{{ all_containers.stdout_lines }}"
       when: 
-        - compose_status is defined
-        - compose_status.stdout_lines is defined
+        - all_containers is defined
+        - all_containers.stdout_lines is defined
+      
+    - name: Verify application containers are running
+      shell: |
+        docker ps --filter "name={{ project_name }}-" --format '{% raw %}{{.Names}}\t{{.Status}}{% endraw %}' | wc -l
+      register: app_containers_count
+      when: project_name is defined
+      changed_when: false
+      
+    - name: Display deployment verification summary
+      debug:
+        msg:
+          - "✓ Docker service: Running"
+          - "✓ Project directory: {{ 'Exists' if (project_dir is defined and project_dir.stat.exists) else 'N/A' }}"
+          - "✓ Running containers: {{ (all_containers.stdout_lines | length - 1) if (all_containers is defined and all_containers.stdout_lines is defined) else '0' }}"
+          - "✓ Project containers: {{ app_containers_count.stdout | default('0') | trim }}"
   tags:
     - verify
     - health

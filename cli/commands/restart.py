@@ -24,7 +24,6 @@ def restart(project, app, verbose):
     """
     from cli.utils import get_project_root
     from cli.core.config_loader import ConfigLoader
-    import re
 
     if not verbose:
         show_header(
@@ -53,25 +52,21 @@ def restart(project, app, verbose):
 
         vm_role = apps[app].get("vm", "core")
 
-        # Get VM IP from inventory
-        inventory_path = (
-            project_root / "shared" / "ansible" / "inventories" / f"{project}.ini"
-        )
-        if not inventory_path.exists():
-            console.print(
-                f"[red]❌ Inventory not found. Run: superdeploy up -p {project}[/red]"
-            )
-            return
+        # Get SSH config from project config
+        ssh_config = project_config.raw_config.get("cloud", {}).get("ssh", {})
+        ssh_key_path = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
+        ssh_user = ssh_config.get("user", "superdeploy")
 
-        inventory_content = inventory_path.read_text()
-        pattern = rf"{project}-{vm_role}-\d+\s+ansible_host=(\S+)"
-        match = re.search(pattern, inventory_content)
+        # Get VM IP from .env (source of truth)
+        env = load_env(project=project)
 
-        if not match:
-            logger.log_error(f"VM not found in inventory for role: {vm_role}")
+        ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
+        if ip_key not in env:
+            logger.log_error(f"VM IP not found in .env: {ip_key}")
+            logger.log(f"Run: superdeploy up -p {project}")
             raise SystemExit(1)
 
-        ssh_host = match.group(1)
+        ssh_host = env[ip_key]
         logger.log(f"Found VM: {ssh_host}")
 
     except Exception as e:
@@ -80,7 +75,7 @@ def restart(project, app, verbose):
 
     # SSH and restart container
     logger.step(f"Restarting {app} container")
-    ssh_key = Path.home() / ".ssh" / "superdeploy_deploy"
+    ssh_key = Path(ssh_key_path).expanduser()
     container_name = f"{project}-{app}"
 
     cmd = [
@@ -89,7 +84,7 @@ def restart(project, app, verbose):
         str(ssh_key),
         "-o",
         "StrictHostKeyChecking=no",
-        f"superdeploy@{ssh_host}",
+        f"{ssh_user}@{ssh_host}",
         f"docker restart {container_name}",
     ]
 
@@ -105,7 +100,7 @@ def restart(project, app, verbose):
             str(ssh_key),
             "-o",
             "StrictHostKeyChecking=no",
-            f"superdeploy@{ssh_host}",
+            f"{ssh_user}@{ssh_host}",
             f"docker ps --filter name={container_name} --format 'table {{{{.Names}}}}\\t{{{{.Status}}}}'",
         ]
         status_result = subprocess.run(status_cmd, capture_output=True, text=True)

@@ -45,8 +45,8 @@ class CallbackModule(CallbackBase):
             self.play_name = name
             self.play_start_time = time.time()
             self.play_task_times = []
-            # Yellow arrow for play (no time shown for plays, only tasks)
-            self._display.display(f"└── \033[33m▶\033[0m {name}")
+            # Orange arrow for play (no time shown for plays, only tasks)
+            self._display.display(f"└── \033[38;5;214m▶\033[0m {name}")
 
     def v2_playbook_on_task_start(self, task, is_conditional):
         """Called when a task starts"""
@@ -83,8 +83,8 @@ class CallbackModule(CallbackBase):
         phase_pattern = r"^\[(\d+)/(\d+)\]\s+(.+)$"
         phase_match = re.match(phase_pattern, self.current_task)
         if phase_match:
-            # Display as yellow arrow without tree indent (main phase header)
-            self._display.display(f"\033[33m▶ {self.current_task}\033[0m")
+            # Display as orange arrow without tree indent (main phase header)
+            self._display.display(f"\033[38;5;214m▶ {self.current_task}\033[0m")
             self.current_task = None  # Skip normal processing
             return
 
@@ -94,7 +94,8 @@ class CallbackModule(CallbackBase):
             addon_name = (
                 self.current_task.replace("▶ Deploy", "").replace("addon", "").strip()
             )
-            self._display.display(f"├── \033[33m▶\033[0m \033[1m{addon_name}\033[0m")
+            # Display as: ▶ Addon: caddy (▶ and Addon: in orange, name in white)
+            self._display.display(f"├── \033[38;5;214m▶ Addon:\033[0m {addon_name}")
             self.current_task = None  # Skip normal processing
             return
 

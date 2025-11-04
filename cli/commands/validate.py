@@ -99,66 +99,95 @@ def validate_project(project):
     # Validation checks
     console.print("\n[bold]Running validation checks...[/bold]\n")
 
-    # 1. Required fields
-    required_fields = ["project", "services", "ports", "addons", "github"]
+    # 1. Required fields (new schema)
+    required_fields = ["project", "apps", "addons", "github", "vms"]
     for field in required_fields:
         if field not in config:
             errors.append(f"Missing required field: {field}")
         else:
             console.print(f"[green]✓[/green] Required field: {field}")
 
-    # 2. Services validation
-    if "services" in config:
-        services = config["services"]
-        if not services or len(services) == 0:
-            errors.append("No services defined")
+    # 2. Apps validation (replaces services)
+    if "apps" in config:
+        apps = config["apps"]
+        if not apps or len(apps) == 0:
+            errors.append("No apps defined")
         else:
-            console.print(f"[green]✓[/green] Services defined: {len(services)}")
+            console.print(f"[green]✓[/green] Apps defined: {len(apps)}")
 
-            # Check each service has port mapping
-            for service in services:
-                if "ports" not in config or service not in config["ports"]:
-                    warnings.append(f"Service '{service}' has no port mapping")
+            # Check each app has port
+            for app_name, app_config in apps.items():
+                if "port" not in app_config:
+                    warnings.append(f"App '{app_name}' has no port defined")
+                if "vm" not in app_config:
+                    warnings.append(f"App '{app_name}' has no VM assignment")
 
-    # 3. Port conflicts
-    if "ports" in config:
-        external_ports = []
-        for service, port_config in config["ports"].items():
-            if "external" in port_config:
-                ext_port = port_config["external"]
-                if ext_port in external_ports:
-                    errors.append(
-                        f"Port conflict: {ext_port} used by multiple services"
-                    )
-                external_ports.append(ext_port)
+    # 3. Port conflicts (check within apps)
+    if "apps" in config:
+        used_ports = []
+        for app_name, app_config in config["apps"].items():
+            if "port" in app_config:
+                port = app_config["port"]
+                if port in used_ports:
+                    errors.append(f"Port conflict: {port} used by multiple apps")
+                used_ports.append(port)
 
-        console.print(f"[green]✓[/green] Port assignments: {len(external_ports)} ports")
+        console.print(f"[green]✓[/green] Port assignments: {len(used_ports)} ports")
 
-    # 4. Addons
+    # 4. VMs validation
+    if "vms" in config:
+        vms = config["vms"]
+        console.print(f"[green]✓[/green] VMs defined: {len(vms)}")
+
+        # Validate VM services are configured in addons
+        for vm_name, vm_config in vms.items():
+            if "services" in vm_config:
+                for service in vm_config["services"]:
+                    if "addons" in config and service not in config["addons"]:
+                        warnings.append(
+                            f"VM '{vm_name}' uses service '{service}' but it's not in addons"
+                        )
+
+    # 5. Addons
     if "addons" in config:
+        console.print(f"[green]✓[/green] Addons configured: {len(config['addons'])}")
+
+        # Check if recommended addons are present
         recommended_addons = get_recommended_addons()
         for addon in recommended_addons:
             if addon not in config["addons"]:
-                warnings.append(f"Addon '{addon}' not configured")
-            else:
-                console.print(f"[green]✓[/green] Core service: {addon}")
+                # Only warn if not configured anywhere (not in VMs either)
+                is_used = False
+                if "vms" in config:
+                    for vm_config in config["vms"].values():
+                        if "services" in vm_config and addon in vm_config["services"]:
+                            is_used = True
+                            break
 
-    # 5. GitHub repositories
-    if "github" in config and "repositories" in config["github"]:
-        repos = config["github"]["repositories"]
-        console.print(f"[green]✓[/green] GitHub repositories: {len(repos)}")
+                if not is_used:
+                    warnings.append(f"Optional addon '{addon}' not configured")
 
-        # Check each service has a repo
-        if "services" in config:
-            for service in config["services"]:
-                if service not in repos:
-                    warnings.append(f"Service '{service}' has no GitHub repository")
+    # 6. GitHub configuration
+    if "github" in config:
+        if "organization" in config["github"]:
+            console.print(
+                f"[green]✓[/green] GitHub organization: {config['github']['organization']}"
+            )
+        else:
+            warnings.append("GitHub organization not configured")
 
-    # 6. Network configuration
-    if "network" in config and "subnet" in config["network"]:
-        console.print(f"[green]✓[/green] Network subnet: {config['network']['subnet']}")
+    # 7. Network configuration
+    if "network" in config:
+        if "vpc_subnet" in config["network"]:
+            console.print(
+                f"[green]✓[/green] VPC subnet: {config['network']['vpc_subnet']}"
+            )
+        if "docker_subnet" in config["network"]:
+            console.print(
+                f"[green]✓[/green] Docker subnet: {config['network']['docker_subnet']}"
+            )
     else:
-        warnings.append("Network subnet not configured")
+        warnings.append("Network configuration not found")
 
     # Display results
     console.print("\n[bold]Validation Results:[/bold]\n")
@@ -185,13 +214,20 @@ def validate_project(project):
         table.add_column("Property", style="cyan")
         table.add_column("Value", style="white")
 
-        table.add_row("Project", config.get("project", "N/A"))
-        table.add_row("Services", str(len(config.get("services", []))))
-        table.add_row("Ports", str(len(config.get("ports", {}))))
-        table.add_row("Addons", str(len(config.get("addons", {}))))
-        table.add_row(
-            "Repositories", str(len(config.get("github", {}).get("repositories", {})))
+        # Project info
+        project_name = (
+            config.get("project", {}).get("name", "N/A")
+            if isinstance(config.get("project"), dict)
+            else config.get("project", "N/A")
         )
+        table.add_row("Project", project_name)
+        table.add_row("Apps", str(len(config.get("apps", {}))))
+        table.add_row("VMs", str(len(config.get("vms", {}))))
+        table.add_row("Addons", str(len(config.get("addons", {}))))
+
+        # GitHub org
+        github_org = config.get("github", {}).get("organization", "N/A")
+        table.add_row("GitHub Org", github_org)
 
         console.print()
         console.print(table)

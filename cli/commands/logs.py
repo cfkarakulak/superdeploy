@@ -59,28 +59,21 @@ def logs(project, app, follow, lines, environment, verbose):
 
         vm_role = apps[app].get("vm", "core")
 
-        # Get VM IP from inventory
-        inventory_path = (
-            project_root / "shared" / "ansible" / "inventories" / f"{project}.ini"
-        )
-        if not inventory_path.exists():
-            console.print(
-                f"[red]❌ Inventory not found. Run: superdeploy up -p {project}[/red]"
-            )
-            return
+        # Get SSH config from project config
+        ssh_config = project_config.raw_config.get("cloud", {}).get("ssh", {})
+        ssh_key_path = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
+        ssh_user = ssh_config.get("user", "superdeploy")
 
-        # Parse inventory to get VM IP
-        inventory_content = inventory_path.read_text()
-        import re
+        # Get VM IP from .env (source of truth)
+        env = load_env(project=project)
 
-        pattern = rf"{project}-{vm_role}-\d+\s+ansible_host=(\S+)"
-        match = re.search(pattern, inventory_content)
-
-        if not match:
-            logger.log_error(f"VM not found in inventory for role: {vm_role}")
+        ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
+        if ip_key not in env:
+            logger.log_error(f"VM IP not found in .env: {ip_key}")
+            logger.log(f"Run: superdeploy up -p {project}")
             raise SystemExit(1)
 
-        ssh_host = match.group(1)
+        ssh_host = env[ip_key]
         logger.log(f"Found VM: {ssh_host}")
 
     except Exception as e:
@@ -88,8 +81,7 @@ def logs(project, app, follow, lines, environment, verbose):
         raise SystemExit(1)
 
     # SSH config
-    ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
-    ssh_user = "superdeploy"
+    ssh_key = os.path.expanduser(ssh_key_path)
 
     follow_flag = "-f" if follow else ""
     # Container naming: {project}-{app}

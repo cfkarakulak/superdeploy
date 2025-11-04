@@ -41,43 +41,54 @@
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
 
-- name: "Force stop and remove ALL orchestrator-forgejo* containers"
-  shell: |
-    docker ps -a --filter "name=orchestrator-forgejo" --format "{% raw %}{{.Names}}{% endraw %}" | xargs -r docker rm -f 2>/dev/null || true
-  ignore_errors: true
-
-- name: "Stop existing {{ addon_name }} containers (if any)"
+- name: Stop existing services (with explicit project name)
   community.docker.docker_compose_v2:
-    project_src: "{{ addon_base_path }}/{{ addon_name }}"
-    state: stopped
-    remove_orphans: true
-  become_user: "{{ superdeploy_user }}"
-  ignore_errors: true
-
-- name: "Remove existing {{ addon_name }} containers (if any)"
-  community.docker.docker_compose_v2:
+    project_name: "orchestrator"
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: absent
     remove_orphans: true
   become_user: "{{ superdeploy_user }}"
+  register: compose_down_result
+  failed_when: false
   ignore_errors: true
 
-- name: "Force remove {{ addon_name }} container by name (1st attempt)"
-  shell: |
-    docker rm -f orchestrator-{{ addon_name }} 2>/dev/null || true
-    docker rm -f orchestrator-{{ addon_name }}-db 2>/dev/null || true
-    docker rm -f orchestrator-{{ addon_name }}-runner 2>/dev/null || true
+- name: Wait for Docker to complete cleanup
+  command: sleep 2
   changed_when: false
-  ignore_errors: true
 
-- name: "Force remove all {{ addon_name }} related containers (2nd attempt)"
+- name: Verify container removal
   shell: |
-    docker ps -aq --filter "name=orchestrator-forgejo" | xargs -r docker rm -f 2>/dev/null || true
+    set -e
+    # Forgejo has 3 containers
+    FILTER_NAMES=("orchestrator-forgejo" "orchestrator-forgejo-db" "orchestrator-forgejo-runner")
+    
+    for FILTER_NAME in "${FILTER_NAMES[@]}"; do
+      if docker ps -aq --filter "name=^/${FILTER_NAME}$" 2>/dev/null | grep -q .; then
+        docker rm -f "$FILTER_NAME" 2>/dev/null || true
+      fi
+    done
+    sleep 2
+    
+    # Final verification
+    FAILED=""
+    for FILTER_NAME in "${FILTER_NAMES[@]}"; do
+      if docker ps -aq --filter "name=^/${FILTER_NAME}$" 2>/dev/null | grep -q .; then
+        FAILED="${FAILED} ${FILTER_NAME}"
+      fi
+    done
+    
+    if [ -n "$FAILED" ]; then
+      echo "FATAL: Containers still exist:$FAILED"
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  become_user: "{{ superdeploy_user }}"
   changed_when: false
-  ignore_errors: true
 
-- name: "Deploy {{ addon_name }} services"
+- name: "Deploy {{ addon_name }} services (with explicit project name)"
   community.docker.docker_compose_v2:
+    project_name: "orchestrator"
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: present
     pull: "always"

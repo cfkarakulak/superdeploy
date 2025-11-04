@@ -39,7 +39,7 @@ def clean_vm_ips_from_env(project_root, project):
     with open(env_file, "w") as f:
         f.writelines(cleaned_lines)
 
-    console.print("  [green]✓[/green] Cleaned VM IPs from .env")
+    console.print("  [dim]✓ Cleaned VM IPs from .env[/dim]")
 
 
 @click.command()
@@ -149,17 +149,17 @@ def down(project, yes, verbose, keep_infra):
     if lock_file.exists():
         lock_file.unlink()
 
-    console.print("  ✓ State locks cleaned")
+    console.print("  [dim]✓ State locks cleaned[/dim]")
 
     # Check if workspace exists
     from cli.terraform_utils import workspace_exists, terraform_init
 
     if not workspace_exists(project):
-        console.print("  ✓ No workspace found (already destroyed)")
+        console.print("  [dim]✓ No workspace found (already destroyed)[/dim]")
         skip_terraform = True
     else:
         skip_terraform = False
-        console.print("  ✓ Workspace found")
+        console.print("  [dim]✓ Workspace found[/dim]")
 
     if not skip_terraform:
         logger.step("[2/3] Terraform Destroy")
@@ -194,7 +194,7 @@ def down(project, yes, verbose, keep_infra):
             )
 
             if returncode == 0:
-                console.print("  ✓ All resources destroyed")
+                console.print("  [dim]✓ All resources destroyed[/dim]")
             else:
                 logger.warning(f"Terraform destroy had issues: {stderr}")
                 console.print("  ⚠ Partial destruction")
@@ -340,9 +340,11 @@ def down(project, yes, verbose, keep_infra):
                 resources.append(f"{ips_deleted} IP(s)")
 
             if resources:
-                console.print(f"  ✓ GCP resources cleaned: {', '.join(resources)}")
+                console.print(
+                    f"  [dim]✓ GCP resources cleaned: {', '.join(resources)}[/dim]"
+                )
             else:
-                console.print("  ✓ No GCP resources found")
+                console.print("  [dim]✓ No GCP resources found[/dim]")
 
         except Exception as gcp_error:
             logger.warning(f"GCP cleanup error: {gcp_error}")
@@ -355,7 +357,7 @@ def down(project, yes, verbose, keep_infra):
                 import shutil
 
                 shutil.rmtree(state_dir)
-            console.print("  ✓ Terraform state cleaned")
+            console.print("  [dim]✓ Terraform state cleaned[/dim]")
         except Exception as cleanup_error:
             logger.warning(f"State cleanup warning: {cleanup_error}")
 
@@ -384,7 +386,7 @@ def down(project, yes, verbose, keep_infra):
         if tfvars_file.exists():
             tfvars_file.unlink()
 
-        console.print("  ✓ Local files cleaned")
+        console.print("  [dim]✓ Local files cleaned[/dim]")
 
     # Final summary
     if not verbose:

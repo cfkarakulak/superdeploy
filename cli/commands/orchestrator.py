@@ -240,7 +240,7 @@ def orchestrator_down(yes, preserve_ip, verbose):
     from rich.console import Console
 
     console = Console()
-    console.print("  ✓ Configuration loaded")
+    console.print("  [dim]✓ Configuration loaded[/dim]")
 
     import subprocess
     from cli.terraform_utils import (
@@ -254,7 +254,9 @@ def orchestrator_down(yes, preserve_ip, verbose):
 
     # Check workspace before init
     if not workspace_exists("orchestrator"):
-        console.print("  ✓ No workspace found (already destroyed)")
+        console.print(
+            "  [green]✓[/green] [dim]No workspace found (already destroyed)[/dim]"
+        )
         terraform_success = True
     else:
         logger.step("[2/3] Terraform Destroy")
@@ -298,7 +300,7 @@ def orchestrator_down(yes, preserve_ip, verbose):
             )
 
             if returncode == 0:
-                console.print("  ✓ All resources destroyed")
+                console.print("  [dim]✓ All resources destroyed[/dim]")
                 terraform_success = True
             else:
                 logger.warning("Terraform destroy failed, attempting manual cleanup")
@@ -402,9 +404,11 @@ def orchestrator_down(yes, preserve_ip, verbose):
             resources.append(f"{ips_deleted} IP(s)")
 
         if resources:
-            console.print(f"  ✓ GCP resources cleaned: {', '.join(resources)}")
+            console.print(
+                f"  [dim]✓ GCP resources cleaned: {', '.join(resources)}[/dim]"
+            )
         else:
-            console.print("  ✓ No GCP resources found")
+            console.print("  [dim]✓ No GCP resources found[/dim]")
 
     # Clean Terraform state
     terraform_state_dir = (
@@ -441,7 +445,7 @@ def orchestrator_down(yes, preserve_ip, verbose):
     except Exception as e:
         logger.warning(f"Subnet release warning: {e}")
 
-    console.print("  ✓ Local files cleaned")
+    console.print("  [dim]✓ Local files cleaned[/dim]")
 
     console.print("\n[bold green]✅ Orchestrator Destroyed![/bold green]")
 
@@ -710,7 +714,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
         from rich.console import Console
 
         console = Console()
-        console.print("  ✓ VM provisioned")
+        console.print("  [dim]✓ VM provisioned[/dim]")
 
         # Get outputs
         # Ensure we're in orchestrator workspace
@@ -768,7 +772,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
             logger.log_output(result.stderr, "stderr")
 
             if result.returncode == 0 and "root" in result.stdout:
-                console.print("  ✓ VM ready")
+                console.print("  [dim]✓ VM ready[/dim]")
                 break
 
             if attempt < max_attempts:
@@ -776,7 +780,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
                 time.sleep(10)
         else:
             logger.warning("VM may not be fully ready, continuing anyway...")
-            console.print("  ⚠ VM partially ready")
+            console.print("  [yellow]⚠[/yellow] [dim]VM partially ready[/dim]")
 
         # Clean SSH known_hosts
         subprocess.run(["ssh-keygen", "-R", orchestrator_ip], capture_output=True)

@@ -56,6 +56,11 @@ def releases_list(project, app, limit):
 
         vm_role = apps[app].get("vm", "core")
 
+        # Get SSH config from project config
+        ssh_config = project_config.raw_config.get("cloud", {}).get("ssh", {})
+        ssh_key_path = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
+        ssh_user = ssh_config.get("user", "superdeploy")
+
         # Get VM IP from .env
         env = load_env(project=project)
 
@@ -65,8 +70,7 @@ def releases_list(project, app, limit):
             return
 
         ssh_host = env[ip_key]
-        ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
-        ssh_user = "superdeploy"
+        ssh_key = os.path.expanduser(ssh_key_path)
 
     except Exception as e:
         console.print(f"[red]❌ Error: {e}[/red]")

@@ -11,6 +11,7 @@ from rich.panel import Panel
 from rich.live import Live
 from rich.spinner import Spinner
 from rich.text import Text
+from rich.padding import Padding
 
 console = Console()
 
@@ -208,21 +209,21 @@ ERROR OCCURRED
         self.log(f"Step: {step_name}", "INFO")
 
         if not self.verbose:
-            console.print(f"\n[cyan]▶[/cyan] {step_name}")
+            console.print(f"[color(214)]▶[/color(214)] {step_name}")
 
     def success(self, message: str):
         """Log a success message"""
         self.log(message, "INFO")
 
         if not self.verbose:
-            console.print(f"[green]✓[/green] {message}")
+            console.print(f"  [dim]✓ {message}[/dim]")
 
     def warning(self, message: str):
         """Log a warning message"""
         self.log(message, "WARNING")
 
         if not self.verbose:
-            console.print(f"[yellow]⚠[/yellow] {message}")
+            console.print(f"  [yellow]⚠[/yellow] [dim]{message}[/dim]")
 
     def close(self):
         """Close log file"""
@@ -319,8 +320,11 @@ def run_with_progress(
         return process.returncode, "\n".join(stdout_lines), "\n".join(stderr_lines)
 
     # Non-verbose: show spinner, capture output
+    spinner = Spinner("dots", text=f"[cyan]{description}...[/cyan]")
+    padded_spinner = Padding(spinner, (0, 0, 0, 2))  # left padding of 2 spaces
+
     with Live(
-        Spinner("dots", text=f"[cyan]{description}...[/cyan]"),
+        padded_spinner,
         console=console,
         refresh_per_second=10,
     ) as live:
@@ -336,14 +340,14 @@ def run_with_progress(
 
         # Update live display with proper formatting
         if result.returncode == 0:
-            # Only checkmark is green, description is default color
-            checkmark = Text("  ✓ ", style="green")
-            checkmark.append(description, style="")
+            # Entire line is dim (including checkmark)
+            checkmark = Text("  ✓ ", style="dim")
+            checkmark.append(description, style="dim")
             live.update(checkmark)
         else:
-            # Only X is red, description is default color
+            # Only X is red, description is dim
             x_mark = Text("  ✗ ", style="red")
-            x_mark.append(description, style="")
+            x_mark.append(description, style="dim")
             live.update(x_mark)
 
     return result.returncode, result.stdout, result.stderr

@@ -73,15 +73,6 @@ def up(
                 verbose,
             )
 
-            if not verbose:
-                console.print(
-                    "\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]"
-                )
-                console.print("[bold green]✅ Infrastructure Deployed![/bold green]")
-                console.print(
-                    "[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]\n"
-                )
-
         except Exception as e:
             logger.log_error(str(e), context=f"Project {project} deployment failed")
             raise SystemExit(1)
@@ -202,7 +193,7 @@ def _deploy_project_v2(
         from rich.console import Console
 
         console = Console()
-        console.print("  ✓ Terraform initialized")
+        console.print("  [dim]✓ Terraform initialized[/dim]")
 
         # Generate tfvars
         tfvars_file = generate_tfvars(project_config_obj, preserve_ip=preserve_ip)
@@ -239,7 +230,7 @@ def _deploy_project_v2(
             logger.log_error("Terraform apply failed", context=stderr)
             raise SystemExit(1)
 
-        console.print("  ✓ VMs provisioned")
+        console.print("  [dim]✓ VMs provisioned[/dim]")
 
         # Get VM IPs
         from cli.terraform_utils import get_terraform_outputs
@@ -340,16 +331,16 @@ def _deploy_project_v2(
             if all_ready:
                 vm_count = len(public_ips)
                 vm_list = ", ".join(public_ips.keys())
-                console.print("  ✓ VMs ready")
+                console.print("  [dim]✓ VMs ready[/dim]")
             else:
                 logger.warning("Some VMs may not be fully ready, continuing...")
                 vm_count = len(public_ips)
                 vm_list = ", ".join(public_ips.keys())
-                console.print("  ⚠ VMs partially ready")
+                console.print("  [yellow]⚠[/yellow] [dim]VMs partially ready[/dim]")
 
             # Show phase 1 completion
             console.print(
-                f"  ✓ Configuration • Environment • {vm_count} VMs ({vm_list})"
+                f"  [dim]✓ Configuration • Environment • {vm_count} VMs ({vm_list})[/dim]"
             )
         else:
             logger.log("No VMs found in outputs")
@@ -362,7 +353,9 @@ def _deploy_project_v2(
         from rich.console import Console
 
         console = Console()
-        console.print(f"  ✓ Configuration • Environment • {vm_count} VMs (existing)")
+        console.print(
+            f"  [dim]✓ Configuration • Environment • {vm_count} VMs (existing)[/dim]"
+        )
 
     # Ansible
     if not skip_ansible:
@@ -428,7 +421,6 @@ def _deploy_project_v2(
             )
             raise SystemExit(1)
 
-        console.print("[green]✓ Services configured[/green]")
         logger.success("Services configured successfully")
 
     else:
@@ -463,20 +455,16 @@ def _deploy_project_v2(
         logger.log("✓ Code deployment complete (git push via Forgejo Actions)")
         logger.log("  Tip: Push to 'production' branch to trigger deployment")
 
-    # Display deployment summary
-    console.print("\n" + "━" * 60)
-    console.print("[bold green]✅ Infrastructure Deployed![/bold green]")
-    console.print("━" * 60)
-
     # Load environment for IPs and credentials
     env = load_env(project)
 
     # Orchestrator info
     orchestrator_ip = env.get("ORCHESTRATOR_IP")
     if orchestrator_ip:
-        console.print("\n[bold cyan]🎯 Orchestrator[/bold cyan]")
-        console.print(f"  [dim]IP:[/dim] {orchestrator_ip}")
-        console.print(f"  [dim]Forgejo:[/dim] http://{orchestrator_ip}:3001")
+        logger.log("")
+        logger.log("🎯 Orchestrator")
+        logger.log(f"  IP: {orchestrator_ip}")
+        logger.log(f"  Forgejo: http://{orchestrator_ip}:3001")
 
         # Get Forgejo credentials from orchestrator config
         project_root = get_project_root()
@@ -489,20 +477,20 @@ def _deploy_project_v2(
             forgejo_pass = orch_env.get("FORGEJO_ADMIN_PASSWORD", "")
             grafana_pass = orch_env.get("GRAFANA_ADMIN_PASSWORD", "")
 
-            console.print(f"  [dim]Forgejo:[/dim] http://{orchestrator_ip}:3001")
             if forgejo_pass:
-                console.print(f"    Username: [bold]{forgejo_admin}[/bold]")
-                console.print(f"    Password: [bold]{forgejo_pass}[/bold]")
+                logger.log(f"    Username: {forgejo_admin}")
+                logger.log(f"    Password: {forgejo_pass}")
 
-            console.print(f"  [dim]Grafana:[/dim] http://{orchestrator_ip}:3000")
+            logger.log(f"  Grafana: http://{orchestrator_ip}:3000")
             if grafana_pass:
-                console.print("    Username: [bold]admin[/bold]")
-                console.print(f"    Password: [bold]{grafana_pass}[/bold]")
+                logger.log("    Username: admin")
+                logger.log(f"    Password: {grafana_pass}")
 
-            console.print(f"  [dim]Prometheus:[/dim] http://{orchestrator_ip}:9090")
+            logger.log(f"  Prometheus: http://{orchestrator_ip}:9090")
 
     # Project VMs and Apps
-    console.print(f"\n[bold cyan]📦 Project: {project}[/bold cyan]")
+    logger.log("")
+    logger.log(f"📦 Project: {project}")
 
     # Get VM IPs
     vm_ips = {}
@@ -512,12 +500,13 @@ def _deploy_project_v2(
             vm_ips[vm_name] = value
 
     if vm_ips:
-        console.print("  [dim]VMs:[/dim]")
+        logger.log("  VMs:")
         for vm_name, ip in sorted(vm_ips.items()):
-            console.print(f"    • {vm_name}: {ip}")
+            logger.log(f"    • {vm_name}: {ip}")
 
     # Display project credentials (postgres, rabbitmq, etc.)
-    console.print("\n[bold cyan]🔐 Project Credentials:[/bold cyan]")
+    logger.log("")
+    logger.log("🔐 Project Credentials")
 
     # PostgreSQL
     postgres_host = env.get("POSTGRES_HOST") or project_config_obj.raw_config.get(
@@ -532,11 +521,12 @@ def _deploy_project_v2(
     ).get("postgres", {}).get("database", f"{project}_db")
 
     if postgres_pass:
-        console.print("\n  [cyan]🐘 PostgreSQL:[/cyan]")
-        console.print(f"    Host: [bold]{postgres_host}[/bold]")
-        console.print(f"    Database: [bold]{postgres_db}[/bold]")
-        console.print(f"    Username: [bold]{postgres_user}[/bold]")
-        console.print(f"    Password: [bold]{postgres_pass}[/bold]")
+        logger.log("")
+        logger.log("  🐘 PostgreSQL")
+        logger.log(f"    Host: {postgres_host}")
+        logger.log(f"    Database: {postgres_db}")
+        logger.log(f"    Username: {postgres_user}")
+        logger.log(f"    Password: {postgres_pass}")
 
     # RabbitMQ
     rabbitmq_host = env.get("RABBITMQ_HOST") or project_config_obj.raw_config.get(
@@ -559,26 +549,29 @@ def _deploy_project_v2(
             break
 
     if rabbitmq_pass:
-        console.print("\n  [cyan]🐰 RabbitMQ:[/cyan]")
-        console.print(f"    Host: [bold]{rabbitmq_host}[/bold]")
-        console.print(f"    Username: [bold]{rabbitmq_user}[/bold]")
-        console.print(f"    Password: [bold]{rabbitmq_pass}[/bold]")
+        logger.log("")
+        logger.log("  🐰 RabbitMQ")
+        logger.log(f"    Host: {rabbitmq_host}")
+        logger.log(f"    Username: {rabbitmq_user}")
+        logger.log(f"    Password: {rabbitmq_pass}")
         if core_vm_ip:
-            console.print(f"    Management UI: http://{core_vm_ip}:15672")
+            logger.log(f"    Management UI: http://{core_vm_ip}:15672")
 
     # Redis (if exists)
     redis_host = env.get("REDIS_HOST", "")
     redis_pass = env.get("REDIS_PASSWORD", "")
 
     if redis_pass:
-        console.print("\n  [cyan]📦 Redis:[/cyan]")
-        console.print(f"    Host: [bold]{redis_host}[/bold]")
-        console.print(f"    Password: [bold]{redis_pass}[/bold]")
+        logger.log("")
+        logger.log("  📦 Redis")
+        logger.log(f"    Host: {redis_host}")
+        logger.log(f"    Password: {redis_pass}")
 
     # Get app URLs
     apps = project_config_obj.raw_config.get("apps", {})
     if apps:
-        console.print("\n  [dim]Applications:[/dim]")
+        logger.log("")
+        logger.log("  Applications:")
         for app_name, app_config in apps.items():
             domain = app_config.get("domain", "")
             port = app_config.get("port")
@@ -593,9 +586,15 @@ def _deploy_project_v2(
 
             if vm_ip:
                 if domain:
-                    console.print(f"    • {app_name}: https://{domain}")
+                    logger.log(f"    • {app_name}: https://{domain}")
                 else:
-                    console.print(f"    • {app_name}: http://{vm_ip}:{port}")
+                    logger.log(f"    • {app_name}: http://{vm_ip}:{port}")
+
+    # Display deployment success banner at the end
+    logger.log("")
+    logger.log("━" * 60)
+    logger.success("Infrastructure Deployed!")
+    logger.log("━" * 60)
 
 
 def generate_ansible_inventory(

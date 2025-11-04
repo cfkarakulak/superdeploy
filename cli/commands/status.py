@@ -75,6 +75,12 @@ def status(project, verbose):
     # Get apps and their VM assignments
     apps = config.get("apps", {})
 
+    # Get SSH config from project config
+    ssh_config = config.get("cloud", {}).get("ssh", {})
+    ssh_key_path = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
+    ssh_user = ssh_config.get("user", "superdeploy")
+    ssh_key = os.path.expanduser(ssh_key_path)
+
     logger.step("Checking VM and container status")
 
     # Create table
@@ -86,9 +92,6 @@ def status(project, verbose):
     table.add_column("Component", style="cyan", no_wrap=True)
     table.add_column("Status", style="green")
     table.add_column("Details", style="dim")
-
-    ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
-    ssh_user = "superdeploy"
 
     # Check each VM and its containers
     for role, vm_info in sorted(vms.items()):

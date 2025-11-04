@@ -118,22 +118,10 @@ def tunnel(project, service, all_services, list_services):
         console.print("[yellow]Run 'superdeploy up -p {project}' first[/yellow]")
         sys.exit(1)
 
-    # Get SSH config
-    from cli.core.orchestrator_loader import OrchestratorLoader
-
-    shared_dir = project_root / "shared"
-    orch_loader = OrchestratorLoader(shared_dir)
-
-    try:
-        orch_config = orch_loader.load()
-        ssh_config = orch_config.config.get("ssh", {})
-        ssh_user = ssh_config.get("user", "superdeploy")
-        ssh_key = Path(
-            ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
-        ).expanduser()
-    except Exception:
-        ssh_user = "superdeploy"
-        ssh_key = Path("~/.ssh/superdeploy_deploy").expanduser()
+    # Get SSH config from project config
+    ssh_config = project_config.raw_config.get("cloud", {}).get("ssh", {})
+    ssh_user = ssh_config.get("user", "superdeploy")
+    ssh_key = Path(ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")).expanduser()
 
     # Determine which services to tunnel
     services_to_tunnel = []

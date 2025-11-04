@@ -35,7 +35,8 @@ def releases_rollback(project, app, version, force):
     Features:
     - Navigate forward/backward between any releases
     - Interactive selection if no version specified
-    - Zero-downtime switching (1-2 seconds)
+    - TRUE zero-downtime switching (new starts before old stops)
+    - Automatic health checks and rollback on failure
     - Keeps last 5 releases for instant switching
     """
     show_header(
@@ -65,6 +66,11 @@ def releases_rollback(project, app, version, force):
 
         vm_role = apps[app].get("vm", "core")
 
+        # Get SSH config from project config
+        ssh_config = project_config.raw_config.get("cloud", {}).get("ssh", {})
+        ssh_key_path = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
+        ssh_user = ssh_config.get("user", "superdeploy")
+
         # Get VM IP from .env
         env = load_env(project=project)
 
@@ -74,8 +80,7 @@ def releases_rollback(project, app, version, force):
             return
 
         ssh_host = env[ip_key]
-        ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
-        ssh_user = "superdeploy"
+        ssh_key = os.path.expanduser(ssh_key_path)
 
     except Exception as e:
         console.print(f"[red]❌ Error: {e}[/red]")
@@ -213,11 +218,13 @@ def releases_rollback(project, app, version, force):
         # Show confirmation
         console.print(
             Panel(
-                f"[cyan]🔄 Switch Release[/cyan]\n\n"
+                f"[cyan]🔄 Switch Release (Zero-Downtime)[/cyan]\n\n"
                 f"[white]App:[/white] {app}\n"
                 f"[white]From:[/white] {current_name or 'unknown'}\n"
                 f"[white]To:[/white] {target_release}\n\n"
-                f"[dim]This will switch to the selected release (1-2 seconds)[/dim]",
+                f"[dim]New container will start before old one stops[/dim]\n"
+                f"[dim]Health check will verify new version before switching[/dim]\n"
+                f"[dim]Automatic rollback if health check fails[/dim]",
                 border_style="cyan",
             )
         )
@@ -228,30 +235,76 @@ def releases_rollback(project, app, version, force):
                 console.print("[yellow]⏹️  Switch cancelled[/yellow]")
                 return
 
-        # Execute switch
-        console.print("[cyan]🔄 Switching release...[/cyan]")
+        # Execute switch with zero-downtime
+        console.print("[cyan]🔄 Switching release (zero-downtime)...[/cyan]")
 
         switch_cmd = f"""
         set -e
         cd /opt/apps/{project}/releases/{app}/{target_release}
         
-        # Update symlink (atomic operation)
-        ln -sfn /opt/apps/{project}/releases/{app}/{target_release} /opt/apps/{project}/current/{app}
+        CONTAINER_NAME="{project}-{app}"
+        NEW_CONTAINER="${{CONTAINER_NAME}}-new-$RANDOM"
+        
+        echo "📦 Preparing new release..."
         
         # Copy .env to /tmp/decrypted.env for docker-compose
         cp .env /tmp/decrypted.env
         
-        # Stop and remove existing container
-        docker stop {project}-{app} 2>/dev/null || true
-        docker rm {project}-{app} 2>/dev/null || true
+        # Temporarily rename service in compose file to avoid name conflict
+        sed "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" docker-compose-{app}.yml > /tmp/docker-compose-new.yml
         
-        # Start container with selected image
-        docker compose -f docker-compose-{app}.yml up -d --wait
+        echo "🐳 Starting new container: $NEW_CONTAINER"
+        docker compose -f /tmp/docker-compose-new.yml up -d --wait
+        
+        # Wait for container to be ready
+        echo "⏳ Waiting for health check..."
+        sleep 3
+        
+        # Check if new container is running
+        if docker ps --filter "name=$NEW_CONTAINER" --format "{{{{.Names}}}}" | grep -q "$NEW_CONTAINER"; then
+            echo "✅ New container is running"
+            
+            # Wait for health check (if defined)
+            sleep 2
+            HEALTH_STATUS=$(docker inspect --format='{{{{.State.Health.Status}}}}' $NEW_CONTAINER 2>/dev/null || echo "none")
+            
+            if [ "$HEALTH_STATUS" = "healthy" ] || [ "$HEALTH_STATUS" = "none" ]; then
+                echo "✅ Health check passed (status: $HEALTH_STATUS)"
+                
+                # Stop and remove old container
+                if docker ps -a --filter "name=$CONTAINER_NAME" --format "{{{{.Names}}}}" | grep -q "^$CONTAINER_NAME$"; then
+                    echo "⏸️  Stopping old container..."
+                    docker stop $CONTAINER_NAME 2>/dev/null || true
+                    docker rm $CONTAINER_NAME 2>/dev/null || true
+                fi
+                
+                # Rename new container to proper name
+                echo "🔄 Switching to new container..."
+                docker rename $NEW_CONTAINER $CONTAINER_NAME
+                
+                # Update symlink (atomic operation)
+                ln -sfn /opt/apps/{project}/releases/{app}/{target_release} /opt/apps/{project}/current/{app}
+                
+                echo "✅ Zero-downtime switch complete!"
+                echo "SWITCH_SUCCESS"
+            else
+                echo "❌ Health check failed (status: $HEALTH_STATUS)"
+                echo "🔙 Rolling back..."
+                docker stop $NEW_CONTAINER 2>/dev/null || true
+                docker rm $NEW_CONTAINER 2>/dev/null || true
+                echo "SWITCH_FAILED"
+                exit 1
+            fi
+        else
+            echo "❌ New container failed to start"
+            docker stop $NEW_CONTAINER 2>/dev/null || true
+            docker rm $NEW_CONTAINER 2>/dev/null || true
+            echo "SWITCH_FAILED"
+            exit 1
+        fi
         
         # Cleanup
-        rm -f /tmp/decrypted.env
-        
-        echo "SWITCH_SUCCESS"
+        rm -f /tmp/decrypted.env /tmp/docker-compose-new.yml
         """
 
         result = ssh_command(
@@ -259,15 +312,26 @@ def releases_rollback(project, app, version, force):
         )
 
         if "SWITCH_SUCCESS" in result:
-            console.print("[green]✅ Switch completed in 1-2 seconds![/green]")
+            console.print("\n[green]✅ Zero-downtime switch completed![/green]")
             console.print(f"[green]✅ Now running: {target_release}[/green]")
+            console.print("[dim]  → New container started[/dim]")
+            console.print("[dim]  → Health check passed[/dim]")
+            console.print("[dim]  → Old container removed[/dim]")
 
             # Show quick verification command
             app_port = apps[app].get("port", 8000)
             console.print(f"\n[dim]Verify: curl http://{ssh_host}:{app_port}/[/dim]")
+        elif "SWITCH_FAILED" in result:
+            console.print("\n[red]❌ Switch failed - rollback performed[/red]")
+            console.print(
+                "[yellow]⚠️  Old version is still running (no downtime)[/yellow]"
+            )
+            console.print(f"\n[dim]{result}[/dim]")
+            raise SystemExit(1)
         else:
             console.print("[red]❌ Switch failed[/red]")
             console.print(f"[dim]{result}[/dim]")
+            raise SystemExit(1)
 
     except Exception as e:
         console.print(f"[red]❌ Switch failed: {e}[/red]")

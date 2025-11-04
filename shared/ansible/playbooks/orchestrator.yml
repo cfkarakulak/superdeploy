@@ -106,7 +106,7 @@
         state: started
       
     - name: Check orchestrator containers
-      command: docker ps --format '{{.Names}}'
+      command: docker ps --format '{% raw %}{{.Names}}{% endraw %}'
       register: containers
       changed_when: false
       

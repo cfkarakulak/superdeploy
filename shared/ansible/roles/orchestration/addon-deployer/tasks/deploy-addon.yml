@@ -138,7 +138,7 @@
   include_tasks: verify-health.yml
   when: addon_metadata.healthcheck is defined
 
-- name: "✓ {{ addon_name }} addon deployed successfully"
+- name: "{{ addon_name }} addon deployed successfully"
   debug:
     msg: 
       - "{{ addon_name }} addon is now running"

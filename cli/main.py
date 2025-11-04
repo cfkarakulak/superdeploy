@@ -91,7 +91,6 @@ from cli.commands.env import env_list, env_check
 from cli.commands.releases import releases_list
 from cli.commands.switch import releases_rollback
 from cli.commands.backup import backups_create
-from cli.commands.monitoring import monitoring_sync, monitoring_status
 from cli.commands.orchestrator import (
     orchestrator_init,
     orchestrator_up,
@@ -181,9 +180,6 @@ cli.add_command(orchestrator_up)
 cli.add_command(orchestrator_down)
 cli.add_command(orchestrator_status)
 cli.add_command(update_firewall.update_firewall, name="update-firewall")
-# Register monitoring commands (Heroku-style with colons)
-cli.add_command(monitoring_sync)
-cli.add_command(monitoring_status)
 cli.add_command(subnets.subnets)
 cli.add_command(tunnel.tunnel)
 

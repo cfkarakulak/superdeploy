@@ -114,35 +114,54 @@
     mode: '0600'
   when: addon_path is defined and addon_path | length > 0
 
-- name: Stop and remove existing {{ addon_name }} containers (idempotent cleanup)
+- name: Stop existing services (with explicit project name)
   community.docker.docker_compose_v2:
+    project_name: "{{ project_name }}"
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: absent
     remove_orphans: true
   become_user: "{{ superdeploy_user }}"
+  register: compose_down_result
   failed_when: false
   ignore_errors: true
 
-- name: Force remove {{ addon_name }} containers by name (1st attempt)
+- name: Wait for Docker to complete cleanup
+  command: sleep 2
+  changed_when: false
+
+- name: Verify container removal
   shell: |
-    docker rm -f {{ project_name }}-{{ addon_name }} 2>/dev/null || true
-    docker rm -f {{ project_name }}-prometheus 2>/dev/null || true
-    docker rm -f {{ project_name }}-grafana 2>/dev/null || true
+    set -e
+    # Monitoring has 3 containers
+    FILTER_NAMES=("{{ project_name }}-{{ addon_name }}" "{{ project_name }}-prometheus" "{{ project_name }}-grafana")
+    
+    for FILTER_NAME in "${FILTER_NAMES[@]}"; do
+      if docker ps -aq --filter "name=^/${FILTER_NAME}$" 2>/dev/null | grep -q .; then
+        docker rm -f "$FILTER_NAME" 2>/dev/null || true
+      fi
+    done
+    sleep 2
+    
+    # Final verification
+    FAILED=""
+    for FILTER_NAME in "${FILTER_NAMES[@]}"; do
+      if docker ps -aq --filter "name=^/${FILTER_NAME}$" 2>/dev/null | grep -q .; then
+        FAILED="${FAILED} ${FILTER_NAME}"
+      fi
+    done
+    
+    if [ -n "$FAILED" ]; then
+      echo "FATAL: Containers still exist:$FAILED"
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
   become_user: "{{ superdeploy_user }}"
   changed_when: false
-  ignore_errors: true
 
-- name: Force remove all {{ addon_name }} related containers (2nd attempt)
-  shell: |
-    docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}" | xargs -r docker rm -f 2>/dev/null || true
-    docker ps -aq --filter "name={{ project_name }}-prometheus" | xargs -r docker rm -f 2>/dev/null || true
-    docker ps -aq --filter "name={{ project_name }}-grafana" | xargs -r docker rm -f 2>/dev/null || true
-  become_user: "{{ superdeploy_user }}"
-  changed_when: false
-  ignore_errors: true
-
-- name: Start {{ addon_name }} services (fresh deployment)
+- name: Start {{ addon_name }} services (with explicit project name)
   community.docker.docker_compose_v2:
+    project_name: "{{ project_name }}"
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: present
     pull: "always"
