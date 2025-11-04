@@ -28,7 +28,6 @@ from cli.commands import (
     down,
     project,
     promote,
-    domain,
     backup,
     validate,
     metrics,
@@ -38,6 +37,7 @@ from cli.commands import (
     subnets,
     tunnel,
 )
+from cli.commands.domain import domain_add, domain_list, domain_remove
 
 console = Console()
 
@@ -94,7 +94,10 @@ cli.add_command(releases.releases)
 cli.add_command(switch.switch)
 cli.add_command(project.project)
 cli.add_command(promote.promote)
-cli.add_command(domain.domain)
+# Register domain commands (Heroku-style with colons)
+cli.add_command(domain_add)
+cli.add_command(domain_list)
+cli.add_command(domain_remove)
 cli.add_command(backup.backup)
 cli.add_command(validate.validate)
 cli.add_command(metrics.metrics)

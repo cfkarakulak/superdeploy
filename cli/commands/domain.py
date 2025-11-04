@@ -16,21 +16,11 @@ from rich.panel import Panel
 console = Console()
 
 
-@click.group(name="domain")
-def domain():
-    """
-    Manage domains for applications.
-
-    Heroku-style domain management for SuperDeploy projects.
-    """
-    pass
-
-
-@domain.command()
+@click.command(name="domain:add")
 @click.option("-p", "--project", help="Project name (required for app domains)")
 @click.argument("app_name")
 @click.argument("domain")
-def add(project: str, app_name: str, domain: str):
+def domain_add(project: str, app_name: str, domain: str):
     """
     Add a domain to an application or orchestrator service.
 
@@ -54,18 +44,18 @@ def add(project: str, app_name: str, domain: str):
 
         # Validate inputs
         if is_orchestrator and project:
+            console.print(f"[red]✗ '{app_name}' is an orchestrator service[/red]")
             console.print(
-                f"[red]✗ '{app_name}' is an orchestrator service[/red]"
+                "[yellow]Tip: Don't use -p flag for orchestrator services[/yellow]"
             )
-            console.print(f"[yellow]Tip: Don't use -p flag for orchestrator services[/yellow]")
             console.print(f"Usage: superdeploy domain:add {app_name} {domain}")
             raise click.Abort()
 
         if not is_orchestrator and not project:
+            console.print(f"[red]✗ '{app_name}' requires -p <project> flag[/red]")
             console.print(
-                f"[red]✗ '{app_name}' requires -p <project> flag[/red]"
+                f"Usage: superdeploy domain:add -p <project> {app_name} {domain}"
             )
-            console.print(f"Usage: superdeploy domain:add -p <project> {app_name} {domain}")
             raise click.Abort()
 
         console.print(
@@ -74,7 +64,6 @@ def add(project: str, app_name: str, domain: str):
 
         # ORCHESTRATOR MODE
         if is_orchestrator:
-
             # Load orchestrator config
             config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
             if not config_file.exists():
@@ -326,9 +315,9 @@ def add(project: str, app_name: str, domain: str):
         raise
 
 
-@domain.command()
+@click.command(name="domain:list")
 @click.option("-p", "--project", help="Project name (omit for orchestrator services)")
-def list(project: str):
+def domain_list(project: str):
     """
     List all domains.
 
@@ -475,10 +464,10 @@ def list(project: str):
         raise
 
 
-@domain.command()
+@click.command(name="domain:remove")
 @click.option("-p", "--project", help="Project name (required for app domains)")
 @click.argument("app_name")
-def remove(project: str, app_name: str):
+def domain_remove(project: str, app_name: str):
     """
     Remove a domain from an application or orchestrator service.
 
@@ -496,17 +485,15 @@ def remove(project: str, app_name: str):
 
         # Validate inputs
         if is_orchestrator and project:
+            console.print(f"[red]✗ '{app_name}' is an orchestrator service[/red]")
             console.print(
-                f"[red]✗ '{app_name}' is an orchestrator service[/red]"
+                "[yellow]Tip: Don't use -p flag for orchestrator services[/yellow]"
             )
-            console.print(f"[yellow]Tip: Don't use -p flag for orchestrator services[/yellow]")
             console.print(f"Usage: superdeploy domain:remove {app_name}")
             raise click.Abort()
 
         if not is_orchestrator and not project:
-            console.print(
-                f"[red]✗ '{app_name}' requires -p <project> flag[/red]"
-            )
+            console.print(f"[red]✗ '{app_name}' requires -p <project> flag[/red]")
             console.print(f"Usage: superdeploy domain:remove -p <project> {app_name}")
             raise click.Abort()
 
@@ -529,7 +516,9 @@ def remove(project: str, app_name: str):
             old_domain = service_config.get("domain")
 
             if not old_domain:
-                console.print(f"[yellow]Service '{app_name}' has no domain configured[/yellow]")
+                console.print(
+                    f"[yellow]Service '{app_name}' has no domain configured[/yellow]"
+                )
                 return
 
             # Confirm removal
@@ -548,7 +537,9 @@ def remove(project: str, app_name: str):
             console.print(f"[green]✓ Removed domain from {config_file}[/green]")
 
             # Redeploy Caddy on orchestrator
-            console.print("\n[bold yellow]▶[/bold yellow] Redeploying Caddy on orchestrator\n")
+            console.print(
+                "\n[bold yellow]▶[/bold yellow] Redeploying Caddy on orchestrator\n"
+            )
 
             result = subprocess.run(
                 ["superdeploy", "orchestrator", "up", "--addon", "caddy"],
@@ -559,7 +550,9 @@ def remove(project: str, app_name: str):
                 console.print("[red]✗ Failed to redeploy Caddy[/red]")
                 raise click.Abort()
 
-            console.print(f"[green]✓ Domain '{old_domain}' removed from {app_name}[/green]")
+            console.print(
+                f"[green]✓ Domain '{old_domain}' removed from {app_name}[/green]"
+            )
             console.print("Service now accessible via port-based routing only")
             return
 
@@ -628,7 +621,3 @@ def remove(project: str, app_name: str):
     except Exception as e:
         console.print(f"[red]✗ Failed to remove domain: {e}[/red]")
         raise
-
-
-if __name__ == "__main__":
-    domain()
