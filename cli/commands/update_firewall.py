@@ -24,8 +24,12 @@ def update_firewall(project):
         # After changing port in project.yml:
         superdeploy update-firewall -p cheapa
     """
-    console.print(f"\n[bold cyan]🔥 Updating firewall rules for: {project}[/bold cyan]")
-    console.print("━" * 40)
+    show_header(
+        title="Update Firewall Rules",
+        project=project,
+        subtitle="Fast firewall update without touching VMs",
+        console=console,
+    )
     
     from cli.utils import get_project_root
     from cli.core.config_loader import ConfigLoader

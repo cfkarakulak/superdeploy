@@ -21,6 +21,13 @@ console = Console()
 )
 def projects_deploy(project, services):
     """Deploy project-specific services to VM"""
+    
+    show_header(
+        title="Deploy Project",
+        project=project,
+        details={"Services": services},
+        console=console,
+    )
 
     project_root = Path(__file__).parents[2]
     project_path = project_root / "projects" / project
@@ -28,8 +35,6 @@ def projects_deploy(project, services):
     if not project_path.exists():
         console.print(f"[red]❌ Project '{project}' not found at {project_path}[/red]")
         return
-
-    console.print(f"\n[cyan]🚀 Deploying project: {project}[/cyan]\n")
 
     # Load infrastructure env
     env_file = project_root / ".env"

@@ -21,7 +21,13 @@ def promote(project, app, from_branch, to_branch):
       superdeploy promote -p cheapa -a api
       # Merges staging → production and auto-deploys
     """
-    console.print(f"\n[bold cyan]🚀 Promoting {app}: {from_branch} → {to_branch}[/bold cyan]\n")
+    show_header(
+        title="Promote Between Environments",
+        project=project,
+        app=app,
+        details={"From": from_branch, "To": to_branch},
+        console=console,
+    )
     
     console.print("[bold]Run these commands:[/bold]")
     console.print(f"  [green]cd app-repos/{app}[/green]")

@@ -16,7 +16,11 @@ def subnets():
 
     Shows which subnet CIDR is allocated to each project to avoid conflicts.
     """
-    console.print("\n[bold cyan]📊 Subnet Allocations[/bold cyan]\n")
+    show_header(
+        title="Subnet Allocations",
+        subtitle="View subnet CIDR allocations for all projects",
+        console=console,
+    )
 
     allocator = SubnetAllocator()
     allocations = allocator.list_allocations()

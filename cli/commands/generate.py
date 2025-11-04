@@ -20,10 +20,12 @@ def generate(project):
     Example:
         superdeploy generate -p acme
     """
-    console.print(
-        f"\n[bold cyan]🔧 Generating deployment files for: {project}[/bold cyan]"
+    show_header(
+        title="Generate Deployment Files",
+        project=project,
+        subtitle="Building from project.yml using addon system",
+        console=console,
     )
-    console.print("━" * 40)
 
     from cli.utils import get_project_root
     from cli.core.addon_loader import AddonLoader, AddonNotFoundError
