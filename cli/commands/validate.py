@@ -4,7 +4,7 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from cli.utils import get_project_path, validate_project, get_project_root
+from cli.utils import get_project_path, validate_project as validate_project_exists, get_project_root
 import yaml
 
 console = Console()
@@ -40,15 +40,9 @@ def get_recommended_addons():
         return []
 
 
-@click.group()
-def validate():
-    """Validate project configuration or addons"""
-    pass
-
-
-@validate.command(name="project")
+@click.command(name="validate:project")
 @click.option("--project", "-p", required=True, help="Project name")
-def validate_project_cmd(project):
+def validate_project(project):
     """
     Validate project configuration
 
@@ -74,7 +68,7 @@ def validate_project_cmd(project):
 
     # Validate project exists
     try:
-        validate_project(project)
+        validate_project_exists(project)
         project_path = get_project_path(project)
     except Exception as e:
         console.print(f"[red]❌ Project validation failed: {e}[/red]")
@@ -204,7 +198,7 @@ def validate_project_cmd(project):
 
 
 
-@validate.command(name="addons")
+@click.command(name="validate:addons")
 @click.option("--project", "-p", help="Validate addons for specific project")
 @click.option("--addon", "-a", help="Validate specific addon")
 @click.option("--fix", is_flag=True, help="Attempt to auto-fix issues (not implemented yet)")

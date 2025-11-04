@@ -23,7 +23,6 @@ from cli.commands import (
     doctor,
     down,
     promote,
-    validate,
     metrics,
     update_firewall,
     subnets,
@@ -43,6 +42,7 @@ from cli.commands.orchestrator import (
     orchestrator_status,
 )
 from cli.commands.project import projects_deploy
+from cli.commands.validate import validate_project, validate_addons
 
 console = Console()
 
@@ -113,7 +113,9 @@ cli.add_command(domain_list)
 cli.add_command(domain_remove)
 # Register backup commands (Heroku-style with colons)
 cli.add_command(backups_create)
-cli.add_command(validate.validate)
+# Register validate commands (Heroku-style with colons)
+cli.add_command(validate_project)
+cli.add_command(validate_addons)
 cli.add_command(metrics.metrics)
 # Register orchestrator commands (Heroku-style with colons)
 cli.add_command(orchestrator_init)

@@ -2,7 +2,6 @@
 Project deployment commands
 """
 
-import subprocess
 from pathlib import Path
 from rich.console import Console
 from dotenv import dotenv_values
@@ -55,16 +54,16 @@ def projects_deploy(project, services):
 
     # Build ansible extra vars dynamically from project secrets
     extra_vars = [f'-e "project_name={project}"']
-    
+
     # Add all secret variables dynamically (no hardcoded addon names)
     for key, value in project_secrets.items():
         if value:  # Only add non-empty values
             # Convert to ansible var format (e.g., POSTGRES_PASSWORD -> project_postgres_password)
             ansible_var = f"project_{key.lower()}"
             extra_vars.append(f'-e "{ansible_var}={value}"')
-    
-    extra_vars_str = ' \\\n  '.join(extra_vars)
-    
+
+    extra_vars_str = " \\\n  ".join(extra_vars)
+
     ansible_cmd = f"""
 cd {ansible_dir} && \\
 ansible-playbook -i inventories/dev.ini playbooks/project_deploy.yml \\
@@ -74,18 +73,18 @@ ansible-playbook -i inventories/dev.ini playbooks/project_deploy.yml \\
     # Run ansible with clean tree view
     from cli.ansible_runner import AnsibleRunner
     from cli.logger import DeployLogger
-    
+
     verbose = False  # Can be made a CLI option later
     with DeployLogger("project", project, verbose=verbose) as logger:
         logger.step("Deploying project services")
-        
+
         runner = AnsibleRunner(logger, title=f"Deploying {project}", verbose=verbose)
         returncode = runner.run(ansible_cmd, cwd=project_root)
-        
+
         if returncode != 0:
             logger.log_error("Deployment failed", context="Check logs for details")
             raise SystemExit(1)
-        
+
         logger.success("Project deployed successfully")
         console.print(f"\n[green]✅ Project '{project}' deployed successfully![/green]")
 
