@@ -96,12 +96,14 @@ def show_header(
         for key, value in details.items():
             lines.append(f"[white]{key}:[/white] [bold]{value}[/bold]")
 
-    # Create panel
+    # Create panel (NO PANEL.FIT - use regular Panel for proper width!)
     content = "\n".join(lines)
-    panel = Panel.fit(
+    panel = Panel(
         content,
         border_style=border_color,
         padding=(0, 1),
+        expand=False,
+        width=80,  # Fixed width for consistency
     )
 
     console.print(panel)
