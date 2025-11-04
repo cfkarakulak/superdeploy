@@ -5,7 +5,7 @@ import os
 import click
 import subprocess
 from rich.console import Console
-from rich.panel import Panel
+from cli.ui_components import show_header
 from cli.utils import load_env, ssh_command, validate_env_vars
 
 console = Console()
@@ -421,13 +421,11 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     project_path = get_project_path(project)
 
     if not verbose:
-        console.print(
-            Panel.fit(
-                f"[bold cyan]🔄 SuperDeploy Secret Sync[/bold cyan]\n\n"
-                f"[white]Project: {project}[/white]\n"
-                f"[white]Automating GitHub secrets configuration...[/white]",
-                border_style="cyan",
-            )
+        show_header(
+            title="Secret Sync",
+            subtitle="Automating GitHub secrets configuration",
+            project=project,
+            console=console,
         )
 
     # Initialize logger

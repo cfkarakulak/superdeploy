@@ -104,7 +104,7 @@ def config_list(app):
     env_vars = load_env()
 
     # Create table
-    table = Table(title="Configuration Variables")
+    table = Table(title="Configuration Variables", padding=(0, 1))
     table.add_column("Key", style="cyan")
     table.add_column("Value", style="green")
 
@@ -306,79 +306,58 @@ def config_show(project, mask):
                 (f"{vm_name.upper()}_INTERNAL_IP", ip)
             )
 
-    # Display each group
+    # Display all configs in one table with section headers
     from rich.box import ROUNDED
+
+    main_table = Table(
+        title=f"[bold white]All Configuration - {project}[/bold white]",
+        show_header=True,
+        header_style="bold magenta",
+        box=ROUNDED,
+        title_style="bold cyan",
+        title_justify="left",
+        border_style="cyan",
+        padding=(0, 1),  # Reduce vertical padding (top/bottom, left/right)
+    )
+    main_table.add_column("Key", style="cyan", no_wrap=True, width=40)
+    main_table.add_column("Value", style="green")
 
     for group_name, items in config_groups.items():
         if not items:
             continue
 
-        table = Table(
-            title=f"[bold white]{group_name}[/bold white]",
-            show_header=True,
-            header_style="bold magenta",
-            box=ROUNDED,
-            title_style="bold cyan",
-            title_justify="left",
-            border_style="cyan",
-        )
-        table.add_column("Key", style="cyan", no_wrap=True)
-        table.add_column("Value", style="green")
+        # Add section header
+        main_table.add_row(f"[bold yellow]{group_name.title()}[/bold yellow]", "")
 
+        # Add items in this group
         for key, value in items:
-            table.add_row(key, value)
+            main_table.add_row(f"  {key}", value)
 
-        console.print(table)
-        console.print()
-
-    # Show Orchestrator Information
+    # Add Orchestrator Information to main table
     if orchestrator_config:
-        orch_table = Table(
-            title="[bold white]📦 Orchestrator Configuration[/bold white]",
-            show_header=True,
-            header_style="bold magenta",
-            box=ROUNDED,
-            title_style="bold cyan",
-            title_justify="left",
-            border_style="magenta",
-        )
-        orch_table.add_column("Key", style="cyan", no_wrap=True)
-        orch_table.add_column("Value", style="green")
+        main_table.add_row("[bold yellow]Orchestrator[/bold yellow]", "")
 
         # Forgejo info
         if "forgejo" in orchestrator_config:
             forgejo = orchestrator_config["forgejo"]
-            orch_table.add_row("FORGEJO_DOMAIN", forgejo.get("domain", "N/A"))
-            orch_table.add_row("FORGEJO_ADMIN_USER", forgejo.get("admin_user", "N/A"))
+            main_table.add_row("  FORGEJO_DOMAIN", forgejo.get("domain", "N/A"))
+            main_table.add_row("  FORGEJO_ADMIN_USER", forgejo.get("admin_user", "N/A"))
             if "admin_password" in forgejo:
                 pwd = forgejo["admin_password"]
-                orch_table.add_row(
-                    "FORGEJO_ADMIN_PASSWORD", mask_value("PASSWORD", pwd)
+                main_table.add_row(
+                    "  FORGEJO_ADMIN_PASSWORD", mask_value("PASSWORD", pwd)
                 )
 
         # VM info
         if "vm" in orchestrator_config:
             vm = orchestrator_config["vm"]
             if "external_ip" in vm:
-                orch_table.add_row("ORCHESTRATOR_EXTERNAL_IP", vm["external_ip"])
+                main_table.add_row("  ORCHESTRATOR_EXTERNAL_IP", vm["external_ip"])
             if "internal_ip" in vm:
-                orch_table.add_row("ORCHESTRATOR_INTERNAL_IP", vm["internal_ip"])
+                main_table.add_row("  ORCHESTRATOR_INTERNAL_IP", vm["internal_ip"])
 
-        console.print(orch_table)
-        console.print()
-
-    # Show connection URLs
-    urls_table = Table(
-        title="[bold white]🔗 Connection URLs[/bold white]",
-        show_header=True,
-        header_style="bold magenta",
-        box=ROUNDED,
-        title_style="bold cyan",
-        title_justify="left",
-        border_style="yellow",
-    )
-    urls_table.add_column("Service", style="cyan", no_wrap=True)
-    urls_table.add_column("URL", style="blue underline")
+    # Add Connection URLs section
+    main_table.add_row("[bold yellow]Connection URLs[/bold yellow]", "")
 
     # Get external IP for connections
     external_ip = None
@@ -399,46 +378,42 @@ def config_show(project, mask):
     if external_ip:
         # RabbitMQ tunnel info - use defaults if not set
         rabbitmq_user = env_vars.get("RABBITMQ_USER") or f"{project}_user"
-        rabbitmq_pass = env_vars.get("RABBITMQ_PASSWORD", "")
         if not mask and rabbitmq_user:
-            urls_table.add_row(
-                "RabbitMQ Management (tunnel)",
+            main_table.add_row(
+                "  RabbitMQ Management (tunnel)",
                 f"http://localhost:25672/ (user: {rabbitmq_user})",
             )
         else:
-            urls_table.add_row(
-                "RabbitMQ Management (tunnel)", "http://localhost:25672/"
+            main_table.add_row(
+                "  RabbitMQ Management (tunnel)", "http://localhost:25672/"
             )
 
         # Postgres tunnel info - use defaults if not set
         postgres_user = env_vars.get("POSTGRES_USER") or f"{project}_user"
         postgres_db = env_vars.get("POSTGRES_DB") or f"{project}_db"
         if not mask and postgres_user:
-            urls_table.add_row(
-                "Postgres (tunnel)",
+            main_table.add_row(
+                "  Postgres (tunnel)",
                 f"postgresql://{postgres_user}@localhost:5433/{postgres_db}",
             )
         else:
-            urls_table.add_row("Postgres (tunnel)", "postgresql://localhost:5433/")
+            main_table.add_row("  Postgres (tunnel)", "postgresql://localhost:5433/")
 
     # Orchestrator URLs
     if orchestrator_config and "forgejo" in orchestrator_config:
         domain = orchestrator_config["forgejo"].get("domain")
         if domain:
-            urls_table.add_row("Forgejo", f"https://{domain}")
+            main_table.add_row("  Forgejo", f"https://{domain}")
 
     # Project domains
     if project_config and "apps" in project_config:
         for app_name, app_config in project_config["apps"].items():
             if "domain" in app_config:
-                urls_table.add_row(
-                    f"{app_name.title()} App", f"https://{app_config['domain']}"
+                main_table.add_row(
+                    f"  {app_name.title()} App", f"https://{app_config['domain']}"
                 )
 
-    console.print(urls_table)
-    console.print()
-
-    # Show SSH and Tunnel commands
+    # Add SSH and Tunnel commands section
     if external_ip and project_config:
         ssh_key = (
             project_config.get("cloud", {})
@@ -449,30 +424,21 @@ def config_show(project, mask):
             project_config.get("cloud", {}).get("ssh", {}).get("user", "superdeploy")
         )
 
-        access_table = Table(
-            title="[bold white]🔐 SSH & Tunnel Access[/bold white]",
-            show_header=True,
-            header_style="bold magenta",
-            box=ROUNDED,
-            title_style="bold cyan",
-            title_justify="left",
-            border_style="green",
-        )
-        access_table.add_column("Type", style="cyan", no_wrap=True)
-        access_table.add_column("Command", style="green")
+        main_table.add_row("[bold yellow]SSH & Tunnel Access[/bold yellow]", "")
 
         # SSH command
-        access_table.add_row(
-            "SSH to Core VM", f"ssh -i {ssh_key} {ssh_user}@{external_ip}"
+        main_table.add_row(
+            "  SSH to Core VM", f"ssh -i {ssh_key} {ssh_user}@{external_ip}"
         )
 
         # Tunnel commands
-        access_table.add_row(
-            "RabbitMQ Tunnel", f"superdeploy tunnel -p {project} rabbitmq"
+        main_table.add_row(
+            "  RabbitMQ Tunnel", f"superdeploy tunnel -p {project} rabbitmq"
         )
-        access_table.add_row(
-            "Postgres Tunnel", f"superdeploy tunnel -p {project} postgres"
+        main_table.add_row(
+            "  Postgres Tunnel", f"superdeploy tunnel -p {project} postgres"
         )
 
-        console.print(access_table)
-        console.print()
+    # Print the complete table
+    console.print(main_table)
+    console.print()

@@ -101,7 +101,7 @@ def generate(project):
             project_name = project_info.get("name", "project")
         else:
             project_name = str(project_info)
-        
+
         env_content = f"""# =============================================================================
 # {project_name} - Environment Variables
 # =============================================================================
@@ -194,13 +194,19 @@ SMTP_PASSWORD=  # SMTP password or app-specific password
     # Generate Forgejo workflows for project
     console.print("\n[bold cyan]📋 Generating Forgejo workflows...[/bold cyan]")
     # Forgejo only recognizes workflows in .forgejo/workflows/
-    forgejo_workflows_dir = project_root / ".forgejo" / "workflows" / "projects" / project
+    forgejo_workflows_dir = (
+        project_root / ".forgejo" / "workflows" / "projects" / project
+    )
     forgejo_workflows_dir.mkdir(parents=True, exist_ok=True)
-    
+
     for app_name in config.get("apps", {}).keys():
         forgejo_workflow_content = generate_forgejo_workflow(config, app_name)
-        (forgejo_workflows_dir / f"deploy-{app_name}.yml").write_text(forgejo_workflow_content)
-        console.print(f"  [green]✓[/green] .forgejo/workflows/projects/{project}/deploy-{app_name}.yml")
+        (forgejo_workflows_dir / f"deploy-{app_name}.yml").write_text(
+            forgejo_workflow_content
+        )
+        console.print(
+            f"  [green]✓[/green] .forgejo/workflows/projects/{project}/deploy-{app_name}.yml"
+        )
 
     console.print("\n[green]✅ Generation complete![/green]")
     console.print("\n[bold]📝 Next steps:[/bold]")
@@ -353,14 +359,14 @@ def generate_docker_compose_apps(config, compose_dir):
             internal_port = port
 
         tag_var = f"{app_name.upper()}_TAG"  # e.g., API_TAG
-        
+
         # Resource limits with sensible defaults
         resources = app_config.get("resources", {})
         memory_limit = resources.get("memory", "512M")
         cpu_limit = resources.get("cpu", "1.0")
         memory_reservation = resources.get("memory_reservation", "256M")
         cpu_reservation = resources.get("cpu_reservation", "0.5")
-        
+
         lines.extend(
             [
                 "",
@@ -400,6 +406,7 @@ def generate_workflow(config, app_name, addons, template_merger):
     # Docker org comes from .env, but we need it for workflow generation
     # Load from environment variables that were already loaded
     from cli.utils import load_env
+
     env = load_env(project_name)
     docker_org = env.get("DOCKER_ORG", project_name)
 
@@ -573,7 +580,7 @@ def generate_forgejo_workflow(config, app_name):
     app_config = config["apps"][app_name]
     # Get VM role from app config (e.g., "web", "api", "worker")
     vm_role = app_config.get("vm", "core")
-    
+
     workflow = f"""name: Deploy {project_name.title()} {app_name.title()}
 
 on:

@@ -4,7 +4,7 @@ import click
 import subprocess
 import time
 from rich.console import Console
-from rich.panel import Panel
+from cli.ui_components import show_header
 from rich.prompt import Prompt, Confirm
 from cli.utils import get_project_root
 from cli.logger import DeployLogger, run_with_progress
@@ -16,12 +16,11 @@ console = Console()
 def orchestrator_init():
     """Initialize orchestrator configuration (interactive wizard)"""
 
-    console.print(
-        Panel.fit(
-            "[bold cyan]🎯 SuperDeploy Orchestrator Setup[/bold cyan]\n\n"
-            "[white]Let's configure your global orchestrator (Forgejo + Monitoring)[/white]",
-            border_style="cyan",
-        )
+    show_header(
+        title="Orchestrator Setup",
+        subtitle="Configure global orchestrator (Forgejo + Monitoring)",
+        show_logo=True,
+        console=console,
     )
 
     project_root = get_project_root()
@@ -207,13 +206,11 @@ def orchestrator_down(yes, preserve_ip, verbose):
     logger = DeployLogger("orchestrator", "down", verbose=verbose)
 
     if not verbose:
-        console.print(
-            Panel.fit(
-                "[bold red]⚠️  Orchestrator Destruction[/bold red]\n\n"
-                "[white]This will destroy the orchestrator VM and clean up all state[/white]\n"
-                "[yellow]Warning: This action is DESTRUCTIVE and cannot be undone![/yellow]",
-                border_style="red",
-            )
+        show_header(
+            title="Orchestrator Destruction",
+            subtitle="⚠️  This will destroy the orchestrator VM and clean up all state!\n⚠️  This action is DESTRUCTIVE and cannot be undone!",
+            border_color="red",
+            console=console,
         )
 
     if not yes:
@@ -509,12 +506,11 @@ def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose):
     """Deploy orchestrator VM with Forgejo (runs Terraform + Ansible by default)"""
 
     if not verbose:
-        console.print(
-            Panel.fit(
-                "[bold cyan]🚀 Deploying Global Orchestrator[/bold cyan]\n\n"
-                "[white]This will deploy a shared Forgejo instance for all projects[/white]",
-                border_style="cyan",
-            )
+        show_header(
+            title="Orchestrator Deployment",
+            subtitle="Deploying shared Forgejo instance + Monitoring for all projects",
+            show_logo=True,
+            console=console,
         )
 
     project_root = get_project_root()

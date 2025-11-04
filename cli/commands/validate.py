@@ -2,8 +2,8 @@
 
 import click
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
+from cli.ui_components import show_header
 from cli.utils import (
     get_project_path,
     validate_project as validate_project_exists,
@@ -62,12 +62,10 @@ def validate_project(project):
     - Repository URLs
     - Network configuration
     """
-    console.print(
-        Panel.fit(
-            f"[bold cyan]🔍 Validating Project Configuration[/bold cyan]\n\n"
-            f"[white]Project: {project}[/white]",
-            border_style="cyan",
-        )
+    show_header(
+        title="Validate Project Configuration",
+        project=project,
+        console=console,
     )
 
     # Validate project exists
@@ -181,7 +179,9 @@ def validate_project(project):
         console.print("[bold green]✅ Configuration is valid![/bold green]")
 
         # Display summary table
-        table = Table(title="Configuration Summary")
+        table = Table(
+            title="Configuration Summary", title_justify="left", padding=(0, 1)
+        )
         table.add_column("Property", style="cyan")
         table.add_column("Value", style="white")
 
@@ -232,12 +232,10 @@ def validate_addons(project, addon, fix):
     """
     from cli.core.addon_validator import AddonValidator
 
-    console.print(
-        Panel.fit(
-            "[bold cyan]🔍 Validating Addons[/bold cyan]\n\n"
-            f"[white]{'Addon: ' + addon if addon else 'All addons'}[/white]",
-            border_style="cyan",
-        )
+    show_header(
+        title="Validate Addons",
+        details={"Target": addon if addon else "All addons"},
+        console=console,
     )
 
     if fix:
@@ -338,7 +336,9 @@ def validate_addons(project, addon, fix):
     if total_failed > 0:
         console.print("\n[bold red]Failed Addons:[/bold red]")
 
-        table = Table()
+        table = Table(
+            title="Addon Validation Results", title_justify="left", padding=(0, 1)
+        )
         table.add_column("Addon", style="cyan")
         table.add_column("Errors", style="red")
         table.add_column("Warnings", style="yellow")

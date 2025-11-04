@@ -3,7 +3,7 @@
 import click
 import subprocess
 from rich.console import Console
-from rich.panel import Panel
+from cli.ui_components import show_header
 from rich.prompt import Confirm
 from cli.utils import load_env, get_project_root
 from cli.terraform_utils import (
@@ -70,13 +70,12 @@ def down(project, yes, verbose, keep_infra):
     logger = DeployLogger(project, "down", verbose=verbose)
 
     if not verbose:
-        console.print(
-            Panel.fit(
-                f"[bold red]⚠️  SuperDeploy Project Shutdown[/bold red]\n\n"
-                f"[white]Project: [bold]{project}[/bold][/white]\n"
-                f"[white]This will stop all services and destroy all VMs![/white]",
-                border_style="red",
-            )
+        show_header(
+            title="Project Shutdown",
+            subtitle="⚠️  This will stop all services and destroy all VMs!",
+            project=project,
+            border_color="red",
+            console=console,
         )
 
     # Load project config

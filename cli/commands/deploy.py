@@ -4,7 +4,7 @@ import click
 import subprocess
 from pathlib import Path
 from rich.console import Console
-from rich.panel import Panel
+from cli.ui_components import show_header
 from cli.logger import DeployLogger
 
 console = Console()
@@ -33,12 +33,12 @@ def deploy(project, app, message, verbose):
       superdeploy deploy -p <project> -a <app> -m "Fix bug"
     """
     if not verbose:
-        console.print(
-            Panel.fit(
-                f"[bold cyan]🚀 Deploying {app}[/bold cyan]\n\n"
-                f"[white]Project: {project}[/white]",
-                border_style="cyan",
-            )
+        show_header(
+            title="Deploy Application",
+            project=project,
+            app=app,
+            details={"Message": message} if message else None,
+            console=console,
         )
 
     # Initialize logger

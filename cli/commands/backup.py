@@ -3,8 +3,8 @@
 import click
 from datetime import datetime
 from rich.console import Console
-from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from cli.ui_components import show_header
 from cli.utils import load_env, validate_env_vars, ssh_command
 
 console = Console()
@@ -43,13 +43,11 @@ def backups_create(project, output):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_name = f"{project}_{timestamp}"
 
-    console.print(
-        Panel.fit(
-            f"[bold cyan]💾 Backup Project[/bold cyan]\n\n"
-            f"[white]Project: {project}[/white]\n"
-            f"[white]Output: {output}/{backup_name}[/white]",
-            border_style="cyan",
-        )
+    show_header(
+        title="Backup Project",
+        project=project,
+        details={"Output": f"{output}/{backup_name}"},
+        console=console,
     )
 
     with Progress(

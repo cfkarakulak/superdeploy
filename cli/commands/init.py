@@ -4,10 +4,10 @@ Project initialization command with interactive setup
 
 import yaml
 import click
-import ipaddress
 from pathlib import Path
 from datetime import datetime
 from rich.console import Console
+from cli.ui_components import show_header
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from jinja2 import Template
@@ -81,14 +81,13 @@ def get_used_subnets():
 def find_next_subnet(used_subnets):
     """
     Find next available subnet using SubnetAllocator
-    
+
     Note: This function is kept for backward compatibility but now uses
     SubnetAllocator for consistent subnet management across the system.
     """
     # Use SubnetAllocator for consistent subnet management
     # The used_subnets parameter is ignored as SubnetAllocator maintains its own state
-    from cli.subnet_allocator import SubnetAllocator
-    
+
     # Return a placeholder - actual allocation happens in config_loader
     # when project config is loaded
     return "auto"  # Will be replaced by SubnetAllocator
@@ -107,7 +106,7 @@ def generate_env_superdeploy(project, service, addons_dict):
     """Generate .env.superdeploy dynamically from addon metadata"""
     from cli.core.addon_loader import AddonLoader
     from cli.utils import get_project_root
-    
+
     lines = [
         "# =============================================================================",
         "# SuperDeploy - Production Environment Overrides",
@@ -126,12 +125,12 @@ def generate_env_superdeploy(project, service, addons_dict):
     project_root = get_project_root()
     addons_dir = project_root / "addons"
     addon_loader = AddonLoader(addons_dir)
-    
+
     try:
         # Build minimal config for addon loading
         config = {"project": project, "addons": addons_dict}
         loaded_addons = addon_loader.load_addons_for_project(config)
-        
+
         # Generic iteration - no addon names!
         for addon_name, addon in loaded_addons.items():
             env_vars = addon.get_env_vars_for_template()
@@ -143,7 +142,7 @@ def generate_env_superdeploy(project, service, addons_dict):
     except Exception as e:
         # Fallback to empty if addon loading fails
         console.print(f"[yellow]⚠️  Could not load addons: {e}[/yellow]")
-    
+
     return "\n".join(lines)
 
 
@@ -152,26 +151,26 @@ def generate_workflow(project, service, addons_dict, github_org):
     from cli.core.addon_loader import AddonLoader
     from cli.core.template_merger import TemplateMerger
     from cli.utils import get_project_root
-    
+
     # Load addons dynamically
     project_root = get_project_root()
     addons_dir = project_root / "addons"
     addon_loader = AddonLoader(addons_dir)
     template_merger = TemplateMerger()
-    
+
     env_vars = []
-    
+
     try:
         # Build minimal config for addon loading
         config = {"project": project, "addons": addons_dict}
         loaded_addons = addon_loader.load_addons_for_project(config)
-        
+
         # Use existing TemplateMerger (already generic!)
         env_vars = template_merger.merge_workflow_env(loaded_addons)
     except Exception as e:
         # Fallback to empty if addon loading fails
         console.print(f"[yellow]⚠️  Could not load addons for workflow: {e}[/yellow]")
-    
+
     env_section = "\n".join(env_vars)
 
     workflow = """name: Build and Deploy
@@ -327,7 +326,13 @@ jobs:
             echo "::error::Response: $BODY"
             exit 1
           fi
-""".format(github_org=github_org, service=service, env_section=env_section, service_upper=service.upper(), project=project)
+""".format(
+        github_org=github_org,
+        service=service,
+        env_section=env_section,
+        service_upper=service.upper(),
+        project=project,
+    )
 
     return workflow
 
@@ -351,14 +356,12 @@ def init(project, app, subnet, no_interactive, yes):
         # Follow the wizard to configure your project
         # Then: superdeploy generate -p acme
     """
-    from rich.panel import Panel
-    
-    console.print(
-        Panel.fit(
-            f"[bold cyan]🎯 SuperDeploy Project Setup[/bold cyan]\n\n"
-            f"[white]Creating new project: [bold]{project}[/bold][/white]",
-            border_style="cyan",
-        )
+    show_header(
+        title="Project Setup",
+        subtitle="Creating new project with interactive wizard",
+        project=project,
+        show_logo=True,
+        console=console,
     )
 
     from cli.utils import get_project_root
@@ -371,7 +374,9 @@ def init(project, app, subnet, no_interactive, yes):
     if project_dir.exists():
         console.print(f"\n[red]❌ Project '{project}' already exists![/red]")
         console.print(f"\n[dim]To modify:[/dim] {project_dir}/project.yml")
-        console.print(f"[dim]Then run:[/dim] [cyan]superdeploy generate -p {project}[/cyan]\n")
+        console.print(
+            f"[dim]Then run:[/dim] [cyan]superdeploy generate -p {project}[/cyan]\n"
+        )
         return
 
     # Create project directory
@@ -478,7 +483,9 @@ def init(project, app, subnet, no_interactive, yes):
 
         if auto_subnet:
             project_subnet = find_next_subnet(used_subnets)
-            console.print(f"  [green]✓[/green] Auto-assigned: [cyan]{project_subnet}[/cyan]")
+            console.print(
+                f"  [green]✓[/green] Auto-assigned: [cyan]{project_subnet}[/cyan]"
+            )
         else:
             project_subnet = Prompt.ask(
                 "  [cyan]Enter custom subnet[/cyan]", default="172.30.0.0/24"
@@ -493,7 +500,8 @@ def init(project, app, subnet, no_interactive, yes):
     available_addons_list = [
         (addon["name"], f"{addon['description']} ({addon['version']})")
         for addon in available_addons
-        if addon["category"] in ["database", "cache", "queue"] and addon["name"] != "caddy"
+        if addon["category"] in ["database", "cache", "queue"]
+        and addon["name"] != "caddy"
     ]
 
     # Fallback if no addons found - use empty list, user can add later
@@ -505,16 +513,16 @@ def init(project, app, subnet, no_interactive, yes):
     selected_addons = []
     if not interactive:
         # Non-interactive defaults
-        default_addons = ['postgres', 'rabbitmq', 'caddy']
+        default_addons = ["postgres", "rabbitmq", "caddy"]
         for addon_name, addon_desc in available_addons_list:
             if addon_name in default_addons:
                 selected_addons.append(addon_name)
         # Always add caddy
-        if 'caddy' not in selected_addons:
-            selected_addons.append('caddy')
+        if "caddy" not in selected_addons:
+            selected_addons.append("caddy")
     elif available_addons_list:
         # Interactive defaults
-        default_addons = ['postgres', 'rabbitmq', 'redis', 'caddy']
+        default_addons = ["postgres", "rabbitmq", "redis", "caddy"]
         for addon_name, addon_desc in available_addons_list:
             if addon_name in default_addons:
                 selected_addons.append(addon_name)
@@ -527,7 +535,9 @@ def init(project, app, subnet, no_interactive, yes):
         console.print(
             "[dim]These services are shared by all apps (databases, queues, etc.)[/dim]"
         )
-        console.print(f"[dim]Available: {len(available_addons_list)} addons (Caddy is always included)[/dim]\n")
+        console.print(
+            f"[dim]Available: {len(available_addons_list)} addons (Caddy is always included)[/dim]\n"
+        )
 
         questions = [
             inquirer.Checkbox(
@@ -551,10 +561,10 @@ def init(project, app, subnet, no_interactive, yes):
         else:
             console.print("[yellow]⚠️  No services selected, using defaults[/yellow]")
             # Keep the defaults we calculated earlier
-    
+
     # Always ensure Caddy is included (required for reverse proxy)
-    if 'caddy' not in selected_addons:
-        selected_addons.append('caddy')
+    if "caddy" not in selected_addons:
+        selected_addons.append("caddy")
 
     # Password generation - always enabled (user can regenerate later)
     generate_passwords = True
@@ -563,15 +573,14 @@ def init(project, app, subnet, no_interactive, yes):
 
     # Domain - empty by default (user can set in project.yml)
     project_domain = ""
-    
+
     # SSL Email for Let's Encrypt (required for Caddy)
     ssl_email = ""
     if interactive:
         console.print("\n[bold cyan]🔐 SSL Configuration[/bold cyan]")
         console.print("[dim]Email for Let's Encrypt certificate notifications[/dim]")
         ssl_email = Prompt.ask(
-            "  [cyan]SSL Email[/cyan]",
-            default=f"admin@{project}.com"
+            "  [cyan]SSL Email[/cyan]", default=f"admin@{project}.com"
         )
     else:
         # Non-interactive: use default
@@ -585,7 +594,13 @@ def init(project, app, subnet, no_interactive, yes):
     console.print("\n[bold cyan]📋 Summary:[/bold cyan]")
     console.print("━" * 40)
 
-    table = Table(show_header=False, box=None)
+    table = Table(
+        title="Project Summary",
+        show_header=False,
+        box=None,
+        title_justify="left",
+        padding=(0, 1),
+    )
     table.add_column("Property", style="dim")
     table.add_column("Value", style="bright_white")
 
@@ -612,7 +627,7 @@ def init(project, app, subnet, no_interactive, yes):
     # Build port assignments dynamically
     # Common service ports (can be overridden by user later)
     port_assignments = {}
-    
+
     # Default port mappings for common services
     # Format: service_name: (external_port, internal_port)
     default_ports = {
@@ -632,7 +647,7 @@ def init(project, app, subnet, no_interactive, yes):
             port = base_external_port + (idx * 10)
             external_port = port
             internal_port = port
-        
+
         port_assignments[service] = {
             "external": external_port,
             "internal": internal_port,
@@ -640,11 +655,12 @@ def init(project, app, subnet, no_interactive, yes):
 
     # Allocate subnets immediately during init
     from cli.subnet_allocator import SubnetAllocator
+
     allocator = SubnetAllocator()
     vpc_subnet = allocator.get_subnet(project)
     docker_subnet = allocator.get_docker_subnet(project)
-    
-    console.print(f"\n[cyan]📡 Network allocated:[/cyan]")
+
+    console.print("\n[cyan]📡 Network allocated:[/cyan]")
     console.print(f"  VPC Subnet: {vpc_subnet}")
     console.print(f"  Docker Subnet: {docker_subnet}")
 
@@ -663,7 +679,8 @@ def init(project, app, subnet, no_interactive, yes):
                     "path": str(app_path),
                     "port": port_assignments[app_name]["external"],
                 }
-                if port_assignments[app_name]["external"] == port_assignments[app_name]["internal"]
+                if port_assignments[app_name]["external"]
+                == port_assignments[app_name]["internal"]
                 else {
                     "path": str(app_path),
                     "external_port": port_assignments[app_name]["external"],
@@ -673,7 +690,7 @@ def init(project, app, subnet, no_interactive, yes):
             for app_name, app_path in apps.items()
         },
     }
-    
+
     # Add other selected addons
     for service in selected_addons:
         if service != "forgejo":  # Already added above
@@ -741,20 +758,19 @@ def init(project, app, subnet, no_interactive, yes):
     # Build addons dict dynamically from addon metadata
     addon_versions = {addon["name"]: addon["version"] for addon in available_addons}
     addons_dict = {}
-    
+
     # Note: Forgejo is managed globally by orchestrator, not per-project
     # Add selected addons dynamically
     for service in selected_addons:
-            
         default_version = addon_versions.get(service, "latest")
-        
+
         # Get addon metadata to determine config structure
         addon_meta = next((a for a in available_addons if a["name"] == service), None)
-        
+
         if addon_meta:
             # Build config from addon metadata
             addon_config = {"version": default_version}
-            
+
             # Add common fields based on env_vars in metadata
             env_vars = addon_meta.get("env_vars", [])
             for var in env_vars:
@@ -765,7 +781,7 @@ def init(project, app, subnet, no_interactive, yes):
                         addon_config["user"] = f"{project}_user"
                     elif "_DATABASE" in var_name or "_DB" in var_name:
                         addon_config["database"] = f"{project}_db"
-            
+
             addons_dict[service] = addon_config
         else:
             # Fallback if metadata not found
@@ -811,12 +827,16 @@ vms:
     machine_type: e2-medium
     disk_size: 20
     services:"""
-    
+
     # Add shared services (databases, message queues) to core VM
-    shared_services = [s for s in selected_addons if s in ['postgres', 'rabbitmq', 'redis', 'mongodb', 'elasticsearch']]
+    shared_services = [
+        s
+        for s in selected_addons
+        if s in ["postgres", "rabbitmq", "redis", "mongodb", "elasticsearch"]
+    ]
     for service in shared_services:
         project_yml_content += f"\n      - {service}"
-    
+
     # Create a VM for each app (Caddy is automatically added by config_loader)
     for app_name in apps_dict.keys():
         project_yml_content += f"""
@@ -825,7 +845,7 @@ vms:
     machine_type: e2-small
     disk_size: 20
     services: []"""
-    
+
     project_yml_content += """
 
 # =============================================================================
@@ -855,9 +875,9 @@ apps:
         project_yml_content += f"    port: {app_config['port']}\n"
         # Add domain field
         if project_domain:
-            project_yml_content += f"    domain: \"{app_name}.{project_domain}\"\n"
+            project_yml_content += f'    domain: "{app_name}.{project_domain}"\n'
         else:
-            project_yml_content += f"    domain: \"\"  # e.g., {app_name}.example.com\n"
+            project_yml_content += f'    domain: ""  # e.g., {app_name}.example.com\n'
 
     project_yml_content += f"""
 # =============================================================================
@@ -884,14 +904,26 @@ network:
     console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
     console.print("[bold green]✅ Project Initialized![/bold green]")
     console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
-    
+
     console.print(f"\n[cyan]📄 Config saved to:[/cyan] {project_yml_path}")
-    
+
     # Next steps
     console.print("\n[bold]Next steps:[/bold]")
-    console.print("  1. [dim]Generate deployment files:[/dim] [cyan]superdeploy generate -p {project}[/cyan]".format(project=project))
-    console.print("  2. [dim]Deploy infrastructure:[/dim] [cyan]superdeploy up -p {project}[/cyan]".format(project=project))
-    console.print("  3. [dim]Check status:[/dim] [cyan]superdeploy status -p {project}[/cyan]".format(project=project))
+    console.print(
+        "  1. [dim]Generate deployment files:[/dim] [cyan]superdeploy generate -p {project}[/cyan]".format(
+            project=project
+        )
+    )
+    console.print(
+        "  2. [dim]Deploy infrastructure:[/dim] [cyan]superdeploy up -p {project}[/cyan]".format(
+            project=project
+        )
+    )
+    console.print(
+        "  3. [dim]Check status:[/dim] [cyan]superdeploy status -p {project}[/cyan]".format(
+            project=project
+        )
+    )
     console.print()
 
     return  # Skip old instructions

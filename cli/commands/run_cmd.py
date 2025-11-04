@@ -1,13 +1,11 @@
-import os
-
 """SuperDeploy CLI - Run command"""
 
+import os
 import click
 import subprocess
 from rich.console import Console
-from rich.panel import Panel
-from cli.utils import load_env, validate_env_vars
 from cli.logger import DeployLogger
+from cli.ui_components import show_header
 
 console = Console()
 
@@ -27,76 +25,85 @@ def run(project, app, command, verbose, interactive):
       superdeploy run -p cheapa api "python manage.py migrate"
       superdeploy run -p cheapa api bash -i
       superdeploy run -p cheapa dashboard "npm run build"
-    
+
     \b
     Interactive commands (bash, sh, psql) are auto-detected.
     Use -i flag to force interactive mode.
     """
     from cli.utils import get_project_root
     from cli.core.config_loader import ConfigLoader
-    
+
     if not verbose:
-        console.print(
-            Panel.fit(
-                f"[bold cyan]⚡ Run Command[/bold cyan]\n\n"
-                f"[white]Project: {project}[/white]\n"
-                f"[white]App: {app}[/white]\n"
-                f"[white]Command: {command}[/white]",
-                border_style="cyan",
-            )
+        show_header(
+            title="Run Command",
+            project=project,
+            app=app,
+            details={"Command": command},
+            console=console,
         )
-    
+
     logger = DeployLogger(project, f"run-{app}", verbose=verbose)
-    
+
     # Load config to find VM
     logger.step("Loading project configuration")
     project_root = get_project_root()
     projects_dir = project_root / "projects"
-    
+
     try:
         config_loader = ConfigLoader(projects_dir)
         project_config = config_loader.load_project(project)
         apps = project_config.raw_config.get("apps", {})
         logger.success("Configuration loaded")
-        
+
         if app not in apps:
             logger.log_error(f"App '{app}' not found in project config")
             raise SystemExit(1)
-        
+
         vm_role = apps[app].get("vm", "core")
-        
+
         # Get VM IP from .env
         from cli.utils import load_env
+
         env = load_env(project=project)
-        
+
         ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
         if ip_key not in env:
             logger.log_error(f"VM IP not found in .env: {ip_key}")
             logger.log(f"Run: superdeploy up -p {project}")
             raise SystemExit(1)
-        
+
         ssh_host = env[ip_key]
         logger.log(f"Found VM: {ssh_host}")
-        
+
     except Exception as e:
         logger.log_error(f"Error: {e}")
         raise SystemExit(1)
-    
+
     # SSH config
     logger.step(f"Executing command in {app} container")
     ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
     ssh_user = "superdeploy"
-    
+
     # Auto-detect interactive commands (bash, sh, psql, etc.)
-    interactive_commands = ["bash", "sh", "zsh", "fish", "psql", "mysql", "redis-cli", "mongo", "mongosh"]
+    interactive_commands = [
+        "bash",
+        "sh",
+        "zsh",
+        "fish",
+        "psql",
+        "mysql",
+        "redis-cli",
+        "mongo",
+        "mongosh",
+    ]
     is_interactive = interactive or command.strip().split()[0] in interactive_commands
-    
+
     # Find actual container name (try both formats)
     container_candidates = [
-        f"{project}-{app}",      # new format
-        f"{project}_{app}",      # old format
+        f"{project}-{app}",  # new format
+        f"{project}_{app}",  # old format
     ]
-    
+
     logger.log("Finding container...")
     container_name = None
     for candidate in container_candidates:
@@ -115,13 +122,13 @@ def run(project, app, command, verbose, interactive):
             container_name = candidate
             logger.log(f"Found container: {container_name}")
             break
-    
+
     if not container_name:
         logger.log_error(f"Container not found for app '{app}'")
         logger.log(f"Tried: {', '.join(container_candidates)}")
         logger.log(f"Run: superdeploy status -p {project}")
         raise SystemExit(1)
-    
+
     # Build docker exec command with proper TTY handling
     if is_interactive:
         docker_cmd = f"docker exec -it {container_name} {command}"

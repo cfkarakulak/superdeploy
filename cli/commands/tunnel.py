@@ -10,8 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
+from cli.ui_components import show_header
 
 console = Console()
 
@@ -155,14 +155,16 @@ def tunnel(project, service, all_services, list_services):
             sys.exit(1)
 
     # Show banner
-    console.print(
-        Panel.fit(
-            f"[bold cyan]🔒 SSH Tunnel Manager[/bold cyan]\n\n"
-            f"[white]Project:[/white] {project}\n"
-            f"[white]VM:[/white] {vm_ip}\n"
-            f"[white]Services:[/white] {', '.join([PORT_MAPPINGS[s]['name'] for s in services_to_tunnel])}",
-            border_style="cyan",
-        )
+    show_header(
+        title="SSH Tunnel Manager",
+        project=project,
+        details={
+            "VM": vm_ip,
+            "Services": ", ".join(
+                [PORT_MAPPINGS[s]["name"] for s in services_to_tunnel]
+            ),
+        },
+        console=console,
     )
 
     # Build SSH tunnel commands
@@ -191,7 +193,12 @@ def tunnel(project, service, all_services, list_services):
     ssh_cmd.append(f"{ssh_user}@{vm_ip}")
 
     # Show connection info
-    table = Table(title="Active Tunnels", show_header=True, title_justify="left")
+    table = Table(
+        title="Active Tunnels",
+        show_header=True,
+        title_justify="left",
+        padding=(0, 1),
+    )
     table.add_column("Service", style="cyan")
     table.add_column("Local Port", style="green")
     table.add_column("Connection", style="yellow")
@@ -217,7 +224,12 @@ def tunnel(project, service, all_services, list_services):
 
 def show_available_services():
     """Show table of available services"""
-    table = Table(title="Available Services", show_header=True, title_justify="left")
+    table = Table(
+        title="Available Services",
+        show_header=True,
+        title_justify="left",
+        padding=(0, 1),
+    )
     table.add_column("Service", style="cyan")
     table.add_column("Name", style="white")
     table.add_column("Local Port", style="green")

@@ -101,7 +101,12 @@ def releases_list(project, app, limit):
         )
 
         # Build table
-        table = Table(title=f"Release History - {app.upper()}", show_header=True)
+        table = Table(
+            title=f"Release History - {app.upper()}",
+            show_header=True,
+            title_justify="left",
+            padding=(0, 1),
+        )
         table.add_column("#", style="cyan", no_wrap=True)
         table.add_column("Timestamp", style="green")
         table.add_column("Git SHA", style="yellow")

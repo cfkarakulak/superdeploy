@@ -108,7 +108,12 @@ def releases_rollback(project, app, version, force):
         )
 
         # Build table
-        table = Table(title=f"Available Releases - {app.upper()}", show_header=True)
+        table = Table(
+            title=f"Available Releases - {app.upper()}",
+            show_header=True,
+            title_justify="left",
+            padding=(0, 1),
+        )
         table.add_column("#", style="cyan", width=4)
         table.add_column("Release", style="green")
         table.add_column("SHA", style="yellow", width=10)

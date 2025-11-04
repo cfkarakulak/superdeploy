@@ -116,7 +116,11 @@ def env_list(show_all, app, no_mask):
 
     # Create table
     table = Table(
-        title="Environment Variables", show_header=True, header_style="bold cyan", title_justify="left"
+        title="Environment Variables",
+        show_header=True,
+        header_style="bold cyan",
+        title_justify="left",
+        padding=(0, 1),
     )
     table.add_column("Key", style="cyan", no_wrap=True)
     table.add_column("Value", style="green")

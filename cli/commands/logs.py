@@ -5,8 +5,7 @@ import os
 import click
 import subprocess
 from rich.console import Console
-from rich.panel import Panel
-from cli.utils import load_env, validate_env_vars
+from cli.ui_components import show_header
 from cli.logger import DeployLogger
 
 console = Console()
@@ -31,59 +30,63 @@ def logs(project, app, follow, lines, environment, verbose):
     """
     from cli.utils import get_project_root
     from cli.core.config_loader import ConfigLoader
-    
+
     if not verbose:
-        console.print(
-            Panel.fit(
-                f"[bold cyan]📋 Application Logs[/bold cyan]\n\n"
-                f"[white]Project: {project}[/white]\n"
-                f"[white]App: {app}[/white]",
-                border_style="cyan",
-            )
+        show_header(
+            title="Application Logs",
+            project=project,
+            app=app,
+            details={"Follow": "Yes" if follow else "No", "Lines": str(lines)},
+            console=console,
         )
-    
+
     logger = DeployLogger(project, f"logs-{app}", verbose=verbose)
-    
+
     # Load config to find VM
     logger.step("Loading project configuration")
     project_root = get_project_root()
     projects_dir = project_root / "projects"
-    
+
     try:
         config_loader = ConfigLoader(projects_dir)
         project_config = config_loader.load_project(project)
         apps = project_config.raw_config.get("apps", {})
         logger.success("Configuration loaded")
-        
+
         if app not in apps:
             logger.log_error(f"App '{app}' not found in project config")
             raise SystemExit(1)
-        
+
         vm_role = apps[app].get("vm", "core")
-        
+
         # Get VM IP from inventory
-        inventory_path = project_root / "shared" / "ansible" / "inventories" / f"{project}.ini"
+        inventory_path = (
+            project_root / "shared" / "ansible" / "inventories" / f"{project}.ini"
+        )
         if not inventory_path.exists():
-            console.print(f"[red]❌ Inventory not found. Run: superdeploy up -p {project}[/red]")
+            console.print(
+                f"[red]❌ Inventory not found. Run: superdeploy up -p {project}[/red]"
+            )
             return
-        
+
         # Parse inventory to get VM IP
         inventory_content = inventory_path.read_text()
         import re
+
         pattern = rf"{project}-{vm_role}-\d+\s+ansible_host=(\S+)"
         match = re.search(pattern, inventory_content)
-        
+
         if not match:
             logger.log_error(f"VM not found in inventory for role: {vm_role}")
             raise SystemExit(1)
-        
+
         ssh_host = match.group(1)
         logger.log(f"Found VM: {ssh_host}")
-        
+
     except Exception as e:
         logger.log_error(f"Error: {e}")
         raise SystemExit(1)
-    
+
     # SSH config
     ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
     ssh_user = "superdeploy"
@@ -107,7 +110,7 @@ def logs(project, app, follow, lines, environment, verbose):
         # Stream logs to terminal
         logger.step(f"Streaming logs from {app}")
         logger.log("Press Ctrl+C to stop")
-        
+
         process = subprocess.Popen(
             ssh_cmd,
             stdout=subprocess.PIPE,

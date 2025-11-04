@@ -3,8 +3,7 @@
 import click
 from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
-from datetime import datetime, timedelta
+from cli.ui_components import show_header
 from cli.utils import load_env, validate_env_vars, ssh_command
 
 console = Console()
@@ -21,7 +20,7 @@ def metrics(project, days):
     Examples:
       superdeploy metrics -p acme                # Last 7 days
       superdeploy metrics -p acme -d 30          # Last 30 days
-    
+
     \b
     Metrics include:
     - Deployment frequency
@@ -37,13 +36,11 @@ def metrics(project, days):
     if not validate_env_vars(env, required):
         raise SystemExit(1)
 
-    console.print(
-        Panel.fit(
-            f"[bold cyan]📊 Deployment Metrics[/bold cyan]\n\n"
-            f"[white]Project: {project}[/white]\n"
-            f"[white]Period: Last {days} days[/white]",
-            border_style="cyan",
-        )
+    show_header(
+        title="Deployment Metrics",
+        project=project,
+        details={"Period": f"Last {days} days"},
+        console=console,
     )
 
     # Get container stats
@@ -57,8 +54,8 @@ def metrics(project, days):
 
         # Parse and display stats
         console.print("\n[bold]Current Resource Usage:[/bold]\n")
-        
-        table = Table()
+
+        table = Table(title="Resource Usage", title_justify="left", padding=(0, 1))
         table.add_column("Service", style="cyan")
         table.add_column("CPU %", style="yellow")
         table.add_column("Memory", style="green")
@@ -89,8 +86,8 @@ def metrics(project, days):
         )
 
         console.print("\n[bold]Service Uptime:[/bold]\n")
-        
-        table = Table()
+
+        table = Table(title="Service Uptime", title_justify="left", padding=(0, 1))
         table.add_column("Service", style="cyan")
         table.add_column("Status", style="green")
 
@@ -118,8 +115,10 @@ def metrics(project, days):
 
         if history_output.strip():
             console.print("\n[bold]Recent Deployments:[/bold]\n")
-            
-            table = Table()
+
+            table = Table(
+                title="Recent Deployments", title_justify="left", padding=(0, 1)
+            )
             table.add_column("Service", style="cyan")
             table.add_column("Git SHA", style="yellow")
             table.add_column("Git Ref", style="blue")
@@ -129,16 +128,16 @@ def metrics(project, days):
                     # Parse container labels
                     parts = line.split()
                     service = parts[0].replace(f"/{project}-", "")
-                    
+
                     # Extract SHA and ref from labels
                     sha = "N/A"
                     ref = "N/A"
-                    
+
                     if "com.superdeploy.git.sha:" in line:
                         sha = line.split("com.superdeploy.git.sha:")[1].split()[0]
                     if "com.superdeploy.git.ref:" in line:
                         ref = line.split("com.superdeploy.git.ref:")[1].split()[0]
-                    
+
                     table.add_row(service, sha[:7], ref)
 
             console.print(table)
@@ -150,4 +149,6 @@ def metrics(project, days):
     console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
     console.print("[bold green]📊 Metrics Summary[/bold green]")
     console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
-    console.print(f"\n[dim]For detailed logs: superdeploy logs -p {project} -a <service>[/dim]")
+    console.print(
+        f"\n[dim]For detailed logs: superdeploy logs -p {project} -a <service>[/dim]"
+    )

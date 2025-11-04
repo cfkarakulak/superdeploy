@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
+from cli.ui_components import show_header
 
 console = Console()
 
@@ -58,9 +58,21 @@ def domain_add(project: str, app_name: str, domain: str):
             )
             raise click.Abort()
 
-        console.print(
-            f"\n[bold yellow]▶[/bold yellow] Adding domain [cyan]{domain}[/cyan] to [cyan]{app_name}[/cyan]\n"
-        )
+        # Show header
+        if is_orchestrator:
+            show_header(
+                title="Add Domain",
+                details={"Service": app_name, "Domain": domain, "Type": "Orchestrator"},
+                console=console,
+            )
+        else:
+            show_header(
+                title="Add Domain",
+                project=project,
+                app=app_name,
+                details={"Domain": domain},
+                console=console,
+            )
 
         # ORCHESTRATOR MODE
         if is_orchestrator:
@@ -328,11 +340,33 @@ def domain_list(project: str):
         superdeploy domain:list              # all domains
         superdeploy domain:list -p cheapa    # only cheapa project
     """
+    # Show header
+    if project:
+        show_header(
+            title="Domain List",
+            project=project,
+            console=console,
+        )
+    else:
+        show_header(
+            title="Domain List",
+            subtitle="All domains across orchestrator and projects",
+            console=console,
+        )
+    
     try:
         # Get all available projects
         projects_dir = Path.cwd() / "projects"
-        all_projects = [d.name for d in projects_dir.iterdir() if d.is_dir() and (d / "project.yml").exists()] if projects_dir.exists() else []
-        
+        all_projects = (
+            [
+                d.name
+                for d in projects_dir.iterdir()
+                if d.is_dir() and (d / "project.yml").exists()
+            ]
+            if projects_dir.exists()
+            else []
+        )
+
         # If -p specified, show only that project
         if project:
             if project not in all_projects:
@@ -342,74 +376,77 @@ def domain_list(project: str):
         else:
             # Show all projects
             projects_to_show = all_projects
-        
+
+        # Build single unified table
+        from rich.box import ROUNDED
+
+        main_table = Table(
+            title="[bold white]All Domains[/bold white]",
+            show_header=True,
+            header_style="bold magenta",
+            box=ROUNDED,
+            title_style="bold cyan",
+            title_justify="left",
+            border_style="cyan",
+            padding=(0, 1),
+        )
+        main_table.add_column("Type", style="cyan", width=15)
+        main_table.add_column("Service/App", style="yellow", width=20)
+        main_table.add_column("Domain", style="green", width=30)
+        main_table.add_column("VM/Role", style="magenta", width=15)
+        main_table.add_column("IP", style="blue")
+
         # ═══════════════════════════════════════════════════════
         # ORCHESTRATOR DOMAINS
         # ═══════════════════════════════════════════════════════
         if not project:  # Only show orchestrator when listing all
             # Load orchestrator config
             config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
-            if not config_file.exists():
-                console.print("[red]✗ Orchestrator config not found[/red]")
-                raise click.Abort()
+            if config_file.exists():
+                with open(config_file, "r") as f:
+                    config = yaml.safe_load(f)
 
-            with open(config_file, "r") as f:
-                config = yaml.safe_load(f)
+                # Get orchestrator IP
+                terraform_dir = Path.cwd() / "shared" / "terraform"
+                try:
+                    subprocess.run(
+                        ["terraform", "workspace", "select", "orchestrator"],
+                        cwd=terraform_dir,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
 
-            # Get orchestrator IP
-            terraform_dir = Path.cwd() / "shared" / "terraform"
-            try:
-                subprocess.run(
-                    ["terraform", "workspace", "select", "orchestrator"],
-                    cwd=terraform_dir,
-                    capture_output=True,
-                    text=True,
-                    check=True,
+                    result = subprocess.run(
+                        ["terraform", "output", "-json"],
+                        cwd=terraform_dir,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                    outputs = json.loads(result.stdout)
+                    vm_ip = outputs.get("orchestrator_ip", {}).get("value", "-")
+                except:
+                    vm_ip = "-"
+
+                # Add orchestrator section header
+                main_table.add_row(
+                    "[bold yellow]Orchestrator[/bold yellow]", "", "", "", ""
                 )
 
-                result = subprocess.run(
-                    ["terraform", "output", "-json"],
-                    cwd=terraform_dir,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                outputs = json.loads(result.stdout)
-                vm_ip = outputs.get("orchestrator_ip", {}).get("value", "-")
-            except:
-                vm_ip = "-"
+                services = ["grafana", "prometheus", "forgejo"]
+                for service in services:
+                    service_config = config.get(service, {})
+                    domain = service_config.get("domain", "") or "-"
+                    main_table.add_row(
+                        "  Service", f"  {service}", domain, "orchestrator", vm_ip
+                    )
 
-            # Build table
-            table = Table(title="Orchestrator Service Domains", show_header=True, title_justify="left")
-            table.add_column("Service", style="cyan")
-            table.add_column("Domain", style="green")
-            table.add_column("IP", style="blue")
-
-            services = ["grafana", "prometheus", "forgejo"]
-            for service in services:
-                service_config = config.get(service, {})
-                domain = service_config.get("domain", "-")
-                table.add_row(service, domain, vm_ip)
-
-            console.print()
-            console.print(table)
-            console.print()
-
-            # Show summary
-            total_services = len(services)
-            services_with_domains = sum(
-                1 for s in services if config.get(s, {}).get("domain")
-            )
-            console.print(
-                f"[dim]Orchestrator: {total_services} services | {services_with_domains} with domains[/dim]"
-            )
-            console.print()
-        
         # ═══════════════════════════════════════════════════════
         # PROJECT DOMAINS
         # ═══════════════════════════════════════════════════════
         terraform_dir = Path.cwd() / "shared" / "terraform"
-        
+
         for proj_name in projects_to_show:
             project_dir = Path.cwd() / "projects" / proj_name
             config_file = project_dir / "project.yml"
@@ -445,16 +482,18 @@ def domain_list(project: str):
             except:
                 pass
 
-            # Build table for this project
-            table = Table(title=f"Project: {proj_name}", show_header=True, title_justify="left")
-            table.add_column("App", style="cyan")
-            table.add_column("Domain", style="green")
-            table.add_column("VM", style="yellow")
-            table.add_column("IP", style="blue")
+            # Add project section header
+            main_table.add_row(
+                f"[bold yellow]Project: {proj_name.title()}[/bold yellow]",
+                "",
+                "",
+                "",
+                "",
+            )
 
             apps = config.get("apps", {})
             for app_name, app_config in apps.items():
-                domain = app_config.get("domain", "-")
+                domain = app_config.get("domain", "") or "-"
                 vm_role = app_config.get("vm", "-")
 
                 # Find VM IP
@@ -463,17 +502,11 @@ def domain_list(project: str):
                 if role_vms:
                     vm_ip = role_vms[0].get("external_ip", "-")
 
-                table.add_row(app_name, domain, vm_role, vm_ip)
+                main_table.add_row("  App", f"  {app_name}", domain, vm_role, vm_ip)
 
-            console.print(table)
-            
-            # Show summary for this project
-            total_apps = len(apps)
-            apps_with_domains = sum(1 for app in apps.values() if app.get("domain"))
-            console.print(
-                f"[dim]{proj_name}: {total_apps} apps | {apps_with_domains} with domains[/dim]"
-            )
-            console.print()
+        console.print()
+        console.print(main_table)
+        console.print()
 
     except Exception as e:
         console.print(f"[red]✗ Failed to list domains: {e}[/red]")
@@ -513,9 +546,20 @@ def domain_remove(project: str, app_name: str):
             console.print(f"Usage: superdeploy domain:remove -p <project> {app_name}")
             raise click.Abort()
 
-        console.print(
-            f"\n[bold yellow]▶[/bold yellow] Removing domain from [cyan]{app_name}[/cyan]\n"
-        )
+        # Show header
+        if is_orchestrator:
+            show_header(
+                title="Remove Domain",
+                details={"Service": app_name, "Type": "Orchestrator"},
+                console=console,
+            )
+        else:
+            show_header(
+                title="Remove Domain",
+                project=project,
+                app=app_name,
+                console=console,
+            )
 
         # ORCHESTRATOR MODE
         if is_orchestrator:

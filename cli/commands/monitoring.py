@@ -2,7 +2,7 @@
 
 import click
 from rich.console import Console
-from rich.panel import Panel
+from cli.ui_components import show_header
 from cli.utils import get_project_root
 
 console = Console()
@@ -11,12 +11,10 @@ console = Console()
 @click.command(name="monitoring:sync")
 def monitoring_sync():
     """Sync all projects to Prometheus monitoring"""
-    console.print(
-        Panel.fit(
-            "[bold cyan]📊 Syncing Projects to Monitoring[/bold cyan]\n\n"
-            "[white]This will update Prometheus with all project targets[/white]",
-            border_style="cyan",
-        )
+    show_header(
+        title="Monitoring Sync",
+        subtitle="Syncing all projects to Prometheus monitoring",
+        console=console,
     )
 
     project_root = get_project_root()
@@ -71,11 +69,10 @@ def monitoring_sync():
 @click.option("--project", "-p", required=True, help="Project name")
 def monitoring_status(project):
     """Check monitoring status for a project"""
-    console.print(
-        Panel.fit(
-            f"[bold cyan]📊 Monitoring Status: {project}[/bold cyan]",
-            border_style="cyan",
-        )
+    show_header(
+        title="Monitoring Status",
+        project=project,
+        console=console,
     )
 
     project_root = get_project_root()

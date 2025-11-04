@@ -3,8 +3,8 @@
 import click
 import subprocess
 from rich.console import Console
-from rich.panel import Panel
 from cli.logger import DeployLogger, run_with_progress
+from cli.ui_components import show_header
 
 console = Console()
 
@@ -43,12 +43,12 @@ def up(
     """
 
     if not verbose:
-        console.print(
-            Panel.fit(
-                f"[bold cyan]🚀 SuperDeploy Infrastructure Deployment[/bold cyan]\n\n"
-                f"[white]Deploying project: [bold]{project}[/bold][/white]",
-                border_style="cyan",
-            )
+        show_header(
+            title="Infrastructure Deployment",
+            subtitle="Provisioning VMs, configuring services, and deploying applications",
+            project=project,
+            show_logo=True,
+            console=console,
         )
 
     from cli.utils import get_project_root
@@ -198,8 +198,9 @@ def _deploy_project_v2(
         if returncode != 0:
             logger.log_error("Terraform init failed", context=stderr)
             raise SystemExit(1)
-        
+
         from rich.console import Console
+
         console = Console()
         console.print("  ✓ Terraform initialized")
 
@@ -237,7 +238,7 @@ def _deploy_project_v2(
         if returncode != 0:
             logger.log_error("Terraform apply failed", context=stderr)
             raise SystemExit(1)
-        
+
         console.print("  ✓ VMs provisioned")
 
         # Get VM IPs
