@@ -316,21 +316,37 @@ def domain_add(project: str, app_name: str, domain: str):
 
 
 @click.command(name="domain:list")
-@click.option("-p", "--project", help="Project name (omit for orchestrator services)")
+@click.option("-p", "--project", help="Project name (show only this project)")
 def domain_list(project: str):
     """
-    List all domains.
+    List all domains (orchestrator + all projects).
 
-    Without -p flag: shows orchestrator services (grafana, prometheus, forgejo)
-    With -p flag: shows project app domains
+    Without -p flag: shows ALL domains (orchestrator + all projects)
+    With -p flag: shows only that project's domains
 
     Examples:
-        superdeploy domain:list              # orchestrator services
-        superdeploy domain:list -p cheapa    # project apps
+        superdeploy domain:list              # all domains
+        superdeploy domain:list -p cheapa    # only cheapa project
     """
     try:
-        # ORCHESTRATOR MODE (default when no -p)
-        if not project:
+        # Get all available projects
+        projects_dir = Path.cwd() / "projects"
+        all_projects = [d.name for d in projects_dir.iterdir() if d.is_dir() and (d / "project.yml").exists()] if projects_dir.exists() else []
+        
+        # If -p specified, show only that project
+        if project:
+            if project not in all_projects:
+                console.print(f"[red]✗ Project '{project}' not found[/red]")
+                raise click.Abort()
+            projects_to_show = [project]
+        else:
+            # Show all projects
+            projects_to_show = all_projects
+        
+        # ═══════════════════════════════════════════════════════
+        # ORCHESTRATOR DOMAINS
+        # ═══════════════════════════════════════════════════════
+        if not project:  # Only show orchestrator when listing all
             # Load orchestrator config
             config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
             if not config_file.exists():
@@ -385,79 +401,79 @@ def domain_list(project: str):
                 1 for s in services if config.get(s, {}).get("domain")
             )
             console.print(
-                f"[dim]Total services: {total_services} | With domains: {services_with_domains}[/dim]"
+                f"[dim]Orchestrator: {total_services} services | {services_with_domains} with domains[/dim]"
             )
             console.print()
-            return
-
-        # PROJECT MODE (existing code)
-        # Load project config
-        project_dir = Path.cwd() / "projects" / project
-        config_file = project_dir / "project.yml"
-
-        if not config_file.exists():
-            console.print(f"[red]✗ Project '{project}' not found[/red]")
-            raise click.Abort()
-
-        with open(config_file, "r") as f:
-            config = yaml.safe_load(f)
-
-        # Get VM IPs
+        
+        # ═══════════════════════════════════════════════════════
+        # PROJECT DOMAINS
+        # ═══════════════════════════════════════════════════════
         terraform_dir = Path.cwd() / "shared" / "terraform"
-        try:
-            # Select workspace first
-            subprocess.run(
-                ["terraform", "workspace", "select", project],
-                cwd=terraform_dir,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
+        
+        for proj_name in projects_to_show:
+            project_dir = Path.cwd() / "projects" / proj_name
+            config_file = project_dir / "project.yml"
 
-            # Get outputs
-            result = subprocess.run(
-                ["terraform", "output", "-json"],
-                cwd=terraform_dir,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            outputs = json.loads(result.stdout)
-            vms_by_role = outputs.get("vms_by_role", {}).get("value", {})
-        except:
+            if not config_file.exists():
+                continue
+
+            with open(config_file, "r") as f:
+                config = yaml.safe_load(f)
+
+            # Get VM IPs for this project
             vms_by_role = {}
+            try:
+                # Select workspace
+                subprocess.run(
+                    ["terraform", "workspace", "select", proj_name],
+                    cwd=terraform_dir,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
 
-        # Build table
-        table = Table(title=f"Domains for Project: {project}", show_header=True)
-        table.add_column("App", style="cyan")
-        table.add_column("Domain", style="green")
-        table.add_column("VM", style="yellow")
-        table.add_column("IP", style="blue")
+                # Get outputs
+                result = subprocess.run(
+                    ["terraform", "output", "-json"],
+                    cwd=terraform_dir,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                outputs = json.loads(result.stdout)
+                vms_by_role = outputs.get("vms_by_role", {}).get("value", {})
+            except:
+                pass
 
-        apps = config.get("apps", {})
-        for app_name, app_config in apps.items():
-            domain = app_config.get("domain", "-")
-            vm_role = app_config.get("vm", "-")
+            # Build table for this project
+            table = Table(title=f"Project: {proj_name}", show_header=True)
+            table.add_column("App", style="cyan")
+            table.add_column("Domain", style="green")
+            table.add_column("VM", style="yellow")
+            table.add_column("IP", style="blue")
 
-            # Find VM IP
-            vm_ip = "-"
-            role_vms = vms_by_role.get(vm_role, [])
-            if role_vms:
-                vm_ip = role_vms[0].get("external_ip", "-")
+            apps = config.get("apps", {})
+            for app_name, app_config in apps.items():
+                domain = app_config.get("domain", "-")
+                vm_role = app_config.get("vm", "-")
 
-            table.add_row(app_name, domain, vm_role, vm_ip)
+                # Find VM IP
+                vm_ip = "-"
+                role_vms = vms_by_role.get(vm_role, [])
+                if role_vms:
+                    vm_ip = role_vms[0].get("external_ip", "-")
 
-        console.print()
-        console.print(table)
-        console.print()
+                table.add_row(app_name, domain, vm_role, vm_ip)
 
-        # Show summary
-        total_apps = len(apps)
-        apps_with_domains = sum(1 for app in apps.values() if app.get("domain"))
-        console.print(
-            f"[dim]Total apps: {total_apps} | With domains: {apps_with_domains}[/dim]"
-        )
-        console.print()
+            console.print(table)
+            
+            # Show summary for this project
+            total_apps = len(apps)
+            apps_with_domains = sum(1 for app in apps.values() if app.get("domain"))
+            console.print(
+                f"[dim]{proj_name}: {total_apps} apps | {apps_with_domains} with domains[/dim]"
+            )
+            console.print()
 
     except Exception as e:
         console.print(f"[red]✗ Failed to list domains: {e}[/red]")
