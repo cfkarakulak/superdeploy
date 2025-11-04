@@ -35,6 +35,15 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    # RESOURCE LIMITS: Prevent OOM and ensure fair resource sharing
+    deploy:
+      resources:
+        limits:
+          memory: {{ app_config.resources.memory | default('512M') }}
+          cpus: '{{ app_config.resources.cpu | default('1.0') }}'
+        reservations:
+          memory: {{ app_config.resources.memory_reservation | default('256M') }}
+          cpus: '{{ app_config.resources.cpu_reservation | default('0.5') }}'
 
 {% endfor %}
 

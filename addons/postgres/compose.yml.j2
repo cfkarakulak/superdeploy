@@ -23,13 +23,15 @@ services:
       retries: {{ healthcheck.retries }}
       start_period: {{ healthcheck.start_period }}
 {% endif %}
-{% if resources and resources.memory is defined %}
+    # RESOURCE LIMITS: Prevent OOM killer and resource starvation
     deploy:
       resources:
         limits:
-          memory: {{ resources.memory }}
-          cpus: '{{ resources.cpu }}'
-{% endif %}
+          memory: {{ resources.memory | default('512M') }}
+          cpus: '{{ resources.cpu | default('1.0') }}'
+        reservations:
+          memory: {{ resources.memory_reservation | default('256M') }}
+          cpus: '{{ resources.cpu_reservation | default('0.5') }}'
     labels:
       - "prometheus.scrape=true"
       - "prometheus.port={{ monitoring.metrics_port | default(9090) }}"

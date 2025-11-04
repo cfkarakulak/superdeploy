@@ -26,7 +26,7 @@ def subnets():
         return
     
     # Create table
-    table = Table(show_header=True, header_style="bold cyan")
+    table = Table(title="Subnet Allocations", show_header=True, header_style="bold cyan", title_justify="left")
     table.add_column("Project", style="white", no_wrap=True)
     table.add_column("Subnet CIDR", style="green")
     table.add_column("IP Range", style="dim")

@@ -81,7 +81,7 @@ def status(project, verbose):
     logger.step("Checking VM and container status")
     
     # Create table
-    table = Table(title=f"{project} - Infrastructure Status")
+    table = Table(title=f"{project} - Infrastructure Status", title_justify="left")
     table.add_column("Component", style="cyan", no_wrap=True)
     table.add_column("Status", style="green")
     table.add_column("Details", style="dim")

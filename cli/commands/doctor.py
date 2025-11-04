@@ -50,7 +50,7 @@ def doctor():
     )
 
     # Create table
-    table = Table(title="System Health Report")
+    table = Table(title="System Health Report", title_justify="left")
     table.add_column("Check", style="cyan", no_wrap=True)
     table.add_column("Status")
     table.add_column("Details", style="dim")

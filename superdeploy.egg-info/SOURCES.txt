@@ -2,6 +2,7 @@ README.md
 setup.py
 cli/__init__.py
 cli/ansible_runner.py
+cli/ansible_runner_simple.py
 cli/ansible_utils.py
 cli/logger.py
 cli/main.py
@@ -15,6 +16,7 @@ cli/commands/backup.py
 cli/commands/config.py
 cli/commands/deploy.py
 cli/commands/doctor.py
+cli/commands/domain.py
 cli/commands/down.py
 cli/commands/env.py
 cli/commands/generate.py
@@ -33,6 +35,7 @@ cli/commands/status.py
 cli/commands/subnets.py
 cli/commands/switch.py
 cli/commands/sync.py
+cli/commands/tunnel.py
 cli/commands/up.py
 cli/commands/update_firewall.py
 cli/commands/validate.py

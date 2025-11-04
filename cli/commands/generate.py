@@ -353,6 +353,14 @@ def generate_docker_compose_apps(config, compose_dir):
             internal_port = port
 
         tag_var = f"{app_name.upper()}_TAG"  # e.g., API_TAG
+        
+        # Resource limits with sensible defaults
+        resources = app_config.get("resources", {})
+        memory_limit = resources.get("memory", "512M")
+        cpu_limit = resources.get("cpu", "1.0")
+        memory_reservation = resources.get("memory_reservation", "256M")
+        cpu_reservation = resources.get("cpu_reservation", "0.5")
+        
         lines.extend(
             [
                 "",
@@ -369,6 +377,15 @@ def generate_docker_compose_apps(config, compose_dir):
                 f"      - .env.{app_name}",
                 "    networks:",
                 f"      - {project_name}-network",
+                "    # RESOURCE LIMITS: Prevent OOM and ensure fair resource sharing",
+                "    deploy:",
+                "      resources:",
+                "        limits:",
+                f"          memory: {memory_limit}",
+                f"          cpus: '{cpu_limit}'",
+                "        reservations:",
+                f"          memory: {memory_reservation}",
+                f"          cpus: '{cpu_reservation}'",
             ]
         )
 

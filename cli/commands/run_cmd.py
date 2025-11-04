@@ -15,17 +15,22 @@ console = Console()
 @click.command(name="run")
 @click.option("--project", "-p", required=True, help="Project name")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
+@click.option("--interactive", "-i", is_flag=True, help="Interactive mode (with TTY)")
 @click.argument("app")
 @click.argument("command")
-def run(project, app, command, verbose):
+def run(project, app, command, verbose, interactive):
     """
-    Run one-off command in app container
+    Run one-off command in app container (like 'heroku run')
 
     \b
     Examples:
-      superdeploy run api "python manage.py migrate"
-      superdeploy run api "bash"
-      superdeploy run dashboard "npm install"
+      superdeploy run -p cheapa api "python manage.py migrate"
+      superdeploy run -p cheapa api bash -i
+      superdeploy run -p cheapa dashboard "npm run build"
+    
+    \b
+    Interactive commands (bash, sh, psql) are auto-detected.
+    Use -i flag to force interactive mode.
     """
     from cli.utils import get_project_root
     from cli.core.config_loader import ConfigLoader
@@ -81,9 +86,51 @@ def run(project, app, command, verbose):
     logger.step(f"Executing command in {app} container")
     ssh_key = os.path.expanduser("~/.ssh/superdeploy_deploy")
     ssh_user = "superdeploy"
-
-    # Use -i (not -it) for non-interactive commands to avoid TTY errors
-    docker_cmd = f"docker exec -i {project}-{app} {command}"
+    
+    # Auto-detect interactive commands (bash, sh, psql, etc.)
+    interactive_commands = ["bash", "sh", "zsh", "fish", "psql", "mysql", "redis-cli", "mongo", "mongosh"]
+    is_interactive = interactive or command.strip().split()[0] in interactive_commands
+    
+    # Find actual container name (try both formats)
+    container_candidates = [
+        f"{project}-{app}",      # new format
+        f"{project}_{app}",      # old format
+    ]
+    
+    logger.log("Finding container...")
+    container_name = None
+    for candidate in container_candidates:
+        check_cmd = f"docker ps -q -f name={candidate}"
+        ssh_check = [
+            "ssh",
+            "-i",
+            ssh_key,
+            "-o",
+            "StrictHostKeyChecking=no",
+            f"{ssh_user}@{ssh_host}",
+            check_cmd,
+        ]
+        result = subprocess.run(ssh_check, capture_output=True, text=True)
+        if result.stdout.strip():
+            container_name = candidate
+            logger.log(f"Found container: {container_name}")
+            break
+    
+    if not container_name:
+        logger.log_error(f"Container not found for app '{app}'")
+        logger.log(f"Tried: {', '.join(container_candidates)}")
+        logger.log(f"Run: superdeploy status -p {project}")
+        raise SystemExit(1)
+    
+    # Build docker exec command with proper TTY handling
+    if is_interactive:
+        docker_cmd = f"docker exec -it {container_name} {command}"
+        ssh_flags = ["-t"]  # Allocate TTY
+        logger.log("Interactive mode: TTY enabled")
+    else:
+        docker_cmd = f"docker exec {container_name} {command}"
+        ssh_flags = []
+        logger.log("Non-interactive mode")
 
     ssh_cmd = [
         "ssh",
@@ -91,16 +138,23 @@ def run(project, app, command, verbose):
         ssh_key,
         "-o",
         "StrictHostKeyChecking=no",
+        *ssh_flags,
         f"{ssh_user}@{ssh_host}",
         docker_cmd,
     ]
 
     try:
-        result = subprocess.run(ssh_cmd, check=True)
+        # Use different subprocess call for interactive vs non-interactive
+        if is_interactive:
+            # Interactive: Don't capture output, let user interact
+            result = subprocess.run(ssh_cmd)
+        else:
+            # Non-interactive: Capture and log
+            result = subprocess.run(ssh_cmd, check=True)
 
         if result.returncode == 0:
             logger.success("Command executed successfully")
-            if not verbose:
+            if not verbose and not is_interactive:
                 console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
     except subprocess.CalledProcessError as e:

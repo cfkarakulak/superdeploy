@@ -380,7 +380,7 @@ def domain_list(project: str):
                 vm_ip = "-"
 
             # Build table
-            table = Table(title="Orchestrator Service Domains", show_header=True)
+            table = Table(title="Orchestrator Service Domains", show_header=True, title_justify="left")
             table.add_column("Service", style="cyan")
             table.add_column("Domain", style="green")
             table.add_column("IP", style="blue")
@@ -446,7 +446,7 @@ def domain_list(project: str):
                 pass
 
             # Build table for this project
-            table = Table(title=f"Project: {proj_name}", show_header=True)
+            table = Table(title=f"Project: {proj_name}", show_header=True, title_justify="left")
             table.add_column("App", style="cyan")
             table.add_column("Domain", style="green")
             table.add_column("VM", style="yellow")

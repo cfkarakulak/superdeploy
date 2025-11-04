@@ -191,7 +191,7 @@ def tunnel(project, service, all_services, list_services):
     ssh_cmd.append(f"{ssh_user}@{vm_ip}")
 
     # Show connection info
-    table = Table(title="Active Tunnels", show_header=True)
+    table = Table(title="Active Tunnels", show_header=True, title_justify="left")
     table.add_column("Service", style="cyan")
     table.add_column("Local Port", style="green")
     table.add_column("Connection", style="yellow")
@@ -217,7 +217,7 @@ def tunnel(project, service, all_services, list_services):
 
 def show_available_services():
     """Show table of available services"""
-    table = Table(show_header=True)
+    table = Table(title="Available Services", show_header=True, title_justify="left")
     table.add_column("Service", style="cyan")
     table.add_column("Name", style="white")
     table.add_column("Local Port", style="green")
