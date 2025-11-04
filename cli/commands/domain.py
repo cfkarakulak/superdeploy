@@ -26,58 +26,67 @@ def domain():
     pass
 
 
-@domain.command(name="add")
-@click.option("-p", "--project", help="Project name")
-@click.option("--orchestrator", is_flag=True, help="Add domain to orchestrator service")
+@domain.command()
+@click.option("-p", "--project", help="Project name (required for app domains)")
 @click.argument("app_name")
 @click.argument("domain")
-def add_domain(project: str, orchestrator: bool, app_name: str, domain: str):
+def add(project: str, app_name: str, domain: str):
     """
     Add a domain to an application or orchestrator service.
 
+    Orchestrator services (grafana, prometheus, forgejo) are auto-detected.
+    Project apps require -p flag.
+
     Examples:
-        # Project apps
-        superdeploy domain add -p cheapa api api.cheapa.io
-        superdeploy domain add -p cheapa dashboard dashboard.cheapa.io
-        
-        # Orchestrator services
-        superdeploy domain add --orchestrator grafana grafana.cheapa.io
-        superdeploy domain add --orchestrator prometheus prometheus.cheapa.io
-        superdeploy domain add --orchestrator forgejo forgejo.cheapa.io
+        # Orchestrator services (keyword-based, no -p needed)
+        superdeploy domain:add grafana grafana.cheapa.io
+        superdeploy domain:add prometheus prometheus.cheapa.io
+        superdeploy domain:add forgejo forgejo.cheapa.io
+
+        # Project apps (explicit -p required)
+        superdeploy domain:add -p cheapa api api.cheapa.io
+        superdeploy domain:add -p cheapa dashboard dashboard.cheapa.io
     """
     try:
-        # Validate: either --orchestrator OR -p project (not both)
-        if orchestrator and project:
-            console.print("[red]✗ Cannot use both --orchestrator and -p project[/red]")
+        # Auto-detect orchestrator services by keyword
+        ORCHESTRATOR_SERVICES = ["grafana", "prometheus", "forgejo"]
+        is_orchestrator = app_name in ORCHESTRATOR_SERVICES
+
+        # Validate inputs
+        if is_orchestrator and project:
+            console.print(
+                f"[red]✗ '{app_name}' is an orchestrator service[/red]"
+            )
+            console.print(f"[yellow]Tip: Don't use -p flag for orchestrator services[/yellow]")
+            console.print(f"Usage: superdeploy domain:add {app_name} {domain}")
             raise click.Abort()
-        
-        if not orchestrator and not project:
-            console.print("[red]✗ Must specify either --orchestrator or -p project[/red]")
+
+        if not is_orchestrator and not project:
+            console.print(
+                f"[red]✗ '{app_name}' requires -p <project> flag[/red]"
+            )
+            console.print(f"Usage: superdeploy domain:add -p <project> {app_name} {domain}")
             raise click.Abort()
-        
+
         console.print(
             f"\n[bold yellow]▶[/bold yellow] Adding domain [cyan]{domain}[/cyan] to [cyan]{app_name}[/cyan]\n"
         )
 
         # ORCHESTRATOR MODE
-        if orchestrator:
-            # Valid services: grafana, prometheus, forgejo
-            valid_services = ["grafana", "prometheus", "forgejo"]
-            if app_name not in valid_services:
-                console.print(f"[red]✗ Invalid orchestrator service '{app_name}'[/red]")
-                console.print(f"Available services: {', '.join(valid_services)}")
-                raise click.Abort()
-            
+        if is_orchestrator:
+
             # Load orchestrator config
             config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
             if not config_file.exists():
-                console.print(f"[red]✗ Orchestrator config not found at {config_file}[/red]")
+                console.print(
+                    f"[red]✗ Orchestrator config not found at {config_file}[/red]"
+                )
                 console.print("Run 'superdeploy orchestrator init' first")
                 raise click.Abort()
-            
+
             with open(config_file, "r") as f:
                 config = yaml.safe_load(f)
-            
+
             # Get orchestrator IP
             terraform_dir = Path.cwd() / "shared" / "terraform"
             try:
@@ -88,7 +97,7 @@ def add_domain(project: str, orchestrator: bool, app_name: str, domain: str):
                     text=True,
                     check=True,
                 )
-                
+
                 result = subprocess.run(
                     ["terraform", "output", "-json"],
                     cwd=terraform_dir,
@@ -98,15 +107,17 @@ def add_domain(project: str, orchestrator: bool, app_name: str, domain: str):
                 )
                 outputs = json.loads(result.stdout)
                 vm_ip = outputs.get("orchestrator_ip", {}).get("value")
-                
+
                 if not vm_ip:
                     console.print("[red]✗ Could not find orchestrator IP[/red]")
                     raise click.Abort()
             except Exception as e:
-                console.print("[red]✗ Failed to get orchestrator IP from Terraform[/red]")
+                console.print(
+                    "[red]✗ Failed to get orchestrator IP from Terraform[/red]"
+                )
                 console.print(f"[dim]Error: {e}[/dim]")
                 raise click.Abort()
-            
+
             # Show DNS instruction
             console.print()
             console.print(
@@ -123,37 +134,37 @@ def add_domain(project: str, orchestrator: bool, app_name: str, domain: str):
                 )
             )
             console.print()
-            
+
             if not click.confirm(
                 f"Have you added the DNS record for {domain}?", default=False
             ):
                 console.print("Aborted. Add the DNS record and try again.")
                 raise click.Abort()
-            
+
             # Update orchestrator config
             console.print("Updating orchestrator config.yml...")
             config[app_name]["domain"] = domain
-            
+
             with open(config_file, "w") as f:
                 yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-            
+
             console.print(f"[green]✓ Updated {config_file}[/green]")
-            
+
             # Redeploy Caddy on orchestrator
             console.print(
                 "\n[bold yellow]▶[/bold yellow] Redeploying Caddy on orchestrator\n"
             )
             console.print("This will update Caddyfile and reload Caddy...")
-            
+
             result = subprocess.run(
                 ["superdeploy", "orchestrator", "up", "--addon", "caddy"],
                 cwd=Path.cwd(),
             )
-            
+
             if result.returncode != 0:
                 console.print("[red]✗ Failed to redeploy Caddy[/red]")
                 raise click.Abort()
-            
+
             # Success message
             console.print()
             console.print(
@@ -169,7 +180,7 @@ def add_domain(project: str, orchestrator: bool, app_name: str, domain: str):
                 )
             )
             return
-        
+
         # PROJECT MODE (existing code)
         # Load project config
         project_dir = Path.cwd() / "projects" / project
@@ -315,38 +326,31 @@ def add_domain(project: str, orchestrator: bool, app_name: str, domain: str):
         raise
 
 
-@domain.command(name="list")
-@click.option("-p", "--project", help="Project name")
-@click.option("--orchestrator", is_flag=True, help="List orchestrator service domains")
-def list_domains(project: str, orchestrator: bool):
+@domain.command()
+@click.option("-p", "--project", help="Project name (omit for orchestrator services)")
+def list(project: str):
     """
-    List all domains for a project or orchestrator.
+    List all domains.
+
+    Without -p flag: shows orchestrator services (grafana, prometheus, forgejo)
+    With -p flag: shows project app domains
 
     Examples:
-        superdeploy domain list -p cheapa
-        superdeploy domain list --orchestrator
+        superdeploy domain:list              # orchestrator services
+        superdeploy domain:list -p cheapa    # project apps
     """
     try:
-        # Validate: either --orchestrator OR -p project (not both)
-        if orchestrator and project:
-            console.print("[red]✗ Cannot use both --orchestrator and -p project[/red]")
-            raise click.Abort()
-        
-        if not orchestrator and not project:
-            console.print("[red]✗ Must specify either --orchestrator or -p project[/red]")
-            raise click.Abort()
-        
-        # ORCHESTRATOR MODE
-        if orchestrator:
+        # ORCHESTRATOR MODE (default when no -p)
+        if not project:
             # Load orchestrator config
             config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
             if not config_file.exists():
-                console.print(f"[red]✗ Orchestrator config not found[/red]")
+                console.print("[red]✗ Orchestrator config not found[/red]")
                 raise click.Abort()
-            
+
             with open(config_file, "r") as f:
                 config = yaml.safe_load(f)
-            
+
             # Get orchestrator IP
             terraform_dir = Path.cwd() / "shared" / "terraform"
             try:
@@ -357,7 +361,7 @@ def list_domains(project: str, orchestrator: bool):
                     text=True,
                     check=True,
                 )
-                
+
                 result = subprocess.run(
                     ["terraform", "output", "-json"],
                     cwd=terraform_dir,
@@ -369,32 +373,34 @@ def list_domains(project: str, orchestrator: bool):
                 vm_ip = outputs.get("orchestrator_ip", {}).get("value", "-")
             except:
                 vm_ip = "-"
-            
+
             # Build table
             table = Table(title="Orchestrator Service Domains", show_header=True)
             table.add_column("Service", style="cyan")
             table.add_column("Domain", style="green")
             table.add_column("IP", style="blue")
-            
+
             services = ["grafana", "prometheus", "forgejo"]
             for service in services:
                 service_config = config.get(service, {})
                 domain = service_config.get("domain", "-")
                 table.add_row(service, domain, vm_ip)
-            
+
             console.print()
             console.print(table)
             console.print()
-            
+
             # Show summary
             total_services = len(services)
-            services_with_domains = sum(1 for s in services if config.get(s, {}).get("domain"))
+            services_with_domains = sum(
+                1 for s in services if config.get(s, {}).get("domain")
+            )
             console.print(
                 f"[dim]Total services: {total_services} | With domains: {services_with_domains}[/dim]"
             )
             console.print()
             return
-        
+
         # PROJECT MODE (existing code)
         # Load project config
         project_dir = Path.cwd() / "projects" / project
@@ -469,21 +475,95 @@ def list_domains(project: str, orchestrator: bool):
         raise
 
 
-@domain.command(name="remove")
-@click.option("-p", "--project", required=True, help="Project name")
+@domain.command()
+@click.option("-p", "--project", help="Project name (required for app domains)")
 @click.argument("app_name")
-def remove_domain(project: str, app_name: str):
+def remove(project: str, app_name: str):
     """
-    Remove a domain from an application.
+    Remove a domain from an application or orchestrator service.
 
-    Example:
-        superdeploy domain:remove -p cheapa api
+    Orchestrator services (grafana, prometheus, forgejo) are auto-detected.
+    Project apps require -p flag.
+
+    Examples:
+        superdeploy domain:remove grafana                # orchestrator
+        superdeploy domain:remove -p cheapa api          # project app
     """
     try:
+        # Auto-detect orchestrator services by keyword
+        ORCHESTRATOR_SERVICES = ["grafana", "prometheus", "forgejo"]
+        is_orchestrator = app_name in ORCHESTRATOR_SERVICES
+
+        # Validate inputs
+        if is_orchestrator and project:
+            console.print(
+                f"[red]✗ '{app_name}' is an orchestrator service[/red]"
+            )
+            console.print(f"[yellow]Tip: Don't use -p flag for orchestrator services[/yellow]")
+            console.print(f"Usage: superdeploy domain:remove {app_name}")
+            raise click.Abort()
+
+        if not is_orchestrator and not project:
+            console.print(
+                f"[red]✗ '{app_name}' requires -p <project> flag[/red]"
+            )
+            console.print(f"Usage: superdeploy domain:remove -p <project> {app_name}")
+            raise click.Abort()
+
         console.print(
             f"\n[bold yellow]▶[/bold yellow] Removing domain from [cyan]{app_name}[/cyan]\n"
         )
 
+        # ORCHESTRATOR MODE
+        if is_orchestrator:
+            # Load orchestrator config
+            config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
+            if not config_file.exists():
+                console.print("[red]✗ Orchestrator config not found[/red]")
+                raise click.Abort()
+
+            with open(config_file, "r") as f:
+                config = yaml.safe_load(f)
+
+            service_config = config.get(app_name, {})
+            old_domain = service_config.get("domain")
+
+            if not old_domain:
+                console.print(f"[yellow]Service '{app_name}' has no domain configured[/yellow]")
+                return
+
+            # Confirm removal
+            if not click.confirm(
+                f"Remove domain '{old_domain}' from {app_name}?", default=False
+            ):
+                console.print("Aborted")
+                raise click.Abort()
+
+            # Remove domain (set to empty string)
+            config[app_name]["domain"] = ""
+
+            with open(config_file, "w") as f:
+                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+            console.print(f"[green]✓ Removed domain from {config_file}[/green]")
+
+            # Redeploy Caddy on orchestrator
+            console.print("\n[bold yellow]▶[/bold yellow] Redeploying Caddy on orchestrator\n")
+
+            result = subprocess.run(
+                ["superdeploy", "orchestrator", "up", "--addon", "caddy"],
+                cwd=Path.cwd(),
+            )
+
+            if result.returncode != 0:
+                console.print("[red]✗ Failed to redeploy Caddy[/red]")
+                raise click.Abort()
+
+            console.print(f"[green]✓ Domain '{old_domain}' removed from {app_name}[/green]")
+            console.print("Service now accessible via port-based routing only")
+            return
+
+        # PROJECT MODE
         # Load project config
         project_dir = Path.cwd() / "projects" / project
         config_file = project_dir / "project.yml"
@@ -504,7 +584,7 @@ def remove_domain(project: str, app_name: str):
         old_domain = app.get("domain")
 
         if not old_domain:
-            console.print(f"App '{app_name}' has no domain configured")
+            console.print(f"[yellow]App '{app_name}' has no domain configured[/yellow]")
             return
 
         # Confirm removal
