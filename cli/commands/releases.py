@@ -8,25 +8,25 @@ from cli.utils import load_env, ssh_command
 console = Console()
 
 
-@click.command()
+@click.command(name="releases:list")
 @click.option("--project", "-p", required=True, help="Project name")
 @click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
 @click.option("-n", "--limit", default=10, help="Number of releases to show")
-def releases(project, app, limit):
+def releases_list(project, app, limit):
     """
     Show release history for an app (last 5 releases kept)
 
     \b
     Examples:
-      superdeploy releases -p cheapa -a api          # Show all releases
-      superdeploy releases -p cheapa -a api -n 3     # Show last 3
+      superdeploy releases:list -p cheapa -a api          # Show all releases
+      superdeploy releases:list -p cheapa -a api -n 3     # Show last 3
 
     \b
     Shows:
     - Release timestamp
     - Git SHA
     - Current/Previous status
-    - Use 'superdeploy switch' to change versions
+    - Use 'superdeploy releases:rollback' to change versions
     """
     from cli.utils import get_project_root
     from cli.core.config_loader import ConfigLoader

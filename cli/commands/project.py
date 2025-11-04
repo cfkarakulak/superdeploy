@@ -11,13 +11,7 @@ import click
 console = Console()
 
 
-@click.group()
-def project():
-    """Manage project deployments"""
-    pass
-
-
-@project.command()
+@click.command(name="projects:deploy")
 @click.option("--project", "-p", required=True, help="Project name")
 @click.option(
     "--services",
@@ -25,7 +19,7 @@ def project():
     default="all",
     help="Services to deploy (comma-separated or 'all')",
 )
-def deploy(project, services):
+def projects_deploy(project, services):
     """Deploy project-specific services to VM"""
 
     project_root = Path(__file__).parents[2]

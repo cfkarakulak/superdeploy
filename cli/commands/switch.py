@@ -10,21 +10,21 @@ from cli.utils import load_env, ssh_command
 console = Console()
 
 
-@click.command()
+@click.command(name="releases:rollback")
 @click.option("--project", "-p", required=True, help="Project name")
 @click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
 @click.option("--version", "-v", help="Release version (timestamp_sha, index number, or 'previous')")
 @click.option("--force", is_flag=True, help="Skip confirmation")
-def switch(project, app, version, force):
+def releases_rollback(project, app, version, force):
     """
     Switch between any release version (forward or backward)
 
     \b
     Examples:
-      superdeploy switch -p cheapa -a api                           # Interactive: show list and select
-      superdeploy switch -p cheapa -a api -v 2                      # Switch to release #2
-      superdeploy switch -p cheapa -a api -v 20251030_143312_3a4a89d  # Switch to specific release
-      superdeploy switch -p cheapa -a api -v previous               # Switch to previous release
+      superdeploy releases:rollback -p cheapa -a api                           # Interactive: show list and select
+      superdeploy releases:rollback -p cheapa -a api -v 2                      # Switch to release #2
+      superdeploy releases:rollback -p cheapa -a api -v 20251030_143312_3a4a89d  # Switch to specific release
+      superdeploy releases:rollback -p cheapa -a api -v previous               # Switch to previous release
 
     \b
     Features:

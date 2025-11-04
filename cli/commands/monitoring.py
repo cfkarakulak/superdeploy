@@ -8,14 +8,8 @@ from cli.utils import get_project_root
 console = Console()
 
 
-@click.group()
-def monitoring():
-    """Manage monitoring (Prometheus & Grafana)"""
-    pass
-
-
-@monitoring.command()
-def sync():
+@click.command(name="monitoring:sync")
+def monitoring_sync():
     """Sync all projects to Prometheus monitoring"""
     console.print(
         Panel.fit(
@@ -73,9 +67,9 @@ def sync():
         raise SystemExit(1)
 
 
-@monitoring.command()
+@click.command(name="monitoring:status")
 @click.option('--project', '-p', required=True, help='Project name')
-def status(project):
+def monitoring_status(project):
     """Check monitoring status for a project"""
     console.print(
         Panel.fit(
@@ -153,7 +147,7 @@ def status(project):
     
     if not found:
         console.print(f"\n[yellow]⚠️  {project} is NOT configured in Prometheus[/yellow]")
-        console.print(f"\n[cyan]Run:[/cyan] superdeploy monitoring sync")
+        console.print(f"\n[cyan]Run:[/cyan] superdeploy monitoring:sync")
     
     # Cleanup
     Path(tmp_path).unlink(missing_ok=True)

@@ -10,17 +10,17 @@ from cli.utils import load_env, validate_env_vars, ssh_command
 console = Console()
 
 
-@click.command()
+@click.command(name="backups:create")
 @click.option("--project", "-p", required=True, help="Project name")
 @click.option("--output", "-o", help="Backup output path (default: ./backups/)")
-def backup(project, output):
+def backups_create(project, output):
     """
     Backup project database and configurations
 
     \b
     Examples:
-      superdeploy backup -p acme                    # Backup to ./backups/
-      superdeploy backup -p acme -o /tmp/backup     # Custom output path
+      superdeploy backups:create -p acme                    # Backup to ./backups/
+      superdeploy backups:create -p acme -o /tmp/backup     # Custom output path
     
     \b
     This command backs up:

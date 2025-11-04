@@ -21,23 +21,28 @@ from cli.commands import (
     scale,
     restart,
     doctor,
-    config,
-    env,
-    releases,
-    switch,
     down,
-    project,
     promote,
-    backup,
     validate,
     metrics,
-    orchestrator,
     update_firewall,
-    monitoring,
     subnets,
     tunnel,
 )
 from cli.commands.domain import domain_add, domain_list, domain_remove
+from cli.commands.config import config_set, config_get, config_list, config_unset
+from cli.commands.env import env_list, env_check
+from cli.commands.releases import releases_list
+from cli.commands.switch import releases_rollback
+from cli.commands.backup import backups_create
+from cli.commands.monitoring import monitoring_sync, monitoring_status
+from cli.commands.orchestrator import (
+    orchestrator_init,
+    orchestrator_up,
+    orchestrator_down,
+    orchestrator_status,
+)
+from cli.commands.project import projects_deploy
 
 console = Console()
 
@@ -88,25 +93,37 @@ cli.add_command(deploy.deploy)
 cli.add_command(scale.scale)
 cli.add_command(restart.restart)
 cli.add_command(doctor.doctor)
-cli.add_command(config.config_group)
-cli.add_command(env.env_group)
-cli.add_command(releases.releases)
-cli.add_command(switch.switch)
-cli.add_command(project.project)
+# Register config commands (Heroku-style with colons)
+cli.add_command(config_set)
+cli.add_command(config_get)
+cli.add_command(config_list)
+cli.add_command(config_unset)
+# Register env commands (Heroku-style with colons)
+cli.add_command(env_list)
+cli.add_command(env_check)
+# Register releases commands (Heroku-style with colons)
+cli.add_command(releases_list)
+cli.add_command(releases_rollback)
+# Register project commands (Heroku-style with colons)
+cli.add_command(projects_deploy)
 cli.add_command(promote.promote)
 # Register domain commands (Heroku-style with colons)
 cli.add_command(domain_add)
 cli.add_command(domain_list)
 cli.add_command(domain_remove)
-cli.add_command(backup.backup)
+# Register backup commands (Heroku-style with colons)
+cli.add_command(backups_create)
 cli.add_command(validate.validate)
 cli.add_command(metrics.metrics)
-# Register orchestrator commands
-# Note: orchestrator.py has all commands (init, up, down, status)
-# up command uses DeployLogger for clean output
-cli.add_command(orchestrator.orchestrator)
+# Register orchestrator commands (Heroku-style with colons)
+cli.add_command(orchestrator_init)
+cli.add_command(orchestrator_up)
+cli.add_command(orchestrator_down)
+cli.add_command(orchestrator_status)
 cli.add_command(update_firewall.update_firewall, name="update-firewall")
-cli.add_command(monitoring.monitoring)
+# Register monitoring commands (Heroku-style with colons)
+cli.add_command(monitoring_sync)
+cli.add_command(monitoring_status)
 cli.add_command(subnets.subnets)
 cli.add_command(tunnel.tunnel)
 

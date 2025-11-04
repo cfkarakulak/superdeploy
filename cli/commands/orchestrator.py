@@ -12,14 +12,8 @@ from cli.logger import DeployLogger, run_with_progress
 console = Console()
 
 
-@click.group()
-def orchestrator():
-    """Manage global Forgejo orchestrator"""
-    pass
-
-
-@orchestrator.command()
-def init():
+@click.command(name="orchestrator:init")
+def orchestrator_init():
     """Initialize orchestrator configuration (interactive wizard)"""
 
     console.print(
@@ -34,7 +28,7 @@ def init():
     shared_dir = project_root / "shared"
     orchestrator_dir = shared_dir / "orchestrator"
     orchestrator_dir.mkdir(parents=True, exist_ok=True)
-
+    
     config_path = orchestrator_dir / "config.yml"
     template_path = orchestrator_dir / "config.template.yml"
 
@@ -200,11 +194,11 @@ def init():
     console.print()
 
 
-@orchestrator.command()
+@click.command(name="orchestrator:down")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 @click.option("--preserve-ip", is_flag=True, help="Keep static IP (don't delete)")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def down(yes, preserve_ip, verbose):
+def orchestrator_down(yes, preserve_ip, verbose):
     """Destroy orchestrator VM and clean up state"""
 
     project_root = get_project_root()
@@ -221,7 +215,7 @@ def down(yes, preserve_ip, verbose):
                 border_style="red",
             )
         )
-
+    
     if not yes:
         confirmed = Confirm.ask(
             "\n[bold red]⚠️  Are you ABSOLUTELY SURE you want to destroy the orchestrator?[/bold red]",
@@ -231,33 +225,33 @@ def down(yes, preserve_ip, verbose):
             console.print("[dim]Cancelled. Orchestrator preserved.[/dim]")
             logger.log("User cancelled destruction")
             return
-
+    
     logger.step("[1/3] Preparing Destruction")
 
     shared_dir = project_root / "shared"
-
+    
     from cli.core.orchestrator_loader import OrchestratorLoader
-
+    
     orchestrator_loader = OrchestratorLoader(shared_dir)
-
+    
     try:
         orch_config = orchestrator_loader.load()
     except FileNotFoundError as e:
         logger.log_error(str(e))
         raise SystemExit(1)
-
+    
     from rich.console import Console
 
     console = Console()
     console.print("  ✓ Configuration loaded")
-
+    
     import subprocess
     from cli.terraform_utils import (
         workspace_exists,
         terraform_init,
         select_workspace,
     )
-
+    
     terraform_success = False
     terraform_dir = shared_dir / "terraform"
 
@@ -279,7 +273,7 @@ def down(yes, preserve_ip, verbose):
         terraform_init(quiet=True)
         try:
             select_workspace("orchestrator", create=False)
-
+            
             # Generate tfvars for destroy
             gcp_config = orch_config.config.get("gcp", {})
             ssh_config = orch_config.config.get("ssh", {})
@@ -287,15 +281,15 @@ def down(yes, preserve_ip, verbose):
             ssh_key_path = ssh_config.get(
                 "public_key_path", "~/.ssh/superdeploy_deploy.pub"
             )
-
+            
             tfvars = orch_config.to_terraform_vars(gcp_project_id, ssh_key_path)
             tfvars_file = shared_dir / "terraform" / "orchestrator.auto.tfvars.json"
-
+            
             import json
 
             with open(tfvars_file, "w") as f:
                 json.dump(tfvars, f, indent=2)
-
+            
             # Run destroy
             destroy_cmd = f"cd {terraform_dir} && terraform destroy -var-file={tfvars_file} -auto-approve -no-color"
 
@@ -313,7 +307,7 @@ def down(yes, preserve_ip, verbose):
                 logger.warning("Terraform destroy failed, attempting manual cleanup")
                 console.print("  ⚠ Partial destruction")
                 terraform_success = False
-
+                
         except Exception as e:
             logger.warning(f"Terraform error: {e}")
             console.print("  ⚠ Partial destruction")
@@ -329,7 +323,7 @@ def down(yes, preserve_ip, verbose):
 
         vms_deleted = 0
         ips_deleted = 0
-
+        
         # Delete VM
         result = subprocess.run(
             f"gcloud compute instances delete orchestrator-main-0 --zone={zone} --quiet",
@@ -339,7 +333,7 @@ def down(yes, preserve_ip, verbose):
         )
         if result.returncode == 0 or "not found" in result.stderr.lower():
             vms_deleted += 1
-
+        
         # Delete External IP (unless --preserve-ip flag is set)
         if not preserve_ip:
             result = subprocess.run(
@@ -354,7 +348,7 @@ def down(yes, preserve_ip, verbose):
         firewalls_deleted = 0
         subnets_deleted = 0
         networks_deleted = 0
-
+        
         # Delete Firewall Rules (all network rules)
         result = subprocess.run(
             "gcloud compute firewall-rules list --filter='network:superdeploy-network' --format='value(name)'",
@@ -362,7 +356,7 @@ def down(yes, preserve_ip, verbose):
             capture_output=True,
             text=True,
         )
-
+        
         if result.returncode == 0 and result.stdout.strip():
             firewall_rules = result.stdout.strip().split("\n")
             for rule in firewall_rules:
@@ -376,7 +370,7 @@ def down(yes, preserve_ip, verbose):
                     )
                     if result.returncode == 0:
                         firewalls_deleted += 1
-
+        
         # Delete Subnet
         result = subprocess.run(
             f"gcloud compute networks subnets delete superdeploy-network-subnet --region={region} --quiet",
@@ -386,7 +380,7 @@ def down(yes, preserve_ip, verbose):
         )
         if result.returncode == 0 or "not found" in result.stderr.lower():
             subnets_deleted += 1
-
+        
         # Delete Network
         result = subprocess.run(
             "gcloud compute networks delete superdeploy-network --quiet",
@@ -455,8 +449,8 @@ def down(yes, preserve_ip, verbose):
     console.print("\n[bold green]✅ Orchestrator Destroyed![/bold green]")
 
 
-@orchestrator.command()
-def status():
+@click.command(name="orchestrator:status")
+def orchestrator_status():
     """Show orchestrator status"""
     project_root = get_project_root()
     shared_dir = project_root / "shared"
@@ -491,7 +485,7 @@ import click
 from rich.console import Console
 
 
-@orchestrator.command()
+@click.command(name="orchestrator:up")
 @click.option(
     "--skip-terraform", is_flag=True, help="Skip Terraform (VM already exists)"
 )
@@ -511,7 +505,7 @@ from rich.console import Console
     is_flag=True,
     help="Show all command output (default: clean UI with logs)",
 )
-def up(skip_terraform, preserve_ip, addon, tags, verbose):
+def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose):
     """Deploy orchestrator VM with Forgejo (runs Terraform + Ansible by default)"""
 
     if not verbose:

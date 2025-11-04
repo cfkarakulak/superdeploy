@@ -9,13 +9,7 @@ from cli.utils import load_env
 console = Console()
 
 
-@click.group(name="config")
-def config_group():
-    """Manage configuration variables"""
-    pass
-
-
-@config_group.command(name="set")
+@click.command(name="config:set")
 @click.argument("key_value")
 @click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
 @click.option("-e", "--env", "environment", default="production", help="Environment")
@@ -72,7 +66,7 @@ def config_set(key_value, app, environment):
         raise SystemExit(1)
 
 
-@config_group.command(name="get")
+@click.command(name="config:get")
 @click.argument("key")
 @click.option("-a", "--app", required=True, help="App name")
 def config_get(key, app):
@@ -94,7 +88,7 @@ def config_get(key, app):
         raise SystemExit(1)
 
 
-@config_group.command(name="list")
+@click.command(name="config:list")
 @click.option("-a", "--app", help="Filter by app")
 def config_list(app):
     """
@@ -116,6 +110,7 @@ def config_list(app):
     if app:
         # Show only app-related vars - get prefixes dynamically
         from cli.commands.env import get_addon_prefixes
+
         prefixes = [f"{p}_" for p in get_addon_prefixes(None)]  # None = use fallback
         filtered = {
             k: v for k, v in env_vars.items() if any(k.startswith(p) for p in prefixes)
@@ -138,7 +133,7 @@ def config_list(app):
     console.print(table)
 
 
-@config_group.command(name="unset")
+@click.command(name="config:unset")
 @click.argument("key")
 @click.option("-a", "--app", required=True, help="App name")
 @click.option("-e", "--env", "environment", default="production", help="Environment")
