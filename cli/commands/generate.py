@@ -458,12 +458,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
-      - name: Install age
-        run: |
-          curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
-          sudo mv age/age /usr/local/bin/
-          rm -rf age
-      
       - name: Prepare environment bundle
         id: env_bundle""".format(docker_org=docker_org, app_name=app_name)
 
@@ -497,10 +491,10 @@ jobs:
             done < .env.superdeploy
           fi
           
-          # Encrypt with age public key
-          cat /tmp/app.env | age -r "${{ secrets.AGE_PUBLIC_KEY }}" | base64 -w 0 > /tmp/encrypted.txt
-          echo "encrypted=$(cat /tmp/encrypted.txt)" >> "$GITHUB_OUTPUT"
-          rm -f /tmp/app.env /tmp/encrypted.txt
+          # Encode with base64 (PLAIN TEXT - NO ENCRYPTION)
+          cat /tmp/app.env | base64 -w 0 > /tmp/encoded.txt
+          echo "encrypted=$(cat /tmp/encoded.txt)" >> "$GITHUB_OUTPUT"
+          rm -f /tmp/app.env /tmp/encoded.txt
       
       - name: Connectivity check to Forgejo
         env:
@@ -627,7 +621,6 @@ jobs:
           git_sha: ${{{{ inputs.git_sha }}}}
           git_ref: ${{{{ inputs.git_ref }}}}
         env:
-          AGE_SECRET_KEY: ${{{{ secrets.AGE_SECRET_KEY }}}}
           DOCKER_USERNAME: ${{{{ secrets.DOCKER_USERNAME }}}}
           DOCKER_TOKEN: ${{{{ secrets.DOCKER_TOKEN }}}}
 """
