@@ -100,11 +100,10 @@
     - infrastructure
 
 - name: Deploy Infrastructure Addons (Orchestrator)
-  hosts: orchestrator
+  # CRITICAL: Only run when deploying orchestrator itself
+  # Skip this play entirely during project deployments
+  hosts: "{{ 'orchestrator' if (project_name is not defined or project_name == 'orchestrator') else 'none' }}"
   become: yes
-  # Skip orchestrator addon deployment during project deployments
-  # Orchestrator should only be deployed via: superdeploy orchestrator up
-  when: project_name is not defined or project_name == 'orchestrator'
   roles:
     - role: orchestration/addon-deployer
       vars:

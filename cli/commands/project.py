@@ -21,7 +21,7 @@ console = Console()
 )
 def projects_deploy(project, services):
     """Deploy project-specific services to VM"""
-    
+
     show_header(
         title="Deploy Project",
         project=project,
@@ -93,6 +93,7 @@ ansible-playbook -i inventories/dev.ini playbooks/project_deploy.yml \\
 
         logger.success("Project deployed successfully")
         console.print(f"\n[green]✅ Project '{project}' deployed successfully![/green]")
+        console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
 
 def _create_project_deploy_playbook(ansible_dir):

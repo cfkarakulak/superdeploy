@@ -117,9 +117,11 @@ def logs(project, app, follow, lines, environment, verbose):
 
         process.wait()
         logger.success("Log streaming complete")
+        console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
     except KeyboardInterrupt:
         logger.warning("Stopped by user")
+        console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
         if process:
             process.terminate()
     except subprocess.CalledProcessError as e:

@@ -595,6 +595,7 @@ def _deploy_project_v2(
     logger.log("━" * 60)
     logger.success("Infrastructure Deployed!")
     logger.log("━" * 60)
+    logger.log(f"Logs saved to: {logger.log_path}")
 
 
 def generate_ansible_inventory(
