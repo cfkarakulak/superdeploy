@@ -156,7 +156,11 @@ class AnsibleRunner:
                             pass
                         print(line_stripped)
 
-        # Wait for background logger to finish
-        log_thread.join(timeout=10)  # Increased timeout
+        # Wait for background logger to finish (non-blocking)
+        # Thread is daemon so it will auto-terminate with main process
+        if log_thread.is_alive():
+            # Give it a short time to finish naturally
+            log_thread.join(timeout=2)
+            # If still running, let it finish in background (it's daemon)
 
         return returncode

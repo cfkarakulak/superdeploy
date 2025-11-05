@@ -214,7 +214,7 @@ def orchestrator_down(yes, preserve_ip, verbose):
     if not verbose:
         show_header(
             title="Orchestrator Destruction",
-            subtitle="⚠️  This will destroy the orchestrator VM and clean up all state!",
+            subtitle="[bold red]This will destroy the orchestrator VM and clean up all state![/bold red]",
             console=console,
         )
 

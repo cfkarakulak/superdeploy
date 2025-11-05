@@ -72,7 +72,7 @@ def down(project, yes, verbose, keep_infra):
     if not verbose:
         show_header(
             title="Project Shutdown",
-            subtitle="⚠️  This will stop all services and destroy all VMs!",
+            subtitle="This will stop all services and destroy all VMs!",
             project=project,
             border_color="red",
             console=console,
