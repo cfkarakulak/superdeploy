@@ -623,6 +623,7 @@ jobs:
         env:
           DOCKER_USERNAME: ${{{{ secrets.DOCKER_USERNAME }}}}
           DOCKER_TOKEN: ${{{{ secrets.DOCKER_TOKEN }}}}
+          AGE_SECRET_KEY: ${{{{ secrets.AGE_SECRET_KEY }}}}
 """
     return workflow
 

@@ -47,8 +47,6 @@ runs:
     
     - name: Decrypt environment bundle
       shell: bash
-      env:
-        AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
       run: |
         set -ex
         echo "🔐 Decrypting environment bundle..."
