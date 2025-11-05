@@ -343,6 +343,25 @@ def sync_forgejo_secrets(
         for field_key, env_key in fields.items():
             if env_key in merged_env:
                 secrets[env_key] = merged_env[env_key]
+    
+    # Database Abstraction Layer: Map database-specific vars to DB_*
+    # This allows applications to be database-agnostic
+    if "POSTGRES_HOST" in merged_env:
+        # PostgreSQL is enabled - map POSTGRES_* to DB_*
+        secrets["DB_CONNECTION"] = "app"
+        secrets["DB_HOST"] = merged_env["POSTGRES_HOST"]
+        secrets["DB_PORT"] = merged_env.get("POSTGRES_PORT", "5432")
+        secrets["DB_USERNAME"] = merged_env.get("POSTGRES_USER", "")
+        secrets["DB_PASSWORD"] = merged_env.get("POSTGRES_PASSWORD", "")
+        secrets["DB_DATABASE"] = merged_env.get("POSTGRES_DB", "")
+    elif "MYSQL_HOST" in merged_env:
+        # MySQL is enabled - map MYSQL_* to DB_*
+        secrets["DB_CONNECTION"] = "app"
+        secrets["DB_HOST"] = merged_env["MYSQL_HOST"]
+        secrets["DB_PORT"] = merged_env.get("MYSQL_PORT", "3306")
+        secrets["DB_USERNAME"] = merged_env.get("MYSQL_USER", "")
+        secrets["DB_PASSWORD"] = merged_env.get("MYSQL_PASSWORD", "")
+        secrets["DB_DATABASE"] = merged_env.get("MYSQL_DATABASE", "")
 
     # Add service-specific secrets dynamically (no hardcoding!)
     for key, value in merged_env.items():
@@ -870,7 +889,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
                 for field_key, env_key in fields.items():
                     if env_key in merged_env:
                         env_secrets[env_key] = merged_env[env_key]
-            
+
             # Database Abstraction Layer: Map database-specific vars to DB_*
             # This allows applications to be database-agnostic
             if "POSTGRES_HOST" in merged_env:
