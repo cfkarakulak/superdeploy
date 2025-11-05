@@ -871,11 +871,24 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
                     if env_key in merged_env:
                         env_secrets[env_key] = merged_env[env_key]
             
-            # Add Database Abstraction Layer (DB_*) secrets
-            db_keys = ["DB_CONNECTION", "DB_HOST", "DB_PORT", "DB_USERNAME", "DB_PASSWORD", "DB_DATABASE"]
-            for key in db_keys:
-                if key in merged_env:
-                    env_secrets[key] = merged_env[key]
+            # Database Abstraction Layer: Map database-specific vars to DB_*
+            # This allows applications to be database-agnostic
+            if "POSTGRES_HOST" in merged_env:
+                # PostgreSQL is enabled - map POSTGRES_* to DB_*
+                env_secrets["DB_CONNECTION"] = "app"
+                env_secrets["DB_HOST"] = merged_env["POSTGRES_HOST"]
+                env_secrets["DB_PORT"] = merged_env.get("POSTGRES_PORT", "5432")
+                env_secrets["DB_USERNAME"] = merged_env.get("POSTGRES_USER", "")
+                env_secrets["DB_PASSWORD"] = merged_env.get("POSTGRES_PASSWORD", "")
+                env_secrets["DB_DATABASE"] = merged_env.get("POSTGRES_DB", "")
+            elif "MYSQL_HOST" in merged_env:
+                # MySQL is enabled - map MYSQL_* to DB_*
+                env_secrets["DB_CONNECTION"] = "app"
+                env_secrets["DB_HOST"] = merged_env["MYSQL_HOST"]
+                env_secrets["DB_PORT"] = merged_env.get("MYSQL_PORT", "3306")
+                env_secrets["DB_USERNAME"] = merged_env.get("MYSQL_USER", "")
+                env_secrets["DB_PASSWORD"] = merged_env.get("MYSQL_PASSWORD", "")
+                env_secrets["DB_DATABASE"] = merged_env.get("MYSQL_DATABASE", "")
 
             # Add service-specific secrets (generic pattern, no hardcoding!)
             service_upper = app_name.upper()
