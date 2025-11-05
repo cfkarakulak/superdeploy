@@ -60,6 +60,7 @@
 - name: Setup Forgejo Runner on project VMs
   hosts: all:!orchestrator
   become: yes
+  serial: 1  # Run one host at a time to avoid duplicate registrations
   roles:
     - role: system/forgejo-runner
   tags:
