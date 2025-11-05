@@ -4,7 +4,7 @@ services:
   {{ addon_name }}:
     image: rabbitmq:{{ version }}
     container_name: {{ project_name }}-{{ addon_name }}
-    restart: unless-stopped
+    restart: always
     hostname: {{ project_name }}-{{ addon_name }}
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}

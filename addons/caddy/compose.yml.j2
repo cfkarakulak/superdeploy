@@ -4,7 +4,7 @@ services:
   {{ addon_name }}:
     image: caddy:{{ version }}
     container_name: {{ project_name }}-{{ addon_name }}
-    restart: unless-stopped
+    restart: always
     environment:
       CADDY_EMAIL: ${CADDY_EMAIL}
     volumes:

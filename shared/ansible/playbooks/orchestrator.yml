@@ -105,7 +105,23 @@
     - infrastructure
 
 # ============================================================================
-# PHASE 3: Verification
+# PHASE 3: Docker Watchdog (Auto-Recovery)
+# ============================================================================
+
+- name: Deploy Docker Watchdog
+  hosts: orchestrator
+  become: yes
+  roles:
+    - role: orchestration/docker-watchdog
+      vars:
+        superdeploy_user: "{{ superdeploy_user | default('superdeploy') }}"
+        superdeploy_group: "{{ superdeploy_group | default('superdeploy') }}"
+  tags:
+    - watchdog
+    - infrastructure
+
+# ============================================================================
+# PHASE 4: Verification
 # ============================================================================
 
 - name: Verify deployment

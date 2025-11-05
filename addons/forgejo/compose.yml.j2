@@ -8,7 +8,7 @@ services:
   forgejo:
     image: codeberg.org/forgejo/forgejo:{{ FORGEJO_VERSION | default('13') }}
     container_name: {{ project_name }}-forgejo
-    restart: unless-stopped
+    restart: always
     environment:
       - USER_UID=1000
       - USER_GID=1000
@@ -65,7 +65,7 @@ services:
   forgejo-db:
     image: postgres:15-alpine
     container_name: {{ project_name }}-forgejo-db
-    restart: unless-stopped
+    restart: always
     environment:
       - POSTGRES_USER=${FORGEJO_DB_USER}
       - POSTGRES_PASSWORD=${FORGEJO_DB_PASSWORD}

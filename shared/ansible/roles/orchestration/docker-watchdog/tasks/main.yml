@@ -1,0 +1,172 @@
+# ============================================================================
+# Docker Watchdog - Professional Container Auto-Recovery
+# ============================================================================
+# Ensures all Docker Compose stacks are ALWAYS running, even after:
+# - Manual docker stop/down
+# - System reboots
+# - Docker daemon restarts
+# - Deployment failures
+# ============================================================================
+
+---
+- name: Create watchdog script directory
+  file:
+    path: /opt/superdeploy/watchdog
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0755'
+
+- name: Deploy Docker Compose watchdog script
+  copy:
+    content: |
+      #!/bin/bash
+      # ============================================================================
+      # SuperDeploy Docker Compose Watchdog
+      # ============================================================================
+      # This script ensures all compose stacks in /opt/superdeploy/projects/
+      # are ALWAYS running. It's called by systemd timer every 2 minutes.
+      # ============================================================================
+      
+      set -euo pipefail
+      
+      LOG_FILE="/var/log/superdeploy-watchdog.log"
+      MAX_LOG_SIZE=10485760  # 10MB
+      
+      # Rotate log if too large (Linux: stat -c%s, macOS: stat -f%z)
+      if [ -f "$LOG_FILE" ]; then
+        FILE_SIZE=$(stat -c%s "$LOG_FILE" 2>/dev/null || stat -f%z "$LOG_FILE" 2>/dev/null || echo 0)
+        if [ "$FILE_SIZE" -gt "$MAX_LOG_SIZE" ]; then
+          mv "$LOG_FILE" "$LOG_FILE.old"
+        fi
+      fi
+      
+      log() {
+        echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+      }
+      
+      # Find all compose projects
+      PROJECTS_DIR="/opt/superdeploy/projects"
+      
+      if [ ! -d "$PROJECTS_DIR" ]; then
+        log "ERROR: Projects directory not found: $PROJECTS_DIR"
+        exit 0
+      fi
+      
+      # Check each project's addons
+      for PROJECT_DIR in "$PROJECTS_DIR"/*; do
+        [ -d "$PROJECT_DIR" ] || continue
+        
+        PROJECT_NAME=$(basename "$PROJECT_DIR")
+        ADDONS_DIR="$PROJECT_DIR/addons"
+        
+        [ -d "$ADDONS_DIR" ] || continue
+        
+        # Check each addon
+        for ADDON_DIR in "$ADDONS_DIR"/*; do
+          [ -d "$ADDON_DIR" ] || continue
+          
+          ADDON_NAME=$(basename "$ADDON_DIR")
+          COMPOSE_FILE="$ADDON_DIR/docker-compose.yml"
+          
+          [ -f "$COMPOSE_FILE" ] || continue
+          
+          cd "$ADDON_DIR"
+          
+          # Determine project name for Docker Compose
+          if [ "$PROJECT_NAME" = "orchestrator" ]; then
+            COMPOSE_PROJECT="orchestrator"
+          else
+            COMPOSE_PROJECT="$PROJECT_NAME"
+          fi
+          
+          # Check if containers are running (no jq dependency!)
+          EXPECTED_CONTAINERS=$(docker compose --project-name "$COMPOSE_PROJECT" config --services 2>/dev/null | wc -l | tr -d ' ')
+          RUNNING_CONTAINERS=$(docker compose --project-name "$COMPOSE_PROJECT" ps --status running --format '{{.Name}}' 2>/dev/null | wc -l | tr -d ' ')
+          
+          if [ "$EXPECTED_CONTAINERS" -gt 0 ] && [ "$RUNNING_CONTAINERS" -lt "$EXPECTED_CONTAINERS" ]; then
+            log "RECOVERY: $PROJECT_NAME/$ADDON_NAME - Expected $EXPECTED_CONTAINERS containers, found $RUNNING_CONTAINERS running"
+            log "RECOVERY: Starting $PROJECT_NAME/$ADDON_NAME..."
+            
+            # Start containers (idempotent)
+            if docker compose --project-name "$COMPOSE_PROJECT" up -d --no-recreate 2>&1 | tee -a "$LOG_FILE"; then
+              log "SUCCESS: $PROJECT_NAME/$ADDON_NAME containers started"
+            else
+              log "ERROR: Failed to start $PROJECT_NAME/$ADDON_NAME containers"
+            fi
+          fi
+        done
+      done
+      
+      log "Watchdog check completed"
+    dest: /opt/superdeploy/watchdog/docker-watchdog.sh
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0755'
+
+- name: Create systemd service for watchdog
+  copy:
+    content: |
+      [Unit]
+      Description=SuperDeploy Docker Compose Watchdog
+      Documentation=https://github.com/cfkarakulak/superdeploy
+      After=docker.service
+      Requires=docker.service
+      
+      [Service]
+      Type=oneshot
+      User={{ superdeploy_user }}
+      Group={{ superdeploy_group }}
+      ExecStart=/opt/superdeploy/watchdog/docker-watchdog.sh
+      StandardOutput=journal
+      StandardError=journal
+      
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/superdeploy-watchdog.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes
+
+- name: Create systemd timer for watchdog (runs every 2 minutes)
+  copy:
+    content: |
+      [Unit]
+      Description=SuperDeploy Docker Compose Watchdog Timer
+      Documentation=https://github.com/cfkarakulak/superdeploy
+      
+      [Timer]
+      OnBootSec=1min
+      OnUnitActiveSec=2min
+      AccuracySec=30s
+      
+      [Install]
+      WantedBy=timers.target
+    dest: /etc/systemd/system/superdeploy-watchdog.timer
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  become: yes
+
+- name: Enable and start watchdog timer
+  systemd:
+    name: superdeploy-watchdog.timer
+    enabled: yes
+    state: started
+  become: yes
+
+- name: Display watchdog status
+  debug:
+    msg:
+      - "Docker Watchdog: ENABLED"
+      - "Check interval: Every 2 minutes"
+      - "Log file: /var/log/superdeploy-watchdog.log"
+      - "Manual check: sudo systemctl start superdeploy-watchdog.service"
+      - "Timer status: sudo systemctl status superdeploy-watchdog.timer"
+

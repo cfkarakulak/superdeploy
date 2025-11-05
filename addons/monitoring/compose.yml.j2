@@ -3,7 +3,7 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: superdeploy-prometheus
-    restart: unless-stopped
+    restart: always
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -44,7 +44,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: superdeploy-grafana
-    restart: unless-stopped
+    restart: always
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}

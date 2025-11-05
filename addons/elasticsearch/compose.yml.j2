@@ -1,7 +1,7 @@
   {{ addon_name }}:
     image: elasticsearch:{{ version }}
     container_name: {{ project_name }}-{{ addon_name }}
-    restart: unless-stopped
+    restart: always
     environment:
       - discovery.type=single-node
       - ELASTIC_PASSWORD=${ELASTICSEARCH_PASSWORD}
