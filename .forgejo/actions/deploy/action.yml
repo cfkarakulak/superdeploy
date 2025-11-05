@@ -60,6 +60,7 @@ runs:
         # Debug: Check encrypted file
         echo "📊 Encrypted file size: $(wc -c < /tmp/encrypted.age) bytes"
         echo "📊 First few bytes: $(head -c 50 /tmp/encrypted.age)"
+        echo "📊 MD5 of encrypted: $(md5sum /tmp/encrypted.age | cut -d' ' -f1)"
         
         # Debug: Check AGE_SECRET_KEY
         if [ -z "$AGE_SECRET_KEY" ]; then
@@ -67,6 +68,8 @@ runs:
           exit 1
         fi
         echo "✅ AGE_SECRET_KEY is set (length: ${#AGE_SECRET_KEY})"
+        echo "📊 AGE_SECRET_KEY first 30 chars: ${AGE_SECRET_KEY:0:30}..."
+        echo "📊 AGE_SECRET_KEY last 10 chars: ...${AGE_SECRET_KEY: -10}"
         
         # Write AGE key to file (more reliable than echo)
         printf '%s' "$AGE_SECRET_KEY" > /tmp/age-key.txt
@@ -74,14 +77,21 @@ runs:
         
         # Debug: Check key file
         echo "📊 Key file size: $(wc -c < /tmp/age-key.txt) bytes"
+        echo "📊 Key file MD5: $(md5sum /tmp/age-key.txt | cut -d' ' -f1)"
         echo "📊 Key file first line: $(head -1 /tmp/age-key.txt)"
         
-        # Decrypt with explicit error handling and verbose output
-        echo "🔓 Running age decryption..."
-        if ! age -d -i /tmp/age-key.txt /tmp/encrypted.age > /tmp/decrypted.env 2>&1; then
-          echo "❌ AGE decryption failed!"
-          echo "📋 Decryption error output:"
-          cat /tmp/decrypted.env
+        # Decrypt with explicit error handling, verbose output, and TIMEOUT
+        echo "🔓 Running age decryption (with 10s timeout)..."
+        if ! timeout 10 age -d -i /tmp/age-key.txt /tmp/encrypted.age > /tmp/decrypted.env 2>&1; then
+          EXIT_CODE=$?
+          echo "❌ AGE decryption failed! Exit code: $EXIT_CODE"
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "⏱️  TIMEOUT! Age command hung for 10 seconds"
+          fi
+          echo "📋 Decryption stderr/stdout:"
+          cat /tmp/decrypted.env || echo "(no output)"
+          echo "📋 Trying age version:"
+          age --version || echo "age command not working"
           rm -f /tmp/age-key.txt /tmp/encrypted.age /tmp/decrypted.env
           exit 1
         fi
@@ -91,11 +101,13 @@ runs:
         # Verify decryption success
         if [ ! -s /tmp/decrypted.env ]; then
           echo "❌ Decrypted file is empty!"
-          cat /tmp/decrypted.env
+          echo "📊 Decrypted file size: $(wc -c < /tmp/decrypted.env) bytes"
+          cat /tmp/decrypted.env || echo "(no output)"
           exit 1
         fi
         
         echo "✅ AGE decryption successful"
+        echo "📊 Decrypted file size: $(wc -c < /tmp/decrypted.env) bytes"
         
         echo "📋 Decrypted env file contents (first 5 lines, masked):"
         head -5 /tmp/decrypted.env | sed 's/=.*/=***MASKED***/g'
