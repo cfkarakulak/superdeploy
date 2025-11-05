@@ -46,9 +46,26 @@ runs:
         echo "${{ inputs.env_bundle }}" | base64 -d > /tmp/encrypted.age
         echo "✅ Base64 decoded successfully"
         
-        echo "$AGE_SECRET_KEY" > /tmp/age-key.txt
-        age -d -i /tmp/age-key.txt /tmp/encrypted.age > /tmp/decrypted.env
+        # Write AGE key to file (more reliable than echo)
+        printf '%s' "$AGE_SECRET_KEY" > /tmp/age-key.txt
+        chmod 600 /tmp/age-key.txt
+        
+        # Decrypt with explicit error handling
+        if ! age -d -i /tmp/age-key.txt /tmp/encrypted.age > /tmp/decrypted.env 2>&1; then
+          echo "❌ AGE decryption failed!"
+          rm -f /tmp/age-key.txt /tmp/encrypted.age /tmp/decrypted.env
+          exit 1
+        fi
+        
         rm /tmp/age-key.txt
+        
+        # Verify decryption success
+        if [ ! -s /tmp/decrypted.env ]; then
+          echo "❌ Decrypted file is empty!"
+          cat /tmp/decrypted.env
+          exit 1
+        fi
+        
         echo "✅ AGE decryption successful"
         
         echo "📋 Decrypted env file contents (first 5 lines, masked):"
