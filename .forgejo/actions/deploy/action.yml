@@ -57,13 +57,31 @@ runs:
         echo "${{ inputs.env_bundle }}" | base64 -d > /tmp/encrypted.age
         echo "✅ Base64 decoded successfully"
         
+        # Debug: Check encrypted file
+        echo "📊 Encrypted file size: $(wc -c < /tmp/encrypted.age) bytes"
+        echo "📊 First few bytes: $(head -c 50 /tmp/encrypted.age)"
+        
+        # Debug: Check AGE_SECRET_KEY
+        if [ -z "$AGE_SECRET_KEY" ]; then
+          echo "❌ AGE_SECRET_KEY is empty or not set!"
+          exit 1
+        fi
+        echo "✅ AGE_SECRET_KEY is set (length: ${#AGE_SECRET_KEY})"
+        
         # Write AGE key to file (more reliable than echo)
         printf '%s' "$AGE_SECRET_KEY" > /tmp/age-key.txt
         chmod 600 /tmp/age-key.txt
         
-        # Decrypt with explicit error handling
+        # Debug: Check key file
+        echo "📊 Key file size: $(wc -c < /tmp/age-key.txt) bytes"
+        echo "📊 Key file first line: $(head -1 /tmp/age-key.txt)"
+        
+        # Decrypt with explicit error handling and verbose output
+        echo "🔓 Running age decryption..."
         if ! age -d -i /tmp/age-key.txt /tmp/encrypted.age > /tmp/decrypted.env 2>&1; then
           echo "❌ AGE decryption failed!"
+          echo "📋 Decryption error output:"
+          cat /tmp/decrypted.env
           rm -f /tmp/age-key.txt /tmp/encrypted.age /tmp/decrypted.env
           exit 1
         fi
