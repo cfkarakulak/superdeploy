@@ -13,9 +13,14 @@
   file:
     path: /opt/superdeploy/watchdog
     state: directory
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group }}"
+    owner: "{{ superdeploy_user | default('superdeploy') }}"
+    group: "{{ superdeploy_group | default('superdeploy') }}"
     mode: '0755'
+
+- name: Set watchdog defaults
+  set_fact:
+    _watchdog_user: "{{ superdeploy_user | default('superdeploy') }}"
+    _watchdog_group: "{{ superdeploy_group | default('superdeploy') }}"
 
 - name: Deploy Docker Compose watchdog script
   copy:
@@ -100,8 +105,8 @@
       
       log "Watchdog check completed"
     dest: /opt/superdeploy/watchdog/docker-watchdog.sh
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group }}"
+    owner: "{{ _watchdog_user }}"
+    group: "{{ _watchdog_group }}"
     mode: '0755'
 
 - name: Create systemd service for watchdog
@@ -115,8 +120,8 @@
       
       [Service]
       Type=oneshot
-      User={{ superdeploy_user }}
-      Group={{ superdeploy_group }}
+      User={{ _watchdog_user }}
+      Group={{ _watchdog_group }}
       ExecStart=/opt/superdeploy/watchdog/docker-watchdog.sh
       StandardOutput=journal
       StandardError=journal
