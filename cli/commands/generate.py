@@ -588,7 +588,7 @@ on:
         required: true
         type: string
       env_bundle:
-        description: 'Environment variables bundle (base64 encoded, PLAIN TEXT)'
+        description: 'AGE-encrypted environment variables bundle (base64 encoded)'
         required: true
         type: string
       git_sha:

@@ -13,7 +13,7 @@ inputs:
     description: 'Docker image with tag'
     required: true
   env_bundle:
-    description: 'Environment variables bundle (base64 encoded, PLAIN TEXT)'
+    description: 'AGE-encrypted environment variables bundle (base64 encoded)'
     required: true
   git_sha:
     description: 'Git commit SHA'
@@ -26,21 +26,68 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Decode environment bundle
+    - name: Install dependencies
       shell: bash
       run: |
         set -ex
-        echo "📦 Decoding environment bundle (PLAIN TEXT - NO ENCRYPTION)..."
-        echo "${{ inputs.env_bundle }}" | base64 -d > /tmp/decrypted.env
+        echo "📦 Installing dependencies..."
         
-        # Verify decode success
-        if [ ! -s /tmp/decrypted.env ]; then
-          echo "❌ Decoded file is empty!"
+        # Check if age is already installed
+        if command -v age &> /dev/null; then
+          echo "✅ age already installed"
+          age --version
+        else
+          echo "📥 Installing age..."
+          curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
+          sudo mv age/age /usr/local/bin/
+          rm -rf age
+          echo "✅ age installed"
+          age --version
+        fi
+    
+    - name: Decrypt environment bundle
+      shell: bash
+      env:
+        AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
+      run: |
+        set -ex
+        echo "🔐 Decrypting environment bundle..."
+        echo "${{ inputs.env_bundle }}" | base64 -d > /tmp/encrypted.age
+        echo "✅ Base64 decoded successfully"
+        
+        # Debug: Check encrypted file
+        echo "📊 Encrypted file size: $(wc -c < /tmp/encrypted.age) bytes"
+        
+        # Debug: Check AGE_SECRET_KEY
+        if [ -z "$AGE_SECRET_KEY" ]; then
+          echo "❌ AGE_SECRET_KEY is empty or not set!"
+          exit 1
+        fi
+        echo "✅ AGE_SECRET_KEY is set"
+        
+        # Write AGE key to file (more reliable than echo)
+        printf '%s' "$AGE_SECRET_KEY" > /tmp/age-key.txt
+        chmod 600 /tmp/age-key.txt
+        
+        # Decrypt with age
+        echo "🔓 Running age decryption..."
+        if ! age -d -i /tmp/age-key.txt /tmp/encrypted.age > /tmp/decrypted.env 2>&1; then
+          echo "❌ AGE decryption failed!"
+          cat /tmp/decrypted.env || echo "(no output)"
+          rm -f /tmp/age-key.txt /tmp/encrypted.age /tmp/decrypted.env
           exit 1
         fi
         
-        echo "✅ Environment decoded successfully"
-        echo "📊 File size: $(wc -c < /tmp/decrypted.env) bytes"
+        rm -f /tmp/age-key.txt /tmp/encrypted.age
+        
+        # Verify decryption success
+        if [ ! -s /tmp/decrypted.env ]; then
+          echo "❌ Decrypted file is empty!"
+          exit 1
+        fi
+        
+        echo "✅ AGE decryption successful"
+        echo "📊 Decrypted file size: $(wc -c < /tmp/decrypted.env) bytes"
         echo "📋 First 5 lines (masked):"
         head -5 /tmp/decrypted.env | sed 's/=.*/=***MASKED***/g'
     
