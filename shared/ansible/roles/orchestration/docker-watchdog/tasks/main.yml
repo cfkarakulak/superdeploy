@@ -87,7 +87,7 @@
           
           # Check if containers are running (no jq dependency!)
           EXPECTED_CONTAINERS=$(docker compose --project-name "$COMPOSE_PROJECT" config --services 2>/dev/null | wc -l | tr -d ' ')
-          RUNNING_CONTAINERS=$(docker compose --project-name "$COMPOSE_PROJECT" ps --status running --format '{{.Name}}' 2>/dev/null | wc -l | tr -d ' ')
+          RUNNING_CONTAINERS=$(docker compose --project-name "$COMPOSE_PROJECT" ps --status running --format '{{ '{{' }}.Name{{ '}}' }}' 2>/dev/null | wc -l | tr -d ' ')
           
           if [ "$EXPECTED_CONTAINERS" -gt 0 ] && [ "$RUNNING_CONTAINERS" -lt "$EXPECTED_CONTAINERS" ]; then
             log "RECOVERY: $PROJECT_NAME/$ADDON_NAME - Expected $EXPECTED_CONTAINERS containers, found $RUNNING_CONTAINERS running"
