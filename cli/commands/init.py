@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime
 from rich.console import Console
 from cli.ui_components import show_header
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Prompt
 from rich.table import Table
 from jinja2 import Template
 
@@ -452,8 +452,13 @@ def init(project, app, subnet, no_interactive, yes):
 
             if not app_path.exists():
                 console.print(f"[yellow]⚠️  Path not found: {app_path}[/yellow]")
-                create = Confirm.ask("  Create directory?", default=False)
-                if create:
+                console.print(
+                    "  Create directory? "
+                    "[bold bright_white]\\[y/n][/bold bright_white] [dim](n)[/dim]: ",
+                    end="",
+                )
+                answer = input().strip().lower()
+                if answer in ["y", "yes"]:
                     app_path.mkdir(parents=True, exist_ok=True)
                     console.print(f"  [green]✓[/green] Created: {app_path}")
                 else:
@@ -479,7 +484,13 @@ def init(project, app, subnet, no_interactive, yes):
         project_subnet = subnet
     elif interactive:
         console.print("\n[bold cyan]🌐 Network Configuration[/bold cyan]")
-        auto_subnet = Confirm.ask("  [cyan]Auto-assign subnet?[/cyan]", default=True)
+        console.print(
+            "  [cyan]Auto-assign subnet?[/cyan] "
+            "[bold bright_white]\\[y/n][/bold bright_white] [dim](y)[/dim]: ",
+            end="",
+        )
+        answer = input().strip().lower()
+        auto_subnet = answer in ["y", "yes", ""]  # Empty = default yes
 
         if auto_subnet:
             project_subnet = find_next_subnet(used_subnets)
@@ -616,14 +627,18 @@ def init(project, app, subnet, no_interactive, yes):
     console.print(table)
 
     # Confirm
-    if (
-        interactive
-        and not yes
-        and not Confirm.ask("\n[bold]Create project?[/bold]", default=True)
-    ):
-        console.print("[yellow]Cancelled.[/yellow]")
-        return
+    if interactive and not yes:
+        console.print(
+            "\n[bold]Create project?[/bold] "
+            "[bold bright_white]\\[y/n][/bold bright_white] [dim](y)[/dim]: ",
+            end="",
+        )
+        answer = input().strip().lower()
+        if answer not in ["y", "yes", ""]:  # Empty = default yes
+            console.print("[yellow]Cancelled.[/yellow]")
+            return
 
+    console.print()  # Add 1 newline after confirmation
     # Build port assignments dynamically
     # Common service ports (can be overridden by user later)
     port_assignments = {}
@@ -902,7 +917,7 @@ network:
         )
     )
     console.print(
-        "  2. [dim]Deploy infrastructure:[/dim] [cyan]superdeploy up -p {project}[/cyan]".format(
+        "  2. [dim]Deploy infrastructure:[/dim] [red]superdeploy up -p {project}[/red]".format(
             project=project
         )
     )

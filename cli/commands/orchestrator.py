@@ -5,7 +5,7 @@ import subprocess
 import time
 from rich.console import Console
 from cli.ui_components import show_header
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Prompt
 from cli.utils import get_project_root
 from cli.logger import DeployLogger, run_with_progress
 
@@ -33,11 +33,13 @@ def orchestrator_init():
 
     # Check if config already exists
     if config_path.exists():
-        overwrite = Confirm.ask(
-            "\n[yellow]⚠️  Orchestrator config already exists. Overwrite?[/yellow]",
-            default=False,
+        console.print(
+            "\n[yellow]⚠️  Orchestrator config already exists. Overwrite?[/yellow] "
+            "[bold bright_white]\\[y/n][/bold bright_white] [dim](n)[/dim]: ",
+            end="",
         )
-        if not overwrite:
+        answer = input().strip().lower()
+        if answer not in ["y", "yes"]:
             console.print("\n[dim]Cancelled. Existing config preserved.[/dim]")
             return
 
@@ -75,9 +77,13 @@ def orchestrator_init():
         "[dim]Optional: Enable HTTPS with custom domains (e.g., grafana.cfk.com)[/dim]\n"
     )
 
-    enable_domains = Confirm.ask(
-        "  [cyan]Configure custom domains?[/cyan]", default=False
+    console.print(
+        "  [cyan]Configure custom domains?[/cyan] "
+        "[bold bright_white]\\[y/n][/bold bright_white] [dim](n)[/dim]: ",
+        end="",
     )
+    answer = input().strip().lower()
+    enable_domains = answer in ["y", "yes"]
 
     grafana_domain = ""
     prometheus_domain = ""
@@ -182,7 +188,7 @@ def orchestrator_init():
     console.print("\n[bold]Next steps:[/bold]")
     console.print("  1. [dim]Review config:[/dim] shared/orchestrator/config.yml")
     console.print(
-        "  2. [dim]Deploy orchestrator:[/dim] [cyan]superdeploy orchestrator up[/cyan]"
+        "  2. [dim]Deploy orchestrator:[/dim] [red]superdeploy orchestrator up[/red]"
     )
 
     if enable_domains:
@@ -208,21 +214,25 @@ def orchestrator_down(yes, preserve_ip, verbose):
     if not verbose:
         show_header(
             title="Orchestrator Destruction",
-            subtitle="This will destroy the orchestrator VM and clean up all state!",
-            border_color="red",
+            subtitle="⚠️  This will destroy the orchestrator VM and clean up all state!",
             console=console,
         )
 
     if not yes:
-        confirmed = Confirm.ask(
-            "\nAre you ABSOLUTELY SURE you want to destroy the orchestrator?",
-            default=False,
+        console.print(
+            "[bold red]Are you sure you want to destroy the orchestrator?[/bold red] "
+            "[bold bright_white]\\[y/n][/bold bright_white] [dim](n)[/dim]: ",
+            end="",
         )
+        answer = input().strip().lower()
+        confirmed = answer in ["y", "yes"]
+
         if not confirmed:
-            console.print("[dim]Cancelled. Orchestrator preserved.[/dim]")
+            console.print("[yellow]❌ Destruction cancelled[/yellow]")
             logger.log("User cancelled destruction")
             return
 
+    console.print()  # Add 1 newline after confirmation
     logger.step("[1/3] Preparing Destruction")
 
     shared_dir = project_root / "shared"
@@ -472,7 +482,7 @@ def orchestrator_status():
         )
     else:
         console.print("[yellow]⚠️  Orchestrator not deployed[/yellow]")
-        console.print("  Run: superdeploy orchestrator up")
+        console.print("  Run: [red]superdeploy orchestrator up[/red]")
 
 
 @click.command(name="orchestrator:up")

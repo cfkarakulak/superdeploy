@@ -118,9 +118,9 @@ def cli(ctx: click.Context) -> None:
 
     \b
     Quick Start:
-      superdeploy orchestrator up  # Deploy Forgejo (once)
+      [red]superdeploy orchestrator up[/red]  # Deploy Forgejo (once)
       superdeploy init -p myapp    # Create project
-      superdeploy up -p myapp      # Deploy project
+      [red]superdeploy up -p myapp[/red]      # Deploy project
       superdeploy sync -p myapp    # Sync secrets
 
     \b

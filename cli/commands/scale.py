@@ -33,7 +33,7 @@ def scale(project, vm_role, count):
     console.print(f"       count: {count}[/dim]\n")
 
     console.print("2. Apply changes:")
-    console.print(f"   [cyan]superdeploy up -p {project}[/cyan]\n")
+    console.print(f"   [red]superdeploy up -p {project}[/red]\n")
 
     console.print(
         "[yellow]Note:[/yellow] Add load balancer (Caddy) to distribute traffic across VMs\n"

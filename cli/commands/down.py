@@ -4,7 +4,8 @@ import click
 import subprocess
 from rich.console import Console
 from cli.ui_components import show_header
-from rich.prompt import Confirm
+
+# Confirmation prompts handled with console.print + input()
 from cli.utils import load_env, get_project_root
 from cli.terraform_utils import (
     get_terraform_dir,
@@ -124,19 +125,21 @@ def down(project, yes, verbose, keep_infra):
         console.print(f"[yellow]⚠️  Could not read Terraform state: {e}[/yellow]")
         console.print("  • [dim]Will attempt destruction anyway[/dim]")
 
-    console.print("")
-
     # Confirmation
     if not yes:
-        confirmed = Confirm.ask(
-            "[bold red]Are you sure you want to destroy all infrastructure?[/bold red]",
-            default=False,
+        console.print(
+            "[bold red]Are you sure you want to destroy all infrastructure?[/bold red] "
+            "[bold bright_white]\\[y/n][/bold bright_white] [dim](n)[/dim]: ",
+            end="",
         )
+        answer = input().strip().lower()
+        confirmed = answer in ["y", "yes"]
 
         if not confirmed:
             console.print("[yellow]❌ Destruction cancelled[/yellow]")
             raise SystemExit(0)
 
+    console.print()  # Add 1 newline after confirmation
     logger.step("[1/3] Preparing Destruction")
 
     terraform_dir = get_terraform_dir()
@@ -393,6 +396,6 @@ def down(project, yes, verbose, keep_infra):
         console.print("[bold green]🎉 Destruction Complete![/bold green]")
         console.print("━" * 60)
         console.print(
-            f"\n[dim]To deploy again:[/dim] [cyan]superdeploy up -p {project}[/cyan]"
+            f"\n[dim]To deploy again:[/dim] [red]superdeploy up -p {project}[/red]"
         )
         console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")

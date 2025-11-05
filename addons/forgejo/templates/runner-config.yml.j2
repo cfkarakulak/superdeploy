@@ -11,8 +11,13 @@ runner:
   insecure: false
   fetch_timeout: 5s
   fetch_interval: 2s
+  # Note: Labels are set during registration and stored in .runner file
+  # The labels below are for reference only
   labels:
-    - "ubuntu-latest:docker://catthehacker/ubuntu:act-latest"
+    - "ubuntu-latest:docker://node:20-bookworm"
+    - "orchestrator:docker://node:20-bookworm"
+    - "linux:docker://node:20-bookworm"
+    - "docker:docker://node:20-bookworm"
 
 cache:
   enabled: true

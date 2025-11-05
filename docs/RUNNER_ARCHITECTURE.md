@@ -104,13 +104,17 @@ Labels:
 **Configuration:**
 ```yaml
 # Deployed by: roles/system/forgejo-runner/tasks/main.yml
-Name: {project}-{vm_role}-{hostname}
+Name: {hostname} (e.g., cheapa-core-0)
 Labels:
+  - self-hosted:docker://node:20-bookworm
+  - project-runner:docker://node:20-bookworm
   - ubuntu-latest:docker://node:20-bookworm
   - {project}:docker://node:20-bookworm
   - {vm_role}:docker://node:20-bookworm
   - linux:docker://node:20-bookworm
   - docker:docker://node:20-bookworm
+
+Note: All labels use the same Docker executor (node:20-bookworm) for consistency
 ```
 
 ## Label Strategy
@@ -118,9 +122,15 @@ Labels:
 ### Standard Labels (All Runners)
 
 - `ubuntu-latest` - Compatibility with GitHub Actions syntax
-- `linux` - OS identifier
+- `linux` - OS identifier  
 - `docker` - Indicates Docker support
-- `self-hosted` - Forgejo automatically adds this
+- `self-hosted` - Indicates self-hosted runner
+- `project-runner` - Indicates project-specific runner (not on orchestrator runners)
+
+**Important:** All labels use the format `label:docker://node:20-bookworm` to ensure:
+- Consistent execution environment across all runners
+- Node.js 20 availability for deployment scripts
+- Debian bookworm base for compatibility
 
 ### Custom Labels
 
@@ -203,8 +213,10 @@ forgejo-runner register \
   --instance "http://forgejo:3000" \
   --token "REGISTRATION_TOKEN" \
   --name "orchestrator-runner" \
-  --labels "ubuntu-latest:docker://node:20-bookworm,orchestrator:docker://node:20-bookworm,linux:docker://node:20-bookworm,docker:docker://node:20-bookworm"
+  --labels "ubuntu-latest:docker://node:20-bookworm,orchestrator:docker://node:20-bookworm,linux:docker://node:20-bookworm,docker:docker://node:20-bookworm,self-hosted:docker://node:20-bookworm"
 ```
+
+**Note:** Self-hosted label is now explicitly added for consistency.
 
 ### Project Runners
 
@@ -215,6 +227,23 @@ forgejo-runner register \
 ```bash
 forgejo-runner register \
   --no-interactive \
+  --instance "http://ORCHESTRATOR_IP:3001" \
+  --token "REGISTRATION_TOKEN" \
+  --name "HOSTNAME" \
+  --labels "self-hosted:docker://node:20-bookworm,project-runner:docker://node:20-bookworm,ubuntu-latest:docker://node:20-bookworm,{project}:docker://node:20-bookworm,{vm_role}:docker://node:20-bookworm,linux:docker://node:20-bookworm,docker:docker://node:20-bookworm"
+```
+
+**Key Points:**
+- Token is generated on orchestrator VM via `docker exec orchestrator-forgejo forgejo actions generate-runner-token`
+- Registration happens from project VM but connects to orchestrator Forgejo instance
+- All labels use Docker executor for consistent environment
+- Label format: `label:docker://node:20-bookworm`
+
+**Troubleshooting Token Generation:**
+
+If runner registration fails with "token not available":
+
+```bash
   --instance "http://ORCHESTRATOR_IP:3001" \
   --token "REGISTRATION_TOKEN" \
   --name "cheapa-web-cheapa-web-0" \

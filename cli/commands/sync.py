@@ -458,7 +458,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     if missing_files:
         logger.log_error(
             "Missing required files",
-            context="Run 'superdeploy orchestrator up' to create them",
+            context="Run '[red]superdeploy orchestrator up[/red]' to create them",
         )
         raise SystemExit(1)
 
@@ -537,7 +537,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
         if not forgejo_host:
             logger.log_error(
                 "Orchestrator not deployed",
-                context="Run 'superdeploy orchestrator up' first",
+                context="Run '[red]superdeploy orchestrator up[/red]' first",
             )
             raise SystemExit(1)
 
@@ -675,7 +675,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     if not runner_vm_ip:
         logger.log_error(
             "No runner VM found",
-            context="Run 'superdeploy up -p " + project + "' to deploy VMs",
+            context="Run '[red]superdeploy up -p " + project + "[/red]' to deploy VMs",
         )
         raise SystemExit(1)
 
@@ -713,7 +713,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     if not forgejo_pat:
         logger.log_error(
             "FORGEJO_PAT not found in orchestrator .env",
-            context="Run 'superdeploy orchestrator up' to generate PAT",
+            context="Run '[red]superdeploy orchestrator up[/red]' to generate PAT",
         )
         raise SystemExit(1)
 

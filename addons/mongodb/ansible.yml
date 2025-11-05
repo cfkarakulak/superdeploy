@@ -33,7 +33,7 @@
 
 - name: Stop existing services (with explicit project name)
   community.docker.docker_compose_v2:
-    project_name: "{{ project_name }}"
+    project_name: "{{ project_name }}-{{ addon_name }}"
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: absent
     remove_orphans: true
@@ -55,12 +55,12 @@
   ignore_errors: true
 
 - name: Wait for Docker cleanup to complete
-  pause:
-    seconds: 2
+  shell: sleep 2
+  changed_when: false
 
 - name: Start {{ addon_name }} services (with explicit project name)
   community.docker.docker_compose_v2:
-    project_name: "{{ project_name }}"
+    project_name: "{{ project_name }}-{{ addon_name }}"
     project_src: "{{ addon_base_path }}/{{ addon_name }}"
     state: present
     pull: "always"

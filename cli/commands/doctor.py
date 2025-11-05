@@ -176,7 +176,7 @@ def doctor():
             table.add_row(
                 "⏳ Orchestrator",
                 "[yellow]Not deployed[/yellow]",
-                "Run: superdeploy orchestrator up",
+                "Run: [red]superdeploy orchestrator up[/red]",
             )
     except Exception:
         table.add_row("⏳ Orchestrator", "[yellow]Not configured[/yellow]", "")
@@ -202,7 +202,7 @@ def doctor():
                 table.add_row(
                     f"⏳ {first_project} VMs",
                     "[yellow]Not deployed[/yellow]",
-                    f"Run: superdeploy up -p {first_project}",
+                    f"Run: [red]superdeploy up -p {first_project}[/red]",
                 )
         except Exception:
             table.add_row(

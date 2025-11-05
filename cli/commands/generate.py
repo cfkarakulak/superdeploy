@@ -219,7 +219,7 @@ SMTP_PASSWORD=  # SMTP password or app-specific password
     console.print("   [dim]git add .env.superdeploy .github/[/dim]")
     console.print('   [dim]git commit -m "Add SuperDeploy config"[/dim]')
     console.print("\n3. Deploy infrastructure:")
-    console.print(f"   [cyan]superdeploy up -p {project}[/cyan]")
+    console.print(f"   [red]superdeploy up -p {project}[/red]")
 
 
 def _build_github_secrets_documentation(passwords, config):

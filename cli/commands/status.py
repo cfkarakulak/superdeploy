@@ -69,7 +69,7 @@ def status(project, verbose):
 
     if not vms:
         logger.warning("No VM IPs found in .env")
-        logger.log(f"Run: superdeploy up -p {project}")
+        logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
         raise SystemExit(1)
 
     # Get apps and their VM assignments

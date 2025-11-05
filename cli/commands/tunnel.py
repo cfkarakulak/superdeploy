@@ -98,7 +98,9 @@ def tunnel(project, service, all_services, list_services):
     env_file = projects_dir / project / ".env"
     if not env_file.exists():
         console.print(f"[red]❌ Project .env not found: {env_file}[/red]")
-        console.print("[yellow]Run 'superdeploy up -p {project}' first[/yellow]")
+        console.print(
+            "[yellow]Run '[red]superdeploy up -p {project}[/red]' first[/yellow]"
+        )
         sys.exit(1)
 
     env = dotenv_values(env_file)
@@ -115,7 +117,9 @@ def tunnel(project, service, all_services, list_services):
 
     if not vm_ip:
         console.print("[red]❌ No VM IP found in .env[/red]")
-        console.print("[yellow]Run 'superdeploy up -p {project}' first[/yellow]")
+        console.print(
+            "[yellow]Run '[red]superdeploy up -p {project}[/red]' first[/yellow]"
+        )
         sys.exit(1)
 
     # Get SSH config from project config

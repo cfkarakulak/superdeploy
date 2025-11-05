@@ -186,7 +186,7 @@
     --instance "http://{{ forgejo_ip_result.stdout }}:3000"
     --token "{{ runner_token }}"
     --name "orchestrator-runner"
-    --labels "ubuntu-latest:docker://node:20-bookworm,orchestrator:docker://node:20-bookworm,linux:docker://node:20-bookworm,docker:docker://node:20-bookworm"
+    --labels "self-hosted:docker://node:20-bookworm,ubuntu-latest:docker://node:20-bookworm,orchestrator:docker://node:20-bookworm,linux:docker://node:20-bookworm,docker:docker://node:20-bookworm"
   args:
     chdir: "{{ addon_base_path }}/{{ addon_name }}/runner"
   become_user: "{{ superdeploy_user }}"
@@ -196,6 +196,8 @@
   register: runner_register_result
   async: 60
   poll: 5
+  retries: 3
+  delay: 10
 
 - name: Update runner address to use container hostname
   shell: |
@@ -255,9 +257,16 @@
     msg:
       - "Forgejo Actions runner setup completed!"
       - "Runner Name: orchestrator-runner (multi-project)"
-      - "Runner Labels: ubuntu-latest, orchestrator, linux, docker"
+      - "Runner Labels (with Docker executor):"
+      - "  - self-hosted:docker://node:20-bookworm"
+      - "  - ubuntu-latest:docker://node:20-bookworm"
+      - "  - orchestrator:docker://node:20-bookworm"
+      - "  - linux:docker://node:20-bookworm"
+      - "  - docker:docker://node:20-bookworm"
       - "Service Status: {{ runner_status.status.ActiveState }}"
       - "Working Directory: {{ addon_base_path }}/{{ addon_name }}/runner"
       - ""
       - "⚠️  IMPORTANT: This runner serves ALL projects!"
-      - "   Workflows should use: runs-on: [self-hosted, orchestrator]"
+      - "✅ Workflows should use: runs-on: [self-hosted, orchestrator]"
+      - ""
+      - "ℹ️  Note: All runners use Docker executor (node:20-bookworm) for consistent environment"

@@ -63,7 +63,7 @@ def restart(project, app, verbose):
         ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
         if ip_key not in env:
             logger.log_error(f"VM IP not found in .env: {ip_key}")
-            logger.log(f"Run: superdeploy up -p {project}")
+            logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
             raise SystemExit(1)
 
         ssh_host = env[ip_key]

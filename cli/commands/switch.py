@@ -5,7 +5,7 @@ from rich.console import Console
 from cli.ui_components import show_header
 from rich.table import Table
 from rich.panel import Panel
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Prompt
 from cli.utils import load_env, ssh_command
 
 console = Console()
@@ -231,10 +231,17 @@ def releases_rollback(project, app, version, force):
 
         # Confirm
         if not force:
-            if not Confirm.ask("Continue with switch?"):
+            console.print(
+                "Continue with switch? "
+                "[bold bright_white]\\[y/n][/bold bright_white] [dim](y)[/dim]: ",
+                end="",
+            )
+            answer = input().strip().lower()
+            if answer not in ["y", "yes", ""]:  # Empty = default yes
                 console.print("[yellow]⏹️  Switch cancelled[/yellow]")
                 return
 
+        console.print()  # Add 1 newline after confirmation
         # Execute switch with zero-downtime
         console.print("[cyan]🔄 Switching release (zero-downtime)...[/cyan]")
 

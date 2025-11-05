@@ -125,7 +125,7 @@ def _deploy_project_v2(
         if not orchestrator_config.is_deployed():
             logger.log_error(
                 "Orchestrator not deployed yet",
-                context="Deploy it first: superdeploy orchestrator up",
+                context="Deploy it first: [red]superdeploy orchestrator up[/red]",
             )
             raise SystemExit(1)
 

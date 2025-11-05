@@ -47,7 +47,7 @@
     cd {{ addon_base_path }}/{{ addon_name }}
     
     # Phase 1: Stop and remove via Docker Compose (proper way)
-    docker compose --project-name orchestrator down --volumes --remove-orphans --timeout 30 2>&1 || true
+    docker compose --project-name orchestrator-forgejo down --volumes --remove-orphans --timeout 30 2>&1 || true
     
     # Phase 2: Wait for Docker to process (CRITICAL!)
     sleep 3
@@ -75,7 +75,7 @@
     fi
     
     # Phase 7: Deploy (guaranteed clean state)
-    docker compose --project-name orchestrator up -d --pull always --force-recreate --remove-orphans --wait --wait-timeout 300
+    docker compose --project-name orchestrator-forgejo up -d --pull always --force-recreate --remove-orphans --wait --wait-timeout 300
     
     echo "✓ Deployment successful"
   args:
