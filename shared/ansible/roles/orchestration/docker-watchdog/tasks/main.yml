@@ -159,6 +159,15 @@
     daemon_reload: yes
   become: yes
 
+- name: Create watchdog log file with correct permissions
+  file:
+    path: /var/log/superdeploy-watchdog.log
+    state: touch
+    owner: "{{ _watchdog_user }}"
+    group: "{{ _watchdog_group }}"
+    mode: '0644'
+  become: yes
+
 - name: Enable and start watchdog timer
   systemd:
     name: superdeploy-watchdog.timer
