@@ -31,17 +31,17 @@ runs:
       run: |
         set -e
         echo "📦 Installing dependencies..."
-        apt-get update -qq
-        apt-get install -y -qq curl tar
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq curl tar
         
         if ! command -v age &> /dev/null; then
           echo "📦 Installing age..."
           cd /tmp
           curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz -o age.tar.gz
           tar xzf age.tar.gz
-          cp age/age /usr/local/bin/
-          cp age/age-keygen /usr/local/bin/
-          chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
+          sudo cp age/age /usr/local/bin/
+          sudo cp age/age-keygen /usr/local/bin/
+          sudo chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
           rm -rf age age.tar.gz
           echo "✅ age installed"
         else
