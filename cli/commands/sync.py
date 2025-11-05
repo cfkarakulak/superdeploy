@@ -870,6 +870,12 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
                 for field_key, env_key in fields.items():
                     if env_key in merged_env:
                         env_secrets[env_key] = merged_env[env_key]
+            
+            # Add Database Abstraction Layer (DB_*) secrets
+            db_keys = ["DB_CONNECTION", "DB_HOST", "DB_PORT", "DB_USERNAME", "DB_PASSWORD", "DB_DATABASE"]
+            for key in db_keys:
+                if key in merged_env:
+                    env_secrets[key] = merged_env[key]
 
             # Add service-specific secrets (generic pattern, no hardcoding!)
             service_upper = app_name.upper()
