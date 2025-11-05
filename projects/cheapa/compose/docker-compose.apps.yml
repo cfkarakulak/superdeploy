@@ -18,17 +18,35 @@ services:
       - .env.api
     networks:
       - cheapa-network
+    # RESOURCE LIMITS: Prevent OOM and ensure fair resource sharing
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
 
-  dashboard:
-    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/dashboard:${DASHBOARD_TAG}
-    container_name: cheapa-dashboard
+  storefront:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/storefront:${STOREFRONT_TAG}
+    container_name: cheapa-storefront
     restart: unless-stopped
     ports:
       - "3000:3000"
     env_file:
-      - .env.dashboard
+      - .env.storefront
     networks:
       - cheapa-network
+    # RESOURCE LIMITS: Prevent OOM and ensure fair resource sharing
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
 
   services:
     image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_ORG}/services:${SERVICES_TAG}
@@ -40,3 +58,12 @@ services:
       - .env.services
     networks:
       - cheapa-network
+    # RESOURCE LIMITS: Prevent OOM and ensure fair resource sharing
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'

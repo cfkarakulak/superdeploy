@@ -56,35 +56,43 @@
   command: sleep 2
   changed_when: false
 
-- name: Verify container removal
+- name: Verify container removal and force cleanup if needed
   shell: |
     set -e
     # Forgejo has 3 containers
-    FILTER_NAMES=("orchestrator-forgejo" "orchestrator-forgejo-db" "orchestrator-forgejo-runner")
+    NAMES=("orchestrator-forgejo" "orchestrator-forgejo-db" "orchestrator-forgejo-runner")
     
-    for FILTER_NAME in "${FILTER_NAMES[@]}"; do
-      if docker ps -aq --filter "name=^/${FILTER_NAME}$" 2>/dev/null | grep -q .; then
-        docker rm -f "$FILTER_NAME" 2>/dev/null || true
-      fi
+    # Force remove by name and ID
+    for CNAME in "${NAMES[@]}"; do
+      docker rm -f "$CNAME" 2>/dev/null || true
+      docker ps -aq --filter "name=$CNAME" 2>/dev/null | xargs -r docker rm -f 2>/dev/null || true
     done
-    sleep 2
+    
+    # Clean Docker metadata cache
+    docker container prune -f >/dev/null 2>&1 || true
+    sleep 1
     
     # Final verification
     FAILED=""
-    for FILTER_NAME in "${FILTER_NAMES[@]}"; do
-      if docker ps -aq --filter "name=^/${FILTER_NAME}$" 2>/dev/null | grep -q .; then
-        FAILED="${FAILED} ${FILTER_NAME}"
+    for CNAME in "${NAMES[@]}"; do
+      if docker ps -aq --filter "name=$CNAME" 2>/dev/null | grep -q .; then
+        FAILED="$FAILED $CNAME"
       fi
     done
     
     if [ -n "$FAILED" ]; then
       echo "FATAL: Containers still exist:$FAILED"
+      docker ps -a
       exit 1
     fi
+    
+    echo "Container cleanup verified"
   args:
     executable: /bin/bash
   become_user: "{{ superdeploy_user }}"
+  register: verify_cleanup
   changed_when: false
+  failed_when: verify_cleanup.rc != 0
 
 - name: "Deploy {{ addon_name }} services (with explicit project name)"
   community.docker.docker_compose_v2:

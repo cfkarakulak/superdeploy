@@ -29,9 +29,9 @@ services:
     - rabbitmq-data:/var/lib/rabbitmq
     networks:
     - cheapa-network
-    expose:
-    - '5672'
-    - '15672'
+    ports:
+    - 127.0.0.1:5672:5672
+    - 127.0.0.1:15672:15672
     healthcheck:
       test:
       - CMD-SHELL
@@ -44,6 +44,9 @@ services:
       resources:
         limits:
           memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
           cpus: '0.5'
     labels:
     - prometheus.scrape=true
@@ -63,8 +66,8 @@ services:
     - postgres-data:/var/lib/postgresql/data
     networks:
     - cheapa-network
-    expose:
-    - '5432'
+    ports:
+    - 127.0.0.1:5432:5432
     healthcheck:
       test:
       - CMD-SHELL
@@ -77,6 +80,9 @@ services:
       resources:
         limits:
           memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
           cpus: '0.5'
     labels:
     - prometheus.scrape=true
@@ -114,6 +120,9 @@ services:
         limits:
           memory: 128M
           cpus: '0.1'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
     labels:
     - prometheus.scrape=true
     - prometheus.port=2019

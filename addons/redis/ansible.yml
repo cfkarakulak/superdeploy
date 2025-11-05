@@ -39,21 +39,36 @@
   command: sleep 2
   changed_when: false
 
-- name: Verify container removal
+- name: Verify container removal and force cleanup if needed
   shell: |
     set -e
-    CONTAINER_NAME="{{ project_name }}-{{ addon_name }}"
-    if docker ps -aq --filter "name=^/${CONTAINER_NAME}$" 2>/dev/null | grep -q .; then
-      docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
-      sleep 2
-      if docker ps -aq --filter "name=^/${CONTAINER_NAME}$" 2>/dev/null | grep -q .; then
-        echo "FATAL: Container still exists"; exit 1
-      fi
+    CNAME="{{ project_name }}-{{ addon_name }}"
+    
+    # Force remove by name
+    docker rm -f "$CNAME" 2>/dev/null || true
+    
+    # Remove any matching containers by ID
+    docker ps -aq --filter "name=$CNAME" 2>/dev/null | xargs -r docker rm -f 2>/dev/null || true
+    
+    # Clean Docker metadata cache
+    docker container prune -f >/dev/null 2>&1 || true
+    
+    sleep 1
+    
+    # Final verification
+    if docker ps -aq --filter "name=$CNAME" 2>/dev/null | grep -q .; then
+      echo "FATAL: Container still exists after cleanup"
+      docker ps -a
+      exit 1
     fi
+    
+    echo "Container cleanup verified"
   args:
     executable: /bin/bash
   become_user: "{{ superdeploy_user }}"
+  register: verify_cleanup
   changed_when: false
+  failed_when: verify_cleanup.rc != 0
 
 - name: Start {{ addon_name }} services (with explicit project name)
   community.docker.docker_compose_v2:

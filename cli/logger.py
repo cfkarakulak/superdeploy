@@ -195,9 +195,6 @@ ERROR OCCURRED
             )
         )
 
-        # Show log file location
-        console.print(f"\n[dim]Full logs:[/dim] {self.log_path}\n")
-
     def step(self, step_name: str):
         """
         Start a new step
@@ -209,7 +206,7 @@ ERROR OCCURRED
         self.log(f"Step: {step_name}", "INFO")
 
         if not self.verbose:
-            console.print(f"[color(214)]▶[/color(214)] {step_name}")
+            console.print(f"[color(214)]▶[/color(214)] [white]{step_name}[/white]")
 
     def success(self, message: str):
         """Log a success message"""
@@ -242,11 +239,9 @@ Status: {"FAILED" if self.has_errors else "SUCCESS"}
         # Show summary
         if not self.verbose:
             if self.has_errors:
-                console.print(
-                    f"\n[red]✗[/red] Operation failed. Check logs: {self.log_path}\n"
-                )
+                console.print(f"\n[dim]Full logs: {self.log_path}[/dim]\n")
             else:
-                console.print(f"\n[dim]Logs saved to:[/dim] {self.log_path}\n")
+                console.print(f"\n[dim]Logs: {self.log_path}[/dim]\n")
 
     def __enter__(self):
         """Context manager entry"""
@@ -254,8 +249,8 @@ Status: {"FAILED" if self.has_errors else "SUCCESS"}
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit"""
-        if exc_type is not None:
-            # Log unhandled exception
+        if exc_type is not None and exc_type != SystemExit:
+            # Log unhandled exception (but not SystemExit - that's expected)
             self.log_error(
                 f"Unhandled exception: {exc_val}", context=f"Type: {exc_type.__name__}"
             )
