@@ -114,6 +114,8 @@ class AnsibleRunner:
             returncode = result.returncode
         else:
             # NON-VERBOSE MODE: Capture and display with tree_minimal
+            import sys
+
             process = subprocess.Popen(
                 ansible_cmd,
                 shell=True,
@@ -121,7 +123,7 @@ class AnsibleRunner:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=1,
+                bufsize=0,  # UNBUFFERED - immediate output
                 env=env_terminal,
             )
 
@@ -136,12 +138,25 @@ class AnsibleRunner:
                     except (BlockingIOError, OSError):
                         pass
 
-                    # Print to console
-                    print(line_stripped)
+                    # Print to console WITH FLUSH
+                    print(line_stripped, flush=True)
+                    sys.stdout.flush()
 
             returncode = process.wait()
 
+            # Ensure we flush any remaining output
+            if process.stdout:
+                remaining = process.stdout.read()
+                if remaining:
+                    for line in remaining.splitlines():
+                        line_stripped = line.rstrip()
+                        try:
+                            self.logger.log_output(line_stripped, "ansible")
+                        except (BlockingIOError, OSError):
+                            pass
+                        print(line_stripped)
+
         # Wait for background logger to finish
-        log_thread.join(timeout=5)
+        log_thread.join(timeout=10)  # Increased timeout
 
         return returncode

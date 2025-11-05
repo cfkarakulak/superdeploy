@@ -205,7 +205,7 @@ def validate_project(project):
         console.print()
 
     if not errors and not warnings:
-        console.print("[bold green]✅ Configuration is valid![/bold green]")
+        console.print("[color(248)]Configuration is valid.[/color(248)]")
 
         # Display summary table
         table = Table(
@@ -394,7 +394,5 @@ def validate_addons(project, addon, fix):
         console.print("\n[bold red]❌ Validation failed[/bold red]")
         raise SystemExit(1)
     else:
-        console.print(
-            "\n[bold green]✅ All addons validated successfully![/bold green]"
-        )
+        console.print("\n[color(248)]All addons validated successfully.[/color(248)]")
         raise SystemExit(0)

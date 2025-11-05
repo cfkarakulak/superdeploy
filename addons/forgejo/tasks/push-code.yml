@@ -25,7 +25,7 @@
     path: "/tmp/superdeploy-push"
     state: directory
     mode: '0755'
-  when: repo_contents_check.status == 404 or (repo_contents_check.json | default([]) | length == 0)
+  # Always ensure directory exists before rsync
 
 - name: Copy superdeploy code from local machine to orchestrator
   synchronize:
@@ -33,6 +33,7 @@
     dest: "/tmp/superdeploy-push/"
     delete: no
     recursive: yes
+    delay_updates: no  # Disable delay_updates (conflicts with --inplace)
     rsync_opts:
       - "--exclude=venv"
       - "--exclude=.git"
@@ -42,6 +43,7 @@
       - "--exclude=terraform.tfstate*"
       - "--exclude=.env"
       - "--exclude=projects/*/secrets.yml"
+      - "--inplace"  # Write directly, don't use temp files
   when: repo_contents_check.status == 404 or (repo_contents_check.json | default([]) | length == 0)
 
 - name: Initialize git repository

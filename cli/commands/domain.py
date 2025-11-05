@@ -170,7 +170,7 @@ def domain_add(project: str, app_name: str, domain: str):
             console.print()
             console.print(
                 Panel(
-                    f"[bold green]✅ Domain Added Successfully![/bold green]\n\n"
+                    f"[color(248)]Domain added successfully.[/color(248)]\n"
                     f"[cyan]Service:[/cyan] {app_name}\n"
                     f"[cyan]Domain:[/cyan] https://{domain}\n"
                     f"[cyan]VM:[/cyan] {vm_ip} (orchestrator)\n\n"
@@ -311,7 +311,7 @@ def domain_add(project: str, app_name: str, domain: str):
         console.print()
         console.print(
             Panel(
-                f"[bold green]✅ Domain Added Successfully![/bold green]\n\n"
+                f"[color(248)]Domain added successfully.[/color(248)]\n"
                 f"[cyan]App:[/cyan] {app_name}\n"
                 f"[cyan]Domain:[/cyan] https://{domain}\n"
                 f"[cyan]VM:[/cyan] {vm_ip} ({vm_role})\n\n"

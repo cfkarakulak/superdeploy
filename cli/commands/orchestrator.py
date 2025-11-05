@@ -176,7 +176,7 @@ def orchestrator_init():
         f.write(config_content)
 
     console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
-    console.print("[bold green]✅ Orchestrator Configured![/bold green]")
+    console.print("[color(248)]Orchestrator configured.[/color(248)]")
     console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
     console.print(f"\n[cyan]📄 Config saved to:[/cyan] {config_path}")
     console.print("\n[bold]Next steps:[/bold]")
@@ -208,14 +208,14 @@ def orchestrator_down(yes, preserve_ip, verbose):
     if not verbose:
         show_header(
             title="Orchestrator Destruction",
-            subtitle="⚠️  This will destroy the orchestrator VM and clean up all state!\n⚠️  This action is DESTRUCTIVE and cannot be undone!",
+            subtitle="This will destroy the orchestrator VM and clean up all state!",
             border_color="red",
             console=console,
         )
 
     if not yes:
         confirmed = Confirm.ask(
-            "\n[bold red]⚠️  Are you ABSOLUTELY SURE you want to destroy the orchestrator?[/bold red]",
+            "\nAre you ABSOLUTELY SURE you want to destroy the orchestrator?",
             default=False,
         )
         if not confirmed:
@@ -237,9 +237,6 @@ def orchestrator_down(yes, preserve_ip, verbose):
         logger.log_error(str(e))
         raise SystemExit(1)
 
-    from rich.console import Console
-
-    console = Console()
     console.print("  [dim]✓ Configuration loaded[/dim]")
 
     import subprocess
@@ -447,7 +444,7 @@ def orchestrator_down(yes, preserve_ip, verbose):
 
     console.print("  [dim]✓ Local files cleaned[/dim]")
 
-    console.print("\n[bold green]✅ Orchestrator Destroyed![/bold green]")
+    console.print("\n[color(248)]Orchestrator destroyed.[/color(248)]")
 
 
 @click.command(name="orchestrator:status")
@@ -476,14 +473,6 @@ def orchestrator_status():
     else:
         console.print("[yellow]⚠️  Orchestrator not deployed[/yellow]")
         console.print("  Run: superdeploy orchestrator up")
-
-
-if __name__ == "__main__":
-    orchestrator()
-"""SuperDeploy CLI - Orchestrator command V2 (with improved logging and UX)"""
-
-import click
-from rich.console import Console
 
 
 @click.command(name="orchestrator:up")
@@ -538,7 +527,7 @@ def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose):
                 console.print(
                     "\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]"
                 )
-                console.print("[bold green]✅ Orchestrator Deployed![/bold green]")
+                console.print("[color(248)]Orchestrator deployed.[/color(248)]")
                 console.print(
                     "[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]\n"
                 )
@@ -711,9 +700,6 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
             logger.log_error("Terraform apply failed", context=stderr)
             raise SystemExit(1)
 
-        from rich.console import Console
-
-        console = Console()
         console.print("  [dim]✓ VM provisioned[/dim]")
 
         # Get outputs
@@ -800,7 +786,7 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
     ssh_key = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
 
     inventory_content = f"""[orchestrator]
-{orchestrator_ip} ansible_user={ssh_user} ansible_ssh_private_key_file={ssh_key} ansible_become=yes ansible_become_method=sudo
+orchestrator-main-0 ansible_host={orchestrator_ip} ansible_user={ssh_user} ansible_ssh_private_key_file={ssh_key} ansible_become=yes ansible_become_method=sudo
 
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3
@@ -810,7 +796,7 @@ ansible_python_interpreter=/usr/bin/python3
         f.write(inventory_content)
 
     # Phase 1 complete - show summary
-    logger.success(f"  ✓ Configuration • Secrets • VM @ {orchestrator_ip}")
+    logger.success(f"Configuration • Secrets • VM @ {orchestrator_ip}")
 
     # Ansible - Phase 2 & 3
     logger.step("[2/3] Base System")

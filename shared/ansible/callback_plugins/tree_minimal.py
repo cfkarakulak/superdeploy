@@ -163,9 +163,9 @@ class CallbackModule(CallbackBase):
 
         if self.task_status[self.current_task] == "running":
             self.task_status[self.current_task] = "skipped"
-            # Show skip (magenta) - no time for skipped tasks
+            # Show skip (dark orange) - no time for skipped tasks
             self._display.display(
-                f"├── \033[35m⊘\033[0m \033[2m{self.current_task}\033[0m"
+                f"├── \033[38;5;208m⊘\033[0m \033[2m{self.current_task}\033[0m"
             )
 
     def v2_playbook_on_stats(self, stats):

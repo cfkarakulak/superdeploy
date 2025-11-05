@@ -889,7 +889,7 @@ network:
 
     # Success message
     console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
-    console.print("[bold green]✅ Project Initialized![/bold green]")
+    console.print("[color(248)]Project initialized.[/color(248)]")
     console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
 
     console.print(f"\n[cyan]📄 Config saved to:[/cyan] {project_yml_path}")

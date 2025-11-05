@@ -61,8 +61,7 @@ def down(project, yes, verbose, keep_infra):
     - Clean up local state
 
     \b
-    Warning: This action is DESTRUCTIVE and cannot be undone!
-    All data on VMs will be lost.
+    Warning: All data on VMs will be lost.
     """
     project_root = get_project_root()
 

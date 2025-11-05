@@ -2,7 +2,6 @@
 
 import os
 import subprocess
-from pathlib import Path
 from rich.console import Console
 
 console = Console()
@@ -11,38 +10,39 @@ console = Console()
 def get_core_service_patterns(project_name, env):
     """
     Build service patterns dynamically from addon metadata.
-    
+
     Args:
         project_name (str): Project name
         env (dict): Environment variables
-        
+
     Returns:
         dict: Dictionary mapping addon names to their environment variable lists
     """
     from cli.core.addon_loader import AddonLoader
     from cli.utils import get_project_root
-    
+
     try:
         project_root = get_project_root()
         addons_dir = project_root / "addons"
         addon_loader = AddonLoader(addons_dir)
-        
+
         # Load project config to get enabled addons
         from cli.core.config_loader import ConfigLoader
+
         projects_dir = project_root / "projects"
         config_loader = ConfigLoader(projects_dir)
         project_config = config_loader.load_project(project_name)
-        
+
         # Load addons
         addons = addon_loader.load_addons_for_project(project_config.raw_config)
-        
+
         # Build patterns dynamically
         patterns = {}
         for addon_name, addon in addons.items():
             env_var_names = addon.get_env_var_names()
             if env_var_names:
                 patterns[addon_name] = env_var_names
-        
+
         return patterns
     except Exception as e:
         # Fallback to empty dict if addon loading fails
@@ -53,25 +53,25 @@ def get_core_service_patterns(project_name, env):
 def get_age_public_key(project_name, env):
     """
     Fetch AGE public key from runner VM (dynamic - finds infrastructure VM)
-    
+
     Args:
         project_name (str): Project name
         env (dict): Environment variables with VM IPs and SSH config
-        
+
     Returns:
         str: AGE public key or None if failed
     """
     from cli.utils import ssh_command, get_ssh_connection_info
-    
+
     try:
         # Get infrastructure VM connection info
         ssh_info = get_ssh_connection_info(project_name)
-        
+
         # Read entire key file, then parse locally
         key_file = ssh_command(
-            host=ssh_info['host'],
-            user=ssh_info['user'],
-            key_path=os.path.expanduser(ssh_info['key_path']),
+            host=ssh_info["host"],
+            user=ssh_info["user"],
+            key_path=os.path.expanduser(ssh_info["key_path"]),
             cmd="cat /opt/forgejo-runner/.age/key.txt",
         )
 
@@ -90,11 +90,11 @@ def get_age_public_key(project_name, env):
 def create_forgejo_pat(project_name, env):
     """
     Create Forgejo Personal Access Token (dynamic - finds infrastructure VM)
-    
+
     Args:
         project_name (str): Project name
         env (dict): Environment variables with Forgejo config
-        
+
     Returns:
         str: Forgejo PAT or None if failed
     """
@@ -108,7 +108,7 @@ def create_forgejo_pat(project_name, env):
     if not infra_ip:
         console.print("[red]❌ Infrastructure VM IP not found[/red]")
         return None
-    
+
     forgejo_url = f"http://{infra_ip}:3001"
     token_name = f"github-actions-{int(time.time())}"
 
@@ -144,13 +144,13 @@ def create_forgejo_pat(project_name, env):
 def sync_secrets_to_forgejo(project_name, env, forgejo_pat, project_secrets=None):
     """
     Sync secrets to Forgejo repository (dynamic - finds infrastructure VM)
-    
+
     Args:
         project_name (str): Project name
         env (dict): Environment variables
         forgejo_pat (str): Forgejo Personal Access Token
         project_secrets (dict): Optional project-specific secrets to merge
-        
+
     Returns:
         tuple: (success_count, fail_count, skip_count)
     """
@@ -161,7 +161,7 @@ def sync_secrets_to_forgejo(project_name, env, forgejo_pat, project_secrets=None
     if not infra_ip:
         console.print("[red]❌ Infrastructure VM IP not found[/red]")
         return (0, 0, 0)
-    
+
     forgejo_url = f"http://{infra_ip}:3001"
     org = env["FORGEJO_ORG"]
     repo = env["REPO_SUPERDEPLOY"]
@@ -195,10 +195,10 @@ def sync_secrets_to_forgejo(project_name, env, forgejo_pat, project_secrets=None
         "FORGEJO_ORG": env["FORGEJO_ORG"],
         "REPO_SUPERDEPLOY": env.get("REPO_SUPERDEPLOY", "superdeploy"),
     }
-    
+
     # Add all VM IPs dynamically
     for key, value in merged_env.items():
-        if key.endswith('_EXTERNAL_IP') or key.endswith('_INTERNAL_IP'):
+        if key.endswith("_EXTERNAL_IP") or key.endswith("_INTERNAL_IP"):
             secrets[key] = value
 
     # Add optional fields
@@ -209,7 +209,7 @@ def sync_secrets_to_forgejo(project_name, env, forgejo_pat, project_secrets=None
 
     # Add core service secrets dynamically from addon metadata
     core_service_patterns = get_core_service_patterns(project_name, merged_env)
-    
+
     for service, fields in core_service_patterns.items():
         for field in fields:
             if field in merged_env:
@@ -229,7 +229,9 @@ def sync_secrets_to_forgejo(project_name, env, forgejo_pat, project_secrets=None
     for key, value in secrets.items():
         # Skip empty values
         if not value or value == "":
-            console.print(f"  [dim]⊘[/dim] {key} (empty, skipped)")
+            console.print(
+                f"  [color(208)]⊘[/color(208)] [dim]{key} (empty, skipped)[/dim]"
+            )
             skip_count += 1
             continue
 
@@ -259,11 +261,11 @@ def sync_secrets_to_forgejo(project_name, env, forgejo_pat, project_secrets=None
 def sync_secrets_to_github(repo, secrets):
     """
     Sync secrets to GitHub repository
-    
+
     Args:
         repo (str): GitHub repository (owner/repo)
         secrets (dict): Secrets to sync
-        
+
     Returns:
         tuple: (success_count, fail_count)
     """
@@ -275,7 +277,9 @@ def sync_secrets_to_github(repo, secrets):
     for key, value in secrets.items():
         # Skip empty values
         if not value or value == "":
-            console.print(f"  [dim]⊘[/dim] {key} (empty, skipped)")
+            console.print(
+                f"  [color(208)]⊘[/color(208)] [dim]{key} (empty, skipped)[/dim]"
+            )
             continue
 
         try:
@@ -303,11 +307,11 @@ def sync_secrets_to_github(repo, secrets):
 def create_github_environment(repo, env_name):
     """
     Create GitHub environment if it doesn't exist
-    
+
     Args:
         repo (str): GitHub repository (owner/repo)
         env_name (str): Environment name (production, staging)
-        
+
     Returns:
         bool: True if successful
     """
@@ -347,12 +351,12 @@ def create_github_environment(repo, env_name):
 def sync_github_env_secrets(repo, env_name, secrets):
     """
     Sync secrets to GitHub environment
-    
+
     Args:
         repo (str): GitHub repository (owner/repo)
         env_name (str): Environment name
         secrets (dict): Secrets to sync
-        
+
     Returns:
         tuple: (success_count, fail_count)
     """
@@ -364,7 +368,9 @@ def sync_github_env_secrets(repo, env_name, secrets):
     for key, value in secrets.items():
         # Skip empty values
         if not value or value == "":
-            console.print(f"  [dim]⊘[/dim] {key} (empty, skipped)")
+            console.print(
+                f"  [color(208)]⊘[/color(208)] [dim]{key} (empty, skipped)[/dim]"
+            )
             continue
 
         try:

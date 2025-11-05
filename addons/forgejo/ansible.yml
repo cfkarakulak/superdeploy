@@ -41,69 +41,50 @@
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
 
-- name: Stop existing services (with explicit project name)
-  community.docker.docker_compose_v2:
-    project_name: "orchestrator"
-    project_src: "{{ addon_base_path }}/{{ addon_name }}"
-    state: absent
-    remove_orphans: true
-  become_user: "{{ superdeploy_user }}"
-  register: compose_down_result
-  failed_when: false
-  ignore_errors: true
-
-- name: Wait for Docker to complete cleanup
-  command: sleep 2
-  changed_when: false
-
-- name: Verify container removal and force cleanup if needed
+- name: "Deploy {{ addon_name }} services with intelligent cleanup"
   shell: |
     set -e
-    # Forgejo has 3 containers
-    NAMES=("orchestrator-forgejo" "orchestrator-forgejo-db" "orchestrator-forgejo-runner")
+    cd {{ addon_base_path }}/{{ addon_name }}
     
-    # Force remove by name and ID
-    for CNAME in "${NAMES[@]}"; do
-      docker rm -f "$CNAME" 2>/dev/null || true
-      docker ps -aq --filter "name=$CNAME" 2>/dev/null | xargs -r docker rm -f 2>/dev/null || true
-    done
+    # Phase 1: Stop and remove via Docker Compose (proper way)
+    docker compose --project-name orchestrator down --volumes --remove-orphans --timeout 30 2>&1 || true
     
-    # Clean Docker metadata cache
+    # Phase 2: Wait for Docker to process (CRITICAL!)
+    sleep 3
+    
+    # Phase 3: Nuclear cleanup - remove ANY remaining forgejo containers by ID
+    CONTAINER_IDS=$(docker ps -aq --filter name=orchestrator-forgejo 2>/dev/null || true)
+    if [ -n "$CONTAINER_IDS" ]; then
+      echo "Force removing remaining containers: $CONTAINER_IDS"
+      echo "$CONTAINER_IDS" | xargs -r docker rm -f 2>&1 || true
+      sleep 2
+    fi
+    
+    # Phase 4: Clean Docker cache (containers only - preserve networks!)
     docker container prune -f >/dev/null 2>&1 || true
-    sleep 1
     
-    # Final verification
-    FAILED=""
-    for CNAME in "${NAMES[@]}"; do
-      if docker ps -aq --filter "name=$CNAME" 2>/dev/null | grep -q .; then
-        FAILED="$FAILED $CNAME"
-      fi
-    done
+    # Phase 5: Final wait for Docker daemon to update metadata
+    sleep 5
     
-    if [ -n "$FAILED" ]; then
-      echo "FATAL: Containers still exist:$FAILED"
-      docker ps -a
+    # Phase 6: Verify cleanup (fail if containers still exist)
+    REMAINING=$(docker ps -aq --filter name=orchestrator-forgejo 2>/dev/null | wc -l)
+    if [ "$REMAINING" -gt 0 ]; then
+      echo "ERROR: $REMAINING forgejo containers still exist after cleanup!"
+      docker ps -a --filter name=orchestrator-forgejo
       exit 1
     fi
     
-    echo "Container cleanup verified"
+    # Phase 7: Deploy (guaranteed clean state)
+    docker compose --project-name orchestrator up -d --pull always --force-recreate --remove-orphans --wait --wait-timeout 300
+    
+    echo "✓ Deployment successful"
   args:
     executable: /bin/bash
   become_user: "{{ superdeploy_user }}"
-  register: verify_cleanup
-  changed_when: false
-  failed_when: verify_cleanup.rc != 0
-
-- name: "Deploy {{ addon_name }} services (with explicit project name)"
-  community.docker.docker_compose_v2:
-    project_name: "orchestrator"
-    project_src: "{{ addon_base_path }}/{{ addon_name }}"
-    state: present
-    pull: "always"
-    recreate: "always"
-    remove_orphans: true
-  become_user: "{{ superdeploy_user }}"
-  register: forgejo_compose_result
+  register: forgejo_deploy_result
+  retries: 2
+  delay: 10
+  until: forgejo_deploy_result.rc == 0
 
 - name: "Wait for {{ addon_name }} database to be ready"
   shell: docker inspect -f '{{"{{"}}.State.Health.Status{{"}}"}}' orchestrator-forgejo-db
@@ -111,7 +92,7 @@
   until: db_health.stdout == 'healthy'
   retries: 30
   delay: 2
-  when: forgejo_compose_result.changed
+  when: forgejo_deploy_result.changed
   changed_when: false
 
 - name: "Wait for {{ addon_name }} to be ready"

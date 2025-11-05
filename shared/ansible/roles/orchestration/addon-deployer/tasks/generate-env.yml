@@ -55,7 +55,7 @@
   assert:
     that:
       - addon_env_vars[item.key] is defined
-      - addon_env_vars[item.key] | length > 0
+      - (addon_env_vars[item.key] is string and addon_env_vars[item.key] | length > 0) or (addon_env_vars[item.key] is not string)
       - not (addon_env_vars[item.key] | string).startswith('MISSING_REQUIRED_')
     fail_msg: |
       [ADDON-DEPLOYER] ERROR: Missing required environment variable for {{ addon_name }}

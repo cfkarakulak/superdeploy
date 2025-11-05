@@ -93,7 +93,7 @@
     force_basic_auth: yes
     body_format: json
     body:
-      name: "superdeploy-cicd-{{ ansible_date_time.epoch }}"
+      name: "superdeploy-cicd-{{ lookup('pipe', 'date +%s') }}"
       scopes:
         - write:activitypub
         - write:admin
@@ -117,9 +117,13 @@
     line: "FORGEJO_PAT={{ pat_create_result.json.sha1 }}"
     create: no
     mode: '0600'
-  when: pat_create_result.status == 201
+  when: 
+    - pat_create_result.status == 201
+    - pat_create_result.json is defined
+    - pat_create_result.json.sha1 is defined
   delegate_to: localhost
   become: no
+  failed_when: false
 
 - name: Display PAT creation result
   debug:

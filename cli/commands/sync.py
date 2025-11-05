@@ -140,7 +140,9 @@ def set_github_repo_secrets(repo, secrets):
     for key, value in secrets.items():
         # Skip empty values
         if not value or value == "":
-            console.print(f"  [dim]⊘[/dim] {key} (empty, skipped)")
+            console.print(
+                f"  [color(208)]⊘[/color(208)] [dim]{key} (empty, skipped)[/dim]"
+            )
             continue
 
         try:
@@ -210,7 +212,9 @@ def set_github_env_secrets(repo, env_name, secrets):
     for key, value in secrets.items():
         # Skip empty values (GitHub doesn't accept empty secrets)
         if not value or value == "":
-            console.print(f"  [dim]⊘[/dim] {key} (empty, skipped)")
+            console.print(
+                f"  [color(208)]⊘[/color(208)] [dim]{key} (empty, skipped)[/dim]"
+            )
             continue
 
         console.print(f"  [dim]→ Setting {key}...[/dim]", end="")
@@ -352,7 +356,9 @@ def sync_forgejo_secrets(
     for key, value in secrets.items():
         # Skip empty values (Forgejo returns 422 for empty secrets)
         if not value or value == "":
-            console.print(f"  [dim]⊘[/dim] {key} (empty, skipped)")
+            console.print(
+                f"  [color(208)]⊘[/color(208)] [dim]{key} (empty, skipped)[/dim]"
+            )
             skip_count += 1
             continue
 

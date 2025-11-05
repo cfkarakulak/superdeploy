@@ -81,13 +81,25 @@
 - name: Deploy Orchestrator Addons
   hosts: orchestrator
   become: yes
+  any_errors_fatal: true  # CRITICAL: Stop immediately if ANY addon fails!
+  pre_tasks:
+    - name: Validate enabled_addons is defined
+      assert:
+        that:
+          - enabled_addons is defined
+          - enabled_addons | length > 0
+        fail_msg: |
+          [ORCHESTRATOR] ERROR: enabled_addons not defined!
+            - This must be passed from CLI via --extra-vars
+            - Expected format: enabled_addons=['forgejo', 'monitoring']
+            - Fix: Check orchestrator.py build_ansible_command() call
+        quiet: false
   roles:
     - role: orchestration/addon-deployer
       vars:
         project_name: orchestrator
         vm_role: orchestrator
-        # Orchestrator always deploys: forgejo, postgres, prometheus, grafana
-        enabled_addons: ['forgejo', 'postgres', 'prometheus', 'grafana']
+        # enabled_addons passed from CLI via --extra-vars (NO DEFAULT!)
   tags:
     - addons
     - infrastructure

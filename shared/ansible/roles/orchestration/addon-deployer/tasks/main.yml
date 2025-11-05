@@ -54,6 +54,14 @@
     group: "{{ superdeploy_group }}"
     mode: '0755'
 
+- name: Debug project_config before sync
+  debug:
+    msg:
+      - "Project name: {{ project_name }}"
+      - "Project config keys: {{ project_config.keys() | list }}"
+      - "Project config size: {{ project_config | to_json | length }}"
+    verbosity: 0
+
 - name: Sync project.yml to VM (for Forgejo workflows)
   copy:
     content: "{{ project_config | to_nice_yaml }}"
@@ -121,6 +129,7 @@
       - "Tip: To deploy only one addon, use: --addon <name>"
 
 # Loop through each enabled addon and deploy it
+# NOTE: Play-level any_errors_fatal ensures addon failures STOP the playbook
 - name: Deploy each addon
   include_tasks: deploy-addon.yml
   loop: "{{ enabled_addons }}"

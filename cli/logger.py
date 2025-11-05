@@ -7,7 +7,6 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, TextIO
 from rich.console import Console
-from rich.panel import Panel
 from rich.live import Live
 from rich.spinner import Spinner
 from rich.text import Text
@@ -186,14 +185,10 @@ ERROR OCCURRED
         if not self.verbose:
             console.print()  # Add spacing
 
-        console.print(
-            Panel(
-                f"[bold red]{error}[/bold red]"
-                + (f"\n\n[dim]{context}[/dim]" if context else ""),
-                title="[bold red]❌ Error[/bold red]",
-                border_style="red",
-            )
-        )
+        # Clean, elegant error display without box
+        console.print(f"[bold red]✗ {error}[/bold red]")
+        if context:
+            console.print(f"  [color(208)]{context}[/color(208)]")
 
     def step(self, step_name: str):
         """
@@ -202,6 +197,10 @@ ERROR OCCURRED
         Args:
             step_name: Name of the step
         """
+        # Add spacing between steps (but not before the first step)
+        if self.current_step and not self.verbose:
+            console.print()
+
         self.current_step = step_name
         self.log(f"Step: {step_name}", "INFO")
 
@@ -236,13 +235,6 @@ Status: {"FAILED" if self.has_errors else "SUCCESS"}
             self.log_file.close()
             self.log_file = None
 
-        # Show summary
-        if not self.verbose:
-            if self.has_errors:
-                console.print(f"\n[dim]Full logs: {self.log_path}[/dim]\n")
-            else:
-                console.print(f"\n[dim]Logs: {self.log_path}[/dim]\n")
-
     def __enter__(self):
         """Context manager entry"""
         return self
@@ -252,7 +244,8 @@ Status: {"FAILED" if self.has_errors else "SUCCESS"}
         if exc_type is not None and exc_type != SystemExit:
             # Log unhandled exception (but not SystemExit - that's expected)
             self.log_error(
-                f"Unhandled exception: {exc_val}", context=f"Type: {exc_type.__name__}"
+                str(exc_val) if exc_val else "Operation failed",
+                context=f"{exc_type.__name__}",
             )
         self.close()
         return False  # Don't suppress exceptions

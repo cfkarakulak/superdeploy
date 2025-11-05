@@ -53,32 +53,32 @@ def deploy(project, app, message, verbose):
     # Load project config to get app path
     from cli.utils import get_project_root
     from cli.core.config_loader import ConfigLoader
-    
+
     project_root = get_project_root()
     projects_dir = project_root / "projects"
-    
+
     try:
         config_loader = ConfigLoader(projects_dir)
         project_config = config_loader.load_project(project)
         apps = project_config.raw_config.get("apps", {})
-        
+
         if app not in apps:
             logger.log_error(f"App '{app}' not found in project config")
             raise SystemExit(1)
-        
+
         app_path = apps[app].get("path")
         if not app_path:
             logger.log_error(f"App '{app}' has no 'path' configured in project.yml")
             raise SystemExit(1)
-        
+
         app_dir = Path(app_path).expanduser()
-        
+
         if not app_dir.exists():
             logger.log_error(f"App directory not found: {app_dir}")
             raise SystemExit(1)
-        
+
         console.print(f"  ✓ Located {app} at {app_dir}")
-        
+
     except Exception as e:
         logger.log_error(f"Failed to load project config: {e}")
         raise SystemExit(1)
@@ -127,7 +127,7 @@ def deploy(project, app, message, verbose):
                 console.print(
                     "\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]"
                 )
-                console.print("[bold green]✅ Deployment Triggered![/bold green]")
+                console.print("[color(248)]Deployment triggered.[/color(248)]")
                 console.print(
                     "[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]"
                 )
