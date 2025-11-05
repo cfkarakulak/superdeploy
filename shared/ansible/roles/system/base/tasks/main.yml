@@ -51,43 +51,53 @@
 
 - name: Kill any running apt/dpkg processes
   shell: |
-    # Kill unattended-upgrades
+    # Kill unattended-upgrades and apt processes
     pkill -9 -f unattended-upgrade || true
-    # Wait a moment for processes to die
-    sleep 2
+    pkill -9 -f "apt-get" || true
+    pkill -9 -f "dpkg" || true
+    # Wait for processes to die
+    sleep 3
     # Remove any stale locks
-    rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock
+    rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock-frontend.lock
+    # Wait for systemd to clean up
+    sleep 2
   changed_when: false
   failed_when: false
+
+- name: Wait again for dpkg lock (after cleanup)
+  shell: |
+    timeout=180
+    while [ $timeout -gt 0 ]; do
+      if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && ! fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+        echo "All locks released"
+        exit 0
+      fi
+      echo "Still waiting for locks... ($timeout seconds remaining)"
+      sleep 5
+      timeout=$((timeout - 5))
+    done
+    echo "Timeout waiting for locks"
+    exit 1
+  changed_when: false
 
 - name: Update package cache
   apt:
     update_cache: yes
     cache_valid_time: 3600
-  retries: 5
+  retries: 10
   delay: 10
   register: apt_update
   until: apt_update is success
 
-- name: Install essential packages
+- name: Install essential packages (synchronous for reliability)
   apt:
     name: "{{ essential_packages }}"
     state: present
-  retries: 5
-  delay: 10
+    dpkg_options: 'force-confdef,force-confold'
+  retries: 10
+  delay: 15
   register: apt_install
   until: apt_install is success
-  # PERFORMANCE: Run async (packages install in background)
-  async: 600
-  poll: 0
-  
-- name: Wait for essential packages installation
-  async_status:
-    jid: "{{ apt_install.ansible_job_id }}"
-  register: apt_install_result
-  until: apt_install_result.finished
-  retries: 60
-  delay: 10
 
 - name: Restart unattended-upgrades timers
   systemd:
