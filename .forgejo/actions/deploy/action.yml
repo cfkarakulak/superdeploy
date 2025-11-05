@@ -29,12 +29,23 @@ runs:
     - name: Setup age tool
       shell: bash
       run: |
+        set -e
+        echo "📦 Installing dependencies..."
+        apt-get update -qq
+        apt-get install -y -qq curl tar
+        
         if ! command -v age &> /dev/null; then
-          echo "Installing age..."
-          curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
-          chmod +x age/age
-          export PATH="$PWD/age:$PATH"
-          echo "$PWD/age" >> $GITHUB_PATH
+          echo "📦 Installing age..."
+          cd /tmp
+          curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz -o age.tar.gz
+          tar xzf age.tar.gz
+          cp age/age /usr/local/bin/
+          cp age/age-keygen /usr/local/bin/
+          chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
+          rm -rf age age.tar.gz
+          echo "✅ age installed"
+        else
+          echo "✅ age already installed"
         fi
         age --version
     
