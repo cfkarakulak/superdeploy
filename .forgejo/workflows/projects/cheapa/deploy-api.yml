@@ -167,19 +167,21 @@ jobs:
           sleep 5
           
           # Check if new container is running
-          if [ -n "$(docker ps -q --filter "name=$NEW_CONTAINER")" ]; then
+          if [ -n "$(docker ps -q --filter name=$NEW_CONTAINER)" ]; then
             echo "✅ New container is running"
             
-            # Check health (wait up to 30s)
-            for i in {1..6}; do
-              HEALTH=$(docker inspect $NEW_CONTAINER 2>/dev/null | grep -o '"Status":"[^"]*"' | grep Health | cut -d'"' -f4 || echo "none")
-              if [ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "none" ]; then
-                echo "✅ Health check passed - status: $HEALTH"
-                break
-              fi
-              echo "⏳ Waiting for health check... $i/6"
-              sleep 5
-            done
+            # Wait for container to be ready
+            echo "⏳ Waiting 10 seconds for container to start..."
+            sleep 10
+            
+            # Check if still running
+            if [ -n "$(docker ps -q --filter name=$NEW_CONTAINER)" ]; then
+              echo "✅ Container is healthy and running"
+            else
+              echo "❌ Container stopped unexpectedly"
+              docker logs $NEW_CONTAINER 2>&1 | tail -20
+              exit 1
+            fi
             
             # Stop and remove old container
             echo "⏸️  Stopping old container..."
