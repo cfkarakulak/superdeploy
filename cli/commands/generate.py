@@ -736,10 +736,18 @@ jobs:
           NEW_CONTAINER="${{CONTAINER_NAME}}-new-$$"
           TEMP_PORT=$((({port} + 10000)))  # Temporary port for new container
           
+          # Clean up any old temp containers first
+          echo "🧹 Cleaning up old temp containers..."
+          docker ps -a --filter "name=${{CONTAINER_NAME}}-new-" --format "{{{{.Names}}}}" | xargs -r docker rm -f 2>/dev/null || true
+          
           # Create temporary compose file with new container name and temp port
           sed -e "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" \
-              -e "s/- \"{port}:{port}\"/- \"$TEMP_PORT:{port}\"/" \
+              -e 's/- "{port}:{port}"/- "'$TEMP_PORT':{port}'"/' \
               docker-compose-{app_name}.yml > /tmp/docker-compose-new-{app_name}.yml
+          
+          # Debug: show what was changed
+          echo "📝 Checking port mapping..."
+          grep "ports:" -A 1 /tmp/docker-compose-new-{app_name}.yml
           
           echo "🐳 Starting new container: $NEW_CONTAINER (temp port: $TEMP_PORT)"
           docker compose -f /tmp/docker-compose-new-{app_name}.yml up -d
