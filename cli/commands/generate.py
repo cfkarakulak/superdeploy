@@ -491,10 +491,15 @@ jobs:
             done < .env.superdeploy
           fi
           
-          # Encode with base64 (PLAIN TEXT - NO ENCRYPTION)
-          cat /tmp/app.env | base64 -w 0 > /tmp/encoded.txt
-          echo "encrypted=$(cat /tmp/encoded.txt)" >> "$GITHUB_OUTPUT"
-          rm -f /tmp/app.env /tmp/encoded.txt
+          # Install age for encryption
+          curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
+          sudo mv age/age /usr/local/bin/
+          rm -rf age
+          
+          # Encrypt with AGE and encode with base64
+          cat /tmp/app.env | age -r "${{ secrets.AGE_PUBLIC_KEY }}" | base64 -w 0 > /tmp/encrypted.txt
+          echo "encrypted=$(cat /tmp/encrypted.txt)" >> "$GITHUB_OUTPUT"
+          rm -f /tmp/app.env /tmp/encrypted.txt
       
       - name: Connectivity check to Forgejo
         env:
