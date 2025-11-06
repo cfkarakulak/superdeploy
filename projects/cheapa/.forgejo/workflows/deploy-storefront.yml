@@ -1,0 +1,35 @@
+name: Deploy Storefront to Cheapa
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Docker image to deploy'
+        required: true
+        type: string
+      env_bundle:
+        description: 'Base64 encoded environment bundle'
+        required: true
+        type: string
+      git_sha:
+        description: 'Git SHA'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: app:host
+    timeout-minutes: 10
+    steps:
+      - name: Deploy Storefront
+        uses: ./.forgejo/actions/deploy
+        with:
+          project: cheapa
+          service: storefront
+          image: ${{ inputs.image }}
+          env_bundle: ${{ inputs.env_bundle }}
+          git_sha: ${{ inputs.git_sha }}
+          git_ref: production
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+          AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}

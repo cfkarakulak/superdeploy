@@ -1,27 +1,25 @@
-name: 'Deploy to VM'
-description: 'Deploy a service to VM using Docker Compose'
-author: 'Superdeploy Team'
+name: 'Deploy Service'
+description: 'Deploy a service to VM using Docker'
 
 inputs:
   project:
-    description: 'Project name (e.g., cheapa)'
+    description: 'Project name'
     required: true
   service:
-    description: 'Service name (e.g., api, dashboard, services)'
+    description: 'Service name'
     required: true
   image:
-    description: 'Docker image with tag'
+    description: 'Docker image to deploy'
     required: true
   env_bundle:
-    description: 'AGE-encrypted environment variables bundle (base64 encoded)'
+    description: 'Base64 encoded environment bundle'
     required: true
   git_sha:
-    description: 'Git commit SHA'
+    description: 'Git SHA'
     required: true
   git_ref:
-    description: 'Git ref (branch/tag)'
+    description: 'Git ref'
     required: true
-    default: 'production'
 
 runs:
   using: 'composite'
@@ -88,371 +86,91 @@ runs:
         echo "📊 Decrypted file size: $(wc -c < /tmp/decrypted.env) bytes"
         echo "📋 First 5 lines (masked):"
         head -5 /tmp/decrypted.env | sed 's/=.*/=***MASKED***/g'
-    
-    - name: Load environment variables
+
+    - name: Docker login
       shell: bash
       run: |
         set -ex
-        echo "📥 Loading environment variables..."
-        
-        if [ ! -f /tmp/decrypted.env ] || [ ! -s /tmp/decrypted.env ]; then
-          echo "❌ Decrypted env file not found or empty!"
-          exit 1
-        fi
-        
-        set -a
-        source /tmp/decrypted.env
-        set +a
-        
-        echo "✅ Environment sourced successfully"
-        
-        # Save to GitHub env for next steps
-        grep -v '^#' /tmp/decrypted.env | grep -v '^$' >> $GITHUB_ENV
-        
-        echo "📊 Total env vars loaded: $(grep -v '^#' /tmp/decrypted.env | grep -v '^$' | wc -l)"
-        echo "✅ Load env step completed"
-    
-    - name: Login to Docker Hub
+        echo "🔐 Logging into Docker Hub..."
+        echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
+        echo "✅ Docker login successful"
+
+    - name: Pull Docker image
       shell: bash
       run: |
         set -ex
-        echo "🐳 Logging in to Docker Hub..."
-        
-        if [ -z "$DOCKER_USERNAME" ] || [ -z "$DOCKER_TOKEN" ]; then
-          echo "❌ Docker Hub credentials not found!"
-          exit 1
-        fi
-        
-        echo "$DOCKER_TOKEN" | docker login docker.io -u "$DOCKER_USERNAME" --password-stdin
-        
-        if [ $? -eq 0 ]; then
-          echo "✅ Docker Hub login successful"
-        else
-          echo "❌ Docker Hub login failed!"
-          exit 1
-        fi
-    
-    - name: Load project configuration
+        echo "📥 Pulling Docker image: ${{ inputs.image }}"
+        docker pull ${{ inputs.image }}
+        echo "✅ Image pulled successfully"
+
+    - name: Deploy container
       shell: bash
       run: |
         set -ex
-        echo "📋 Loading project configuration..."
-        
-        CONFIG_FILE="/tmp/project.yml"
-        
-        # Use project.yml from checked out repo (workspace)
-        if [ -f "${GITHUB_WORKSPACE}/projects/${{ inputs.project }}/project.yml" ]; then
-          cp "${GITHUB_WORKSPACE}/projects/${{ inputs.project }}/project.yml" "$CONFIG_FILE"
-          echo "✅ Successfully loaded project.yml from workspace"
-        else
-          echo "❌ ERROR: project.yml not found in workspace"
-          echo "Tried: ${GITHUB_WORKSPACE}/projects/${{ inputs.project }}/project.yml"
-          exit 1
-        fi
-        
-        if [ -f "$CONFIG_FILE" ]; then
-          PARSER_SCRIPT="${GITHUB_WORKSPACE}/.forgejo/scripts/parse_config.py"
-          
-          if [ -f "$PARSER_SCRIPT" ]; then
-            echo "✅ Parser script found"
-            CONFIG_OUTPUT=$(python3 "$PARSER_SCRIPT" "$CONFIG_FILE" "${{ inputs.service }}" 2>&1)
-            
-            read EXTERNAL_PORT INTERNAL_PORT VM_NAME <<< "$CONFIG_OUTPUT"
-            
-            if [ -z "$EXTERNAL_PORT" ] || [ -z "$INTERNAL_PORT" ]; then
-              echo "❌ ERROR: Failed to parse ports from project.yml!"
-              exit 1
-            fi
-            
-            echo "EXTERNAL_PORT=${EXTERNAL_PORT}" >> $GITHUB_ENV
-            echo "INTERNAL_PORT=${INTERNAL_PORT}" >> $GITHUB_ENV
-            echo "✅ Loaded ports from project.yml: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
-          else
-            echo "❌ ERROR: Parser script not found at: $PARSER_SCRIPT"
-            exit 1
-          fi
-        else
-          echo "❌ ERROR: Project file not found at: $CONFIG_FILE"
-          exit 1
-        fi
-    
-    - name: Generate docker-compose for service
-      shell: bash
-      run: |
-        set -e
-        
-        mkdir -p /opt/apps/${{ inputs.project }}/compose
-        
-        if [ ! -d "/opt/apps/${{ inputs.project }}/compose" ]; then
-          echo "❌ Failed to create compose directory"
-          exit 1
-        fi
-        
-        EXTERNAL_PORT="${EXTERNAL_PORT}"
-        INTERNAL_PORT="${INTERNAL_PORT}"
-        
-        echo "🔧 Generating compose with ports: ${EXTERNAL_PORT}:${INTERNAL_PORT}"
-        
-        EXPOSE_PORTS="true"
-        
-        cat > /opt/apps/${{ inputs.project }}/compose/docker-compose-${{ inputs.service }}.yml <<'EOF'
-        version: '3.8'
-        
-        networks:
-          PROJECT_NETWORK:
-            external: true
-          superdeploy-proxy:
-            external: true
-        
-        services:
-          SERVICE_NAME:
-            image: IMAGE_PLACEHOLDER
-            container_name: CONTAINER_NAME
-            restart: unless-stopped
-            networks:
-              - PROJECT_NETWORK
-              - superdeploy-proxy
-            PORTS_PLACEHOLDER
-            env_file:
-              - /tmp/decrypted.env
-            labels:
-              com.superdeploy.project: "PROJECT_PLACEHOLDER"
-              com.superdeploy.service: "SERVICE_PLACEHOLDER"
-              com.superdeploy.git.sha: "GIT_SHA_PLACEHOLDER"
-              com.superdeploy.git.ref: "GIT_REF_PLACEHOLDER"
-              prometheus.scrape: "true"
-              prometheus.port: "{{INTERNAL_PORT}}"
-              prometheus.path: "/metrics"
-            # Healthcheck: Inherited from Dockerfile (no override)
-            # Each app defines its own healthcheck in Dockerfile for flexibility
-        EOF
-        
-        COMPOSE_FILE="/opt/apps/${{ inputs.project }}/compose/docker-compose-${{ inputs.service }}.yml"
-        
-        if [ "$EXPOSE_PORTS" == "true" ]; then
-          sed -i 's#PORTS_PLACEHOLDER#ports:\n        - "'"${EXTERNAL_PORT}:${INTERNAL_PORT}"'"#g' "$COMPOSE_FILE"
-        else
-          sed -i "s#PORTS_PLACEHOLDER##g" "$COMPOSE_FILE"
-        fi
-        
-        sed -i "s#PROJECT_NETWORK#${{ inputs.project }}-network#g" "$COMPOSE_FILE"
-        sed -i "s#SERVICE_NAME#${{ inputs.project }}-${{ inputs.service }}#g" "$COMPOSE_FILE"
-        sed -i "s#CONTAINER_NAME#${{ inputs.project }}-${{ inputs.service }}#g" "$COMPOSE_FILE"
-        sed -i "s#IMAGE_PLACEHOLDER#${{ inputs.image }}#g" "$COMPOSE_FILE"
-        sed -i "s#PROJECT_PLACEHOLDER#${{ inputs.project }}#g" "$COMPOSE_FILE"
-        sed -i "s#SERVICE_PLACEHOLDER#${{ inputs.service }}#g" "$COMPOSE_FILE"
-        sed -i "s#GIT_SHA_PLACEHOLDER#${{ inputs.git_sha }}#g" "$COMPOSE_FILE"
-        sed -i "s#GIT_REF_PLACEHOLDER#${{ inputs.git_ref }}#g" "$COMPOSE_FILE"
-        sed -i "s#{{EXTERNAL_PORT}}#${EXTERNAL_PORT}#g" "$COMPOSE_FILE"
-        sed -i "s#{{INTERNAL_PORT}}#${INTERNAL_PORT}#g" "$COMPOSE_FILE"
-        
-        echo "✅ Generated compose file"
-    
-    - name: Create networks
-      shell: bash
-      run: |
-        set -e
-        echo "🌐 Creating networks..."
-        
-        if ! docker network ls | grep -q "${{ inputs.project }}-network"; then
-          docker network create ${{ inputs.project }}-network || echo "⚠️  Network may already exist"
-        fi
-        
-        if ! docker network ls | grep -q "superdeploy-proxy"; then
-          docker network create superdeploy-proxy || echo "⚠️  Network may already exist"
-        fi
-        
-        echo "✅ Networks ready"
-    
-    - name: Deploy service with zero-downtime
-      shell: bash
-      run: |
-        set -ex
-        echo "🚀 Deploying service: ${{ inputs.service }}"
-        
         PROJECT="${{ inputs.project }}"
         SERVICE="${{ inputs.service }}"
         IMAGE="${{ inputs.image }}"
-        GIT_SHA="${{ inputs.git_sha }}"
-        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-        CONTAINER_NAME="${PROJECT}-${SERVICE}"
         
-        # Create release directory structure
-        RELEASES_DIR="/opt/apps/${PROJECT}/releases/${SERVICE}"
-        CURRENT_LINK="/opt/apps/${PROJECT}/current/${SERVICE}"
-        RELEASE_DIR="${RELEASES_DIR}/${TIMESTAMP}_${GIT_SHA:0:7}"
+        echo "🚀 Deploying $SERVICE..."
         
-        mkdir -p "${RELEASES_DIR}"
-        mkdir -p "$(dirname ${CURRENT_LINK})"
-        mkdir -p "${RELEASE_DIR}"
+        # Create compose directory
+        sudo mkdir -p /opt/apps/$PROJECT/compose
         
-        echo "📦 Release: ${RELEASE_DIR}"
-        
-        # Copy compose file and env to release directory
-        cp /opt/apps/${PROJECT}/compose/docker-compose-${SERVICE}.yml "${RELEASE_DIR}/"
-        cp /tmp/decrypted.env "${RELEASE_DIR}/.env"
-        
-        cd "${RELEASE_DIR}"
-        
-        echo "📥 Pulling new image: ${IMAGE}"
-        docker pull ${IMAGE}
-        
-        # Check if old container exists
-        if docker ps -a --filter "name=${CONTAINER_NAME}" --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
-          echo "🔄 Old container exists, performing zero-downtime update..."
-          
-          # Stop old container (keeps it for rollback)
-          echo "⏸️  Stopping old container..."
-          docker stop ${CONTAINER_NAME} || true
-          
-          # Rename old container for backup
-          OLD_BACKUP="${CONTAINER_NAME}-old-$(date +%s)"
-          docker rename ${CONTAINER_NAME} ${OLD_BACKUP} || true
-          echo "💾 Old container backed up as: ${OLD_BACKUP}"
-        fi
-        
-        # Start new container with same name
-        echo "🐳 Starting new container..."
-        docker compose -f docker-compose-${SERVICE}.yml up -d --wait
-        
-        # Wait for container to be ready
-        echo "⏳ Waiting for container to be ready..."
-        sleep 3
-        
-        # Check if container is running
-        if docker ps --filter "name=${CONTAINER_NAME}" --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
-          echo "✅ New container is running"
-          
-          # Wait a bit more for health check
-          sleep 5
-          
-          # Check health status
-          HEALTH_STATUS=$(docker inspect --format='{{.State.Health.Status}}' ${CONTAINER_NAME} 2>/dev/null || echo "none")
-          
-          if [ "$HEALTH_STATUS" = "healthy" ] || [ "$HEALTH_STATUS" = "none" ]; then
-            echo "✅ Container is healthy (status: ${HEALTH_STATUS})"
-            
-            # Update symlink to new release (atomic operation)
-            ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
-            echo "✅ Symlink updated to new release"
-            
-            # Remove old backup container
-            if docker ps -a --filter "name=${OLD_BACKUP}" --format "{{.Names}}" | grep -q "${OLD_BACKUP}"; then
-              echo "🗑️  Removing old backup container..."
-              docker rm -f ${OLD_BACKUP} || true
-            fi
-            
-            # Clean old releases (keep last 5)
-            echo "🧹 Cleaning old releases..."
-            cd "${RELEASES_DIR}"
-            ls -t | tail -n +6 | xargs -r rm -rf
-            echo "✅ Kept last 5 releases"
-            
-          else
-            echo "❌ Health check failed (status: ${HEALTH_STATUS})"
-            echo "🔙 Rolling back to old container..."
-            
-            # Stop failed container
-            docker stop ${CONTAINER_NAME} || true
-            docker rm ${CONTAINER_NAME} || true
-            
-            # Restore old container
-            if docker ps -a --filter "name=${OLD_BACKUP}" --format "{{.Names}}" | grep -q "${OLD_BACKUP}"; then
-              docker rename ${OLD_BACKUP} ${CONTAINER_NAME}
-              docker start ${CONTAINER_NAME}
-              echo "✅ Rolled back to previous version"
-            fi
-            
-            exit 1
-          fi
-        else
-          echo "❌ Container failed to start"
-          
-          # Restore old container if exists
-          if docker ps -a --filter "name=${OLD_BACKUP}" --format "{{.Names}}" | grep -q "${OLD_BACKUP}"; then
-            docker rename ${OLD_BACKUP} ${CONTAINER_NAME}
-            docker start ${CONTAINER_NAME}
-            echo "✅ Rolled back to previous version"
-          fi
-          
-          exit 1
-        fi
-        
-        echo "✅ Zero-downtime deployment complete!"
-    
-    - name: Verify deployment
-      shell: bash
-      run: |
-        echo "🔍 Verifying deployment..."
-        
-        if docker ps --filter "name=${{ inputs.project }}-${{ inputs.service }}" | grep -q "${{ inputs.project }}-${{ inputs.service }}"; then
-          echo "✅ Container is running"
-          docker ps --filter "name=${{ inputs.project }}-${{ inputs.service }}"
-          echo "✅ Deployment successful!"
-        else
-          echo "❌ Container not found"
-          docker ps -a --filter "name=${{ inputs.project }}-${{ inputs.service }}"
-          exit 1
-        fi
-    
-    - name: Check metrics endpoint
-      shell: bash
-      continue-on-error: true
-      run: |
-        echo "📊 Checking metrics endpoint..."
-        
-        # Wait for container to be ready
-        sleep 3
-        
-        CONTAINER_NAME="${{ inputs.project }}-${{ inputs.service }}"
-        
-        # First, install curl in the container if needed
-        if ! docker exec $CONTAINER_NAME which curl > /dev/null 2>&1; then
-          echo "📦 Installing curl in container..."
-          docker exec $CONTAINER_NAME sh -c 'apk add --no-cache curl 2>/dev/null || apt-get update -qq && apt-get install -y -qq curl 2>/dev/null || yum install -y -q curl 2>/dev/null || echo "Could not install curl"'
-        fi
-        
-        # Check if curl is now available
-        if docker exec $CONTAINER_NAME which curl > /dev/null 2>&1; then
-          # Check if /metrics endpoint exists (with 5 second timeout)
-          METRICS_CHECK=$(timeout 5 docker exec $CONTAINER_NAME curl -s -o /dev/null -w "%{http_code}" http://localhost:${INTERNAL_PORT}/metrics 2>/dev/null || echo "000")
-          
-          if [ "$METRICS_CHECK" = "200" ]; then
-            echo "✅ Metrics endpoint is available at /metrics"
-            echo "📈 Grafana: Endpoint Analytics dashboard will show this service"
-          elif [ "$METRICS_CHECK" = "404" ]; then
-            echo ""
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "📊 METRICS NOT CONFIGURED"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo ""
-            echo "To enable endpoint analytics in Grafana, add metrics to your app:"
-            echo ""
-            echo "1. Add to requirements.txt:"
-            echo "   prometheus-client==0.19.0"
-            echo ""
-            echo "2. Add to your app.py:"
-            echo "   from prometheus_client import make_asgi_app, Counter"
-            echo "   metrics_app = make_asgi_app()"
-            echo "   app.mount(\"/metrics\", metrics_app)"
-            echo ""
-            echo "3. Redeploy:"
-            echo "   git push origin production"
-            echo ""
-            echo "📖 Docs: https://prometheus.github.io/client_python/"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo ""
-          else
-            echo "⚠️  Could not check metrics endpoint (service may not be responding)"
-          fi
-        else
-          echo "⚠️  curl not available in container, skipping metrics check"
-        fi
-    
-    - name: Clean up secrets
-      if: always()
-      shell: bash
-      run: |
-        rm -f /tmp/decrypted.env
-        echo "✅ Secrets cleaned up"
+        # Generate docker-compose file
+        cat > /tmp/docker-compose-$SERVICE.yml << 'COMPOSE'
+        version: '3.8'
+        services:
+          SERVICE_NAME:
+            image: IMAGE_PLACEHOLDER
+            container_name: PROJECT_NAME-SERVICE_NAME
+            restart: unless-stopped
+            env_file:
+              - /tmp/decrypted.env
+            networks:
+              - PROJECT_NAME-network
+            ports:
+              - "PORT_PLACEHOLDER:PORT_PLACEHOLDER"
+            labels:
+              - "project=PROJECT_NAME"
+              - "service=SERVICE_NAME"
+              - "git.sha=GIT_SHA_PLACEHOLDER"
 
+        networks:
+          PROJECT_NAME-network:
+            name: PROJECT_NAME-network
+            external: true
+        COMPOSE
+        
+        # Replace placeholders
+        sed -i "s/SERVICE_NAME/$SERVICE/g" /tmp/docker-compose-$SERVICE.yml
+        sed -i "s/PROJECT_NAME/$PROJECT/g" /tmp/docker-compose-$SERVICE.yml
+        sed -i "s|IMAGE_PLACEHOLDER|$IMAGE|g" /tmp/docker-compose-$SERVICE.yml
+        sed -i "s/GIT_SHA_PLACEHOLDER/${{ inputs.git_sha }}/g" /tmp/docker-compose-$SERVICE.yml
+        
+        # Determine port based on service
+        if [ "$SERVICE" = "api" ]; then
+          PORT=8000
+        elif [ "$SERVICE" = "storefront" ]; then
+          PORT=3000
+        elif [ "$SERVICE" = "services" ]; then
+          PORT=8001
+        else
+          PORT=8080
+        fi
+        
+        sed -i "s/PORT_PLACEHOLDER/$PORT/g" /tmp/docker-compose-$SERVICE.yml
+        
+        # Move compose file
+        sudo mv /tmp/docker-compose-$SERVICE.yml /opt/apps/$PROJECT/compose/docker-compose-$SERVICE.yml
+        
+        # Deploy
+        cd /opt/apps/$PROJECT/compose
+        docker-compose -f docker-compose-$SERVICE.yml up -d
+        
+        echo "✅ $SERVICE deployed successfully!"
+        
+        # Show status
+        docker ps | grep $PROJECT-$SERVICE || true
+        
+        # Cleanup
+        rm -f /tmp/decrypted.env
