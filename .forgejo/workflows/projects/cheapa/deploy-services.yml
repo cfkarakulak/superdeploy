@@ -150,7 +150,7 @@ jobs:
           
           # Clean up any old temp containers first
           echo "🧹 Cleaning up old temp containers..."
-          docker ps -a --filter "name=${CONTAINER_NAME}-new-" -q | xargs -r docker rm -f 2>/dev/null || true
+          docker ps -a --filter name=${CONTAINER_NAME}-new- -q | xargs -r docker rm -f 2>/dev/null || true
           
           # Create temporary compose file with new container name and temp port
           sed -e "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" -e 's/- "8001:8001"/- "'$TEMP_PORT':8001'"/' docker-compose-services.yml > /tmp/docker-compose-new-services.yml
@@ -210,7 +210,7 @@ jobs:
       - name: Show container status
         run: |
           echo "📊 Container status:"
-          docker ps --filter "name=cheapa-services"
+          docker ps --filter name=cheapa-services
       
       - name: Cleanup
         if: always()
