@@ -577,6 +577,8 @@ def generate_forgejo_workflow(config, app_name):
     app_config = config["apps"][app_name]
     # Get VM role from app config (e.g., "web", "api", "worker")
     vm_role = app_config.get("vm", "core")
+    # Get port from app config
+    port = app_config.get("port", 8080)
 
     workflow = f"""name: Deploy {project_name.title()} {app_name.title()}
 
@@ -616,6 +618,7 @@ jobs:
         with:
           project: {project_name}
           service: {app_name}
+          port: {port}
           image: ${{{{ inputs.image }}}}
           env_bundle: ${{{{ inputs.env_bundle }}}}
           git_sha: ${{{{ inputs.git_sha }}}}
