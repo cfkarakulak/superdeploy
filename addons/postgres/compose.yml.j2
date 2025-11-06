@@ -14,7 +14,7 @@ services:
     networks:
       - {{ project_name }}-network
     ports:
-      - "127.0.0.1:5432:5432"   # PostgreSQL (SSH tunnel only)
+      - "0.0.0.0:5432:5432"   # PostgreSQL (internal network + SSH tunnel)
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
       test: ["CMD-SHELL", "{{ healthcheck.command }}"]

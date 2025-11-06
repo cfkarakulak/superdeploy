@@ -15,7 +15,7 @@ services:
     networks:
       - {{ project_name }}-network
     ports:
-      - "127.0.0.1:27017:27017"   # MongoDB (SSH tunnel only)
+      - "0.0.0.0:27017:27017"   # MongoDB (internal network + SSH tunnel)
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
       test: ["CMD-SHELL", "{{ healthcheck.command }}"]
