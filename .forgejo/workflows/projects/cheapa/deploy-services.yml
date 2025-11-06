@@ -23,25 +23,16 @@ on:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, cheapa, app]
-    steps:
-      - name: Checkout superdeploy repo
-        uses: actions/checkout@v4
-        with:
-          repository: cradexco/superdeploy
-          ref: master
-      
-      - name: Deploy to VM
-        uses: ./.forgejo/actions/deploy
-        with:
-          project: cheapa
-          service: services
-          port: 8001
-          image: ${{ inputs.image }}
-          env_bundle: ${{ inputs.env_bundle }}
-          git_sha: ${{ inputs.git_sha }}
-          git_ref: ${{ inputs.git_ref }}
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
-          AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
+    uses: ./.forgejo/workflows/reusable/deploy-service.yml
+    with:
+      project: cheapa
+      service: services
+      port: "9000"
+      image: ${{ inputs.image }}
+      env_bundle: ${{ inputs.env_bundle }}
+      git_sha: ${{ inputs.git_sha }}
+      git_ref: ${{ inputs.git_ref }}
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+      AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
