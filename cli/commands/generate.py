@@ -765,7 +765,7 @@ jobs:
                 echo "✅ Health check passed (status: $HEALTH)"
                 break
               fi
-              echo "⏳ Waiting for health check... ($i/6)"
+              echo "⏳ Waiting for health check... $i/6"
               sleep 5
             done
             
