@@ -482,6 +482,9 @@ jobs:
                 value="${!var_name}"
               fi
               
+              # Skip empty values (don't override existing values with empty)
+              [ -z "$value" ] && continue
+              
               # Update or append to merged env
               if grep -q "^${key}=" /tmp/app.env 2>/dev/null; then
                 sed -i.bak "s|^${key}=.*|${key}=${value}|" /tmp/app.env && rm -f /tmp/app.env.bak
