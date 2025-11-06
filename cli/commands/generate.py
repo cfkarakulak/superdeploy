@@ -572,6 +572,7 @@ def generate_forgejo_workflow(config, app_name):
     """
     Generate Forgejo workflow for a specific app in the project.
     This workflow runs on the Forgejo instance and deploys to the correct VM.
+    All steps are explicit (no composite actions or reusable workflows).
     """
     project_name = config["project"]["name"]
     app_config = config["apps"][app_name]
@@ -606,27 +607,131 @@ on:
 jobs:
   deploy:
     runs-on: [self-hosted, {project_name}, {vm_role}]
+    
     steps:
-      - name: Checkout superdeploy repo
-        uses: actions/checkout@v4
-        with:
-          repository: cradexco/superdeploy
-          ref: master
+      - name: Check age installation
+        run: |
+          if command -v age &> /dev/null; then
+            echo "✅ age already installed ($(age --version))"
+          else
+            echo "📥 Installing age..."
+            curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
+            sudo mv age/age /usr/local/bin/
+            rm -rf age
+            echo "✅ age installed ($(age --version))"
+          fi
       
-      - name: Deploy to VM
-        uses: ./.forgejo/actions/deploy
-        with:
-          project: {project_name}
-          service: {app_name}
-          port: {port}
-          image: ${{{{ inputs.image }}}}
-          env_bundle: ${{{{ inputs.env_bundle }}}}
-          git_sha: ${{{{ inputs.git_sha }}}}
-          git_ref: ${{{{ inputs.git_ref }}}}
+      - name: Decode env bundle
+        run: |
+          echo "📦 Decoding environment bundle..."
+          echo "${{{{ inputs.env_bundle }}}}" | base64 -d > /tmp/encrypted.age
+          SIZE=$(wc -c < /tmp/encrypted.age)
+          echo "✅ Decoded: $SIZE bytes"
+      
+      - name: Decrypt with AGE
+        env:
+          AGE_SECRET_KEY: ${{{{ secrets.AGE_SECRET_KEY }}}}
+        run: |
+          echo "🔐 Decrypting with AGE..."
+          
+          if [ -z "$AGE_SECRET_KEY" ]; then
+            echo "❌ AGE_SECRET_KEY not set!"
+            exit 1
+          fi
+          
+          printf '%s' "$AGE_SECRET_KEY" > /tmp/age-key.txt
+          chmod 600 /tmp/age-key.txt
+          
+          if ! age -d -i /tmp/age-key.txt /tmp/encrypted.age > /tmp/decrypted.env 2>&1; then
+            echo "❌ Decryption failed!"
+            cat /tmp/decrypted.env || true
+            rm -f /tmp/age-key.txt /tmp/encrypted.age /tmp/decrypted.env
+            exit 1
+          fi
+          
+          rm -f /tmp/age-key.txt /tmp/encrypted.age
+          
+          if [ ! -s /tmp/decrypted.env ]; then
+            echo "❌ Decrypted file is empty!"
+            exit 1
+          fi
+          
+          SIZE=$(wc -c < /tmp/decrypted.env)
+          echo "✅ Decrypted: $SIZE bytes"
+      
+      - name: Login to Docker Hub
         env:
           DOCKER_USERNAME: ${{{{ secrets.DOCKER_USERNAME }}}}
           DOCKER_TOKEN: ${{{{ secrets.DOCKER_TOKEN }}}}
-          AGE_SECRET_KEY: ${{{{ secrets.AGE_SECRET_KEY }}}}
+        run: |
+          echo "🔑 Logging in to Docker Hub..."
+          echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
+          echo "✅ Logged in"
+      
+      - name: Pull Docker image
+        run: |
+          echo "📥 Pulling: ${{{{ inputs.image }}}}"
+          docker pull ${{{{ inputs.image }}}}
+          echo "✅ Image pulled"
+      
+      - name: Generate Docker Compose file
+        run: |
+          echo "📝 Generating docker-compose.yml..."
+          
+          PROJECT="{project_name}"
+          SERVICE="{app_name}"
+          IMAGE="${{{{ inputs.image }}}}"
+          PORT="{port}"
+          GIT_SHA="${{{{ inputs.git_sha }}}}"
+          
+          sudo mkdir -p /opt/apps/$PROJECT/compose
+          
+          cat > /tmp/docker-compose-$SERVICE.yml << EOF
+          version: '3.8'
+          services:
+            $SERVICE:
+              image: $IMAGE
+              container_name: $PROJECT-$SERVICE
+              restart: unless-stopped
+              env_file:
+                - /tmp/decrypted.env
+              networks:
+                - $PROJECT-network
+              ports:
+                - "$PORT:$PORT"
+              labels:
+                - "project=$PROJECT"
+                - "service=$SERVICE"
+                - "git.sha=$GIT_SHA"
+          
+          networks:
+            $PROJECT-network:
+              name: $PROJECT-network
+              external: true
+          EOF
+          
+          sudo mv /tmp/docker-compose-$SERVICE.yml /opt/apps/$PROJECT/compose/
+          echo "✅ Compose file created"
+      
+      - name: Deploy container
+        run: |
+          echo "🚀 Deploying {app_name}..."
+          
+          cd /opt/apps/{project_name}/compose
+          docker compose -f docker-compose-{app_name}.yml up -d
+          
+          echo "✅ Deployed successfully!"
+      
+      - name: Show container status
+        run: |
+          echo "📊 Container status:"
+          docker ps --filter "name={project_name}-{app_name}" --format "table {{{{.Names}}}}\\t{{{{.Status}}}}\\t{{{{.Ports}}}}"
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f /tmp/decrypted.env /tmp/encrypted.age /tmp/age-key.txt
+          echo "🧹 Cleanup complete"
 """
     return workflow
 
