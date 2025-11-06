@@ -6,7 +6,8 @@ import click
 import subprocess
 from rich.console import Console
 from cli.ui_components import show_header
-from cli.utils import load_env, ssh_command, validate_env_vars
+from cli.utils import load_env, ssh_command, validate_env_vars, get_project_root
+from cli.core.env_manager import EnvManager
 
 console = Console()
 
@@ -461,6 +462,15 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     logger.log("Checking required files...")
     project_root = get_project_root()
 
+    # Load project config and initialize EnvManager
+    project_config_file = project_root / "projects" / project / "project.yml"
+    if not project_config_file.exists():
+        logger.log_error(f"Project config not found: {project_config_file}")
+        raise SystemExit(1)
+    
+    env_manager = EnvManager.from_project_file(project_config_file)
+    logger.log("✓ EnvManager initialized")
+
     required_files = {
         "shared/orchestrator/config.yml": project_root
         / "shared"
@@ -890,24 +900,11 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
                     if env_key in merged_env:
                         env_secrets[env_key] = merged_env[env_key]
 
-            # Database Abstraction Layer: Map database-specific vars to DB_*
-            # This allows applications to be database-agnostic
-            if "POSTGRES_HOST" in merged_env:
-                # PostgreSQL is enabled - map POSTGRES_* to DB_*
-                env_secrets["DB_CONNECTION"] = "app"
-                env_secrets["DB_HOST"] = merged_env["POSTGRES_HOST"]
-                env_secrets["DB_PORT"] = merged_env.get("POSTGRES_PORT", "5432")
-                env_secrets["DB_USERNAME"] = merged_env.get("POSTGRES_USER", "")
-                env_secrets["DB_PASSWORD"] = merged_env.get("POSTGRES_PASSWORD", "")
-                env_secrets["DB_DATABASE"] = merged_env.get("POSTGRES_DB", "")
-            elif "MYSQL_HOST" in merged_env:
-                # MySQL is enabled - map MYSQL_* to DB_*
-                env_secrets["DB_CONNECTION"] = "app"
-                env_secrets["DB_HOST"] = merged_env["MYSQL_HOST"]
-                env_secrets["DB_PORT"] = merged_env.get("MYSQL_PORT", "3306")
-                env_secrets["DB_USERNAME"] = merged_env.get("MYSQL_USER", "")
-                env_secrets["DB_PASSWORD"] = merged_env.get("MYSQL_PASSWORD", "")
-                env_secrets["DB_DATABASE"] = merged_env.get("MYSQL_DATABASE", "")
+            # Resolve env_aliases from project config (NO HARDCODING!)
+            # This replaces hardcoded DB_* mapping with config-driven approach
+            # Each app defines its own aliases in project.yml
+            app_env_with_aliases = env_manager.resolve_aliases(app_name, merged_env)
+            env_secrets.update(app_env_with_aliases)
 
             # Add service-specific secrets (generic pattern, no hardcoding!)
             service_upper = app_name.upper()

@@ -59,22 +59,51 @@ addons:
 # =============================================================================
 # Application Services
 # =============================================================================
+# Each app can define env_aliases for abstraction layers
+# Syntax:
+#   ALIAS_NAME: SOURCE_VAR   # Clone value from SOURCE_VAR
+#   ALIAS_NAME: "value"      # Static value (quoted string)
 apps:
   api:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/api
     vm: app
     port: 8000
     domain: ""  # e.g., api.example.com
+    env_aliases:
+      # Database abstraction (allows switching from PostgreSQL to MySQL easily)
+      DB_CONNECTION: "app"
+      DB_HOST: POSTGRES_HOST
+      DB_PORT: POSTGRES_PORT
+      DB_USERNAME: POSTGRES_USER
+      DB_PASSWORD: POSTGRES_PASSWORD
+      DB_DATABASE: POSTGRES_DB
+  
   storefront:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/storefront
     vm: app
     port: 3000
     domain: ""  # e.g., storefront.example.com
+    env_aliases:
+      # Next.js uses different env var naming
+      NEXT_PUBLIC_API_CLIENT_URL: "http://10.1.0.2:8000/api"
+      API_BASE_URL: "http://10.1.0.2:8000"
+      NEXT_PUBLIC_API_BASE_URL: "http://10.1.0.2:8000"
+      NEXT_PUBLIC_API_URL: "http://10.1.0.2:8000"
+      NEXT_PUBLIC_API_SERVER_URL: "http://10.1.0.2:8000"
+  
   services:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/services
     vm: app
     port: 8001
     domain: ""  # e.g., services.example.com
+    env_aliases:
+      # Database abstraction (same as api)
+      DB_CONNECTION: "app"
+      DB_HOST: POSTGRES_HOST
+      DB_PORT: POSTGRES_PORT
+      DB_USERNAME: POSTGRES_USER
+      DB_PASSWORD: POSTGRES_PASSWORD
+      DB_DATABASE: POSTGRES_DB
 
 # =============================================================================
 # GitHub Configuration
