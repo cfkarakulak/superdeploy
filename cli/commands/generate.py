@@ -692,7 +692,6 @@ jobs:
           sudo mkdir -p /opt/apps/$PROJECT/compose
           
           cat > /tmp/docker-compose-$SERVICE.yml << 'DOCKERCOMPOSEEOF'
-          version: '3.8'
           services:
             SERVICE_PLACEHOLDER:
               image: IMAGE_PLACEHOLDER
@@ -731,7 +730,7 @@ jobs:
         run: |
           echo "🛑 Stopping old container..."
           cd /opt/apps/{project_name}/compose
-          docker compose -f docker-compose-{app_name}.yml down 2>/dev/null || true
+          docker compose -f docker-compose-{app_name}.yml down --remove-orphans 2>/dev/null || true
           echo "✅ Old container stopped"
       
       - name: Deploy container
