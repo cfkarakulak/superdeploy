@@ -27,34 +27,31 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Install dependencies
+    - name: Check age installation
       shell: bash
       run: |
-        set -e
-        echo "::group::📦 Installing dependencies"
-        
-        # Check if age is already installed
         if command -v age &> /dev/null; then
-          echo "✅ age already installed"
-          age --version
+          echo "✅ age already installed ($(age --version))"
         else
           echo "📥 Installing age..."
           curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
           sudo mv age/age /usr/local/bin/
           rm -rf age
-          echo "✅ age installed"
-          age --version
+          echo "✅ age installed ($(age --version))"
         fi
-        
-        echo "::endgroup::"
     
-    - name: Decrypt environment bundle
+    - name: Decode env bundle
       shell: bash
       run: |
-        set -e
-        echo "::group::🔐 Decrypting environment bundle"
+        echo "📦 Decoding environment bundle..."
         echo "${{ inputs.env_bundle }}" | base64 -d > /tmp/encrypted.age
-        echo "✅ Base64 decoded ($(wc -c < /tmp/encrypted.age) bytes)"
+        SIZE=$(wc -c < /tmp/encrypted.age)
+        echo "✅ Decoded: $SIZE bytes"
+    
+    - name: Decrypt with AGE
+      shell: bash
+      run: |
+        echo "🔐 Decrypting with AGE..."
         
         if [ -z "$AGE_SECRET_KEY" ]; then
           echo "❌ AGE_SECRET_KEY not set!"
@@ -65,8 +62,8 @@ runs:
         chmod 600 /tmp/age-key.txt
         
         if ! age -d -i /tmp/age-key.txt /tmp/encrypted.age > /tmp/decrypted.env 2>&1; then
-          echo "❌ AGE decryption failed!"
-          cat /tmp/decrypted.env || echo "(no output)"
+          echo "❌ Decryption failed!"
+          cat /tmp/decrypted.env || true
           rm -f /tmp/age-key.txt /tmp/encrypted.age /tmp/decrypted.env
           exit 1
         fi
@@ -78,83 +75,82 @@ runs:
           exit 1
         fi
         
-        echo "✅ Decrypted successfully ($(wc -c < /tmp/decrypted.env) bytes)"
-        echo "::endgroup::"
-
-    - name: Docker login
+        SIZE=$(wc -c < /tmp/decrypted.env)
+        echo "✅ Decrypted: $SIZE bytes"
+    
+    - name: Login to Docker Hub
       shell: bash
       run: |
-        set -e
-        echo "::group::🐳 Docker Hub Login"
+        echo "🔑 Logging in to Docker Hub..."
         echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
-        echo "✅ Logged in successfully"
-        echo "::endgroup::"
-
+        echo "✅ Logged in"
+    
     - name: Pull Docker image
       shell: bash
       run: |
-        set -e
-        echo "::group::📥 Pulling: ${{ inputs.image }}"
+        echo "📥 Pulling: ${{ inputs.image }}"
         docker pull ${{ inputs.image }}
         echo "✅ Image pulled"
-        echo "::endgroup::"
-
-    - name: Deploy container
+    
+    - name: Generate Docker Compose file
       shell: bash
       run: |
-        set -e
-        echo "::group::🚀 Deploying ${{ inputs.service }}"
+        echo "📝 Generating docker-compose.yml..."
         
         PROJECT="${{ inputs.project }}"
         SERVICE="${{ inputs.service }}"
         IMAGE="${{ inputs.image }}"
+        PORT="${{ inputs.port }}"
+        GIT_SHA="${{ inputs.git_sha }}"
         
-        # Create compose directory
         sudo mkdir -p /opt/apps/$PROJECT/compose
         
-        # Generate docker-compose file
-        cat > /tmp/docker-compose-$SERVICE.yml << 'COMPOSE'
+        cat > /tmp/docker-compose-$SERVICE.yml << EOF
         version: '3.8'
         services:
-          SERVICE_NAME:
-            image: IMAGE_PLACEHOLDER
-            container_name: PROJECT_NAME-SERVICE_NAME
+          $SERVICE:
+            image: $IMAGE
+            container_name: $PROJECT-$SERVICE
             restart: unless-stopped
             env_file:
               - /tmp/decrypted.env
             networks:
-              - PROJECT_NAME-network
+              - $PROJECT-network
             ports:
-              - "PORT_PLACEHOLDER:PORT_PLACEHOLDER"
+              - "$PORT:$PORT"
             labels:
-              - "project=PROJECT_NAME"
-              - "service=SERVICE_NAME"
-              - "git.sha=GIT_SHA_PLACEHOLDER"
-
+              - "project=$PROJECT"
+              - "service=$SERVICE"
+              - "git.sha=$GIT_SHA"
+        
         networks:
-          PROJECT_NAME-network:
-            name: PROJECT_NAME-network
+          $PROJECT-network:
+            name: $PROJECT-network
             external: true
-        COMPOSE
+        EOF
         
-        # Replace placeholders
-        sed -i "s/SERVICE_NAME/$SERVICE/g" /tmp/docker-compose-$SERVICE.yml
-        sed -i "s/PROJECT_NAME/$PROJECT/g" /tmp/docker-compose-$SERVICE.yml
-        sed -i "s|IMAGE_PLACEHOLDER|$IMAGE|g" /tmp/docker-compose-$SERVICE.yml
-        sed -i "s/GIT_SHA_PLACEHOLDER/${{ inputs.git_sha }}/g" /tmp/docker-compose-$SERVICE.yml
-        sed -i "s/PORT_PLACEHOLDER/${{ inputs.port }}/g" /tmp/docker-compose-$SERVICE.yml
+        sudo mv /tmp/docker-compose-$SERVICE.yml /opt/apps/$PROJECT/compose/
+        echo "✅ Compose file created"
+    
+    - name: Deploy container
+      shell: bash
+      run: |
+        echo "🚀 Deploying ${{ inputs.service }}..."
         
-        # Move compose file
-        sudo mv /tmp/docker-compose-$SERVICE.yml /opt/apps/$PROJECT/compose/docker-compose-$SERVICE.yml
+        cd /opt/apps/${{ inputs.project }}/compose
+        docker compose -f docker-compose-${{ inputs.service }}.yml up -d
         
-        # Deploy
-        cd /opt/apps/$PROJECT/compose
-        docker compose -f docker-compose-$SERVICE.yml up -d
-        
-        echo "✅ Container started successfully!"
-        docker ps | grep $PROJECT-$SERVICE || true
-        
-        # Cleanup
-        rm -f /tmp/decrypted.env
-        
-        echo "::endgroup::"
+        echo "✅ Deployed successfully!"
+    
+    - name: Show container status
+      shell: bash
+      run: |
+        echo "📊 Container status:"
+        docker ps --filter "name=${{ inputs.project }}-${{ inputs.service }}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    
+    - name: Cleanup
+      shell: bash
+      if: always()
+      run: |
+        rm -f /tmp/decrypted.env /tmp/encrypted.age /tmp/age-key.txt
+        echo "🧹 Cleanup complete"
