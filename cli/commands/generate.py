@@ -738,7 +738,7 @@ jobs:
           
           # Clean up any old temp containers first
           echo "🧹 Cleaning up old temp containers..."
-          docker ps -a --filter "name=${{CONTAINER_NAME}}-new-" --format "{{{{.Names}}}}" | xargs -r docker rm -f 2>/dev/null || true
+          docker ps -a --filter "name=${{CONTAINER_NAME}}-new-" --format '{{{{{{{{.Names}}}}}}}}' | xargs -r docker rm -f 2>/dev/null || true
           
           # Create temporary compose file with new container name and temp port
           sed -e "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" \
@@ -757,7 +757,7 @@ jobs:
           sleep 5
           
           # Check if new container is running
-          if docker ps --filter "name=$NEW_CONTAINER" --format "{{{{.Names}}}}" | grep -q "$NEW_CONTAINER"; then
+          if docker ps --filter "name=$NEW_CONTAINER" --format '{{{{{{{{.Names}}}}}}}}' | grep -q "$NEW_CONTAINER"; then
             echo "✅ New container is running"
             
             # Check health (wait up to 30s)
@@ -798,7 +798,7 @@ jobs:
       - name: Show container status
         run: |
           echo "📊 Container status:"
-          docker ps --filter "name={project_name}-{app_name}" --format "table {{{{.Names}}}}\\t{{{{.Status}}}}\\t{{{{.Ports}}}}"
+          docker ps --filter "name={project_name}-{app_name}" --format 'table {{{{{{{{.Names}}}}}}}}\\t{{{{{{{{.Status}}}}}}}}\\t{{{{{{{{.Ports}}}}}}}}'
       
       - name: Cleanup
         if: always()
