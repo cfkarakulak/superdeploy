@@ -165,7 +165,7 @@ runs:
         
         # Deploy
         cd /opt/apps/$PROJECT/compose
-        docker-compose -f docker-compose-$SERVICE.yml up -d
+        docker compose -f docker-compose-$SERVICE.yml up -d
         
         echo "✅ $SERVICE deployed successfully!"
         
