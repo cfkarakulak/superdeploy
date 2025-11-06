@@ -153,28 +153,12 @@ jobs:
           docker ps -a --filter name=${CONTAINER_NAME}-new- -q | xargs -r docker rm -f 2>/dev/null || true
           
           # Create temporary compose file with new container name and temp port
-          cat > /tmp/docker-compose-new-storefront.yml << TEMPEOF
-services:
-  storefront:
-    image: ${{ inputs.image }}
-    container_name: $NEW_CONTAINER
-    restart: unless-stopped
-    env_file:
-      - /tmp/decrypted.env
-    networks:
-      - cheapa-network
-    ports:
-      - "$TEMP_PORT:3000"
-    labels:
-      - "project=cheapa"
-      - "service=storefront"
-      - "git.sha=${{ inputs.git_sha }}"
-
-networks:
-  cheapa-network:
-    name: cheapa-network
-    external: true
-TEMPEOF
+          cat docker-compose-storefront.yml |             sed "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" |             awk -v port="3000" -v temp="$TEMP_PORT" '{
+              if ($0 ~ /- "?'"3000:3000"'/) {
+                gsub(/3000:3000/, temp":"port)
+              }
+              print
+            }' > /tmp/docker-compose-new-storefront.yml
           
           # Debug: show what was changed
           echo "📝 Checking port mapping..."
