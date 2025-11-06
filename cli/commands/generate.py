@@ -734,11 +734,14 @@ jobs:
           
           CONTAINER_NAME="{project_name}-{app_name}"
           NEW_CONTAINER="${{CONTAINER_NAME}}-new-$$"
+          TEMP_PORT=$((({port} + 10000)))  # Temporary port for new container
           
-          # Create temporary compose file with new container name
-          sed "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" docker-compose-{app_name}.yml > /tmp/docker-compose-new-{app_name}.yml
+          # Create temporary compose file with new container name and temp port
+          sed -e "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" \
+              -e "s/- \"{port}:{port}\"/- \"$TEMP_PORT:{port}\"/" \
+              docker-compose-{app_name}.yml > /tmp/docker-compose-new-{app_name}.yml
           
-          echo "🐳 Starting new container: $NEW_CONTAINER"
+          echo "🐳 Starting new container: $NEW_CONTAINER (temp port: $TEMP_PORT)"
           docker compose -f /tmp/docker-compose-new-{app_name}.yml up -d
           
           # Wait for container to start
@@ -765,9 +768,13 @@ jobs:
             docker stop $CONTAINER_NAME 2>/dev/null || true
             docker rm $CONTAINER_NAME 2>/dev/null || true
             
-            # Rename new container to proper name
-            echo "🔄 Switching to new container..."
-            docker rename $NEW_CONTAINER $CONTAINER_NAME
+            # Stop temp container (it's on temp port)
+            echo "🔄 Recreating container on correct port..."
+            docker stop $NEW_CONTAINER 2>/dev/null || true
+            docker rm $NEW_CONTAINER 2>/dev/null || true
+            
+            # Start with original compose (correct port and name)
+            docker compose -f docker-compose-{app_name}.yml up -d
             
             echo "✅ Zero-downtime deployment complete!"
           else
