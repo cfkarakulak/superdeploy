@@ -29,12 +29,8 @@ services:
       - "prometheus.port={{ app_config.port }}"
       - "prometheus.path=/metrics"
 {% endif %}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:{{ app_config.port }}/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    # Healthcheck: Inherited from Dockerfile (no override)
+    # Each app defines its own healthcheck in Dockerfile for flexibility
     # RESOURCE LIMITS: Prevent OOM and ensure fair resource sharing
     deploy:
       resources:
