@@ -155,7 +155,7 @@ jobs:
           # Create temporary compose file with new container name and temp port
           cp docker-compose-services.yml /tmp/docker-compose-new-services.yml
           sed -i "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" /tmp/docker-compose-new-services.yml
-          sed -i "s/- 8001:8001/- $TEMP_PORT:8001/" /tmp/docker-compose-new-services.yml
+          sed -i "s/- "8001:8001"/- "$TEMP_PORT:8001"/" /tmp/docker-compose-new-services.yml
           
           # Debug: show what was changed
           echo "📝 Checking port mapping..."
