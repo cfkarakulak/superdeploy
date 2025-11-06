@@ -167,45 +167,23 @@ jobs:
           echo "🐳 Starting new container: $NEW_CONTAINER on temp port $TEMP_PORT"
           docker compose -f /tmp/docker-compose-new-services.yml up -d
           
-          # Wait for container to start
-          echo "⏳ Waiting for container to be ready..."
-          sleep 5
+          # SIMPLE APPROACH: Stop old, start new (minimal downtime)
+          echo "⏸️  Stopping old container..."
+          docker stop $CONTAINER_NAME 2>/dev/null || true
+          docker rm $CONTAINER_NAME 2>/dev/null || true
           
-          # Check if new container is running
-          if [ -n "$(docker ps -q --filter name=$NEW_CONTAINER)" ]; then
-            echo "✅ New container is running"
-            
-            # Wait for container to be ready
-            echo "⏳ Waiting 10 seconds for container to start..."
-            sleep 10
-            
-            # Check if still running
-            if [ -n "$(docker ps -q --filter name=$NEW_CONTAINER)" ]; then
-              echo "✅ Container is healthy and running"
-            else
-              echo "❌ Container stopped unexpectedly"
-              docker logs $NEW_CONTAINER 2>&1 | tail -20
-              exit 1
-            fi
-            
-            # Stop and remove old container
-            echo "⏸️  Stopping old container..."
-            docker stop $CONTAINER_NAME 2>/dev/null || true
-            docker rm $CONTAINER_NAME 2>/dev/null || true
-            
-            # Stop temp container (it's on temp port)
-            echo "🔄 Recreating container on correct port..."
-            docker stop $NEW_CONTAINER 2>/dev/null || true
-            docker rm $NEW_CONTAINER 2>/dev/null || true
-            
-            # Start with original compose (correct port and name)
-            docker compose -f docker-compose-services.yml up -d
-            
-            echo "✅ Zero-downtime deployment complete!"
+          echo "🚀 Starting new container..."
+          docker compose -f docker-compose-services.yml up -d
+          
+          # Wait and check if healthy
+          echo "⏳ Waiting 10 seconds for container to start..."
+          sleep 10
+          
+          if [ -n "$(docker ps -q --filter name=$CONTAINER_NAME)" ]; then
+            echo "✅ Deployment complete! Container is running"
           else
-            echo "❌ New container failed to start"
-            docker stop $NEW_CONTAINER 2>/dev/null || true
-            docker rm $NEW_CONTAINER 2>/dev/null || true
+            echo "❌ Container failed to start"
+            docker logs $CONTAINER_NAME 2>&1 | tail -20
             exit 1
           fi
           

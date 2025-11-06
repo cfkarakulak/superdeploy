@@ -210,8 +210,12 @@
   set_fact:
     vm_role: "{{ hostvars[inventory_hostname].vm_role }}"
 
-- name: Check runner labels if already registered
-  shell: cat /opt/forgejo-runner/.runner | grep -o '"{{ vm_role }}:docker://node:20-bookworm"'
+- name: Check runner labels if already registered (must have project, vm_role, and :host executor)
+  shell: |
+    cat /opt/forgejo-runner/.runner | grep -q '"{{ runner_project_name }}:host"' && \
+    cat /opt/forgejo-runner/.runner | grep -q '"{{ vm_role }}:host"' && \
+    cat /opt/forgejo-runner/.runner | grep -q ':host"' && \
+    ! cat /opt/forgejo-runner/.runner | grep -q ':docker://'
   register: runner_label_check
   failed_when: false
   changed_when: false
@@ -306,7 +310,7 @@
 - name: Check Forgejo connectivity
   uri:
     url: "{{ forgejo_url }}"
-    status_code: 200
+    status_code: [200, 302]  # Accept both OK and redirect
     timeout: 5
   register: forgejo_connectivity
   failed_when: false
@@ -314,7 +318,7 @@
 
 - name: Build runner labels (avoid duplicates)
   set_fact:
-    runner_labels: "self-hosted:docker://node:20-bookworm,project-runner:docker://node:20-bookworm,ubuntu-latest:docker://node:20-bookworm,{{ runner_project_name }}:docker://node:20-bookworm{% if vm_role != runner_project_name %},{{ vm_role }}:docker://node:20-bookworm{% endif %},linux:docker://node:20-bookworm,docker:docker://node:20-bookworm"
+    runner_labels: "self-hosted:host,project-runner:host,ubuntu-latest:host,{{ runner_project_name }}:host{% if vm_role != runner_project_name %},{{ vm_role }}:host{% endif %},linux:host,docker:host"
   when: 
     - not runner_registration_check.stat.exists
     - runner_token is defined
@@ -336,7 +340,7 @@
     - runner_token != ''
     - forgejo_connectivity is defined
     - forgejo_connectivity.status is defined
-    - forgejo_connectivity.status == 200
+    - forgejo_connectivity.status in [200, 302]
   register: runner_register_result
   async: 120
   poll: 10
@@ -346,19 +350,19 @@
     msg: 
       - "{{ 'Runner registered successfully!' if (runner_register_result is defined and runner_register_result.changed) else ('Runner already registered' if runner_registration_check.stat.exists else 'Runner registration skipped (token not available)') }}"
       - "Runner Name: {{ inventory_hostname_short | default(inventory_hostname) }}"
-      - "Runner Labels (with Docker executor):"
-      - "  - ubuntu-latest:docker://node:20-bookworm"
-      - "  - {{ runner_project_name }}:docker://node:20-bookworm"
-      - "  - {{ vm_role }}:docker://node:20-bookworm"
-      - "  - linux:docker://node:20-bookworm"
-      - "  - docker:docker://node:20-bookworm"
+      - "Runner Labels (with host executor):"
+      - "  - self-hosted:host"
+      - "  - {{ runner_project_name }}:host"
+      - "  - {{ vm_role }}:host"
+      - "  - linux:host"
+      - "  - docker:host"
       - "Project: {{ runner_project_name }}"
       - "VM Role: {{ vm_role }}"
       - ""
       - "✅ Workflows should use: runs-on: [self-hosted, {{ runner_project_name }}]"
       - "   Or for specific VM role: runs-on: [self-hosted, {{ runner_project_name }}, {{ vm_role }}]"
       - ""
-      - "ℹ️  Note: Runners use Docker executor (node:20-bookworm) for consistent environment"
+      - "ℹ️  Note: Runners use host executor (runs directly on VM) for Docker access"
 
 - name: Create runner systemd service file
   template:
