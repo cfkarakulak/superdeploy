@@ -741,9 +741,28 @@ jobs:
           docker ps -a --filter name=${{CONTAINER_NAME}}-new- -q | xargs -r docker rm -f 2>/dev/null || true
           
           # Create temporary compose file with new container name and temp port
-          cp docker-compose-{app_name}.yml /tmp/docker-compose-new-{app_name}.yml
-          sed -i "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" /tmp/docker-compose-new-{app_name}.yml
-          sed -i "s/- \"{port}:{port}\"/- \"$TEMP_PORT:{port}\"/" /tmp/docker-compose-new-{app_name}.yml
+          cat > /tmp/docker-compose-new-{app_name}.yml << TEMPEOF
+services:
+  {app_name}:
+    image: ${{{{ inputs.image }}}}
+    container_name: $NEW_CONTAINER
+    restart: unless-stopped
+    env_file:
+      - /tmp/decrypted.env
+    networks:
+      - {project_name}-network
+    ports:
+      - "$TEMP_PORT:{port}"
+    labels:
+      - "project={project_name}"
+      - "service={app_name}"
+      - "git.sha=${{{{ inputs.git_sha }}}}"
+
+networks:
+  {project_name}-network:
+    name: {project_name}-network
+    external: true
+TEMPEOF
           
           # Debug: show what was changed
           echo "📝 Checking port mapping..."

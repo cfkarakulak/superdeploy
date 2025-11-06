@@ -153,9 +153,28 @@ jobs:
           docker ps -a --filter name=${CONTAINER_NAME}-new- -q | xargs -r docker rm -f 2>/dev/null || true
           
           # Create temporary compose file with new container name and temp port
-          cp docker-compose-api.yml /tmp/docker-compose-new-api.yml
-          sed -i "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" /tmp/docker-compose-new-api.yml
-          sed -i "s/- "8000:8000"/- "$TEMP_PORT:8000"/" /tmp/docker-compose-new-api.yml
+          cat > /tmp/docker-compose-new-api.yml << TEMPEOF
+services:
+  api:
+    image: ${{ inputs.image }}
+    container_name: $NEW_CONTAINER
+    restart: unless-stopped
+    env_file:
+      - /tmp/decrypted.env
+    networks:
+      - cheapa-network
+    ports:
+      - "$TEMP_PORT:8000"
+    labels:
+      - "project=cheapa"
+      - "service=api"
+      - "git.sha=${{ inputs.git_sha }}"
+
+networks:
+  cheapa-network:
+    name: cheapa-network
+    external: true
+TEMPEOF
           
           # Debug: show what was changed
           echo "📝 Checking port mapping..."
