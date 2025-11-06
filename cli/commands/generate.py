@@ -728,7 +728,7 @@ jobs:
       
       - name: Deploy with zero-downtime
         run: |
-          echo "🚀 Deploying {app_name} (zero-downtime)..."
+          echo "🚀 Deploying {app_name} - zero-downtime..."
           
           cd /opt/apps/{project_name}/compose
           
@@ -762,7 +762,7 @@ jobs:
             for i in {{1..6}}; do
               HEALTH=$(docker inspect $NEW_CONTAINER 2>/dev/null | grep -o '"Status":"[^"]*"' | grep Health | cut -d'"' -f4 || echo "none")
               if [ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "none" ]; then
-                echo "✅ Health check passed (status: $HEALTH)"
+                echo "✅ Health check passed - status: $HEALTH"
                 break
               fi
               echo "⏳ Waiting for health check... $i/6"
