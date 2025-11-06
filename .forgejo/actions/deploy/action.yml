@@ -27,8 +27,8 @@ runs:
     - name: Install dependencies
       shell: bash
       run: |
-        set -ex
-        echo "📦 Installing dependencies..."
+        set -e
+        echo "::group::📦 Installing dependencies"
         
         # Check if age is already installed
         if command -v age &> /dev/null; then
@@ -42,31 +42,25 @@ runs:
           echo "✅ age installed"
           age --version
         fi
+        
+        echo "::endgroup::"
     
     - name: Decrypt environment bundle
       shell: bash
       run: |
-        set -ex
-        echo "🔐 Decrypting environment bundle..."
+        set -e
+        echo "::group::🔐 Decrypting environment bundle"
         echo "${{ inputs.env_bundle }}" | base64 -d > /tmp/encrypted.age
-        echo "✅ Base64 decoded successfully"
+        echo "✅ Base64 decoded ($(wc -c < /tmp/encrypted.age) bytes)"
         
-        # Debug: Check encrypted file
-        echo "📊 Encrypted file size: $(wc -c < /tmp/encrypted.age) bytes"
-        
-        # Debug: Check AGE_SECRET_KEY
         if [ -z "$AGE_SECRET_KEY" ]; then
-          echo "❌ AGE_SECRET_KEY is empty or not set!"
+          echo "❌ AGE_SECRET_KEY not set!"
           exit 1
         fi
-        echo "✅ AGE_SECRET_KEY is set"
         
-        # Write AGE key to file (more reliable than echo)
         printf '%s' "$AGE_SECRET_KEY" > /tmp/age-key.txt
         chmod 600 /tmp/age-key.txt
         
-        # Decrypt with age
-        echo "🔓 Running age decryption..."
         if ! age -d -i /tmp/age-key.txt /tmp/encrypted.age > /tmp/decrypted.env 2>&1; then
           echo "❌ AGE decryption failed!"
           cat /tmp/decrypted.env || echo "(no output)"
@@ -76,42 +70,41 @@ runs:
         
         rm -f /tmp/age-key.txt /tmp/encrypted.age
         
-        # Verify decryption success
         if [ ! -s /tmp/decrypted.env ]; then
           echo "❌ Decrypted file is empty!"
           exit 1
         fi
         
-        echo "✅ AGE decryption successful"
-        echo "📊 Decrypted file size: $(wc -c < /tmp/decrypted.env) bytes"
-        echo "📋 First 5 lines (masked):"
-        head -5 /tmp/decrypted.env | sed 's/=.*/=***MASKED***/g'
+        echo "✅ Decrypted successfully ($(wc -c < /tmp/decrypted.env) bytes)"
+        echo "::endgroup::"
 
     - name: Docker login
       shell: bash
       run: |
-        set -ex
-        echo "🔐 Logging into Docker Hub..."
+        set -e
+        echo "::group::🐳 Docker Hub Login"
         echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
-        echo "✅ Docker login successful"
+        echo "✅ Logged in successfully"
+        echo "::endgroup::"
 
     - name: Pull Docker image
       shell: bash
       run: |
-        set -ex
-        echo "📥 Pulling Docker image: ${{ inputs.image }}"
+        set -e
+        echo "::group::📥 Pulling: ${{ inputs.image }}"
         docker pull ${{ inputs.image }}
-        echo "✅ Image pulled successfully"
+        echo "✅ Image pulled"
+        echo "::endgroup::"
 
     - name: Deploy container
       shell: bash
       run: |
-        set -ex
+        set -e
+        echo "::group::🚀 Deploying ${{ inputs.service }}"
+        
         PROJECT="${{ inputs.project }}"
         SERVICE="${{ inputs.service }}"
         IMAGE="${{ inputs.image }}"
-        
-        echo "🚀 Deploying $SERVICE..."
         
         # Create compose directory
         sudo mkdir -p /opt/apps/$PROJECT/compose
@@ -167,10 +160,10 @@ runs:
         cd /opt/apps/$PROJECT/compose
         docker compose -f docker-compose-$SERVICE.yml up -d
         
-        echo "✅ $SERVICE deployed successfully!"
-        
-        # Show status
+        echo "✅ Container started successfully!"
         docker ps | grep $PROJECT-$SERVICE || true
         
         # Cleanup
         rm -f /tmp/decrypted.env
+        
+        echo "::endgroup::"
