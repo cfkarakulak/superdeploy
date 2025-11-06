@@ -686,29 +686,29 @@ jobs:
           
           sudo mkdir -p /opt/apps/$PROJECT/compose
           
-          cat > /tmp/docker-compose-$SERVICE.yml << 'EOF'
-version: '3.8'
-services:
-  SERVICE_PLACEHOLDER:
-    image: IMAGE_PLACEHOLDER
-    container_name: CONTAINER_PLACEHOLDER
-    restart: unless-stopped
-    env_file:
-      - /tmp/decrypted.env
-    networks:
-      - NETWORK_PLACEHOLDER
-    ports:
-      - "PORT_PLACEHOLDER:PORT_PLACEHOLDER"
-    labels:
-      - "project=PROJECT_PLACEHOLDER"
-      - "service=SERVICE_PLACEHOLDER"
-      - "git.sha=GIT_SHA_PLACEHOLDER"
-
-networks:
-  NETWORK_PLACEHOLDER:
-    name: NETWORK_PLACEHOLDER
-    external: true
-EOF
+          cat > /tmp/docker-compose-$SERVICE.yml << 'DOCKERCOMPOSEEOF'
+          version: '3.8'
+          services:
+            SERVICE_PLACEHOLDER:
+              image: IMAGE_PLACEHOLDER
+              container_name: CONTAINER_PLACEHOLDER
+              restart: unless-stopped
+              env_file:
+                - /tmp/decrypted.env
+              networks:
+                - NETWORK_PLACEHOLDER
+              ports:
+                - "PORT_PLACEHOLDER:PORT_PLACEHOLDER"
+              labels:
+                - "project=PROJECT_PLACEHOLDER"
+                - "service=SERVICE_PLACEHOLDER"
+                - "git.sha=GIT_SHA_PLACEHOLDER"
+          
+          networks:
+            NETWORK_PLACEHOLDER:
+              name: NETWORK_PLACEHOLDER
+              external: true
+          DOCKERCOMPOSEEOF
           
           # Replace placeholders
           sed -i "s/SERVICE_PLACEHOLDER/$SERVICE/g" /tmp/docker-compose-$SERVICE.yml
