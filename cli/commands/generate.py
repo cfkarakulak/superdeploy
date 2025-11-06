@@ -686,29 +686,38 @@ jobs:
           
           sudo mkdir -p /opt/apps/$PROJECT/compose
           
-          cat > /tmp/docker-compose-$SERVICE.yml << EOF
-          version: '3.8'
-          services:
-            $SERVICE:
-              image: $IMAGE
-              container_name: $PROJECT-$SERVICE
-              restart: unless-stopped
-              env_file:
-                - /tmp/decrypted.env
-              networks:
-                - $PROJECT-network
-              ports:
-                - "$PORT:$PORT"
-              labels:
-                - "project=$PROJECT"
-                - "service=$SERVICE"
-                - "git.sha=$GIT_SHA"
+          cat > /tmp/docker-compose-$SERVICE.yml << 'EOF'
+version: '3.8'
+services:
+  SERVICE_PLACEHOLDER:
+    image: IMAGE_PLACEHOLDER
+    container_name: CONTAINER_PLACEHOLDER
+    restart: unless-stopped
+    env_file:
+      - /tmp/decrypted.env
+    networks:
+      - NETWORK_PLACEHOLDER
+    ports:
+      - "PORT_PLACEHOLDER:PORT_PLACEHOLDER"
+    labels:
+      - "project=PROJECT_PLACEHOLDER"
+      - "service=SERVICE_PLACEHOLDER"
+      - "git.sha=GIT_SHA_PLACEHOLDER"
+
+networks:
+  NETWORK_PLACEHOLDER:
+    name: NETWORK_PLACEHOLDER
+    external: true
+EOF
           
-          networks:
-            $PROJECT-network:
-              name: $PROJECT-network
-              external: true
-          EOF
+          # Replace placeholders
+          sed -i "s/SERVICE_PLACEHOLDER/$SERVICE/g" /tmp/docker-compose-$SERVICE.yml
+          sed -i "s/PROJECT_PLACEHOLDER/$PROJECT/g" /tmp/docker-compose-$SERVICE.yml
+          sed -i "s|IMAGE_PLACEHOLDER|$IMAGE|g" /tmp/docker-compose-$SERVICE.yml
+          sed -i "s/CONTAINER_PLACEHOLDER/$PROJECT-$SERVICE/g" /tmp/docker-compose-$SERVICE.yml
+          sed -i "s/NETWORK_PLACEHOLDER/$PROJECT-network/g" /tmp/docker-compose-$SERVICE.yml
+          sed -i "s/PORT_PLACEHOLDER/$PORT/g" /tmp/docker-compose-$SERVICE.yml
+          sed -i "s/GIT_SHA_PLACEHOLDER/$GIT_SHA/g" /tmp/docker-compose-$SERVICE.yml
           
           sudo mv /tmp/docker-compose-$SERVICE.yml /opt/apps/$PROJECT/compose/
           echo "✅ Compose file created"

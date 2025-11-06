@@ -1,14 +1,26 @@
-name: Deploy Cheapa Services
+name: Deploy Service (Reusable)
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
+      project:
+        description: 'Project name'
+        required: true
+        type: string
+      service:
+        description: 'Service name'
+        required: true
+        type: string
+      port:
+        description: 'Service port'
+        required: true
+        type: string
       image:
         description: 'Docker image with tag'
         required: true
         type: string
       env_bundle:
-        description: 'AGE-encrypted environment variables bundle (base64 encoded)'
+        description: 'AGE-encrypted environment bundle (base64)'
         required: true
         type: string
       git_sha:
@@ -18,12 +30,19 @@ on:
       git_ref:
         description: 'Git ref (branch/tag)'
         required: false
-        default: 'production'
         type: string
+        default: 'production'
+    secrets:
+      DOCKER_USERNAME:
+        required: true
+      DOCKER_TOKEN:
+        required: true
+      AGE_SECRET_KEY:
+        required: true
 
 jobs:
   deploy:
-    runs-on: [self-hosted, cheapa, app]
+    runs-on: [self-hosted, ${{ inputs.project }}, app]
     
     steps:
       - name: Check age installation
@@ -95,66 +114,58 @@ jobs:
         run: |
           echo "📝 Generating docker-compose.yml..."
           
-          PROJECT="cheapa"
-          SERVICE="services"
+          PROJECT="${{ inputs.project }}"
+          SERVICE="${{ inputs.service }}"
           IMAGE="${{ inputs.image }}"
-          PORT="8001"
+          PORT="${{ inputs.port }}"
           GIT_SHA="${{ inputs.git_sha }}"
           
           sudo mkdir -p /opt/apps/$PROJECT/compose
           
-          cat > /tmp/docker-compose-$SERVICE.yml << 'EOF'
-version: '3.8'
-services:
-  SERVICE_PLACEHOLDER:
-    image: IMAGE_PLACEHOLDER
-    container_name: CONTAINER_PLACEHOLDER
-    restart: unless-stopped
-    env_file:
-      - /tmp/decrypted.env
-    networks:
-      - NETWORK_PLACEHOLDER
-    ports:
-      - "PORT_PLACEHOLDER:PORT_PLACEHOLDER"
-    labels:
-      - "project=PROJECT_PLACEHOLDER"
-      - "service=SERVICE_PLACEHOLDER"
-      - "git.sha=GIT_SHA_PLACEHOLDER"
-
-networks:
-  NETWORK_PLACEHOLDER:
-    name: NETWORK_PLACEHOLDER
-    external: true
-EOF
+          cat > /tmp/docker-compose-$SERVICE.yml << EOF
+          version: '3.8'
+          services:
+            $SERVICE:
+              image: $IMAGE
+              container_name: $PROJECT-$SERVICE
+              restart: unless-stopped
+              env_file:
+                - /tmp/decrypted.env
+              networks:
+                - $PROJECT-network
+              ports:
+                - "$PORT:$PORT"
+              labels:
+                - "project=$PROJECT"
+                - "service=$SERVICE"
+                - "git.sha=$GIT_SHA"
           
-          # Replace placeholders
-          sed -i "s/SERVICE_PLACEHOLDER/$SERVICE/g" /tmp/docker-compose-$SERVICE.yml
-          sed -i "s/PROJECT_PLACEHOLDER/$PROJECT/g" /tmp/docker-compose-$SERVICE.yml
-          sed -i "s|IMAGE_PLACEHOLDER|$IMAGE|g" /tmp/docker-compose-$SERVICE.yml
-          sed -i "s/CONTAINER_PLACEHOLDER/$PROJECT-$SERVICE/g" /tmp/docker-compose-$SERVICE.yml
-          sed -i "s/NETWORK_PLACEHOLDER/$PROJECT-network/g" /tmp/docker-compose-$SERVICE.yml
-          sed -i "s/PORT_PLACEHOLDER/$PORT/g" /tmp/docker-compose-$SERVICE.yml
-          sed -i "s/GIT_SHA_PLACEHOLDER/$GIT_SHA/g" /tmp/docker-compose-$SERVICE.yml
+          networks:
+            $PROJECT-network:
+              name: $PROJECT-network
+              external: true
+          EOF
           
           sudo mv /tmp/docker-compose-$SERVICE.yml /opt/apps/$PROJECT/compose/
           echo "✅ Compose file created"
       
       - name: Deploy container
         run: |
-          echo "🚀 Deploying services..."
+          echo "🚀 Deploying ${{ inputs.service }}..."
           
-          cd /opt/apps/cheapa/compose
-          docker compose -f docker-compose-services.yml up -d
+          cd /opt/apps/${{ inputs.project }}/compose
+          docker compose -f docker-compose-${{ inputs.service }}.yml up -d
           
           echo "✅ Deployed successfully!"
       
       - name: Show container status
         run: |
           echo "📊 Container status:"
-          docker ps --filter "name=cheapa-services" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+          docker ps --filter "name=${{ inputs.project }}-${{ inputs.service }}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
       
       - name: Cleanup
         if: always()
         run: |
           rm -f /tmp/decrypted.env /tmp/encrypted.age /tmp/age-key.txt
           echo "🧹 Cleanup complete"
+
