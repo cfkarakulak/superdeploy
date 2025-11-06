@@ -343,7 +343,7 @@ def sync_forgejo_secrets(
         for field_key, env_key in fields.items():
             if env_key in merged_env:
                 secrets[env_key] = merged_env[env_key]
-    
+
     # Database Abstraction Layer: Map database-specific vars to DB_*
     # This allows applications to be database-agnostic
     if "POSTGRES_HOST" in merged_env:
