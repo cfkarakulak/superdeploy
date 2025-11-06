@@ -706,7 +706,6 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     logger.step("Loading Forgejo PAT")
 
     # Load PAT from shared/orchestrator/.env
-    from cli.utils import get_project_root
     from dotenv import dotenv_values
 
     project_root = get_project_root()
