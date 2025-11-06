@@ -726,21 +726,59 @@ jobs:
           sudo mv /tmp/docker-compose-$SERVICE.yml /opt/apps/$PROJECT/compose/
           echo "✅ Compose file created"
       
-      - name: Stop old container (if exists)
+      - name: Deploy with zero-downtime
         run: |
-          echo "🛑 Stopping old container..."
-          cd /opt/apps/{project_name}/compose
-          docker compose -f docker-compose-{app_name}.yml down --remove-orphans 2>/dev/null || true
-          echo "✅ Old container stopped"
-      
-      - name: Deploy container
-        run: |
-          echo "🚀 Deploying {app_name}..."
+          echo "🚀 Deploying {app_name} (zero-downtime)..."
           
           cd /opt/apps/{project_name}/compose
-          docker compose -f docker-compose-{app_name}.yml up -d
           
-          echo "✅ Deployed successfully!"
+          CONTAINER_NAME="{project_name}-{app_name}"
+          NEW_CONTAINER="${{CONTAINER_NAME}}-new-$$"
+          
+          # Create temporary compose file with new container name
+          sed "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" docker-compose-{app_name}.yml > /tmp/docker-compose-new-{app_name}.yml
+          
+          echo "🐳 Starting new container: $NEW_CONTAINER"
+          docker compose -f /tmp/docker-compose-new-{app_name}.yml up -d
+          
+          # Wait for container to start
+          echo "⏳ Waiting for container to be ready..."
+          sleep 5
+          
+          # Check if new container is running
+          if docker ps --filter "name=$NEW_CONTAINER" --format "{{{{.Names}}}}" | grep -q "$NEW_CONTAINER"; then
+            echo "✅ New container is running"
+            
+            # Check health (wait up to 30s)
+            for i in {{1..6}}; do
+              HEALTH=$(docker inspect --format='{{{{.State.Health.Status}}}}' $NEW_CONTAINER 2>/dev/null || echo "none")
+              if [ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "none" ]; then
+                echo "✅ Health check passed (status: $HEALTH)"
+                break
+              fi
+              echo "⏳ Waiting for health check... ($i/6)"
+              sleep 5
+            done
+            
+            # Stop and remove old container
+            echo "⏸️  Stopping old container..."
+            docker stop $CONTAINER_NAME 2>/dev/null || true
+            docker rm $CONTAINER_NAME 2>/dev/null || true
+            
+            # Rename new container to proper name
+            echo "🔄 Switching to new container..."
+            docker rename $NEW_CONTAINER $CONTAINER_NAME
+            
+            echo "✅ Zero-downtime deployment complete!"
+          else
+            echo "❌ New container failed to start"
+            docker stop $NEW_CONTAINER 2>/dev/null || true
+            docker rm $NEW_CONTAINER 2>/dev/null || true
+            exit 1
+          fi
+          
+          # Cleanup temp file
+          rm -f /tmp/docker-compose-new-{app_name}.yml
       
       - name: Show container status
         run: |
