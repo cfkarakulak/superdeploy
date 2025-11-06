@@ -727,6 +727,13 @@ jobs:
           sudo mv /tmp/docker-compose-$SERVICE.yml /opt/apps/$PROJECT/compose/
           echo "✅ Compose file created"
       
+      - name: Stop old container (if exists)
+        run: |
+          echo "🛑 Stopping old container..."
+          cd /opt/apps/{project_name}/compose
+          docker compose -f docker-compose-{app_name}.yml down 2>/dev/null || true
+          echo "✅ Old container stopped"
+      
       - name: Deploy container
         run: |
           echo "🚀 Deploying {app_name}..."
