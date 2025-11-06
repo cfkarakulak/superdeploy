@@ -747,7 +747,7 @@ jobs:
           echo "📝 Checking port mapping..."
           grep "ports:" -A 1 /tmp/docker-compose-new-{app_name}.yml
           
-          echo "🐳 Starting new container: $NEW_CONTAINER (temp port: $TEMP_PORT)"
+          echo "🐳 Starting new container: $NEW_CONTAINER on temp port $TEMP_PORT"
           docker compose -f /tmp/docker-compose-new-{app_name}.yml up -d
           
           # Wait for container to start
