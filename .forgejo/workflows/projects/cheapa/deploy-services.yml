@@ -146,7 +146,7 @@ jobs:
           
           CONTAINER_NAME="cheapa-services"
           NEW_CONTAINER="${CONTAINER_NAME}-new-$$"
-          TEMP_PORT=$((8001 + 10000))  # Temporary port for new container
+          TEMP_PORT=$(expr 8001 + 10000)  # Temporary port for new container
           
           # Clean up any old temp containers first
           echo "🧹 Cleaning up old temp containers..."

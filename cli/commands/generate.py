@@ -734,7 +734,7 @@ jobs:
           
           CONTAINER_NAME="{project_name}-{app_name}"
           NEW_CONTAINER="${{CONTAINER_NAME}}-new-$$"
-          TEMP_PORT=$(({port} + 10000))  # Temporary port for new container
+          TEMP_PORT=$(expr {port} + 10000)  # Temporary port for new container
           
           # Clean up any old temp containers first
           echo "🧹 Cleaning up old temp containers..."
