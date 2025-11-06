@@ -36,6 +36,7 @@ jobs:
         with:
           project: cheapa
           service: api
+          port: 8000
           image: ${{ inputs.image }}
           env_bundle: ${{ inputs.env_bundle }}
           git_sha: ${{ inputs.git_sha }}

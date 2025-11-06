@@ -11,6 +11,9 @@ inputs:
   image:
     description: 'Docker image to deploy'
     required: true
+  port:
+    description: 'Service port'
+    required: true
   env_bundle:
     description: 'Base64 encoded environment bundle'
     required: true
@@ -139,19 +142,7 @@ runs:
         sed -i "s/PROJECT_NAME/$PROJECT/g" /tmp/docker-compose-$SERVICE.yml
         sed -i "s|IMAGE_PLACEHOLDER|$IMAGE|g" /tmp/docker-compose-$SERVICE.yml
         sed -i "s/GIT_SHA_PLACEHOLDER/${{ inputs.git_sha }}/g" /tmp/docker-compose-$SERVICE.yml
-        
-        # Determine port based on service
-        if [ "$SERVICE" = "api" ]; then
-          PORT=8000
-        elif [ "$SERVICE" = "storefront" ]; then
-          PORT=3000
-        elif [ "$SERVICE" = "services" ]; then
-          PORT=8001
-        else
-          PORT=8080
-        fi
-        
-        sed -i "s/PORT_PLACEHOLDER/$PORT/g" /tmp/docker-compose-$SERVICE.yml
+        sed -i "s/PORT_PLACEHOLDER/${{ inputs.port }}/g" /tmp/docker-compose-$SERVICE.yml
         
         # Move compose file
         sudo mv /tmp/docker-compose-$SERVICE.yml /opt/apps/$PROJECT/compose/docker-compose-$SERVICE.yml
