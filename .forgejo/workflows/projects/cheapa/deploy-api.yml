@@ -153,7 +153,7 @@ jobs:
           docker ps -a --filter "name=${CONTAINER_NAME}-new-" -q | xargs -r docker rm -f 2>/dev/null || true
           
           # Create temporary compose file with new container name and temp port
-          sed -e "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/"               -e 's/- "8000:8000"/- "'$TEMP_PORT':8000'"/'               docker-compose-api.yml > /tmp/docker-compose-new-api.yml
+          sed -e "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" -e 's/- "8000:8000"/- "'$TEMP_PORT':8000'"/' docker-compose-api.yml > /tmp/docker-compose-new-api.yml
           
           # Debug: show what was changed
           echo "📝 Checking port mapping..."
