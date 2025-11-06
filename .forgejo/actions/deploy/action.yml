@@ -223,12 +223,8 @@ runs:
               prometheus.scrape: "true"
               prometheus.port: "{{INTERNAL_PORT}}"
               prometheus.path: "/metrics"
-            healthcheck:
-              test: ["CMD", "curl", "-f", "http://localhost:{{INTERNAL_PORT}}/"]
-              interval: 15s
-              timeout: 10s
-              retries: 5
-              start_period: 60s
+            # Healthcheck: Inherited from Dockerfile (no override)
+            # Each app defines its own healthcheck in Dockerfile for flexibility
         EOF
         
         COMPOSE_FILE="/opt/apps/${{ inputs.project }}/compose/docker-compose-${{ inputs.service }}.yml"
