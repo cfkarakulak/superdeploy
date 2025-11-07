@@ -268,6 +268,7 @@ def validate_env_vars(env: Dict, required_keys: list) -> bool:
 
     if missing:
         from rich.console import Console
+
         c = Console(force_terminal=True, legacy_windows=False)
         c.print("[red]✗ Missing required environment variables:[/red]")
         for key in missing:

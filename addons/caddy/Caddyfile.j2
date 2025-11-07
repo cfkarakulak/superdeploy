@@ -24,9 +24,9 @@
 {% if app_config.vm == vm_role %}
 
 # {{ app_name }} service
-{% if app_config.domain %}
+{% if app_config.get('domain') %}
 # Domain-based routing (production)
-{{ app_config.domain }} {
+{{ app_config.get('domain') }} {
     # Enable compression
     encode gzip zstd
     

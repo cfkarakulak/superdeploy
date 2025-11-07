@@ -6,7 +6,7 @@ import click
 import subprocess
 from rich.console import Console
 from cli.ui_components import show_header
-from cli.utils import ssh_command, validate_env_vars, get_project_root
+from cli.utils import ssh_command, get_project_root
 
 console = Console()
 
@@ -491,7 +491,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
         "SSH_KEY_PATH": project_config_obj.raw_config["cloud"]["ssh"]["key_path"],
         "SSH_USER": project_config_obj.raw_config["cloud"]["ssh"]["user"],
     }
-    
+
     # Add all secrets from .passwords.yml
     if passwords_data.get("secrets", {}).get("shared"):
         env.update(passwords_data["secrets"]["shared"])
