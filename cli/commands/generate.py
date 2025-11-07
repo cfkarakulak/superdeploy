@@ -264,11 +264,11 @@ jobs:
           fi
           
           # Build JSON payload properly
+          PROJECT=${{ '{{' }} steps.config.outputs.project {{ '}}' }}
           PAYLOAD=$(cat <<EOF
           {
             "ref": "master",
             "inputs": {
-              "project": "${{ '{{' }} steps.config.outputs.project {{ '}}' }}",
               "app": "${{ '{{' }} steps.config.outputs.app {{ '}}' }}",
               "vm_role": "${{ '{{' }} steps.config.outputs.vm_role {{ '}}' }}",
               "image": "${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}/${{ '{{' }} steps.config.outputs.app {{ '}}' }}:latest",
@@ -278,9 +278,9 @@ jobs:
           EOF
           )
           
-          # Trigger Forgejo workflow_dispatch
+          # Trigger project-specific Forgejo workflow
           curl -X POST \
-            "http://${{ '{{' }} secrets.ORCHESTRATOR_IP {{ '}}' }}:3001/api/v1/repos/cradexco/superdeploy/actions/workflows/deploy.yml/dispatches" \
+            "http://${{ '{{' }} secrets.ORCHESTRATOR_IP {{ '}}' }}:3001/api/v1/repos/cradexco/superdeploy/actions/workflows/deploy-${PROJECT}.yml/dispatches" \
             -H "Authorization: token ${{ '{{' }} secrets.FORGEJO_PAT {{ '}}' }}" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD"

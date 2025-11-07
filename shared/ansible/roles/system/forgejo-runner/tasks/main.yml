@@ -342,9 +342,9 @@
     mode: '0644'
   become: true
 
-- name: Build runner labels (generic - works for all projects)
+- name: Build runner labels (project-specific)
   set_fact:
-    runner_labels: "self-hosted,{{ vm_role }}"
+    runner_labels: "self-hosted,{{ runner_project_name }},{{ vm_role }}"
   when: 
     - not runner_registration_check.stat.exists
     - runner_token is defined
