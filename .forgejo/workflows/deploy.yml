@@ -35,31 +35,40 @@ jobs:
   deploy:
     # Route to project-specific VM runner based on labels
     # Labels format: [self-hosted, {project}, {vm_role}]
+    # Note: Forgejo 13.0.1 doesn't support dynamic runs-on with inputs
+    # Using hardcoded labels for now - will be fixed when upgraded
     runs-on: 
       - self-hosted
-      - ${{ inputs.project }}
-      - ${{ inputs.vm_role }}
+      - cheapa
+      - app
+    
+    env:
+      PROJECT: ${{ inputs.project }}
+      APP: ${{ inputs.app }}
+      VM_ROLE: ${{ inputs.vm_role }}
+      IMAGE: ${{ inputs.image }}
+      GIT_SHA: ${{ inputs.git_sha }}
     
     steps:
       - name: Display deployment info
         run: |
           echo "🚀 Deploying application..."
-          echo "  Project: ${{ inputs.project }}"
-          echo "  App: ${{ inputs.app }}"
-          echo "  VM Role: ${{ inputs.vm_role }}"
-          echo "  Image: ${{ inputs.image }}"
-          echo "  Git SHA: ${{ inputs.git_sha }}"
+          echo "  Project: $PROJECT"
+          echo "  App: $APP"
+          echo "  VM Role: $VM_ROLE"
+          echo "  Image: $IMAGE"
+          echo "  Git SHA: $GIT_SHA"
           echo ""
       
       - name: Pull latest image
         run: |
-          cd /opt/superdeploy/projects/${{ inputs.project }}/compose
-          docker compose pull ${{ inputs.app }}
+          cd /opt/superdeploy/projects/$PROJECT/compose
+          docker compose pull $APP
       
       - name: Restart container
         run: |
-          cd /opt/superdeploy/projects/${{ inputs.project }}/compose
-          docker compose up -d ${{ inputs.app }}
+          cd /opt/superdeploy/projects/$PROJECT/compose
+          docker compose up -d $APP
       
       - name: Wait for health check
         run: |
@@ -67,13 +76,13 @@ jobs:
           sleep 5
           
           # Check container status
-          STATUS=$(docker inspect -f '{{.State.Status}}' ${{ inputs.project }}-${{ inputs.app }} 2>/dev/null || echo "not_found")
+          STATUS=$(docker inspect -f '{{.State.Status}}' $PROJECT-$APP 2>/dev/null || echo "not_found")
           
           if [ "$STATUS" = "running" ]; then
             echo "✅ Container is running!"
           else
             echo "❌ Container failed to start (status: $STATUS)"
-            docker logs ${{ inputs.project }}-${{ inputs.app }} --tail 50
+            docker logs $PROJECT-$APP --tail 50
             exit 1
           fi
       
@@ -88,10 +97,10 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "✅ Deployment successful!"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "  Project: ${{ inputs.project }}"
-          echo "  App: ${{ inputs.app }}"
-          echo "  Image: ${{ inputs.image }}"
-          echo "  SHA: ${{ inputs.git_sha }}"
+          echo "  Project: $PROJECT"
+          echo "  App: $APP"
+          echo "  Image: $IMAGE"
+          echo "  SHA: $GIT_SHA"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
 
