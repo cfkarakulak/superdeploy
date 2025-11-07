@@ -255,41 +255,6 @@ jobs:
           docker push ${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}/${{ '{{' }} steps.config.outputs.app {{ '}}' }}:latest
           docker push ${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}/${{ '{{' }} steps.config.outputs.app {{ '}}' }}:${{ '{{' }} github.sha {{ '}}' }}
       
-      - name: Install age for encryption
-        run: |
-          curl -sL https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz
-          sudo mv age/age /usr/local/bin/
-          rm -rf age
-      
-      - name: Prepare environment bundle
-        id: env_bundle
-        run: |
-          # Merge .env files
-          cp .env /tmp/app.env 2>/dev/null || touch /tmp/app.env
-          
-          if [ -f .env.superdeploy ]; then
-            while IFS='=' read -r key value || [ -n "$key" ]; do
-              [ -z "$key" ] && continue
-              [[ "$key" =~ ^[[:space:]]*# ]] && continue
-              
-              if [[ "$value" =~ ^\$\{([^}]+)\}$ ]]; then
-                var_name="${BASH_REMATCH[1]}"
-                value="${!var_name}"
-              fi
-              
-              if grep -q "^${key}=" /tmp/app.env 2>/dev/null; then
-                sed -i.bak "s|^${key}=.*|${key}=${value}|" /tmp/app.env && rm -f /tmp/app.env.bak
-              else
-                echo "${key}=${value}" >> /tmp/app.env
-              fi
-            done < .env.superdeploy
-          fi
-          
-          # Encrypt with AGE
-          cat /tmp/app.env | age -r "${{ '{{' }} secrets.AGE_PUBLIC_KEY {{ '}}' }}" | base64 -w 0 > /tmp/encrypted.txt
-          echo "encrypted=$(cat /tmp/encrypted.txt)" >> "$GITHUB_OUTPUT"
-          rm -f /tmp/app.env /tmp/encrypted.txt
-      
       - name: Trigger Forgejo deployment
         run: |
           # Validate required secrets
@@ -298,18 +263,18 @@ jobs:
             exit 1
           fi
           
-          # Build workflow path (URL-encoded)
-          WORKFLOW_PATH=".forgejo%2Fworkflows%2Fdeploy-${{ '{{' }} steps.config.outputs.app {{ '}}' }}.yml"
-          
+          # Trigger Forgejo workflow_dispatch
           curl -X POST \
-            "http://${{ '{{' }} secrets.ORCHESTRATOR_IP {{ '}}' }}:3001/api/v1/repos/cradexco/superdeploy/actions/workflows/${WORKFLOW_PATH}/dispatches" \
+            "http://${{ '{{' }} secrets.ORCHESTRATOR_IP {{ '}}' }}:3001/api/v1/repos/cradexco/superdeploy/actions/workflows/deploy.yml/dispatches" \
             -H "Authorization: token ${{ '{{' }} secrets.FORGEJO_PAT {{ '}}' }}" \
             -H "Content-Type: application/json" \
             -d "{
               \"ref\": \"master\",
               \"inputs\": {
+                \"project\": \"${{ '{{' }} steps.config.outputs.project {{ '}}' }}\",
+                \"app\": \"${{ '{{' }} steps.config.outputs.app {{ '}}' }}\",
+                \"vm_role\": \"${{ '{{' }} steps.config.outputs.vm_role {{ '}}' }}\",
                 \"image\": \"${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}/${{ '{{' }} steps.config.outputs.app {{ '}}' }}:latest\",
-                \"env_bundle\": \"${{ '{{' }} steps.env_bundle.outputs.encrypted {{ '}}' }}\",
                 \"git_sha\": \"${{ '{{' }} github.sha {{ '}}' }}\"
               }
             }"

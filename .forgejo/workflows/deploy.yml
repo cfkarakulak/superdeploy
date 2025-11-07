@@ -1,15 +1,35 @@
 # =============================================================================
 # SuperDeploy - Central Deployment Workflow (Forgejo)
 # =============================================================================
-# Triggered by GitHub Actions via API dispatch
+# Triggered by GitHub Actions via workflow_dispatch API
 # Routes deployment to correct project VM runner
 # =============================================================================
 
 name: Deploy Application to VM
 
 on:
-  repository_dispatch:
-    types: [deploy]
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Project name (e.g., cheapa)'
+        required: true
+        type: string
+      app:
+        description: 'App name (e.g., api, storefront)'
+        required: true
+        type: string
+      vm_role:
+        description: 'VM role (e.g., app, core)'
+        required: true
+        type: string
+      image:
+        description: 'Docker image (e.g., c100394/api:latest)'
+        required: true
+        type: string
+      git_sha:
+        description: 'Git commit SHA'
+        required: true
+        type: string
 
 jobs:
   deploy:
@@ -17,28 +37,29 @@ jobs:
     # Labels format: [self-hosted, {project}, {vm_role}]
     runs-on: 
       - self-hosted
-      - ${{ github.event.client_payload.project }}
-      - ${{ github.event.client_payload.vm_role }}
+      - ${{ inputs.project }}
+      - ${{ inputs.vm_role }}
     
     steps:
       - name: Display deployment info
         run: |
           echo "🚀 Deploying application..."
-          echo "  Project: ${{ github.event.client_payload.project }}"
-          echo "  App: ${{ github.event.client_payload.app }}"
-          echo "  VM Role: ${{ github.event.client_payload.vm_role }}"
-          echo "  Image: ${{ github.event.client_payload.image }}"
+          echo "  Project: ${{ inputs.project }}"
+          echo "  App: ${{ inputs.app }}"
+          echo "  VM Role: ${{ inputs.vm_role }}"
+          echo "  Image: ${{ inputs.image }}"
+          echo "  Git SHA: ${{ inputs.git_sha }}"
           echo ""
       
       - name: Pull latest image
         run: |
-          cd /opt/superdeploy/projects/${{ github.event.client_payload.project }}/compose
-          docker compose pull ${{ github.event.client_payload.app }}
+          cd /opt/superdeploy/projects/${{ inputs.project }}/compose
+          docker compose pull ${{ inputs.app }}
       
       - name: Restart container
         run: |
-          cd /opt/superdeploy/projects/${{ github.event.client_payload.project }}/compose
-          docker compose up -d ${{ github.event.client_payload.app }}
+          cd /opt/superdeploy/projects/${{ inputs.project }}/compose
+          docker compose up -d ${{ inputs.app }}
       
       - name: Wait for health check
         run: |
@@ -46,12 +67,13 @@ jobs:
           sleep 5
           
           # Check container status
-          STATUS=$(docker inspect -f '{{.State.Status}}' ${{ github.event.client_payload.project }}_${{ github.event.client_payload.app }} 2>/dev/null || echo "not_found")
+          STATUS=$(docker inspect -f '{{.State.Status}}' ${{ inputs.project }}-${{ inputs.app }} 2>/dev/null || echo "not_found")
           
           if [ "$STATUS" = "running" ]; then
             echo "✅ Container is running!"
           else
             echo "❌ Container failed to start (status: $STATUS)"
+            docker logs ${{ inputs.project }}-${{ inputs.app }} --tail 50
             exit 1
           fi
       
@@ -66,9 +88,10 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "✅ Deployment successful!"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "  Project: ${{ github.event.client_payload.project }}"
-          echo "  App: ${{ github.event.client_payload.app }}"
-          echo "  Container: ${{ github.event.client_payload.project }}_${{ github.event.client_payload.app }}"
+          echo "  Project: ${{ inputs.project }}"
+          echo "  App: ${{ inputs.app }}"
+          echo "  Image: ${{ inputs.image }}"
+          echo "  SHA: ${{ inputs.git_sha }}"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
 
