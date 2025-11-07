@@ -6,7 +6,7 @@ from rich.console import Console
 from cli.ui_components import show_header
 
 # Confirmation prompts handled with console.print + input()
-from cli.utils import get_project_root
+from cli.utils import get_project_root, load_env
 from cli.terraform_utils import (
     get_terraform_dir,
     select_workspace,
