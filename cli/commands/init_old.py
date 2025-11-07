@@ -994,7 +994,7 @@ network:
 
     if passwords:
         console.print(
-            f"\n   [dim]Generated passwords saved in: {project_dir}/.passwords.yml[/dim]"
+            f"\n   [dim]Generated passwords saved in: {project_dir}/secrets.yml[/dim]"
         )
 
     console.print("\n2. Push your code:")

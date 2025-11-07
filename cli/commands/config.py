@@ -35,7 +35,7 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
     """
     Set configuration variable (Heroku-like!)
 
-    Updates .passwords.yml, syncs to GitHub/Forgejo, and optionally triggers deployment.
+    Updates secrets.yml, syncs to GitHub/Forgejo, and optionally triggers deployment.
 
     \b
     Examples:
@@ -72,9 +72,9 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
     logger = DeployLogger(project, "config-set", verbose=False)
 
     project_root = get_project_root()
-    passwords_file = project_root / "projects" / project / ".passwords.yml"
+    passwords_file = project_root / "projects" / project / "secrets.yml"
 
-    # Step 1: Update .passwords.yml
+    # Step 1: Update secrets.yml
     logger.step("[1/4] Updating Local Config")
     logger.log(f"File: {passwords_file}")
 
@@ -235,7 +235,7 @@ def config_get(key, project):
         console=console,
     )
 
-    # Load from .passwords.yml
+    # Load from secrets.yml
     from cli.secret_manager import SecretManager
     secret_mgr = SecretManager(get_project_root(), project)
     passwords_data = secret_mgr.load_secrets()
@@ -283,7 +283,7 @@ def config_list(project, filter):
         console=console,
     )
 
-    # Load from .passwords.yml
+    # Load from secrets.yml
     from cli.secret_manager import SecretManager
     secret_mgr = SecretManager(get_project_root(), project)
     passwords_data = secret_mgr.load_secrets()
@@ -356,9 +356,9 @@ def config_unset(key, project, deploy, no_sync):
     logger = DeployLogger(project, "config-unset", verbose=False)
 
     project_root = get_project_root()
-    passwords_file = project_root / "projects" / project / ".passwords.yml"
+    passwords_file = project_root / "projects" / project / "secrets.yml"
 
-    # Step 1: Remove from .passwords.yml
+    # Step 1: Remove from secrets.yml
     logger.step("[1/3] Removing from Local Config")
 
     if not passwords_file.exists():
@@ -379,7 +379,7 @@ def config_unset(key, project, deploy, no_sync):
     with open(passwords_file, "w") as f:
         yaml.dump(passwords, f, default_flow_style=False, sort_keys=True)
 
-    logger.log(f"✓ Removed {key} from .passwords.yml")
+    logger.log(f"✓ Removed {key} from secrets.yml")
 
     # Step 2: Sync to GitHub/Forgejo (removes from there too)
     if not no_sync:
@@ -474,7 +474,7 @@ def config_show(project, mask):
 
     project_root = get_project_root()
 
-    # Load project secrets from .passwords.yml
+    # Load project secrets from secrets.yml
     try:
         from cli.secret_manager import SecretManager
         secret_mgr = SecretManager(project_root, project)

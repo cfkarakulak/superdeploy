@@ -116,7 +116,7 @@ Yeni bir proje için gerekli tüm yapılandırma dosyalarını, dizin yapısın�
 ```
 projects/[proje-adı]/
 ├── project.yml              # Ana proje yapılandırması
-├── .passwords.yml           # Otomatik oluşturulan güvenli şifreler
+├── secrets.yml           # Otomatik oluşturulan güvenli şifreler
 └── compose/                 # Oluşturulacak Docker Compose dosyaları için
 ```
 
@@ -127,7 +127,7 @@ projects/[proje-adı]/
 - Uygulama servisleri (hangi uygulamalar, hangi portlar)
 - Network yapılandırması (subnet, IP aralıkları)
 
-**4. Güvenli Şifre Oluşturma (.passwords.yml)**
+**4. Güvenli Şifre Oluşturma (secrets.yml)**
 Her servis için kriptografik olarak güvenli rastgele şifreler:
 - `POSTGRES_PASSWORD`: PostgreSQL veritabanı şifresi
 - `RABBITMQ_PASSWORD`: RabbitMQ mesaj kuyruğu şifresi
@@ -146,7 +146,7 @@ Kullanıcı Girişi
     ↓
 project.yml ────────────────┐
     ↓                       ↓
-.passwords.yml          Addon Templates
+secrets.yml          Addon Templates
     ↓                   (superdeploy/addons/)
     ↓                       ↓
     └───────────────────────┘
@@ -227,7 +227,7 @@ a. **VM-Specific Filtering**
 
 b. **Template Rendering**
    - Addon template'i okunur
-   - project.yml ve .passwords.yml değerleri enjekte edilir
+   - project.yml ve secrets.yml değerleri enjekte edilir
    - Proje-spesifik Docker Compose dosyası oluşturulur
 
 c. **Environment Dosyası Oluşturma**
@@ -247,7 +247,7 @@ d. **Container Başlatma**
 ### Parametre Akışı - Detaylı
 
 ```
-project.yml + .passwords.yml
+project.yml + secrets.yml
          ↓
 Ansible Playbook Variables
          ↓
@@ -279,7 +279,7 @@ Yerel yapılandırma dosyalarındaki şifreleri ve environment variable'ları Gi
 
 Sistem şu dosyalardan bilgi toplar:
 - `superdeploy/.env`: Altyapı seviyesi secret'lar
-- `projects/[proje-adı]/.passwords.yml`: Otomatik oluşturulan servis şifreleri
+- `projects/[proje-adı]/secrets.yml`: Otomatik oluşturulan servis şifreleri
 - `app-repos/[servis]/.env`: Kullanıcının sağladığı uygulama-spesifik değerler
 
 **2. Birleştirme ve Önceliklendirme**
@@ -287,7 +287,7 @@ Sistem şu dosyalardan bilgi toplar:
 Öncelik sırası:
 ```
 1. Kullanıcı .env dosyaları (--env-file)  [EN YÜKSEK]
-2. .passwords.yml (proje şifreleri)
+2. secrets.yml (proje şifreleri)
 3. superdeploy/.env (altyapı secret'ları)  [EN DÜŞÜK]
 ```
 
@@ -314,7 +314,7 @@ Kaynak Dosyalar                    Hedef Sistemler
 ─────────────────                  ───────────────
 
 superdeploy/.env          ──→  GitHub Repo Secrets
-projects/[proje]/.passwords.yml ──→  GitHub Env Secrets
+projects/[proje]/secrets.yml ──→  GitHub Env Secrets
 app-repos/[servis]/.env   ──→  Forgejo Repo Secrets
 ```
 
@@ -432,7 +432,7 @@ KULLANICI GİRİŞİ
     ↓
 INIT KOMUTU
     ↓
-project.yml + .passwords.yml
+project.yml + secrets.yml
     ↓
 UP KOMUTU
     ↓
@@ -459,7 +459,7 @@ PRODUCTION CONTAINER
 ```
 TEMPLATE (addons/postgres/)
     ↓
-project.yml + .passwords.yml
+project.yml + secrets.yml
     ↓
 Jinja2 Rendering
     ↓

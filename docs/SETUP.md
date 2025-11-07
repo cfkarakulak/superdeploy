@@ -267,7 +267,7 @@ superdeploy init -p myproject
 ```bash
 projects/myproject/
 ├── project.yml              # Proje konfigürasyonu
-├── .passwords.yml           # Otomatik oluşturulan güvenli şifreler
+├── secrets.yml           # Otomatik oluşturulan güvenli şifreler
 └── compose/                 # Docker Compose dosyaları
 ```
 
@@ -310,7 +310,7 @@ Generate secure passwords? [Y/n]: Y
 
 ✅ `projects/myproject/` klasörü oluşturuldu  
 ✅ `project.yml` konfigürasyon dosyası hazırlandı  
-✅ Güvenli şifreler oluşturuldu (`.passwords.yml`)  
+✅ Güvenli şifreler oluşturuldu (`secrets.yml`)  
 ✅ Sistem deployment için hazır
 
 ---
@@ -351,7 +351,7 @@ superdeploy sync -p myproject
 
 **Kaynak Dosyalar:**
 1. Kullanıcı .env dosyaları (--env-file ile belirtilen)
-2. Proje secrets (`projects/myproject/.passwords.yml`)
+2. Proje secrets (`projects/myproject/secrets.yml`)
 3. Infrastructure secrets (`superdeploy/.env`)
 
 **Hedef Konumlar:**
@@ -419,7 +419,7 @@ POSTGRES_PASSWORD=<güvenli-şifre>
 ### Şifrelerin Saklandığı Yer
 
 ```bash
-projects/myproject/.passwords.yml
+projects/myproject/secrets.yml
 ```
 
 ### Örnek İçerik
@@ -449,8 +449,8 @@ passwords:
 ### Şifreleri Manuel Değiştirme
 
 ```bash
-# 1. .passwords.yml dosyasını düzenle
-nano projects/myproject/.passwords.yml
+# 1. secrets.yml dosyasını düzenle
+nano projects/myproject/secrets.yml
 
 # 2. Secrets'ları yeniden sync et
 superdeploy sync -p myproject

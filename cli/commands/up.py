@@ -297,11 +297,11 @@ def _deploy_project_v2(
     config_loader = ConfigLoader(project_root / "projects")
     project_config_obj = config_loader.load_project(project)
 
-    # Load from .passwords.yml instead of .env
+    # Load from secrets.yml instead of .env
     secret_mgr = SecretManager(project_root, project)
     passwords_data = secret_mgr.load_secrets()
 
-    # Build env dict from project.yml + .passwords.yml
+    # Build env dict from project.yml + secrets.yml
     env = {
         "GCP_PROJECT_ID": project_config_obj.raw_config["cloud"]["gcp"]["project_id"],
         "GCP_REGION": project_config_obj.raw_config["cloud"]["gcp"]["region"],
@@ -480,7 +480,7 @@ def _deploy_project_v2(
 
     else:
         # Skip terraform, still show phase completion
-        # env already loaded above from .passwords.yml
+        # env already loaded above from secrets.yml
         vm_ips = {k: v for k, v in env.items() if "_EXTERNAL_IP" in k}
         vm_count = len(vm_ips)
         from rich.console import Console
@@ -511,7 +511,7 @@ def _deploy_project_v2(
         ansible_vars["forgejo_base_url"] = f"http://{orchestrator_ip}:3001"
         ansible_vars["orchestrator_ip"] = orchestrator_ip
 
-        # Load and pass .passwords.yml to Ansible
+        # Load and pass secrets.yml to Ansible
         from cli.secret_manager import SecretManager
 
         secret_mgr = SecretManager(project_root, project)
@@ -595,7 +595,7 @@ def _deploy_project_v2(
         logger.log("✓ Code deployment complete (git push via Forgejo Actions)")
         logger.log("  Tip: Push to 'production' branch to trigger deployment")
 
-    # env already loaded at the beginning from .passwords.yml
+    # env already loaded at the beginning from secrets.yml
 
     # Orchestrator info
     orchestrator_ip = env.get("ORCHESTRATOR_IP")

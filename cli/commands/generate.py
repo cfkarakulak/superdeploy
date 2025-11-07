@@ -66,9 +66,9 @@ def generate(project, app):
     # Initialize secret manager
     secret_mgr = SecretManager(project_root, project)
 
-    # Check if .passwords.yml exists
+    # Check if secrets.yml exists
     if not secret_mgr.passwords_file.exists():
-        console.print("\n[red]❌ No .passwords.yml found![/red]")
+        console.print("\n[red]❌ No secrets.yml found![/red]")
         console.print("[yellow]Run first:[/yellow] superdeploy init -p " + project)
         console.print("[dim]Or create manually with structure:[/dim]")
         console.print("[dim]secrets:[/dim]")
@@ -78,7 +78,7 @@ def generate(project, app):
 
     # Load secrets
     all_secrets = secret_mgr.load_secrets()
-    console.print("\n[dim]✓ Loaded secrets from .passwords.yml[/dim]")
+    console.print("\n[dim]✓ Loaded secrets from secrets.yml[/dim]")
 
     # Filter apps
     apps_to_generate = config["apps"]
@@ -148,7 +148,7 @@ def generate(project, app):
     # Summary
     console.print("[green]✅ Generation complete![/green]")
     console.print("\n[bold]📝 Next steps:[/bold]")
-    console.print("\n1. Review generated files (especially .passwords.yml)")
+    console.print("\n1. Review generated files (especially secrets.yml)")
     console.print("\n2. Commit to app repos:")
     console.print("   [dim]cd <app-repo>[/dim]")
     console.print("   [dim]git add .superdeploy .github/ .forgejo/[/dim]")

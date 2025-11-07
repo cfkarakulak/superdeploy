@@ -62,11 +62,11 @@
   debug:
     msg: "Project directory structure created at {{ project_base_path }}"
 
-# Copy .passwords.yml to VM (single source of truth for secrets)
-- name: Copy .passwords.yml to VM
+# Copy secrets.yml to VM (single source of truth for secrets)
+- name: Copy secrets.yml to VM
   copy:
     content: "{{ {'secrets': project_secrets, 'env_aliases': env_aliases} | to_nice_yaml }}"
-    dest: "{{ project_base_path }}/.passwords.yml"
+    dest: "{{ project_base_path }}/secrets.yml"
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
     mode: '0600'
@@ -82,7 +82,7 @@
     mode: '0644'
   when: apps | length > 0
 
-# Generate .env files for each app from .passwords.yml
+# Generate .env files for each app from secrets.yml
 - name: Generate .env files for applications
   template:
     src: "app.env.j2"

@@ -442,7 +442,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     logger.log("Checking required files...")
     project_root = get_project_root()
 
-    # Load project config and secrets from .passwords.yml
+    # Load project config and secrets from secrets.yml
     from cli.secret_manager import SecretManager
     from cli.core.config_loader import ConfigLoader
 
@@ -455,7 +455,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     secret_mgr = SecretManager(project_root, project)
     passwords_data = secret_mgr.load_secrets()
 
-    logger.log("✓ Secrets loaded from .passwords.yml")
+    logger.log("✓ Secrets loaded from secrets.yml")
 
     required_files = {
         "shared/orchestrator/config.yml": project_root
@@ -479,12 +479,12 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
 
     logger.log("✓ Required files found")
 
-    # Load environment from project.yml + .passwords.yml
+    # Load environment from project.yml + secrets.yml
     logger.log("Loading environment...")
     config_loader = ConfigLoader(project_root / "projects")
     project_config_obj = config_loader.load_project(project)
 
-    # Build env dict from project.yml + .passwords.yml
+    # Build env dict from project.yml + secrets.yml
     env = {
         "GCP_PROJECT_ID": project_config_obj.raw_config["cloud"]["gcp"]["project_id"],
         "GCP_REGION": project_config_obj.raw_config["cloud"]["gcp"]["region"],
@@ -492,7 +492,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
         "SSH_USER": project_config_obj.raw_config["cloud"]["ssh"]["user"],
     }
 
-    # Add all secrets from .passwords.yml
+    # Add all secrets from secrets.yml
     if passwords_data.get("secrets", {}).get("shared"):
         env.update(passwords_data["secrets"]["shared"])
     logger.log("Project .env loaded")
@@ -622,7 +622,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
         raise SystemExit(1)
 
     # SSH_KEY_PATH is now in env from project.yml, no need to validate separately
-    # All required vars are now loaded from project.yml and .passwords.yml
+    # All required vars are now loaded from project.yml and secrets.yml
 
     # Check if gh CLI is available
     logger.step("Checking GitHub CLI")

@@ -118,7 +118,7 @@ def env_list(show_all, app, no_mask):
         console=console,
     )
 
-    # Load from orchestrator .passwords.yml (shared secrets)
+    # Load from orchestrator secrets.yml (shared secrets)
     # This command is for global env, not project-specific
     from cli.secret_manager import SecretManager
     project_root = get_project_root()
@@ -261,7 +261,7 @@ def env_check():
         console=console,
     )
 
-    # Load from orchestrator .passwords.yml (shared secrets)
+    # Load from orchestrator secrets.yml (shared secrets)
     # This command is for global env, not project-specific
     from cli.secret_manager import SecretManager
     project_root = get_project_root()

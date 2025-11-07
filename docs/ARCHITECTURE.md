@@ -117,7 +117,7 @@ projects/
 └── myproject/
     ├── project.yml           # Proje konfigürasyonu
     ├── .env                  # Environment variable'lar
-    ├── .passwords.yml        # Otomatik oluşturulan secret'lar
+    ├── secrets.yml        # Otomatik oluşturulan secret'lar
     └── compose/              # Render edilmiş Docker Compose dosyaları
         ├── docker-compose.core.yml    # Altyapı servisleri
         └── docker-compose.apps.yml    # Uygulama container'ları
@@ -314,7 +314,7 @@ Kullanıcı Girişi
     ↓
 project.yml oluştur
     ↓
-Güvenli şifreler oluştur (.passwords.yml)
+Güvenli şifreler oluştur (secrets.yml)
     ↓
 Konfigürasyonu valide et
     ↓
@@ -348,7 +348,7 @@ Terraform Fazı:
     project.yml → tfvars → GCP API → VM'ler + Network
     
 Ansible Fazı:
-    project.yml + .passwords.yml
+    project.yml + secrets.yml
         ↓
     VM-specific addon'ları filtrele
         ↓
@@ -399,7 +399,7 @@ Ansible Fazı:
 ```
 Kaynak Dosyalar:
 ├── superdeploy/.env (altyapı secret'ları)
-├── projects/myproject/.passwords.yml (oluşturulan secret'lar)
+├── projects/myproject/secrets.yml (oluşturulan secret'lar)
 └── app-repos/api/.env (uygulama secret'ları)
     ↓
 Öncelikle merge et
@@ -412,7 +412,7 @@ Dağıt:
 
 **Secret Önceliği (yüksekten düşüğe):**
 1. Kullanıcı tarafından sağlanan `.env` dosyaları (`--env-file`)
-2. Proje-spesifik secret'lar (`.passwords.yml`)
+2. Proje-spesifik secret'lar (`secrets.yml`)
 3. Altyapı secret'ları (`superdeploy/.env`)
 
 ### 5. Uygulama Deployment (git push)
@@ -467,7 +467,7 @@ addons = addon_loader.load_addons_for_project(project_config)
 Template'ler proje-spesifik context ile render edilir:
 
 ```python
-# project.yml ve .passwords.yml'den context
+# project.yml ve secrets.yml'den context
 context = {
     'project_name': 'myproject',
     'postgres_version': '15-alpine',
@@ -549,7 +549,7 @@ Container için final environment
 ```bash
 # Init sırasında otomatik
 superdeploy init -p myproject
-# Oluşturur: projects/myproject/.passwords.yml
+# Oluşturur: projects/myproject/secrets.yml
 
 # İçerir:
 POSTGRES_PASSWORD: <32-karakter güvenli rastgele>

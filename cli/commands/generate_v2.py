@@ -66,10 +66,10 @@ def generate(project, app):
     # Initialize secret manager
     secret_mgr = SecretManager(project_root, project)
 
-    # Check if .passwords.yml exists
+    # Check if secrets.yml exists
     if not secret_mgr.passwords_file.exists():
         console.print(
-            "\n[yellow]⚠️  No .passwords.yml found. Creating from addons...[/yellow]"
+            "\n[yellow]⚠️  No secrets.yml found. Creating from addons...[/yellow]"
         )
 
         # Initialize from addons
@@ -85,7 +85,7 @@ def generate(project, app):
 
     # Load secrets
     all_secrets = secret_mgr.load_secrets()
-    console.print("\n[dim]✓ Loaded secrets from .passwords.yml[/dim]")
+    console.print("\n[dim]✓ Loaded secrets from secrets.yml[/dim]")
 
     # Filter apps
     apps_to_generate = config["apps"]
@@ -161,7 +161,7 @@ def generate(project, app):
     # Summary
     console.print("[green]✅ Generation complete![/green]")
     console.print("\n[bold]📝 Next steps:[/bold]")
-    console.print("\n1. Review generated files (especially .passwords.yml)")
+    console.print("\n1. Review generated files (especially secrets.yml)")
     console.print("\n2. Commit to app repos:")
     console.print("   [dim]cd <app-repo>[/dim]")
     console.print(

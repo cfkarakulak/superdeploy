@@ -72,7 +72,7 @@ infrastructure:
     # Database configuration (PostgreSQL)
     db_name: "forgejo"
     db_user: "forgejo"
-    # Note: db_password is auto-generated and stored in .passwords.yml
+    # Note: db_password is auto-generated and stored in secrets.yml
 
 # =============================================================================
 # VMs (Infrastructure)

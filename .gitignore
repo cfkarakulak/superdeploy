@@ -18,6 +18,9 @@ projects/*/.env
 # State files (deployment state tracking)
 projects/*/state.yml
 
+# Project secrets (NEVER commit - single source of truth)
+projects/*/secrets.yml
+
 # Merged environment files (contains all secrets)
 merged_environment_*.yml
 
@@ -94,7 +97,7 @@ projects/*/docker-compose.core.yml
 projects/*/docker-compose.apps.yml
 
 # Generated environment files (contains merged addon env vars)
-# .env.superdeploy removed - using .passwords.yml only
+# .env.superdeploy removed - using secrets.yml only
 projects/*/.env.generated
 
 # Generated workflow files (contains addon-specific secrets)

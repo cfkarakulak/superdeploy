@@ -235,7 +235,7 @@ superdeploy config:unset OLD_API_KEY -p myproject --deploy
 ```
 
 **Bu komut şunları yapar:**
-1. ✅ `.passwords.yml` dosyasını günceller
+1. ✅ `secrets.yml` dosyasını günceller
 2. ✅ GitHub ve Forgejo'ya sync eder
 3. ✅ `--deploy` flag varsa otomatik git push yapar
 4. ✅ Deployment'ı tetikler
@@ -284,12 +284,12 @@ superdeploy sync -p myproject --skip-github
 
 1. **Kaynaklardan toplar:**
    - `superdeploy/.env` (infrastructure secrets)
-   - `projects/[project]/.passwords.yml` (otomatik şifreler)
+   - `projects/[project]/secrets.yml` (otomatik şifreler)
    - `--env-file` ile belirtilen dosyalar
 
 2. **Merge eder (öncelik sırası):**
    - En yüksek: `--env-file` dosyaları
-   - Orta: `.passwords.yml`
+   - Orta: `secrets.yml`
    - En düşük: `superdeploy/.env`
 
 3. **Dağıtır:**
@@ -332,7 +332,7 @@ superdeploy config:unset OLD_API_KEY -p myproject --deploy
 
 ```bash
 # 1. Manuel edit
-nano projects/myproject/.passwords.yml
+nano projects/myproject/secrets.yml
 
 # 2. Sync (deployment tetikleme)
 superdeploy sync -p myproject
@@ -349,7 +349,7 @@ git push origin production
 
 ```bash
 # 1. Sadece production şifresini güncelle
-nano projects/myproject/.passwords.yml
+nano projects/myproject/secrets.yml
 # POSTGRES_PASSWORD: yeni_sifre
 
 # 2. GitHub ve Forgejo'ya sync et
@@ -383,7 +383,7 @@ superdeploy env show
 superdeploy/
 ├── .env                              # Infrastructure secrets
 └── projects/myproject/
-    ├── .passwords.yml                # Otomatik oluşturulan şifreler
+    ├── secrets.yml                # Otomatik oluşturulan şifreler
     └── secrets.env                   # (Opsiyonel) Custom secrets
 
 app-repos/
@@ -400,7 +400,7 @@ app-repos/
 | Senaryo | Düzenlenecek Dosya | Komut |
 |---------|-------------------|-------|
 | Local development | `app-repos/[app]/.env` | Manuel edit |
-| Production secret | `projects/[project]/.passwords.yml` | `superdeploy sync` |
+| Production secret | `projects/[project]/secrets.yml` | `superdeploy sync` |
 | Infrastructure | `superdeploy/.env` | `superdeploy sync` |
 | Yeni secret | Her ikisi de | `superdeploy sync -e` |
 
@@ -559,7 +559,7 @@ cat /opt/forgejo-runner/.age/key.txt
 curl http://ORCHESTRATOR_IP:3001/api/healthz
 
 # Çözüm 2: Admin şifresini kontrol et
-cat projects/orchestrator/.passwords.yml | grep FORGEJO_ADMIN_PASSWORD
+cat projects/orchestrator/secrets.yml | grep FORGEJO_ADMIN_PASSWORD
 
 # Çözüm 3: Orchestrator durumunu kontrol et
 superdeploy orchestrator status

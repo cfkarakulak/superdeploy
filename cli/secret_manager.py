@@ -12,11 +12,11 @@ class SecretManager:
         self.project_root = project_root
         self.project_name = project_name
         self.passwords_file = (
-            project_root / "projects" / project_name / ".passwords.yml"
+            project_root / "projects" / project_name / "secrets.yml"
         )
 
     def load_secrets(self) -> Dict[str, Any]:
-        """Load .passwords.yml"""
+        """Load secrets.yml"""
         if not self.passwords_file.exists():
             return {}
 
@@ -24,7 +24,7 @@ class SecretManager:
             return yaml.safe_load(f) or {}
 
     def save_secrets(self, secrets: Dict[str, Any]):
-        """Save secrets to .passwords.yml"""
+        """Save secrets to secrets.yml"""
         self.passwords_file.parent.mkdir(parents=True, exist_ok=True)
 
         with open(self.passwords_file, "w") as f:
@@ -99,7 +99,7 @@ class SecretManager:
 
     def migrate_from_env(self, env_file: Path, addons: Dict[str, Any]):
         """
-        Migrate existing .env to hierarchical .passwords.yml
+        Migrate existing .env to hierarchical secrets.yml
 
         Auto-categorizes:
         - Addon passwords → shared
@@ -147,7 +147,7 @@ class SecretManager:
         self.save_secrets(secrets)
 
     def initialize_from_addons(self, addons: Dict[str, Any], project_name: str):
-        """Initialize .passwords.yml from addon passwords"""
+        """Initialize secrets.yml from addon passwords"""
         import secrets as py_secrets
 
         shared_secrets = {}

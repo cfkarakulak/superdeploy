@@ -274,7 +274,7 @@ def validate_env_vars(env: Dict, required_keys: list) -> bool:
         for key in missing:
             c.print(f"  • {key}")
         c.print("\n[cyan]Solution:[/cyan]")
-        c.print("  Add these to your project.yml or .passwords.yml")
+        c.print("  Add these to your project.yml or secrets.yml")
         return False
 
     return True

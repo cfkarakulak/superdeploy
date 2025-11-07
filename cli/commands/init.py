@@ -1,5 +1,5 @@
 """
-Project initialization V2 - with .passwords.yml only
+Project initialization V2 - with secrets.yml only
 """
 
 import yaml
@@ -17,11 +17,11 @@ console = Console()
 @click.option("--project", "-p", required=True, help="Project name")
 def init(project):
     """
-    Initialize new project with .passwords.yml
+    Initialize new project with secrets.yml
 
     Creates:
     - project.yml (infrastructure config)
-    - .passwords.yml (secret management)
+    - secrets.yml (secret management)
 
     No more .env files!
     """
@@ -225,7 +225,7 @@ def init(project):
 
     console.print(f"\n[green]✓[/green] Created: {project_yml}")
 
-    # Generate .passwords.yml with template
+    # Generate secrets.yml with template
     console.print("\n[bold cyan]🔐 Generating secrets...[/bold cyan]\n")
 
     postgres_password = secrets.token_urlsafe(32)
@@ -273,8 +273,8 @@ def init(project):
                 "NEXT_PUBLIC_API_SERVER_URL": "http://10.1.0.2:8000",
             }
 
-    # Generate .passwords.yml with beautiful formatting
-    passwords_yml = project_dir / ".passwords.yml"
+    # Generate secrets.yml with beautiful formatting
+    passwords_yml = project_dir / "secrets.yml"
 
     yml_lines = []
     yml_lines.append("# " + "=" * 77)
@@ -376,5 +376,5 @@ def init(project):
         f"[dim]RabbitMQ:   {passwords_config['secrets']['shared']['RABBITMQ_PASSWORD'][:20]}...[/dim]"
     )
     console.print(
-        "[yellow]⚠️  These are saved in .passwords.yml (DO NOT commit!)[/yellow]"
+        "[yellow]⚠️  These are saved in secrets.yml (DO NOT commit!)[/yellow]"
     )

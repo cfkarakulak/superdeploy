@@ -98,7 +98,7 @@ class OrchestratorConfig:
 
     def mark_deployed(self, ip: str) -> None:
         """
-        Mark orchestrator as deployed and save IP to .env + all project .passwords.yml
+        Mark orchestrator as deployed and save IP to .env + all project secrets.yml
 
         Args:
             ip: External IP of orchestrator VM
@@ -127,12 +127,12 @@ class OrchestratorConfig:
         with open(env_path, "w") as f:
             f.writelines(env_lines)
 
-        # 2. Update all project .passwords.yml files
+        # 2. Update all project secrets.yml files
         self._update_project_passwords(ip)
 
     def _update_project_passwords(self, ip: str) -> None:
         """
-        Update ORCHESTRATOR_IP in all project .passwords.yml files
+        Update ORCHESTRATOR_IP in all project secrets.yml files
 
         Args:
             ip: Orchestrator IP address
@@ -142,12 +142,12 @@ class OrchestratorConfig:
         if not projects_dir.exists():
             return
 
-        # Find all .passwords.yml files
+        # Find all secrets.yml files
         for project_dir in projects_dir.iterdir():
             if not project_dir.is_dir():
                 continue
 
-            passwords_file = project_dir / ".passwords.yml"
+            passwords_file = project_dir / "secrets.yml"
             if not passwords_file.exists():
                 continue
 
