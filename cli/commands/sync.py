@@ -484,13 +484,15 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     config_loader = ConfigLoader(project_root / "projects")
     project_config_obj = config_loader.load_project(project)
 
-    # Build env dict
+    # Build env dict from project.yml + .passwords.yml
     env = {
         "GCP_PROJECT_ID": project_config_obj.raw_config["cloud"]["gcp"]["project_id"],
         "GCP_REGION": project_config_obj.raw_config["cloud"]["gcp"]["region"],
+        "SSH_KEY_PATH": project_config_obj.raw_config["cloud"]["ssh"]["key_path"],
+        "SSH_USER": project_config_obj.raw_config["cloud"]["ssh"]["user"],
     }
-
-    # Add all secrets
+    
+    # Add all secrets from .passwords.yml
     if passwords_data.get("secrets", {}).get("shared"):
         env.update(passwords_data["secrets"]["shared"])
     logger.log("Project .env loaded")
@@ -619,11 +621,8 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
         )
         raise SystemExit(1)
 
-    # Validate required vars
-    required = ["SSH_KEY_PATH"]
-    if not validate_env_vars(env, required):
-        logger.log_error("Missing required environment variables")
-        raise SystemExit(1)
+    # SSH_KEY_PATH is now in env from project.yml, no need to validate separately
+    # All required vars are now loaded from project.yml and .passwords.yml
 
     # Check if gh CLI is available
     logger.step("Checking GitHub CLI")

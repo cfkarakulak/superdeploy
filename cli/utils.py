@@ -267,14 +267,13 @@ def validate_env_vars(env: Dict, required_keys: list) -> bool:
     missing = [key for key in required_keys if not env.get(key)]
 
     if missing:
-        console.print("[red]❌ Missing required environment variables:[/red]")
+        from rich.console import Console
+        c = Console(force_terminal=True, legacy_windows=False)
+        c.print("[red]✗ Missing required environment variables:[/red]")
         for key in missing:
-            console.print(f"  • {key}")
-        console.print("\n[cyan]Solution:[/cyan]")
-        console.print("  Set the missing variables in your environment:")
-        for key in missing:
-            console.print(f"  export {key}='your-value'")
-        console.print("\n[dim]See docs/ENVIRONMENT_VARIABLES.md for details[/dim]")
+            c.print(f"  • {key}")
+        c.print("\n[cyan]Solution:[/cyan]")
+        c.print("  Add these to your project.yml or .passwords.yml")
         return False
 
     return True
