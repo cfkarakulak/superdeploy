@@ -35,9 +35,11 @@ jobs:
   deploy:
     # Apps only deploy to app VMs (not core VMs)
     # Core VMs are for backing services only (postgres, rabbitmq, etc.)
+    # NOTE: Forgejo 13.0.1 bug - inputs don't work in runs-on!
+    # Must hardcode project label. Multi-project support requires Forgejo upgrade.
     runs-on: 
       - self-hosted
-      - ${{ inputs.project }}
+      - cheapa
       - app
     
     env:
