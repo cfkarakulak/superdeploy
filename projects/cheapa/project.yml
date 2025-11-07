@@ -64,7 +64,7 @@ apps:
   services:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/services
     vm: app
-    port: 3000
+    port: 8100
   storefront:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/storefront
     vm: app
