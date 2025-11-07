@@ -32,11 +32,11 @@ on:
         type: string
 
 jobs:
-  deploy:
-    # Apps only deploy to app VMs (not core VMs)
-    # Core VMs are for backing services only (postgres, rabbitmq, etc.)
-    # NOTE: Forgejo 13.0.1 bug - inputs don't work in runs-on!
-    # Must hardcode project label. Multi-project support requires Forgejo upgrade.
+  # Forgejo 13.0.1 limitation: inputs work in 'if' but not in 'runs-on'
+  # Workaround: Separate job per project with conditional execution
+  
+  deploy-cheapa:
+    if: ${{ inputs.project == 'cheapa' }}
     runs-on: 
       - self-hosted
       - cheapa
@@ -104,4 +104,37 @@ jobs:
           echo "  SHA: $GIT_SHA"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
+
+  # Add more projects here as needed:
+  # deploy-myapp:
+  #   if: ${{ inputs.project == 'myapp' }}
+  #   runs-on: [self-hosted, myapp, app]
+  #   ... (same steps)
+  
+  deploy-other:
+    # Fallback for unknown projects - will fail with clear error
+    if: ${{ inputs.project != 'cheapa' }}
+    runs-on: 
+      - self-hosted
+      - cheapa
+      - app
+    
+    env:
+      PROJECT: ${{ inputs.project }}
+      APP: ${{ inputs.app }}
+    
+    steps:
+      - name: Unsupported project error
+        run: |
+          echo "❌ ERROR: Project '$PROJECT' is not configured!"
+          echo ""
+          echo "Supported projects:"
+          echo "  - cheapa"
+          echo ""
+          echo "To add support for '$PROJECT':"
+          echo "  1. Add a 'deploy-$PROJECT' job in .forgejo/workflows/deploy.yml"
+          echo "  2. Set runs-on: [self-hosted, $PROJECT, app]"
+          echo "  3. Copy steps from deploy-cheapa job"
+          echo ""
+          exit 1
 
