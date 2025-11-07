@@ -72,7 +72,7 @@ def down(project, yes, verbose, keep_infra):
     if not verbose:
         show_header(
             title="Project Shutdown",
-            subtitle="This will stop all services and destroy all VMs!",
+            subtitle="[bold red]This will stop all services and destroy all VMs![/bold red]",
             project=project,
             border_color="red",
             console=console,
@@ -100,7 +100,7 @@ def down(project, yes, verbose, keep_infra):
 
     # Show what will be destroyed
     if not verbose:
-        console.print("\n[bold yellow]📋 Resources to be destroyed:[/bold yellow]")
+        console.print("[bold yellow]📋 Resources to be destroyed:[/bold yellow]")
 
     # Try to get resources from Terraform state
     try:
@@ -128,7 +128,7 @@ def down(project, yes, verbose, keep_infra):
     # Confirmation
     if not yes:
         console.print(
-            "[bold red]Are you sure you want to destroy all infrastructure?[/bold red] "
+            "\n[bold red]Are you sure you want to destroy all infrastructure?[/bold red] "
             "[bold bright_white]\\[y/n][/bold bright_white] [dim](n)[/dim]: ",
             end="",
         )
@@ -392,10 +392,4 @@ def down(project, yes, verbose, keep_infra):
 
     # Final summary
     if not verbose:
-        console.print("\n" + "━" * 60)
-        console.print("[bold green]🎉 Destruction Complete![/bold green]")
-        console.print("━" * 60)
-        console.print(
-            f"\n[dim]To deploy again:[/dim] [red]superdeploy up -p {project}[/red]"
-        )
-        console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
+        console.print("\n[color(248)]Project destroyed.[/color(248)]")

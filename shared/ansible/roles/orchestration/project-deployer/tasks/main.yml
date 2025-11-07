@@ -62,8 +62,44 @@
   debug:
     msg: "Project directory structure created at {{ project_base_path }}"
 
+# Copy .passwords.yml to VM (single source of truth for secrets)
+- name: Copy .passwords.yml to VM
+  copy:
+    content: "{{ {'secrets': project_secrets, 'env_aliases': env_aliases} | to_nice_yaml }}"
+    dest: "{{ project_base_path }}/.passwords.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0600'
+  when: project_secrets is defined
+
+# Generate docker-compose.yml for apps
+- name: Generate docker-compose.yml for applications
+  template:
+    src: "docker-compose.apps.yml.j2"
+    dest: "{{ project_base_path }}/compose/docker-compose.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0644'
+  when: apps | length > 0
+
+# Generate .env files for each app from .passwords.yml
+- name: Generate .env files for applications
+  template:
+    src: "app.env.j2"
+    dest: "{{ project_base_path }}/data/{{ item.key }}/.env"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0600'
+  loop: "{{ apps | dict2items }}"
+  when: 
+    - apps | length > 0
+    - project_secrets is defined
+  vars:
+    network_name: "{{ project_name }}-network"
+    prometheus_endpoint: "http://localhost:9090"
+
 # Note: Applications are deployed via GitHub Actions → Forgejo Actions workflow
-# This role only prepares the infrastructure (directories, firewall, monitoring)
+# This role prepares the infrastructure (VMs, directories, secrets, docker-compose)
 # Apps will be deployed when code is pushed to their respective repositories
 
 # Setup monitoring integration

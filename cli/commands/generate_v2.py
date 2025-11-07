@@ -68,13 +68,20 @@ def generate(project, app):
 
     # Check if .passwords.yml exists
     if not secret_mgr.passwords_file.exists():
-        console.print("\n[red]❌ No .passwords.yml found![/red]")
-        console.print("[yellow]Run first:[/yellow] superdeploy init -p " + project)
-        console.print("[dim]Or create manually with structure:[/dim]")
-        console.print("[dim]secrets:[/dim]")
-        console.print("[dim]  shared: {}[/dim]")
-        console.print("[dim]  api: {}[/dim]")
-        return
+        console.print(
+            "\n[yellow]⚠️  No .passwords.yml found. Creating from addons...[/yellow]"
+        )
+
+        # Initialize from addons
+        from cli.core.addon_loader import AddonLoader
+
+        addons_dir = project_root / "addons"
+        addon_loader = AddonLoader(addons_dir)
+        addons = addon_loader.load_addons_for_project(config)
+
+        secret_mgr.initialize_from_addons(addons, project)
+        console.print(f"[green]✓[/green] Created: {secret_mgr.passwords_file}")
+        console.print("[dim]  Edit this file to add app-specific secrets[/dim]")
 
     # Load secrets
     all_secrets = secret_mgr.load_secrets()
@@ -123,7 +130,13 @@ def generate(project, app):
         secret_count = len(app_secrets)
         console.print(f"  Secrets: {secret_count}")
 
-        # 4. Generate GitHub workflow (minimal)
+        # 4. Generate .env.superdeploy
+        env_content = _generate_env_file(app_secrets, app_config, config)
+        env_file = app_path / ".env.superdeploy"
+        env_file.write_text(env_content)
+        console.print(f"  [green]✓[/green] {env_file.name}")
+
+        # 5. Generate GitHub workflow (minimal)
         github_template = _load_template(template_dir, app_type, "github")
         github_workflow = github_template.render(
             project=project, app=app_name, github_org=github_org
@@ -133,7 +146,7 @@ def generate(project, app):
         (github_dir / "deploy.yml").write_text(github_workflow)
         console.print("  [green]✓[/green] .github/workflows/deploy.yml")
 
-        # 5. Generate Forgejo workflow (minimal)
+        # 6. Generate Forgejo workflow (minimal)
         forgejo_template = _load_template(template_dir, app_type, "forgejo")
         forgejo_workflow = forgejo_template.render(
             project=project, app=app_name, github_org=github_org
@@ -151,7 +164,9 @@ def generate(project, app):
     console.print("\n1. Review generated files (especially .passwords.yml)")
     console.print("\n2. Commit to app repos:")
     console.print("   [dim]cd <app-repo>[/dim]")
-    console.print("   [dim]git add .superdeploy .github/ .forgejo/[/dim]")
+    console.print(
+        "   [dim]git add .superdeploy .env.superdeploy .github/ .forgejo/[/dim]"
+    )
     console.print('   [dim]git commit -m "Add SuperDeploy config"[/dim]')
     console.print("\n3. Deploy infrastructure:")
     console.print(f"   [red]superdeploy up -p {project}[/red]")
@@ -186,3 +201,56 @@ def _load_template(template_dir: Path, app_type: str, platform: str) -> Template
 
     with open(template_file, "r") as f:
         return Template(f.read())
+
+
+def _generate_env_file(secrets: dict, app_config: dict, project_config: dict) -> str:
+    """Generate .env.superdeploy content"""
+
+    lines = []
+
+    # Header
+    project_name = project_config["project"]["name"]
+    app_name = app_config.get("vm", "app")
+
+    lines.append(
+        "# ============================================================================="
+    )
+    lines.append(f"# {project_name} - Environment Variables (Auto-generated)")
+    lines.append(
+        "# ============================================================================="
+    )
+    lines.append("# DO NOT COMMIT THIS FILE TO GIT!")
+    lines.append("# Regenerate: superdeploy generate -p " + project_name)
+    lines.append(
+        "# =============================================================================\n"
+    )
+
+    # Secrets (merged shared + app-specific)
+    if secrets:
+        lines.append("# Secrets (shared + app-specific)")
+        for key, value in secrets.items():
+            lines.append(f"{key}={value}")
+        lines.append("")
+
+    # Env aliases
+    env_aliases = app_config.get("env_aliases", {})
+    if env_aliases:
+        lines.append("# Environment aliases (from project.yml)")
+        for alias_key, alias_value in env_aliases.items():
+            # Check if it's a reference to another var
+            if (
+                isinstance(alias_value, str)
+                and alias_value.isupper()
+                and "_" in alias_value
+            ):
+                # It's a reference
+                if alias_value in secrets:
+                    lines.append(f"{alias_key}={secrets[alias_value]}")
+                else:
+                    lines.append(f"{alias_key}=${{{alias_value}}}")
+            else:
+                # Static value
+                lines.append(f"{alias_key}={alias_value}")
+        lines.append("")
+
+    return "\n".join(lines)

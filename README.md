@@ -19,6 +19,9 @@ Modern, Python-based CLI for deploying production applications on your own infra
 - 💾 **Backup & Restore** - Automated database and configuration backups
 - 🔄 **Auto-Rollback** - Automatic rollback on deployment failures
 - ✅ **Config Validation** - Validate before deploy to catch errors early
+- 🧠 **Smart Deployment** - Change detection, idempotent operations, auto-generate workflows
+- 📋 **Plan & Apply** - Preview changes before applying (like Terraform)
+- 🔍 **Drift Detection** - Track state and detect configuration drift
 
 ---
 
@@ -53,19 +56,31 @@ This will:
 - Setup project configuration
 - Validate configuration
 
-### 3. Deploy Infrastructure
+### 3. Preview Changes (Optional)
+
+```bash
+superdeploy plan -p myproject
+```
+
+This will show you what will be deployed (like `terraform plan`).
+
+### 4. Deploy Infrastructure
 
 ```bash
 superdeploy up -p myproject
 ```
 
 This will (~10 minutes):
+- 🔍 Detect changes automatically
+- 📝 Generate workflows if needed
 - ☁️ Provision GCP VMs with Terraform
 - ⚙️ Configure services with Ansible  
 - 🔧 Setup Forgejo + Runner
 - 📤 Push code to GitHub & Forgejo
 
-### 4. Sync Secrets
+**Smart & Idempotent:** Run it 10 times, only does work when needed!
+
+### 5. Sync Secrets
 
 ```bash
 superdeploy sync -p myproject
@@ -87,14 +102,44 @@ Deployment auto-triggers! 🎉
 
 ---
 
+## 🧠 Smart Deployment Workflow
+
+SuperDeploy now tracks state and only deploys what's changed:
+
+```bash
+# Edit your project.yml (add VM, addon, or app)
+nano projects/myproject/project.yml
+
+# Preview changes
+superdeploy plan -p myproject
+
+# Apply changes (only deploys what's needed!)
+superdeploy up -p myproject
+
+# Check status and drift
+superdeploy status -p myproject
+```
+
+**Features:**
+- ✅ **Idempotent** - Safe to run multiple times
+- 🔍 **Change Detection** - Only deploys what changed
+- 📋 **Plan Mode** - Preview before applying
+- 🎯 **Auto-Generate** - Workflows created automatically
+- 💾 **State Tracking** - Knows what's deployed
+
+---
+
 ## 📚 Commands
 
 ### Setup & Deployment
 
 ```bash
 superdeploy init -p myproject         # Interactive wizard
-superdeploy up -p myproject           # Deploy infrastructure  
-superdeploy sync -p myproject         # Sync secrets to GitHub
+superdeploy plan -p myproject         # Show what will be deployed (like terraform plan)
+superdeploy up -p myproject           # Deploy infrastructure (smart & idempotent!)
+superdeploy up -p myproject --dry-run # Preview changes without applying
+superdeploy up -p myproject --force   # Force update (ignore state)
+superdeploy sync -p myproject         # Sync secrets to GitHub/Forgejo
 superdeploy validate -p myproject     # Validate configuration
 superdeploy doctor                    # Health check
 superdeploy subnets                   # View subnet allocations
@@ -103,7 +148,7 @@ superdeploy subnets                   # View subnet allocations
 ### Daily Operations
 
 ```bash
-superdeploy status -p myproject                    # Show infrastructure status
+superdeploy status -p myproject                    # Show infrastructure status + drift detection
 superdeploy logs -p myproject -a api -f            # Watch logs (follow)
 superdeploy run -p myproject -a api "python manage.py migrate"  # Run commands
 superdeploy scale -p myproject -a api --replicas 3 # Scale service
@@ -111,13 +156,34 @@ superdeploy restart -p myproject -a api            # Restart service
 superdeploy metrics -p myproject                   # Show metrics & stats
 ```
 
-### Configuration
+### Configuration (Heroku-like! 🚀)
 
 ```bash
-superdeploy config -p myproject                    # List all config
-superdeploy config:set -p myproject KEY=VAL        # Set config var
-superdeploy config:get -p myproject KEY            # Get config var
-superdeploy config:unset -p myproject KEY          # Unset config var
+# List all config variables
+superdeploy config:list -p myproject
+superdeploy config:list -p myproject --filter POSTGRES  # Filter by prefix
+
+# Get specific variable
+superdeploy config:get POSTGRES_PASSWORD -p myproject
+
+# Set config variable
+superdeploy config:set API_KEY=xyz123 -p myproject
+
+# Set + auto-deploy (Heroku-like!)
+superdeploy config:set DB_HOST=10.0.0.5 -p myproject --deploy
+
+# Set for specific app only
+superdeploy config:set STRIPE_API_KEY=sk_live_xyz -p myproject -a api --deploy
+
+# Unset (delete) variable
+superdeploy config:unset OLD_API_KEY -p myproject
+
+# Unset + auto-deploy
+superdeploy config:unset LEGACY_TOKEN -p myproject --deploy
+
+# Show all config (grouped by service)
+superdeploy config:show -p myproject
+superdeploy config:show -p myproject --mask  # Mask sensitive values
 ```
 
 ### Deployment & Rollback

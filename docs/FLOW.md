@@ -1,19 +1,104 @@
-# SuperDeploy İş Akışı ve Parametre Akışı
+# SuperDeploy İş Akışları ve Parametre Akışları
 
-Bu doküman, SuperDeploy sisteminin iş mantığını ve parametrelerin sistem içinde nasıl aktığını açıklar.
+Bu doküman, SuperDeploy sisteminin iş mantığını ve parametrelerin sistem içinde nasıl aktığını detaylı olarak açıklar.
 
 ## İçindekiler
 
-1. [Başlangıç Akışı (init komutu)](#başlangıç-akışı-init-komutu)
-2. [Orchestrator Kurulum Akışı (orchestrator up)](#orchestrator-kurulum-akışı-orchestrator-up)
+1. [Orchestrator Kurulum Akışı (orchestrator up)](#orchestrator-kurulum-akışı-orchestrator-up) - **Tek Seferlik**
+2. [Proje Başlatma Akışı (init komutu)](#proje-başlatma-akışı-init-komutu)
 3. [Proje Altyapı Sağlama Akışı (up komutu)](#proje-altyapı-sağlama-akışı-up-komutu)
-4. [Sır Senkronizasyon Akışı (sync komutu)](#sır-senkronizasyon-akışı-sync-komutu)
+4. [Secret Senkronizasyon Akışı (sync komutu)](#secret-senkronizasyon-akışı-sync-komutu)
 5. [Deployment Akışı (git push)](#deployment-akışı-git-push)
 6. [Parametre Akış Diyagramları](#parametre-akış-diyagramları)
 
 ---
 
-## Başlangıç Akışı (init komutu)
+## Orchestrator Kurulum Akışı (orchestrator up)
+
+### Amaç
+**Tek seferlik** merkezi Forgejo, monitoring ve reverse proxy altyapısını kurmak. Tüm projeler bu merkezi altyapıyı kullanacak.
+
+### Ne Olur?
+
+**1. Orchestrator Config Yükleme**
+- `shared/orchestrator/config.yml` dosyası okunur
+- GCP project ID, region, zone bilgileri alınır
+- SSL email, admin credentials kontrol edilir
+
+**2. Secret Oluşturma (İlk Kurulumda)**
+- `FORGEJO_ADMIN_PASSWORD`: Admin şifresi (32 karakter)
+- `FORGEJO_DB_PASSWORD`: PostgreSQL şifresi
+- `FORGEJO_SECRET_KEY`: Encryption key (64 karakter)
+- `FORGEJO_INTERNAL_TOKEN`: Internal API token (105 karakter)
+- `GRAFANA_ADMIN_PASSWORD`: Grafana admin şifresi
+- Tüm secret'lar `shared/orchestrator/.env` dosyasına yazılır
+
+**3. Terraform Fazı**
+- Orchestrator workspace oluşturulur/seçilir
+- Orchestrator VM provision edilir (e2-medium, 50GB disk)
+- Statik IP adresi atanır (`preserve_ip: true`)
+- Firewall kuralları yapılandırılır (3001, 3000, 9090, 80, 443 portları)
+- VM IP'si `.env` dosyasına yazılır
+
+**4. Ansible Fazı - Foundation**
+- Sistem paketleri kurulur
+- Docker ve Docker Compose kurulur
+- Güvenlik yapılandırması (firewall, SSH)
+- Swap alanı yapılandırılır
+
+**5. Ansible Fazı - Addon Deployment**
+- **Forgejo + PostgreSQL**: Git server kurulumu
+  - Forgejo container başlatılır
+  - PostgreSQL database oluşturulur
+  - Admin user otomatik oluşturulur
+  - Organization ve repository kurulur
+  
+- **Monitoring (Prometheus + Grafana)**: Merkezi monitoring
+  - Prometheus container başlatılır
+  - Grafana container başlatılır
+  - Prometheus otomatik proje keşfi yapılandırması
+  - Grafana pre-configured dashboard'lar yüklenir
+  
+- **Caddy**: Reverse proxy ve SSL
+  - Caddy container başlatılır
+  - Subdomain routing yapılandırılır (forgejo.domain.com, grafana.domain.com)
+  - Let's Encrypt SSL sertifikaları otomatik oluşturulur
+
+**6. Orchestrator Runner Kurulumu**
+- Forgejo runner service kurulur
+- Orchestrator Forgejo'ya register edilir
+- Label: `[orchestrator, linux, docker, ubuntu-latest]`
+
+### Parametre Akışı
+
+```
+shared/orchestrator/config.yml
+    ↓
+Terraform Variables (GCP, region, SSH)
+    ↓
+GCP API → Orchestrator VM (statik IP ile)
+    ↓
+Ansible Variables (addon configs, secrets)
+    ↓
+    ├── Forgejo + PostgreSQL containers
+    ├── Prometheus + Grafana containers
+    ├── Caddy container (SSL + routing)
+    └── Orchestrator Runner
+    ↓
+Merkezi Altyapı Hazır
+```
+
+### Çıktılar
+
+- Orchestrator IP: `ORCHESTRATOR_IP` (shared/orchestrator/.env)
+- Forgejo: `http://ORCHESTRATOR_IP:3001` veya `https://forgejo.domain.com`
+- Grafana: `http://ORCHESTRATOR_IP:3000` veya `https://grafana.domain.com`
+- Prometheus: `http://ORCHESTRATOR_IP:9090` veya `https://prometheus.domain.com`
+- Admin credentials: `shared/orchestrator/.env` dosyasında
+
+---
+
+## Proje Başlatma Akışı (init komutu)
 
 ### Amaç
 Yeni bir proje için gerekli tüm yapılandırma dosyalarını, dizin yapısını ve güvenli şifreleri oluşturmak.
@@ -76,62 +161,6 @@ project.yml ────────────────┐
 - **Merkezi yapılandırma**: Tüm proje ayarları tek yerde
 - **Template sistemi**: Addon'lar yeniden kullanılabilir
 - **Ayrı şifre dosyası**: Şifreler version control'e girmez
-
----
-
-## Orchestrator Kurulum Akışı (orchestrator up)
-
-### Amaç
-Tüm projeler için merkezi Forgejo, monitoring ve reverse proxy altyapısını kurmak.
-
-### Ne Olur?
-
-**1. Orchestrator VM Oluşturma**
-- Terraform ile orchestrator VM provision edilir
-- Sabit IP adresi atanır (preserve_ip: true)
-- Firewall kuralları yapılandırılır
-
-**2. Temel Sistem Kurulumu**
-- Docker ve Docker Compose kurulumu
-- Sistem paketleri ve güvenlik yapılandırması
-
-**3. Forgejo Deployment**
-- PostgreSQL container (Forgejo için)
-- Forgejo container
-- Admin user oluşturma
-- Organization ve repository kurulumu
-
-**4. Monitoring Deployment**
-- Prometheus container
-- Grafana container
-- Otomatik proje keşfi yapılandırması
-
-**5. Caddy Reverse Proxy**
-- Subdomain-based routing
-- Otomatik SSL sertifikaları (Let's Encrypt)
-- forgejo.domain.com, grafana.domain.com, prometheus.domain.com
-
-**6. Orchestrator Runner**
-- Forgejo runner kurulumu
-- Label: [orchestrator, linux, docker, ubuntu-latest]
-
-### Parametre Akışı
-
-```
-orchestrator project.yml
-    ↓
-Terraform Variables
-    ↓
-GCP VM (orchestrator)
-    ↓
-Ansible Playbook
-    ├── Forgejo + PostgreSQL
-    ├── Monitoring (Prometheus + Grafana)
-    ├── Caddy (reverse proxy)
-    └── Orchestrator Runner
-    ↓
-Merkezi Altyapı Hazır
-```
 
 ---
 

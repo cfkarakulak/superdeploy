@@ -477,16 +477,81 @@ git push origin production
 
 ### Beklenen Sonuç
 
-1. **GitHub Actions:** Build başlayacak (~2 dakika)
-2. **Orchestrator Forgejo:** Workflow'u alacak
-3. **Project VM Runner:** Deploy başlayacak (~1 dakika)
-4. Container çalışacak
+1. **GitHub Actions:** Build başlayacak (~2-3 dakika)
+   - Docker image build edilir
+   - Registry'ye push edilir
+   - Environment AGE ile şifrelenir
+   
+2. **Orchestrator Forgejo:** Workflow dispatch
+   - GitHub Actions'dan trigger alır
+   - Workflow'u project-specific runner'a yönlendirir
+   
+3. **Project VM Runner:** Deployment
+   - Environment'ı decrypt eder
+   - Docker image'ı pull eder
+   - Container'ı deploy eder
+   - Health check yapar (~1 dakika)
+
+4. **Sonuç:** Container çalışır durumda
+
+### Kontrol Et
+
+```bash
+# Status kontrol
+superdeploy status -p myproject
+
+# Logs kontrol (real-time)
+superdeploy logs -p myproject -a api --follow
+
+# Container kontrol (SSH ile)
+superdeploy ssh -p myproject
+docker ps
+```
 
 ---
 
 ## 🎉 Kurulum Tamamlandı!
 
 Artık sistemi kullanmaya hazırsın.
+
+### Ne Yaptık?
+
+✅ **Orchestrator Kurulumu** (Tek seferlik)
+- Merkezi Forgejo (tüm projeler için)
+- Merkezi Monitoring (Prometheus + Grafana)
+- Caddy reverse proxy (SSL + subdomain routing)
+
+✅ **Proje Kurulumu**
+- Project VM'ler (core + app)
+- Infrastructure addon'ları (postgres, rabbitmq)
+- Project-specific Forgejo runner'lar
+- Otomatik deployment pipeline
+
+### Şimdi Ne Yapabilirsin?
+
+**Günlük Kullanım:**
+```bash
+# Kod değişikliği yap
+git add .
+git commit -m "feat: new feature"
+git push origin production  # Otomatik deploy!
+
+# Logs izle
+superdeploy logs -p myproject -a api --follow
+
+# Status kontrol
+superdeploy status -p myproject
+```
+
+**Monitoring:**
+- Grafana: `https://grafana.yourdomain.com` (veya `http://ORCHESTRATOR_IP:3000`)
+- Prometheus: `https://prometheus.yourdomain.com` (veya `http://ORCHESTRATOR_IP:9090`)
+- Forgejo: `https://forgejo.yourdomain.com` (veya `http://ORCHESTRATOR_IP:3001`)
+
+**Operations:**
+- `OPERATIONS.md` - Günlük operasyonlar ve sorun giderme
+- `ARCHITECTURE.md` - Sistem mimarisi
+- `FLOW.md` - İş akışları
 
 ---
 

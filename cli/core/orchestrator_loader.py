@@ -3,7 +3,6 @@
 from pathlib import Path
 from typing import Dict, Any, Optional
 import yaml
-from datetime import datetime
 
 
 class OrchestratorConfig:
@@ -17,7 +16,9 @@ class OrchestratorConfig:
             config_path: Path to orchestrator.yml
         """
         self.config_path = config_path
-        self.base_path = config_path.parent.parent  # shared/orchestrator/config.yml -> shared/
+        self.base_path = (
+            config_path.parent.parent
+        )  # shared/orchestrator/config.yml -> shared/
         self.config = self._load_config()
 
     def _load_config(self) -> Dict[str, Any]:
@@ -37,23 +38,26 @@ class OrchestratorConfig:
         # Auto-allocate subnets if not specified
         if "network" not in config:
             config["network"] = {}
-        
+
         subnet_allocated = False
         if "docker_subnet" not in config["network"]:
             from cli.subnet_allocator import SubnetAllocator
-            config["network"]["docker_subnet"] = SubnetAllocator.get_orchestrator_docker_subnet()
+
+            config["network"]["docker_subnet"] = (
+                SubnetAllocator.get_orchestrator_docker_subnet()
+            )
             subnet_allocated = True
-        
+
         # Save allocated subnet back to config file for transparency
         if subnet_allocated:
             self._save_config(config)
 
         return config
-    
+
     def _save_config(self, config: Dict[str, Any]) -> None:
         """Save configuration back to yaml file"""
         try:
-            with open(self.config_path, 'w') as f:
+            with open(self.config_path, "w") as f:
                 yaml.dump(config, f, default_flow_style=False, sort_keys=False)
         except Exception:
             # Silently fail - not critical
@@ -68,19 +72,17 @@ class OrchestratorConfig:
         env_path = self.base_path / "orchestrator" / ".env"
         if env_path.exists():
             try:
-                with open(env_path, 'r') as f:
+                with open(env_path, "r") as f:
                     for line in f:
                         line = line.strip()
-                        if line.startswith('ORCHESTRATOR_IP='):
-                            ip = line.split('=', 1)[1].strip()
+                        if line.startswith("ORCHESTRATOR_IP="):
+                            ip = line.split("=", 1)[1].strip()
                             if ip:
                                 return ip
             except:
                 pass
-        
+
         return None
-
-
 
     def get_vm_config(self) -> Dict[str, Any]:
         """Get VM configuration for orchestrator"""
@@ -96,35 +98,87 @@ class OrchestratorConfig:
 
     def mark_deployed(self, ip: str) -> None:
         """
-        Mark orchestrator as deployed and save IP to .env
+        Mark orchestrator as deployed and save IP to .env + all project .passwords.yml
 
         Args:
             ip: External IP of orchestrator VM
         """
+        # 1. Save to shared/orchestrator/.env (backward compatibility)
         env_path = self.base_path / "orchestrator" / ".env"
-        
+
         # Read existing .env content
         env_lines = []
         ip_found = False
-        
+
         if env_path.exists():
-            with open(env_path, 'r') as f:
+            with open(env_path, "r") as f:
                 for line in f:
-                    if line.strip().startswith('ORCHESTRATOR_IP='):
-                        env_lines.append(f'ORCHESTRATOR_IP={ip}\n')
+                    if line.strip().startswith("ORCHESTRATOR_IP="):
+                        env_lines.append(f"ORCHESTRATOR_IP={ip}\n")
                         ip_found = True
                     else:
                         env_lines.append(line)
-        
+
         # If ORCHESTRATOR_IP not found, append it
         if not ip_found:
-            env_lines.append(f'ORCHESTRATOR_IP={ip}\n')
-        
+            env_lines.append(f"ORCHESTRATOR_IP={ip}\n")
+
         # Write back to .env
-        with open(env_path, 'w') as f:
+        with open(env_path, "w") as f:
             f.writelines(env_lines)
 
-    def to_terraform_vars(self, project_id: str, ssh_pub_key_path: str) -> Dict[str, Any]:
+        # 2. Update all project .passwords.yml files
+        self._update_project_passwords(ip)
+
+    def _update_project_passwords(self, ip: str) -> None:
+        """
+        Update ORCHESTRATOR_IP in all project .passwords.yml files
+
+        Args:
+            ip: Orchestrator IP address
+        """
+        projects_dir = self.base_path.parent / "projects"
+
+        if not projects_dir.exists():
+            return
+
+        # Find all .passwords.yml files
+        for project_dir in projects_dir.iterdir():
+            if not project_dir.is_dir():
+                continue
+
+            passwords_file = project_dir / ".passwords.yml"
+            if not passwords_file.exists():
+                continue
+
+            try:
+                # Load existing passwords
+                with open(passwords_file, "r") as f:
+                    passwords_data = yaml.safe_load(f) or {}
+
+                # Ensure secrets.shared exists
+                if "secrets" not in passwords_data:
+                    passwords_data["secrets"] = {}
+                if "shared" not in passwords_data["secrets"]:
+                    passwords_data["secrets"]["shared"] = {}
+
+                # Update ORCHESTRATOR_IP
+                passwords_data["secrets"]["shared"]["ORCHESTRATOR_IP"] = ip
+
+                # Save back
+                with open(passwords_file, "w") as f:
+                    yaml.dump(
+                        passwords_data, f, default_flow_style=False, sort_keys=False
+                    )
+
+            except Exception as e:
+                # Don't fail if one project fails
+                print(f"Warning: Could not update {passwords_file}: {e}")
+                continue
+
+    def to_terraform_vars(
+        self, project_id: str, ssh_pub_key_path: str
+    ) -> Dict[str, Any]:
         """
         Convert to Terraform variables format
 
@@ -137,10 +191,11 @@ class OrchestratorConfig:
         """
         vm_config = self.get_vm_config()
         network_config = self.get_network_config()
-        gcp_config = self.config.get('gcp', {})
-        
+        gcp_config = self.config.get("gcp", {})
+
         # Use reserved orchestrator subnet
         from cli.subnet_allocator import SubnetAllocator
+
         orchestrator_subnet = SubnetAllocator.get_orchestrator_subnet()
 
         return {
@@ -180,38 +235,33 @@ class OrchestratorConfig:
         grafana_config = self.config.get("grafana", {})
         prometheus_config = self.config.get("prometheus", {})
         caddy_config = self.config.get("caddy", {})
-        
+
         enabled_addons = ["forgejo", "monitoring"]
         addon_configs = {
             "forgejo": forgejo_config,
-            "monitoring": {
-                "grafana": grafana_config,
-                "prometheus": prometheus_config
-            }
+            "monitoring": {"grafana": grafana_config, "prometheus": prometheus_config},
         }
-        
+
         # Add Caddy if enabled (for monitoring reverse proxy)
         if caddy_config.get("enabled", False):
             enabled_addons.append("caddy")
             addon_configs["caddy"] = caddy_config
-        
+
         # Get project info for ssl_email
         project_config = self.config.get("project", {})
-        
+
         # Get network config
         network_config = self.config.get("network", {})
-        
+
         return {
             "project_name": "orchestrator",
             "project_config": {
                 "project": {
                     "name": "orchestrator",
-                    "ssl_email": project_config.get("ssl_email", "")
+                    "ssl_email": project_config.get("ssl_email", ""),
                 },
                 "network": network_config,  # Add network config for subnet allocation
-                "addons": {
-                    "forgejo": forgejo_config
-                },
+                "addons": {"forgejo": forgejo_config},
                 "grafana": grafana_config,
                 "prometheus": prometheus_config,
                 "forgejo": forgejo_config,  # Add forgejo at root level for env.yml path resolution

@@ -1,18 +1,27 @@
-# Orchestrator VM Setup Guide
+# Orchestrator VM Kurulum Rehberi
 
 ## 🎯 Konsept
 
-**Orchestrator VM:** Tüm projeler için tek bir Forgejo instance'ı çalıştıran global VM.
+**Orchestrator VM:** Tüm projeler için tek bir Forgejo instance'ı, merkezi monitoring (Prometheus + Grafana) ve reverse proxy (Caddy) çalıştıran global VM.
+
+**Tek Seferlik Kurulum:** Orchestrator bir kere kurulur, tüm projeler bu merkezi altyapıyı kullanır.
 
 ## 📋 İlk Kurulum (Bir Kere)
 
-### 1. Orchestrator Projesi Oluştur
+### 1. Orchestrator Config Oluştur
 
 ```bash
-superdeploy init -p orchestrator
+superdeploy orchestrator:init
 ```
 
-### 2. Orchestrator project.yml
+**Bu komut:**
+- İnteraktif wizard ile orchestrator config'i oluşturur
+- GCP project ID, region, zone ayarlarını alır
+- SSL email ve admin credentials'ı toplar
+- Domain bilgilerini alır (opsiyonel)
+- `shared/orchestrator/config.yml` dosyasını oluşturur
+
+### 2. Orchestrator config.yml (Otomatik Oluşturulur)
 
 ```yaml
 project: orchestrator
@@ -63,25 +72,46 @@ apps: {}  # Orchestrator'da app yok
 ### 3. Deploy Orchestrator
 
 ```bash
-superdeploy up -p orchestrator
+superdeploy orchestrator:up
 ```
 
-**Bu şunları yapar:**
-- ✅ `orchestrator` VM oluşturur (IP preservation ile)
-- ✅ Forgejo + PostgreSQL kurar
-- ✅ Prometheus + Grafana kurar
-- ✅ Caddy reverse proxy kurar (SSL sertifikaları ile)
-- ✅ `orchestrator-runner` kurar
-- ✅ Admin user oluşturur
+**Bu komut şunları yapar:**
+- ✅ Orchestrator VM oluşturur (e2-medium, 50GB, statik IP ile)
+- ✅ Forgejo + PostgreSQL kurar (tüm projeler için)
+- ✅ Prometheus + Grafana kurar (merkezi monitoring)
+- ✅ Caddy reverse proxy kurar (SSL + subdomain routing)
+- ✅ Orchestrator runner kurar (workflow routing için)
+- ✅ Admin user ve organization otomatik oluşturur
+- ✅ Pre-configured Grafana dashboard'ları yükler
+
+**Süre:** ~8-10 dakika
 
 ### 4. Orchestrator IP'sini Kaydet
 
-```bash
-# .env dosyasından al
-cat projects/orchestrator/.env | grep ORCHESTRATOR_0_EXTERNAL_IP
+Deployment sonunda IP adresi ve credentials ekranda gösterilir:
 
-# Örnek: 34.72.179.175
 ```
+✅ Orchestrator Deployed!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📍 Orchestrator IP: 34.72.179.175
+
+🔐 Access Credentials:
+🌐 Forgejo (Git Server):
+   URL: http://34.72.179.175:3001
+   Username: admin
+   Password: [otomatik oluşturulan şifre]
+
+📊 Grafana (Monitoring):
+   URL: http://34.72.179.175:3000
+   Username: admin
+   Password: [otomatik oluşturulan şifre]
+
+📈 Prometheus (Metrics):
+   URL: http://34.72.179.175:9090
+```
+
+IP adresi ve şifreler `shared/orchestrator/.env` dosyasında saklanır.
 
 ## 📦 Diğer Projeler (Her Proje İçin)
 

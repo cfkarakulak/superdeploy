@@ -1,0 +1,265 @@
+"""State management for SuperDeploy projects"""
+
+import yaml
+import hashlib
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, Any
+
+
+class StateManager:
+    """Manages project state for change detection and idempotency"""
+
+    def __init__(self, project_root: Path, project_name: str):
+        self.project_root = project_root
+        self.project_name = project_name
+        self.state_file = project_root / "projects" / project_name / "state.yml"
+
+    def load_state(self) -> Dict[str, Any]:
+        """Load existing state, return empty dict if not exists"""
+        if not self.state_file.exists():
+            return {}
+
+        with open(self.state_file, "r") as f:
+            return yaml.safe_load(f) or {}
+
+    def save_state(self, state: Dict[str, Any]):
+        """Save state to file"""
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Add timestamp
+        state["last_applied"] = {
+            "timestamp": datetime.now().isoformat(),
+            "config_hash": self._calculate_config_hash(),
+        }
+
+        with open(self.state_file, "w") as f:
+            yaml.dump(state, f, default_flow_style=False, sort_keys=False)
+
+    def _calculate_config_hash(self) -> str:
+        """Calculate hash of project.yml for change detection"""
+        project_yml = self.project_root / "projects" / self.project_name / "project.yml"
+
+        if not project_yml.exists():
+            return ""
+
+        with open(project_yml, "rb") as f:
+            content = f.read()
+            return hashlib.sha256(content).hexdigest()[:12]
+
+    def config_changed(self) -> bool:
+        """Check if project.yml has changed since last apply"""
+        state = self.load_state()
+        last_applied = state.get("last_applied", {})
+        last_hash = last_applied.get("config_hash", "")
+        current_hash = self._calculate_config_hash()
+
+        return last_hash != current_hash
+
+    def detect_changes(
+        self, project_config: Any
+    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        """
+        Detect changes between current config and last applied state
+
+        Returns:
+            (changes_dict, state_dict)
+
+        changes_dict structure:
+            {
+                'has_changes': bool,
+                'vms': {'added': [], 'removed': [], 'modified': []},
+                'addons': {'added': [], 'removed': [], 'modified': []},
+                'apps': {'added': [], 'removed': [], 'modified': []},
+                'needs_generate': bool,
+                'needs_terraform': bool,
+                'needs_ansible': bool,
+                'needs_sync': bool
+            }
+        """
+        state = self.load_state()
+        config = project_config.raw_config
+
+        changes = {
+            "has_changes": False,
+            "vms": {"added": [], "removed": [], "modified": []},
+            "addons": {"added": [], "removed": [], "modified": []},
+            "apps": {"added": [], "removed": [], "modified": []},
+            "needs_generate": False,
+            "needs_terraform": False,
+            "needs_ansible": False,
+            "needs_sync": False,
+        }
+
+        # First deployment (no state)
+        if not state:
+            # Everything is new
+            config_vms = config.get("vms", {})
+            config_addons = config.get("addons", {})
+            config_apps = config.get("apps", {})
+
+            changes["has_changes"] = True
+            changes["vms"]["added"] = list(config_vms.keys())
+            changes["addons"]["added"] = list(config_addons.keys())
+            changes["apps"]["added"] = list(config_apps.keys())
+            changes["needs_generate"] = bool(config_apps)
+            changes["needs_terraform"] = bool(config_vms)
+            changes["needs_ansible"] = bool(config_addons) or bool(config_vms)
+            changes["needs_sync"] = True
+
+            return changes, state
+
+        # Check VMs
+        state_vms = state.get("vms", {})
+        config_vms = config.get("vms", {})
+
+        for vm_name, vm_config in config_vms.items():
+            if vm_name not in state_vms:
+                changes["vms"]["added"].append(vm_name)
+                changes["needs_terraform"] = True
+                changes["needs_ansible"] = True
+            else:
+                # Check if VM config changed (machine_type, disk_size, services)
+                state_vm = state_vms[vm_name]
+                if (
+                    vm_config.get("machine_type") != state_vm.get("machine_type")
+                    or vm_config.get("disk_size") != state_vm.get("disk_size")
+                    or set(vm_config.get("services", []))
+                    != set(state_vm.get("services", []))
+                ):
+                    changes["vms"]["modified"].append(
+                        {
+                            "name": vm_name,
+                            "old": state_vm,
+                            "new": vm_config,
+                        }
+                    )
+                    changes["needs_terraform"] = True
+                    changes["needs_ansible"] = True
+
+        for vm_name in state_vms:
+            if vm_name not in config_vms:
+                changes["vms"]["removed"].append(vm_name)
+                changes["needs_terraform"] = True
+
+        # Check Addons
+        state_addons = state.get("addons", {})
+        config_addons = config.get("addons", {})
+
+        for addon_name in config_addons:
+            if addon_name not in state_addons:
+                changes["addons"]["added"].append(addon_name)
+                changes["needs_ansible"] = True
+                changes["needs_sync"] = True
+
+        for addon_name in state_addons:
+            if addon_name not in config_addons:
+                changes["addons"]["removed"].append(addon_name)
+                changes["needs_ansible"] = True
+
+        # Check Apps
+        state_apps = state.get("apps", {})
+        config_apps = config.get("apps", {})
+
+        for app_name, app_config in config_apps.items():
+            if app_name not in state_apps:
+                changes["apps"]["added"].append(app_name)
+                changes["needs_generate"] = True
+                changes["needs_sync"] = True
+            else:
+                # Check if app path or vm changed
+                state_app = state_apps[app_name]
+                if app_config.get("path") != state_app.get("path") or app_config.get(
+                    "vm"
+                ) != state_app.get("vm"):
+                    changes["apps"]["modified"].append(
+                        {
+                            "name": app_name,
+                            "old": state_app,
+                            "new": app_config,
+                        }
+                    )
+                    changes["needs_generate"] = True
+
+        for app_name in state_apps:
+            if app_name not in config_apps:
+                changes["apps"]["removed"].append(app_name)
+                # No action needed for removed apps
+
+        # Set has_changes flag
+        if any(
+            [
+                changes["vms"]["added"],
+                changes["vms"]["removed"],
+                changes["vms"]["modified"],
+                changes["addons"]["added"],
+                changes["addons"]["removed"],
+                changes["apps"]["added"],
+                changes["apps"]["modified"],
+                changes["apps"]["removed"],
+            ]
+        ):
+            changes["has_changes"] = True
+
+        return changes, state
+
+    def update_from_config(self, project_config: Any):
+        """Update state from successful deployment"""
+        config = project_config.raw_config
+
+        state = {
+            "vms": {},
+            "addons": {},
+            "apps": {},
+        }
+
+        # Store VM state
+        for vm_name, vm_config in config.get("vms", {}).items():
+            state["vms"][vm_name] = {
+                "machine_type": vm_config.get("machine_type"),
+                "disk_size": vm_config.get("disk_size"),
+                "services": vm_config.get("services", []),
+                "status": "applied",
+            }
+
+        # Store addon state
+        for addon_name in config.get("addons", {}):
+            state["addons"][addon_name] = {
+                "status": "installed",
+            }
+
+        # Store app state
+        for app_name, app_config in config.get("apps", {}).items():
+            state["apps"][app_name] = {
+                "path": app_config.get("path"),
+                "vm": app_config.get("vm"),
+                "workflows_generated": True,
+            }
+
+        self.save_state(state)
+
+    def mark_generated(self, app_name: str):
+        """Mark app workflows as generated"""
+        state = self.load_state()
+
+        if "apps" not in state:
+            state["apps"] = {}
+
+        if app_name not in state["apps"]:
+            state["apps"][app_name] = {}
+
+        state["apps"][app_name]["workflows_generated"] = True
+        state["apps"][app_name]["last_generated"] = datetime.now().isoformat()
+
+        self.save_state(state)
+
+    def mark_synced(self):
+        """Mark secrets as synced"""
+        state = self.load_state()
+
+        if "secrets" not in state:
+            state["secrets"] = {}
+
+        state["secrets"]["last_sync"] = datetime.now().isoformat()
+
+        self.save_state(state)

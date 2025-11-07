@@ -181,9 +181,7 @@ def orchestrator_init():
     with open(config_path, "w") as f:
         f.write(config_content)
 
-    console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
-    console.print("[color(248)]Orchestrator configured.[/color(248)]")
-    console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
+    console.print("\n[color(248)]Orchestrator configured.[/color(248)]")
     console.print(f"\n[cyan]📄 Config saved to:[/cyan] {config_path}")
     console.print("\n[bold]Next steps:[/bold]")
     console.print("  1. [dim]Review config:[/dim] shared/orchestrator/config.yml")
@@ -534,13 +532,7 @@ def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose):
             )
 
             if not verbose:
-                console.print(
-                    "\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]"
-                )
-                console.print("[color(248)]Orchestrator deployed.[/color(248)]")
-                console.print(
-                    "[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]\n"
-                )
+                console.print("\n[color(248)]Orchestrator deployed.[/color(248)]")
 
         except Exception as e:
             logger.log_error(str(e), context="Orchestrator deployment failed")
@@ -895,10 +887,6 @@ ansible_python_interpreter=/usr/bin/python3
     forgejo_admin = orch_config.config.get("forgejo", {}).get("admin_user", "admin")
     forgejo_pass = secrets.get("FORGEJO_ADMIN_PASSWORD", "")
     grafana_pass = secrets.get("GRAFANA_ADMIN_PASSWORD", "")
-
-    console.print("\n" + "━" * 60)
-    console.print("[bold green]✅ Orchestrator Deployed![/bold green]")
-    console.print("━" * 60)
 
     console.print(f"\n[cyan]📍 Orchestrator IP:[/cyan] {orchestrator_ip}")
     console.print("\n[bold cyan]🔐 Access Credentials:[/bold cyan]")

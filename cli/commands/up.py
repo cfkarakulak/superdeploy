@@ -20,6 +20,8 @@ console = Console()
 @click.option("--tags", help="Run only specific Ansible tags")
 @click.option("--preserve-ip", is_flag=True, help="Preserve existing static IPs")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
+@click.option("--force", is_flag=True, help="Force update (ignore state)")
+@click.option("--dry-run", is_flag=True, help="Show what would be done (like plan)")
 def up(
     project,
     skip_terraform,
@@ -31,21 +33,26 @@ def up(
     tags,
     preserve_ip,
     verbose,
+    force,
+    dry_run,
 ):
     """
     Deploy infrastructure (like 'heroku create')
 
     This command will:
+    - Detect changes automatically
+    - Generate workflows if needed
     - Provision VMs with Terraform
     - Configure services with Ansible
-    - Push code to Forgejo
-    - Setup Forgejo runner
+    - Sync secrets to GitHub/Forgejo
+
+    Smart & idempotent - runs only what's needed.
     """
 
     if not verbose:
         show_header(
             title="Infrastructure Deployment",
-            subtitle="Provisioning VMs, configuring services, and deploying applications",
+            subtitle="Smart deployment with change detection",
             project=project,
             show_logo=True,
             console=console,
@@ -58,6 +65,128 @@ def up(
     # Initialize logger
     with DeployLogger(project, "up", verbose=verbose) as logger:
         try:
+            # Change detection (smart deployment)
+            if not force and not skip_terraform and not skip_ansible:
+                from cli.core.config_loader import ConfigLoader
+                from cli.state_manager import StateManager
+
+                projects_dir = project_root / "projects"
+                config_loader = ConfigLoader(projects_dir)
+
+                try:
+                    project_config = config_loader.load_project(project)
+                except FileNotFoundError:
+                    logger.log_error(f"Project not found: {project}")
+                    raise SystemExit(1)
+                except ValueError as e:
+                    logger.log_error(f"Invalid configuration: {e}")
+                    raise SystemExit(1)
+
+                # Detect changes
+                state_mgr = StateManager(project_root, project)
+                changes, state = state_mgr.detect_changes(project_config)
+
+                # Dry-run mode
+                if dry_run:
+                    logger.log("🔍 Dry-run mode: showing what would be done")
+                    logger.log("")
+
+                    if not changes["has_changes"]:
+                        logger.success(
+                            "✅ No changes detected. Infrastructure is up to date."
+                        )
+                        return
+
+                    # Show changes (mini plan)
+                    if changes["vms"]["added"]:
+                        logger.log(
+                            f"VMs to create: {', '.join(changes['vms']['added'])}"
+                        )
+                    if changes["vms"]["modified"]:
+                        modified_vms = [v["name"] for v in changes["vms"]["modified"]]
+                        logger.log(f"VMs to modify: {', '.join(modified_vms)}")
+                    if changes["addons"]["added"]:
+                        logger.log(
+                            f"Addons to install: {', '.join(changes['addons']['added'])}"
+                        )
+                    if changes["apps"]["added"]:
+                        logger.log(
+                            f"Apps to setup: {', '.join(changes['apps']['added'])}"
+                        )
+
+                    logger.log("")
+                    logger.log("Run without --dry-run to apply changes")
+                    return
+
+                # No changes - skip deployment
+                if not changes["has_changes"]:
+                    logger.log("🔍 Detecting changes...")
+                    logger.log("")
+                    logger.success("✅ No changes detected.")
+                    logger.log("")
+                    logger.log("Infrastructure is up to date with project.yml")
+                    logger.log("")
+                    logger.log("To force update: superdeploy up -p {project} --force")
+                    return
+
+                # Show detected changes
+                logger.log("🔍 Detecting changes...")
+                logger.log("")
+
+                if changes["vms"]["added"]:
+                    logger.log(
+                        f"  [green]+ VMs to create:[/green] {', '.join(changes['vms']['added'])}"
+                    )
+                if changes["vms"]["modified"]:
+                    modified_vms = [v["name"] for v in changes["vms"]["modified"]]
+                    logger.log(
+                        f"  [yellow]~ VMs to modify:[/yellow] {', '.join(modified_vms)}"
+                    )
+                if changes["addons"]["added"]:
+                    logger.log(
+                        f"  [green]+ Addons to install:[/green] {', '.join(changes['addons']['added'])}"
+                    )
+                if changes["apps"]["added"]:
+                    logger.log(
+                        f"  [green]+ Apps to setup:[/green] {', '.join(changes['apps']['added'])}"
+                    )
+
+                logger.log("")
+                logger.log("Proceeding with deployment...")
+                logger.log("")
+
+                # Override skip flags based on what's needed
+                if not changes["needs_terraform"]:
+                    skip_terraform = True
+                    logger.log(
+                        "  [dim]⏭ Skipping Terraform (no infrastructure changes)[/dim]"
+                    )
+
+                if not changes["needs_ansible"]:
+                    skip_ansible = True
+                    logger.log("  [dim]⏭ Skipping Ansible (no service changes)[/dim]")
+
+                if not changes["needs_sync"]:
+                    skip_sync = True
+                    logger.log("  [dim]⏭ Skipping sync (no new secrets)[/dim]")
+
+                # Auto-generate workflows if needed
+                if changes["needs_generate"]:
+                    logger.log("  [cyan]→ Auto-generating workflows...[/cyan]")
+                    from cli.commands.generate import generate
+                    from click.testing import CliRunner
+
+                    runner = CliRunner()
+                    result = runner.invoke(generate, ["-p", project])
+
+                    if result.exit_code != 0:
+                        logger.log_error("Workflow generation failed")
+                        raise SystemExit(1)
+
+                    logger.log("  [dim]✓ Workflows generated[/dim]")
+
+                logger.log("")
+
             _deploy_project_v2(
                 logger,
                 project_root,
@@ -72,6 +201,21 @@ def up(
                 preserve_ip,
                 verbose,
             )
+
+            # Update state after successful deployment (if not skipped)
+            if not force and not dry_run:
+                from cli.core.config_loader import ConfigLoader
+                from cli.state_manager import StateManager
+
+                projects_dir = project_root / "projects"
+                config_loader = ConfigLoader(projects_dir)
+                project_config = config_loader.load_project(project)
+
+                state_mgr = StateManager(project_root, project)
+                state_mgr.update_from_config(project_config)
+
+                logger.log("")
+                logger.log("💾 State saved")
 
         except Exception as e:
             logger.log_error(str(e), context=f"Project {project} deployment failed")
@@ -378,6 +522,14 @@ def _deploy_project_v2(
         ansible_vars = project_config_obj.to_ansible_vars()
         ansible_vars["forgejo_base_url"] = f"http://{orchestrator_ip}:3001"
         ansible_vars["orchestrator_ip"] = orchestrator_ip
+
+        # Load and pass .passwords.yml to Ansible
+        from cli.secret_manager import SecretManager
+
+        secret_mgr = SecretManager(project_root / "projects" / project)
+        all_secrets = secret_mgr.load_secrets()
+        ansible_vars["project_secrets"] = all_secrets.get("secrets", {})
+        ansible_vars["env_aliases"] = all_secrets.get("env_aliases", {})
 
         ansible_env_vars = {"superdeploy_root": str(project_root)}
 

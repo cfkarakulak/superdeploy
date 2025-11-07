@@ -78,6 +78,7 @@ from cli.commands import (
     update_firewall,
     subnets,
     tunnel,
+    plan,
 )
 from cli.commands.domain import domain_add, domain_list, domain_remove
 from cli.commands.config import (
@@ -138,6 +139,7 @@ def cli(ctx: click.Context) -> None:
 # Register commands
 cli.add_command(init.init)
 cli.add_command(generate.generate)
+cli.add_command(plan.plan)
 # Register up command (with improved logging)
 cli.add_command(up.up)
 cli.add_command(down.down)

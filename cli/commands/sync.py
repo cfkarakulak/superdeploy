@@ -328,8 +328,6 @@ def sync_forgejo_secrets(
     # Add optional app-specific URLs if defined in env
     if "PUBLIC_URL" in merged_env:
         secrets["PUBLIC_URL"] = merged_env["PUBLIC_URL"]
-    if "SENTRY_DSN" in merged_env:
-        secrets["SENTRY_DSN"] = merged_env["SENTRY_DSN"]
 
     # Add core service secrets dynamically from addon metadata
     if not project_name:
@@ -869,8 +867,6 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
                 env_secrets["PUBLIC_URL"] = merged_env["PUBLIC_URL"]
             if "API_BASE_URL" in merged_env:
                 env_secrets["API_BASE_URL"] = merged_env["API_BASE_URL"]
-            if "SENTRY_DSN" in merged_env:
-                env_secrets["SENTRY_DSN"] = merged_env["SENTRY_DSN"]
 
             # Add core service secrets dynamically from addon metadata
             core_service_patterns = build_service_patterns_from_addons(
@@ -908,9 +904,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     logger.success("All secrets synced successfully")
 
     if not verbose:
-        console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
-        console.print("[bold green]🎉 Sync Complete![/bold green]")
-        console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
+        console.print("\n[color(248)]Sync complete.[/color(248)]")
         console.print("\n[white]Next steps:[/white]")
         console.print("  1. Push to GitHub: [cyan]git push origin production[/cyan]")
         console.print("  2. Deployment will auto-trigger!")

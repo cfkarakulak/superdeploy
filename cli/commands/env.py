@@ -174,7 +174,6 @@ def env_list(show_all, app, no_mask):
         "GRAFANA_ADMIN_USER",
         "GRAFANA_ADMIN_PASSWORD",
         "ALERT_EMAIL",
-        "SENTRY_DSN",
     ]
 
     # Filter logic

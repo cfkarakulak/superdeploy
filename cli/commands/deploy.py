@@ -124,13 +124,7 @@ def deploy(project, app, message, verbose):
             console.print("  ✓ Pushed to production")
 
             if not verbose:
-                console.print(
-                    "\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]"
-                )
-                console.print("[color(248)]Deployment triggered.[/color(248)]")
-                console.print(
-                    "[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]"
-                )
+                console.print("\n[color(248)]Deployment triggered.[/color(248)]")
                 console.print("\n[dim]Monitor logs:[/dim]")
                 console.print(
                     f"  [cyan]superdeploy logs -p {project} -a {app} -f[/cyan]"

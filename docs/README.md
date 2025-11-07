@@ -1,4 +1,4 @@
-# SuperDeploy Documentation
+# SuperDeploy Dokümantasyonu
 
 SuperDeploy, kendi altyapınızda Heroku benzeri deployment deneyimi sunan self-hosted PaaS platformudur.
 
@@ -11,6 +11,8 @@ Sistemin genel mimarisi, bileşenleri ve tasarım kararları:
 - Template → Instance pattern
 - Network izolasyonu
 - Güvenlik mimarisi
+- VM-specific service filtering
+- IP preservation
 - Yeni özellikler (2025)
 
 ### 🔄 [FLOW.md](./FLOW.md)
@@ -51,15 +53,13 @@ Orchestrator VM kurulum ve yönetim rehberi:
 - Runner yönetimi
 - Troubleshooting
 
-### 🏃 [RUNNER_ARCHITECTURE.md](./RUNNER_ARCHITECTURE.md)
-Forgejo runner mimarisi ve kullanımı:
-- Runner tipleri (orchestrator vs project-specific)
-- Label stratejisi
-- Workflow kullanımı
-- Runner registration
-- Configuration dosyaları
-- Güvenlik considerations
-- Best practices
+### 🔐 [SECURITY.md](./SECURITY.md)
+Güvenlik mimarisi ve best practices:
+- Development vs Production
+- Secret yönetimi
+- Network izolasyonu
+- Erişim kontrolü
+- Production hardening
 
 ---
 
@@ -120,50 +120,64 @@ git push origin production
 SuperDeploy, merkezi orchestrator VM ve proje-specific VM'ler kullanan hibrit bir mimari kullanır:
 
 ```
-Orchestrator VM (Global)
-├── Forgejo (tüm projeler için)
-├── Monitoring (Prometheus + Grafana)
-└── Caddy (reverse proxy + SSL)
+Orchestrator VM (Global - Tek Seferlik Kurulum)
+├── Forgejo (tüm projeler için merkezi Git server + CI/CD)
+├── Monitoring (Prometheus + Grafana - tüm projeler için)
+└── Caddy (reverse proxy + otomatik SSL sertifikaları)
 
-Project VMs (Proje-specific)
-├── Infrastructure services (postgres, redis, rabbitmq)
-├── Application containers
-└── Forgejo runners (deployment için)
+Project VMs (Her Proje İçin)
+├── Infrastructure services (postgres, redis, rabbitmq, vb.)
+├── Application containers (api, dashboard, services, vb.)
+└── Project-specific Forgejo runners (deployment için)
 ```
+
+**Avantajlar:**
+- Tek Forgejo instance'ı tüm projeler için
+- Merkezi monitoring ve metrics
+- Otomatik SSL sertifikaları
+- Her proje izole VM'lerde çalışır
+- IP preservation ile VM restart'ta IP korunur
 
 ### Addon-Tabanlı Mimari
 
-Tüm servisler (veritabanları, kuyruklar, proxy'ler) addon olarak tanımlanır:
+Tüm servisler (veritabanları, kuyruklar, proxy'ler) yeniden kullanılabilir addon'lar olarak tanımlanır:
 
 ```
 addons/
-├── postgres/      # PostgreSQL
-├── redis/         # Redis
-├── rabbitmq/      # RabbitMQ
-├── forgejo/       # Git server + CI/CD
+├── postgres/      # PostgreSQL veritabanı
+├── redis/         # Redis cache
+├── rabbitmq/      # RabbitMQ message queue
+├── forgejo/       # Git server + CI/CD (orchestrator'da)
 ├── caddy/         # Reverse proxy + SSL
-└── monitoring/    # Prometheus + Grafana
+├── monitoring/    # Prometheus + Grafana (orchestrator'da)
+├── mongodb/       # MongoDB NoSQL
+└── elasticsearch/ # Elasticsearch full-text search
 ```
 
-Her addon:
-- **addon.yml**: Metadata
-- **env.yml**: Environment variable şeması
-- **compose.yml.j2**: Docker Compose template
-- **ansible.yml**: Deployment görevleri
+Her addon şunları içerir:
+- **addon.yml**: Metadata (isim, versiyon, kategori, bağımlılıklar)
+- **env.yml**: Environment variable şeması (default'lar ve tipler)
+- **compose.yml.j2**: Docker Compose template (Jinja2)
+- **ansible.yml**: Deployment görevleri (kurulum, health check)
+
+**Kod tabanında hiçbir yerde hardcoded addon isimleri yok!** Tüm addon'lar dinamik olarak keşfedilir ve yüklenir.
 
 ### Template → Instance Pattern
 
-Addon'lar template'dir, her proje kendi instance'larını oluşturur:
+Addon'lar yeniden kullanılabilir template'lerdir, her proje kendi instance'larını oluşturur:
 
 ```
-Template (addons/postgres/)
+TEMPLATE (addons/postgres/)
+    ↓ (project.yml konfigürasyonu ile)
+Jinja2 rendering + VM-specific filtering
     ↓
-project.yml konfigürasyonu
-    ↓
-Jinja2 rendering
-    ↓
-Instance (myproject-postgres container)
+INSTANCE (myproject-postgres container)
 ```
+
+**Örnek:**
+- Template: `addons/postgres/compose.yml.j2`
+- Config: `projects/myproject/project.yml`
+- Instance: `myproject-postgres` container (sadece belirtilen VM'lerde)
 
 ---
 
@@ -239,26 +253,29 @@ superdeploy orchestrator up --addon caddy
 ### Proje Komutları
 
 ```bash
-# Proje oluştur
+# Proje oluştur (interaktif wizard)
 superdeploy init -p myproject
 
-# Altyapı deploy et
+# Altyapı deploy et (Terraform + Ansible)
 superdeploy up -p myproject
 
-# Secrets sync et
+# Secrets sync et (GitHub + Forgejo)
 superdeploy sync -p myproject
 
 # Durum kontrol et
 superdeploy status -p myproject
 
-# Logs
-superdeploy logs -p myproject -a api
+# Logs (real-time)
+superdeploy logs -p myproject -a api --follow
 
-# SSH
+# SSH ile VM'ye bağlan
 superdeploy ssh -p myproject
 
-# Selective addon deployment
+# Selective addon deployment (sadece belirli addon'lar)
 superdeploy up -p myproject --addon postgres
+
+# IP adresi korumalı deployment
+superdeploy up -p myproject --preserve-ip
 
 # Altyapıyı sil
 superdeploy destroy -p myproject
@@ -268,13 +285,16 @@ superdeploy destroy -p myproject
 
 ## 🆕 Yeni Özellikler (2025)
 
-1. **Orchestrator Mimarisi**: Merkezi Forgejo ve monitoring
-2. **Caddy Reverse Proxy**: Subdomain-based routing + otomatik SSL
+1. **Orchestrator Mimarisi**: Merkezi Forgejo ve monitoring (tek seferlik kurulum)
+2. **Caddy Reverse Proxy**: Subdomain-based routing + otomatik SSL (Let's Encrypt)
 3. **Merkezi Monitoring**: Prometheus + Grafana tüm projeler için
-4. **VM-Specific Service Filtering**: Sadece ilgili addon'lar deploy edilir
-5. **IP Preservation**: VM restart'ta IP adresleri korunur
+4. **VM-Specific Service Filtering**: Her VM sadece ihtiyacı olan addon'ları çalıştırır
+5. **IP Preservation**: VM restart'ta statik IP adresleri korunur (`preserve_ip: true`)
 6. **Selective Addon Deployment**: `--addon` flag ile belirli addon'ları deploy et
-7. **GitHub Actions → Forgejo Integration**: Düzeltilmiş API endpoint'leri
+7. **GitHub Actions → Forgejo Integration**: Düzeltilmiş API endpoint'leri ve workflow dispatch
+8. **Otomatik Subnet Allocation**: Projeler için otomatik VPC ve Docker subnet tahsisi
+9. **Dynamic Addon Discovery**: Kod tabanında hardcoded addon isimleri yok
+10. **Environment Aliases**: App'ler için soyutlama katmanı (DB_HOST → POSTGRES_HOST)
 
 ---
 

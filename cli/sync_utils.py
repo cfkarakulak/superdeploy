@@ -202,7 +202,7 @@ def sync_secrets_to_forgejo(project_name, env, forgejo_pat, project_secrets=None
             secrets[key] = value
 
     # Add optional fields
-    optional_fields = ["ALERT_EMAIL", "PUBLIC_URL", "SENTRY_DSN"]
+    optional_fields = ["ALERT_EMAIL", "PUBLIC_URL"]
     for field in optional_fields:
         if field in merged_env:
             secrets[field] = merged_env[field]

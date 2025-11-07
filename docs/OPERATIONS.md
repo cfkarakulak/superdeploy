@@ -1,6 +1,6 @@
 # Günlük Operasyonlar
 
-Bu döküman, sistemi kurduktan sonra **günlük kullanımda** ihtiyaç duyacağın tüm komutları ve senaryoları içerir.
+Bu doküman, sistemi kurduktan sonra **günlük kullanımda** ihtiyaç duyacağın tüm komutları ve senaryoları içerir.
 
 ---
 
@@ -8,35 +8,54 @@ Bu döküman, sistemi kurduktan sonra **günlük kullanımda** ihtiyaç duyacağ
 
 ```bash
 # Orchestrator durumu
-superdeploy orchestrator status
+superdeploy orchestrator:status
 
-# Sistem durumu
+# Orchestrator'a SSH
+superdeploy orchestrator:ssh
+
+# Sistem durumu (tüm VM'ler ve servisler)
 superdeploy status -p myproject
 
-# Yeni deployment
+# Yeni deployment (otomatik)
 git push origin production
 
-# Rollback
-superdeploy rollback -a api v42
+# Logs (real-time)
+superdeploy logs -p myproject -a api --follow
 
-# Logs
-superdeploy logs -p myproject -a api --tail 100
-
-# Secrets yönetimi
+# Secrets yönetimi (GitHub + Forgejo sync)
 superdeploy sync -p myproject
 
-# Infrastructure
-superdeploy down -p myproject
-
-# Selective addon deployment
+# Selective addon deployment (sadece belirli addon)
 superdeploy up -p myproject --addon postgres
+
+# IP korumalı deployment
+superdeploy up -p myproject --preserve-ip
+
+# Infrastructure silme
+superdeploy down -p myproject
 ```
 
 ---
 
 ## 📊 Sistem Durumu Kontrolü
 
-### Tüm Servislerin Durumu
+### Orchestrator Durumu
+
+```bash
+superdeploy orchestrator:status
+```
+
+**Çıktı:**
+```
+✅ Orchestrator is deployed
+  IP: 34.72.179.175
+  URL: http://34.72.179.175:3001
+  Forgejo: https://forgejo.yourdomain.com
+  Grafana: https://grafana.yourdomain.com
+  Prometheus: https://prometheus.yourdomain.com
+```
+
+### Proje Durumu
 
 ```bash
 superdeploy status -p myproject
@@ -48,32 +67,19 @@ superdeploy status -p myproject
 │ 🚀 SuperDeploy Status               │
 ╰─────────────────────────────────────╯
 
-Orchestrator Status:
-  ✅ Orchestrator VM: orchestrator (RUNNING)
-  ✅ External IP: 34.72.179.175
-  ✅ Forgejo: healthy (3001)
-  ✅ Prometheus: healthy (9090)
-  ✅ Grafana: healthy (3000)
-  ✅ Caddy: healthy (80, 443)
-
 Infrastructure Status:
   ✅ GCP Project: my-gcp-project
-  ✅ Web VM: myproject-web-0 (RUNNING)
-  ✅ API VM: myproject-api-0 (RUNNING)
+  ✅ Core VM: myproject-core-0 (RUNNING) - 10.1.0.2
+  ✅ App VM: myproject-app-0 (RUNNING) - 10.1.0.3
 
-Services (Web VM):
+Services (Core VM):
   ✅ PostgreSQL: healthy (5432)
-  ✅ Redis: healthy (6379)
+  ✅ RabbitMQ: healthy (5672)
 
-Application Services:
-  ✅ API: healthy (8000) - v45 (api VM)
-  ✅ Dashboard: healthy (3000) - v23 (web VM)
-```
-
-### Belirli Bir Service
-
-```bash
-superdeploy status -a api
+Application Services (App VM):
+  ✅ API: healthy (8000) - v45
+  ✅ Dashboard: healthy (3000) - v23
+  ✅ Services: healthy (8001) - v12
 ```
 
 ---
@@ -201,7 +207,7 @@ docker logs myproject-api --tail 100
 
 ---
 
-## 🔐 Secrets ve Environment Variables Yönetimi
+## 🔐 Secrets ve Environment Variables Yönetimi (Heroku-like! 🚀)
 
 ### Environment Variable Stratejisi
 
@@ -210,7 +216,52 @@ SuperDeploy, local development ve production ortamlarını ayırmak için iki fa
 - **`.env`** - Local development (SuperDeploy ASLA değiştirmez)
 - **`.env.superdeploy`** - Production (SuperDeploy otomatik oluşturur)
 
-### Sync Komutu Nasıl Çalışır?
+### ⚡ Hızlı Yöntem: config:set Komutu (Heroku-like!)
+
+**EN KOLAY VE HIZLI YÖNTEM!** Tek komutla env güncelle + sync + deploy:
+
+```bash
+# Env variable güncelle
+superdeploy config:set API_KEY=xyz123 -p myproject
+
+# Env güncelle + OTOMATIK DEPLOY! 🚀
+superdeploy config:set DB_HOST=10.0.0.5 -p myproject --deploy
+
+# Tek bir app için deploy
+superdeploy config:set STRIPE_API_KEY=sk_live_xyz -p myproject -a api --deploy
+
+# Env değişkeni sil
+superdeploy config:unset OLD_API_KEY -p myproject --deploy
+```
+
+**Bu komut şunları yapar:**
+1. ✅ `.passwords.yml` dosyasını günceller
+2. ✅ GitHub ve Forgejo'ya sync eder
+3. ✅ `--deploy` flag varsa otomatik git push yapar
+4. ✅ Deployment'ı tetikler
+
+**Artık manuel işlem yok! Heroku gibi tek komut!** 🎉
+
+### 📋 Config Yönetimi Komutları
+
+```bash
+# Tüm config'leri listele
+superdeploy config:list -p myproject
+
+# Sadece POSTGRES değişkenlerini göster
+superdeploy config:list -p myproject --filter POSTGRES
+
+# Tek bir değişkeni oku
+superdeploy config:get POSTGRES_PASSWORD -p myproject
+
+# Detaylı config görüntüle (servis gruplarıyla)
+superdeploy config:show -p myproject
+superdeploy config:show -p myproject --mask  # Şifreleri maskele
+```
+
+### Sync Komutu Nasıl Çalışır? (Advanced)
+
+**Not:** Artık `config:set --deploy` kullanabilirsin, ama manuel control istiyorsan:
 
 ```bash
 # Temel kullanım
@@ -246,11 +297,57 @@ superdeploy sync -p myproject --skip-github
    - GitHub Environment Secrets
    - Forgejo Repository Secrets
 
-### Production Secret'larını Güncelleme
+### 🎯 Gerçek Dünya Senaryoları
+
+#### Senaryo 1: PostgreSQL Şifresini Değiştir (Heroku Yöntemi)
 
 ```bash
-# Senaryo: PostgreSQL şifresini değiştirmek istiyorsun
+# Tek komut! 🚀
+superdeploy config:set POSTGRES_PASSWORD=yeni_sifre -p myproject --deploy
 
+# Deployment loglarını izle
+superdeploy logs -p myproject --follow
+```
+
+**Bu kadar!** Heroku gibi basit!
+
+#### Senaryo 2: Yeni API Key Ekle (Heroku Yöntemi)
+
+```bash
+# Stripe API key ekle + deploy
+superdeploy config:set STRIPE_API_KEY=sk_live_xyz -p myproject --deploy
+
+# Sadece api servisi için deploy
+superdeploy config:set STRIPE_API_KEY=sk_live_xyz -p myproject -a api --deploy
+```
+
+#### Senaryo 3: Eski Secret'ı Sil (Heroku Yöntemi)
+
+```bash
+# Eski API key'i sil + deploy
+superdeploy config:unset OLD_API_KEY -p myproject --deploy
+```
+
+#### Senaryo 4: Manuel Kontrol İstiyorsan (Eski Yöntem)
+
+```bash
+# 1. Manuel edit
+nano projects/myproject/.passwords.yml
+
+# 2. Sync (deployment tetikleme)
+superdeploy sync -p myproject
+
+# 3. Manuel deployment
+cd app-repos/api
+git commit --allow-empty -m "config: update secrets"
+git push origin production
+```
+
+### Production Secret'larını Güncelleme (Eski Yöntem)
+
+**Artık `config:set --deploy` kullan, ama manuel istiyorsan:**
+
+```bash
 # 1. Sadece production şifresini güncelle
 nano projects/myproject/.passwords.yml
 # POSTGRES_PASSWORD: yeni_sifre
@@ -267,26 +364,6 @@ docker compose -f docker-compose.core.yml restart postgres
 superdeploy restart -p myproject --all
 
 # NOT: Local .env dosyan hiç değişmedi!
-```
-
-### Yeni Bir Secret Ekleme
-
-```bash
-# Senaryo: Yeni bir API key eklemek istiyorsun
-
-# 1. Uygulama .env dosyasına ekle (local için)
-echo "STRIPE_API_KEY=sk_test_..." >> app-repos/api/.env
-
-# 2. Production için .passwords.yml'e ekle
-echo "STRIPE_API_KEY=sk_live_..." >> projects/myproject/.passwords.yml
-
-# 3. GitHub ve Forgejo'ya sync et
-superdeploy sync -p myproject -e app-repos/api/.env
-
-# 4. Uygulamayı redeploy et
-cd app-repos/api
-git commit --allow-empty -m "chore: update secrets"
-git push origin production
 ```
 
 ### Secrets'ları Görüntüleme

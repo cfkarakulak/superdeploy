@@ -1,42 +1,45 @@
-# Security Guide
+# Güvenlik Rehberi
 
 ## Development vs Production
 
-SuperDeploy is configured for **development/debugging by default** to make it easy to inspect services and troubleshoot issues.
+SuperDeploy varsayılan olarak **development/debugging** modunda yapılandırılmıştır. Bu sayede servisleri incelemek ve sorunları gidermek kolaydır.
 
-### Current Configuration (Development Mode)
+### Mevcut Yapılandırma (Development Modu)
 
-The following services are **publicly accessible** for debugging:
+Aşağıdaki servisler **herkese açık** şekilde erişilebilir (debugging için):
 
 - **RabbitMQ Management**: `http://VM_IP:15672` (guest/guest)
-- **Grafana**: `http://VM_IP:3000` (admin/password)
-- **Prometheus**: `http://VM_IP:9090`
-- **Proxy Ports**: 1080, 3128, 8888
-- **Proxy Registry**: `http://VM_IP:8080`
+- **Grafana**: `http://ORCHESTRATOR_IP:3000` (admin/otomatik şifre)
+- **Prometheus**: `http://ORCHESTRATOR_IP:9090`
+- **Forgejo**: `http://ORCHESTRATOR_IP:3001` (admin/otomatik şifre)
 
-⚠️ **This is intentional for development but NOT recommended for production!**
+⚠️ **Bu development için kasıtlıdır ancak production için ÖNERİLMEZ!**
+
+**Production için:**
+- Caddy reverse proxy ile HTTPS kullan
+- Subdomain'ler ile erişim (grafana.domain.com, forgejo.domain.com)
+- Firewall kurallarını sıkılaştır
 
 ---
 
-## Production Hardening
+## Production Hardening (Sıkılaştırma)
 
-### 1. Restrict Management Interfaces
+### 1. Management Interface'leri Kısıtla
 
-Edit `shared/terraform/modules/network/main.tf` and change `source_ranges`:
+`shared/terraform/modules/network/main.tf` dosyasını düzenle ve `source_ranges`'ı değiştir:
 
 ```hcl
-# Before (Development)
-source_ranges = ["0.0.0.0/0"]  # Open to internet
+# Önce (Development)
+source_ranges = ["0.0.0.0/0"]  # Internet'e açık
 
-# After (Production)
-source_ranges = var.admin_source_ranges  # Only admin IPs
+# Sonra (Production)
+source_ranges = var.admin_source_ranges  # Sadece admin IP'leri
 ```
 
-Apply to these firewall rules:
+Bu firewall kurallarına uygula:
 - `allow_rabbitmq_management` (port 15672)
-- `allow_monitoring` (ports 3000, 9090)
-- `allow_proxy` (ports 1080, 3128, 8888)
-- `allow_proxy_registry` (port 8080)
+- `allow_monitoring` (ports 3000, 9090) - Orchestrator için
+- `allow_forgejo` (port 3001) - Orchestrator için
 
 ### 2. Configure Admin IP Ranges
 
@@ -84,31 +87,41 @@ ports:
 
 ---
 
-## Security Features (Already Enabled)
+## Güvenlik Özellikleri (Zaten Aktif)
 
 ✅ **SSH Hardening**
-- Root login disabled
-- Password authentication disabled
-- Only SSH key authentication
-- Max 3 authentication attempts
+- Root login devre dışı
+- Şifre authentication devre dışı
+- Sadece SSH key authentication
+- Maksimum 3 authentication denemesi
 
 ✅ **Fail2Ban**
-- Automatic IP banning after 3 failed SSH attempts
-- 1 hour ban duration
+- 3 başarısız SSH denemesinden sonra otomatik IP ban
+- 1 saat ban süresi
 
 ✅ **UFW Firewall**
-- Default deny incoming
-- Only explicitly allowed ports open
-- Configured per-project
+- Varsayılan olarak tüm gelen trafiği engelle
+- Sadece açıkça izin verilen portlar açık
+- Her proje için yapılandırılmış
 
-✅ **Automatic Security Updates**
-- Unattended upgrades enabled
-- Security patches applied automatically
+✅ **Otomatik Güvenlik Güncellemeleri**
+- Unattended upgrades aktif
+- Güvenlik yamaları otomatik uygulanır
 
 ✅ **Sysctl Hardening**
-- SYN flood protection
-- ICMP redirect disabled
-- Source routing disabled
+- SYN flood koruması
+- ICMP redirect devre dışı
+- Source routing devre dışı
+
+✅ **Secret Encryption**
+- AGE public key encryption
+- Secret'lar transit sırasında şifrelenir
+- Forgejo'da asla plaintext olarak saklanmaz
+
+✅ **Network İzolasyonu**
+- Her proje kendi Docker network'üne sahip
+- Projeler arası iletişim yok
+- VM'ler arası izolasyon
 
 ---
 

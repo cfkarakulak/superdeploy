@@ -1,15 +1,18 @@
-# SuperDeploy Mimari
+# SuperDeploy Mimarisi
 
 ## Genel Bakış
 
-SuperDeploy, kendi altyapınızda **Heroku benzeri deployment deneyimi** sunan **self-hosted PaaS platformu**dur. Tüm servislerin yeniden kullanılabilir template'ler olarak tanımlandığı ve proje-spesifik instance'lar olarak deploy edildiği **dinamik, addon-tabanlı mimari** kullanır.
+SuperDeploy, kendi altyapınızda **Heroku benzeri deployment deneyimi** sunan **self-hosted PaaS platformudur**. Tüm servislerin yeniden kullanılabilir template'ler olarak tanımlandığı ve proje-spesifik instance'lar olarak deploy edildiği **dinamik, addon-tabanlı mimari** kullanır.
 
 ## Temel Prensipler
 
-1. **Addon-Tabanlı Mimari**: Tüm servisler (veritabanları, kuyruklar, proxy'ler) addon olarak tanımlanır
-2. **Dinamik Konfigürasyon**: Hardcoded servis isimleri veya mantık yok - her şey `project.yml` ile yönetilir
-3. **Proje İzolasyonu**: Her proje kendi izole kaynaklarına ve network'üne sahiptir
-4. **Template → Instance Pattern**: Addon'lar template'dir, deployment'lar instance'dır
+1. **Orchestrator Pattern**: Merkezi Forgejo ve monitoring ile tek seferlik kurulum
+2. **Addon-Tabanlı Mimari**: Tüm servisler (veritabanları, kuyruklar, proxy'ler) addon olarak tanımlanır
+3. **Dinamik Konfigürasyon**: Hardcoded servis isimleri veya mantık yok - her şey `project.yml` ile yönetilir
+4. **Proje İzolasyonu**: Her proje kendi izole kaynaklarına ve network'üne sahiptir
+5. **Template → Instance Pattern**: Addon'lar template'dir, deployment'lar instance'dır
+6. **VM-Specific Service Filtering**: Her VM sadece ihtiyacı olan addon'ları çalıştırır
+7. **IP Preservation**: VM restart'ta statik IP adresleri korunur
 
 ---
 
@@ -62,10 +65,19 @@ addons/
 └── monitoring/                # Prometheus + Grafana (orchestrator'da)
 ```
 
-**Orchestrator-Specific Addon'lar:**
+**Orchestrator-Specific Addon'lar (Tek Seferlik Kurulum):**
 - **forgejo**: Tüm projeler için merkezi Git server ve CI/CD
+  - PostgreSQL database ile çalışır
+  - Admin user ve organization otomatik oluşturulur
+  - Orchestrator runner ile workflow routing sağlar
 - **monitoring**: Tüm projeler için merkezi monitoring (Prometheus + Grafana)
+  - Tüm projeleri otomatik keşfeder
+  - Pre-configured dashboard'lar
+  - Alert yönetimi
 - **caddy**: Subdomain-based routing ve otomatik SSL sertifikaları
+  - Let's Encrypt entegrasyonu
+  - Otomatik HTTPS redirect
+  - forgejo.domain.com, grafana.domain.com, prometheus.domain.com
 
 **Addon Yapısı:**
 
@@ -360,14 +372,27 @@ Ansible Fazı:
 6. IP preservation desteği (VM restart'ta IP korunur)
 
 **Ansible Fazı:**
-1. Sistem paketlerini ve Docker'ı kur
-2. Güvenliği yapılandır (firewall, SSH)
-3. Addon template'lerini dinamik yükle
-4. VM-specific service filtering (sadece ilgili addon'lar deploy edilir)
-5. Template'leri proje-spesifik değerlerle render et
-6. Container'ları Docker Compose ile deploy et
-7. Proje-specific Forgejo runner'ları kur ve orchestrator'a register et
-8. Health check'leri çalıştır
+1. **Foundation Layer (system roles):**
+   - Sistem paketlerini kur (curl, wget, git, vb.)
+   - Docker ve Docker Compose kur
+   - Güvenliği yapılandır (firewall, SSH hardening, fail2ban)
+   - Swap alanı yapılandır
+
+2. **Orchestration Layer (addon deployment):**
+   - Addon template'lerini dinamik yükle
+   - **VM-specific service filtering**: Her VM sadece `services` listesindeki addon'ları çalıştırır
+   - Template'leri proje-spesifik değerlerle render et (Jinja2)
+   - Docker Compose dosyalarını oluştur
+   - Container'ları başlat ve health check'leri çalıştır
+
+3. **Runner Layer:**
+   - Proje-specific Forgejo runner'ları kur
+   - Orchestrator Forgejo'ya register et
+   - Label stratejisi: `[self-hosted, {project}, {vm_role}, linux, docker]`
+
+4. **Verification:**
+   - Tüm container'ların sağlıklı olduğunu doğrula
+   - Servis erişilebilirliğini test et
 
 ### 4. Secret Senkronizasyonu (`superdeploy sync`)
 
@@ -775,13 +800,55 @@ Deployment sonrası sistem şunları doğrular:
 
 ### Yeni Özellikler (2025)
 
-1. **Orchestrator Mimarisi:** Merkezi Forgejo ve monitoring
-2. **Caddy Reverse Proxy:** Subdomain-based routing + otomatik SSL
-3. **Merkezi Monitoring:** Prometheus + Grafana tüm projeler için
-4. **VM-Specific Service Filtering:** Sadece ilgili addon'lar deploy edilir
-5. **IP Preservation:** VM restart'ta IP adresleri korunur
-6. **Selective Addon Deployment:** `--addon` flag ile belirli addon'ları deploy et
-7. **GitHub Actions → Forgejo Integration:** Düzeltilmiş API endpoint'leri
+1. **Orchestrator Mimarisi:** 
+   - Tek seferlik merkezi Forgejo ve monitoring kurulumu
+   - Tüm projeler aynı Forgejo instance'ını kullanır
+   - Workflow routing ile proje-specific runner'lara yönlendirme
+
+2. **Caddy Reverse Proxy:** 
+   - Subdomain-based routing (forgejo.domain.com, grafana.domain.com)
+   - Otomatik SSL sertifikaları (Let's Encrypt)
+   - HTTPS redirect
+
+3. **Merkezi Monitoring:** 
+   - Prometheus tüm projeleri otomatik keşfeder
+   - Grafana pre-configured dashboard'ları
+   - Alert yönetimi
+
+4. **VM-Specific Service Filtering:** 
+   - Her VM sadece `services` listesindeki addon'ları çalıştırır
+   - Kaynak optimizasyonu ve performans iyileştirmesi
+   - Örnek: core VM postgres+rabbitmq, app VM sadece uygulamalar
+
+5. **IP Preservation:** 
+   - `preserve_ip: true` ile VM restart'ta IP korunur
+   - Terraform tfvars'da existing IP kontrolü
+   - DNS değişikliği gerektirmez
+
+6. **Selective Addon Deployment:** 
+   - `--addon` flag ile sadece belirli addon'lar deploy edilir
+   - Hızlı güncelleme ve test
+   - Örnek: `superdeploy up -p myproject --addon postgres`
+
+7. **GitHub Actions → Forgejo Integration:** 
+   - Düzeltilmiş API endpoint'leri (`/api/v1/repos/.../actions/workflows/.../dispatches`)
+   - Workflow dispatch parametreleri
+   - AGE encryption ile güvenli secret transfer
+
+8. **Otomatik Subnet Allocation:**
+   - SubnetAllocator sınıfı ile otomatik VPC ve Docker subnet tahsisi
+   - Çakışma önleme
+   - subnet_allocations.json ile state yönetimi
+
+9. **Dynamic Addon Discovery:**
+   - AddonLoader ile dinamik addon keşfi
+   - Kod tabanında hardcoded addon isimleri yok
+   - Addon bağımlılık çözümlemesi
+
+10. **Environment Aliases:**
+    - App'ler için soyutlama katmanı
+    - `DB_HOST: POSTGRES_HOST` gibi mapping'ler
+    - Veritabanı değiştirme kolaylığı
 
 ## Gelecek Geliştirmeler
 

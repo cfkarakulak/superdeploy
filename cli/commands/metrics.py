@@ -146,9 +146,6 @@ def metrics(project, days):
         console.print(f"[yellow]⚠️  Could not fetch deployment history: {e}[/yellow]")
 
     # Summary
-    console.print("\n[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
-    console.print("[bold green]📊 Metrics Summary[/bold green]")
-    console.print("[bold green]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold green]")
     console.print(
         f"\n[dim]For detailed logs: superdeploy logs -p {project} -a <service>[/dim]"
     )

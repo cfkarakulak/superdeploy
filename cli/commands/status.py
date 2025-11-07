@@ -165,6 +165,65 @@ def status(project, verbose):
     console.print(table)
     logger.success("Status check complete")
 
+    # Check for config drift (state vs current config)
+    from cli.state_manager import StateManager
+    from datetime import datetime
+
+    state_mgr = StateManager(project_root, project)
+    state = state_mgr.load_state()
+
+    if state:
+        console.print("\n[bold cyan]📊 Deployment State:[/bold cyan]")
+
+        last_applied = state.get("last_applied", {})
+        if last_applied:
+            timestamp = last_applied.get("timestamp", "")
+            if timestamp:
+                try:
+                    dt = datetime.fromisoformat(timestamp)
+                    from datetime import timedelta
+
+                    # Time ago
+                    now = datetime.now()
+                    delta = now - dt
+                    if delta < timedelta(hours=1):
+                        time_ago = f"{int(delta.total_seconds() / 60)} minutes ago"
+                    elif delta < timedelta(days=1):
+                        time_ago = f"{int(delta.total_seconds() / 3600)} hours ago"
+                    else:
+                        time_ago = f"{delta.days} days ago"
+
+                    console.print(f"Last applied: {time_ago}")
+                except:
+                    console.print(f"Last applied: {timestamp}")
+
+        # Check for drift
+        changes, _ = state_mgr.detect_changes(project_config)
+
+        if changes["has_changes"]:
+            console.print("\n[yellow]⚠️  Configuration drift detected![/yellow]")
+            console.print("[dim]Config has changes not yet applied:[/dim]")
+
+            if changes["vms"]["added"]:
+                console.print(f"  • New VMs: {', '.join(changes['vms']['added'])}")
+            if changes["vms"]["modified"]:
+                modified_vms = [v["name"] for v in changes["vms"]["modified"]]
+                console.print(f"  • Modified VMs: {', '.join(modified_vms)}")
+            if changes["addons"]["added"]:
+                console.print(
+                    f"  • New addons: {', '.join(changes['addons']['added'])}"
+                )
+            if changes["apps"]["added"]:
+                console.print(f"  • New apps: {', '.join(changes['apps']['added'])}")
+
+            console.print(f"\n[yellow]Run:[/yellow] superdeploy plan -p {project}")
+        else:
+            console.print("[green]✓ No drift - config matches deployed state[/green]")
+    else:
+        console.print(
+            "\n[dim]No state found (first deployment or pre-state version)[/dim]"
+        )
+
     # Show access URLs
     if not verbose:
         console.print("\n[bold cyan]🌐 Access URLs:[/bold cyan]")
