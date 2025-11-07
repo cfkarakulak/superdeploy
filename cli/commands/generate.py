@@ -275,7 +275,7 @@ jobs:
         run: |
           curl -X POST \
             "http://${{ '{{' }} secrets.ORCHESTRATOR_IP {{ '}}' }}:3001/api/v1/repos/{{ github_org }}/superdeploy/dispatches" \
-            -H "Authorization: token ${{ '{{' }} secrets.FORGEJO_TOKEN {{ '}}' }}" \
+            -H "Authorization: token ${{ '{{' }} secrets.FORGEJO_PAT {{ '}}' }}" \
             -H "Content-Type: application/json" \
             -d '{
               "event_type": "deploy",

@@ -9,13 +9,15 @@ class MarkerManager:
     """Manages .superdeploy marker files in app repos"""
 
     @staticmethod
-    def create_marker(app_path: Path, project: str, app_name: str, vm_role: str = "app"):
+    def create_marker(
+        app_path: Path, project: str, app_name: str, vm_role: str = "app"
+    ):
         """
         Create .superdeploy marker file
 
         This file identifies the app to SuperDeploy and contains
         minimal metadata for remote execution.
-        
+
         Args:
             app_path: Path to application directory
             project: Project name

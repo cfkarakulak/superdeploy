@@ -267,7 +267,7 @@ class StateManager:
             state["secrets"] = {}
 
         state["secrets"]["last_sync"] = datetime.now().isoformat()
-        
+
         # Update secrets hash
         secrets_hash = self._get_secrets_hash()
         if secrets_hash:
@@ -277,11 +277,13 @@ class StateManager:
 
     def _get_secrets_hash(self) -> str:
         """Calculate SHA256 hash of secrets.yml file"""
-        secrets_file = self.project_root / "projects" / self.project_name / "secrets.yml"
-        
+        secrets_file = (
+            self.project_root / "projects" / self.project_name / "secrets.yml"
+        )
+
         if not secrets_file.exists():
             return ""
-        
+
         try:
             with open(secrets_file, "rb") as f:
                 return hashlib.sha256(f.read()).hexdigest()
@@ -293,19 +295,19 @@ class StateManager:
         if not state:
             # First deployment - secrets exist
             return True
-        
+
         # Get current secrets hash
         current_hash = self._get_secrets_hash()
         if not current_hash:
             # No secrets file - no changes
             return False
-        
+
         # Get stored hash from state
         stored_hash = state.get("secrets", {}).get("hash", "")
-        
+
         # If no stored hash, consider it changed
         if not stored_hash:
             return True
-        
+
         # Compare hashes
         return current_hash != stored_hash

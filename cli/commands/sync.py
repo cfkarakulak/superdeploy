@@ -818,6 +818,7 @@ def sync(project, skip_forgejo, skip_github, verbose):
         # Repository secrets (infrastructure/build related)
         repo_secrets = {
             "AGE_PUBLIC_KEY": age_public_key,
+            "ORCHESTRATOR_IP": forgejo_host,  # Orchestrator VM IP (for API calls)
             "FORGEJO_BASE_URL": f"http://{forgejo_host}:{forgejo_port}",
             "FORGEJO_ORG": env["FORGEJO_ORG"],
             "FORGEJO_REPO": env["REPO_SUPERDEPLOY"],  # Use REPO_SUPERDEPLOY from env
@@ -894,6 +895,12 @@ def sync(project, skip_forgejo, skip_github, verbose):
             set_github_env_secrets(repo, env_name, env_secrets)
 
     logger.success("All secrets synced successfully")
+
+    # Mark secrets as synced in state (updates secrets hash)
+    from cli.state_manager import StateManager
+
+    state_mgr = StateManager(project_root, project)
+    state_mgr.mark_synced()
 
     if not verbose:
         console.print("\n[color(248)]Sync complete.[/color(248)]")
