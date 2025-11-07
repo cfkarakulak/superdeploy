@@ -5,6 +5,7 @@ import subprocess
 from rich.console import Console
 from cli.logger import DeployLogger, run_with_progress
 from cli.ui_components import show_header
+from cli.utils import get_project_root
 
 console = Console()
 
@@ -287,12 +288,12 @@ def _deploy_project_v2(
     # Load environment
     from cli.utils import validate_env_vars
     from cli.secret_manager import SecretManager
-    
+
     # Load from .passwords.yml instead of .env
     project_root = get_project_root()
     secret_mgr = SecretManager(project_root / "projects" / project)
     passwords_data = secret_mgr.load_secrets()
-    
+
     # Build env dict from project.yml + .passwords.yml
     env = {
         "GCP_PROJECT_ID": project_config.raw_config["cloud"]["gcp"]["project_id"],
@@ -300,7 +301,7 @@ def _deploy_project_v2(
         "SSH_KEY_PATH": project_config.raw_config["cloud"]["ssh"]["key_path"],
         "SSH_USER": project_config.raw_config["cloud"]["ssh"]["user"],
     }
-    
+
     # Add secrets to env
     if passwords_data.get("secrets", {}).get("shared"):
         env.update(passwords_data["secrets"]["shared"])
