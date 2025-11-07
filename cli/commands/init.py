@@ -68,10 +68,15 @@ def init(project):
     for app_name in app_names:
         default_path = f"/path/to/{app_name}"
         app_path = Prompt.ask(f"  {app_name} path", default=default_path)
+
+        # Ask for port - no hardcoded app name assumptions!
+        default_port = "8000"  # Generic default
+        app_port = Prompt.ask(f"  {app_name} port", default=default_port)
+
         apps[app_name] = {
             "path": app_path,
             "vm": "app",
-            "port": 8000 if "api" in app_name else 3000,
+            "port": int(app_port),
         }
 
     # Generate project.yml
@@ -248,30 +253,17 @@ def init(project):
         "env_aliases": {},
     }
 
-    # Add app-specific sections with env_aliases templates
+    # Add app-specific sections - NO HARDCODED APP NAMES!
+    # Users can add env_aliases manually based on their framework needs
     for app_name in app_names:
         passwords_config["secrets"][app_name] = {}
+        passwords_config["env_aliases"][app_name] = {}
 
-        # Add env_aliases templates per app
-        if "api" in app_name or "service" in app_name:
-            # Python apps (Cara framework)
-            passwords_config["env_aliases"][app_name] = {
-                "DB_CONNECTION": "app",
-                "DB_HOST": "POSTGRES_HOST",
-                "DB_PORT": "POSTGRES_PORT",
-                "DB_USERNAME": "POSTGRES_USER",
-                "DB_PASSWORD": "POSTGRES_PASSWORD",
-                "DB_DATABASE": "POSTGRES_DB",
-            }
-        elif "storefront" in app_name or "dashboard" in app_name:
-            # Next.js apps
-            passwords_config["env_aliases"][app_name] = {
-                "NEXT_PUBLIC_API_CLIENT_URL": "http://10.1.0.2:8000/api",
-                "API_BASE_URL": "http://10.1.0.2:8000",
-                "NEXT_PUBLIC_API_BASE_URL": "http://10.1.0.2:8000",
-                "NEXT_PUBLIC_API_URL": "http://10.1.0.2:8000",
-                "NEXT_PUBLIC_API_SERVER_URL": "http://10.1.0.2:8000",
-            }
+        # Note: Framework-specific env_aliases should be added manually
+        # Examples in comments:
+        # Python/Cara apps: DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD, DB_DATABASE
+        # Next.js apps: NEXT_PUBLIC_API_URL, API_BASE_URL, etc.
+        # Add what YOUR app needs in secrets.yml after init!
 
     # Generate secrets.yml with beautiful formatting
     secrets_yml = project_dir / "secrets.yml"
@@ -338,12 +330,22 @@ def init(project):
     yml_lines.append("# " + "=" * 77)
     yml_lines.append("")
     yml_lines.append("env_aliases:")
+    yml_lines.append("  # Add framework-specific environment variable aliases here")
+    yml_lines.append("  # Examples:")
+    yml_lines.append("  #")
+    yml_lines.append("  # Python/Cara Framework:")
+    yml_lines.append("  #   DB_HOST: POSTGRES_HOST")
+    yml_lines.append("  #   DB_PORT: POSTGRES_PORT")
+    yml_lines.append("  #   DB_USERNAME: POSTGRES_USER")
+    yml_lines.append("  #   DB_PASSWORD: POSTGRES_PASSWORD")
+    yml_lines.append("  #   DB_DATABASE: POSTGRES_DB")
+    yml_lines.append("  #")
+    yml_lines.append("  # Next.js:")
+    yml_lines.append("  #   NEXT_PUBLIC_API_URL: http://10.1.0.2:8000")
+    yml_lines.append("  #   API_BASE_URL: http://10.1.0.2:8000")
+    yml_lines.append("  #")
     for app_name in app_names:
-        yml_lines.append(f"  # {app_name.title()} App")
-        yml_lines.append(f"  {app_name}:")
-        if app_name in passwords_config["env_aliases"]:
-            for key, value in passwords_config["env_aliases"][app_name].items():
-                yml_lines.append(f"    {key}: {value}")
+        yml_lines.append(f"  {app_name}: {{}}")
         yml_lines.append("  ")
 
     with open(secrets_yml, "w") as f:
@@ -375,6 +377,4 @@ def init(project):
     console.print(
         f"[dim]RabbitMQ:   {passwords_config['secrets']['shared']['RABBITMQ_PASSWORD'][:20]}...[/dim]"
     )
-    console.print(
-        "[yellow]⚠️  These are saved in secrets.yml (DO NOT commit!)[/yellow]"
-    )
+    console.print("[yellow]⚠️  These are saved in secrets.yml (DO NOT commit!)[/yellow]")
