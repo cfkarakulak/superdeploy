@@ -137,14 +137,16 @@ def generate(project, app):
         console.print()
 
     # 5. Generate Forgejo project-specific workflow (in superdeploy repo)
-    console.print(f"\n[bold cyan]📝 Generating Forgejo workflow for {project}...[/bold cyan]\n")
+    console.print(
+        f"\n[bold cyan]📝 Generating Forgejo workflow for {project}...[/bold cyan]\n"
+    )
     forgejo_workflow = _get_forgejo_project_workflow_template(project)
     forgejo_dir = project_root / ".forgejo" / "workflows"
     forgejo_dir.mkdir(parents=True, exist_ok=True)
     forgejo_file = forgejo_dir / f"deploy-{project}.yml"
     forgejo_file.write_text(forgejo_workflow)
     console.print(f"  [green]✓[/green] .forgejo/workflows/deploy-{project}.yml")
-    console.print(f"  [dim]Commit this to superdeploy repo![/dim]")
+    console.print("  [dim]Commit this to superdeploy repo![/dim]")
 
     # Summary
     console.print("\n[green]✅ Generation complete![/green]")
@@ -366,7 +368,24 @@ jobs:
           echo "✅ Correct VM for project: $RUNNER_PROJECT"
           echo ""
       
+      - name: Check if app exists on this VM
+        id: check_app
+        run: |
+          echo "🔍 Checking if $APP is configured on this VM..."
+          
+          cd /opt/superdeploy/projects/$PROJECT/compose
+          
+          # Check if app is defined in docker-compose.yml
+          if docker compose config 2>/dev/null | grep -q "^  $APP:"; then
+            echo "✅ App '$APP' is configured on this VM"
+            echo "app_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "⏭️  Skipping: App '$APP' not configured on this VM"
+            echo "app_exists=false" >> $GITHUB_OUTPUT
+          fi
+      
       - name: Display deployment info
+        if: steps.check_app.outputs.app_exists == 'true'
         run: |
           echo "🚀 Deploying application..."
           echo "  Project: $PROJECT"
@@ -377,16 +396,19 @@ jobs:
           echo ""
       
       - name: Pull latest image
+        if: steps.check_app.outputs.app_exists == 'true'
         run: |
           cd /opt/superdeploy/projects/$PROJECT/compose
           docker compose pull $APP
       
       - name: Restart container
+        if: steps.check_app.outputs.app_exists == 'true'
         run: |
           cd /opt/superdeploy/projects/$PROJECT/compose
           docker compose up -d $APP
       
       - name: Wait for health check
+        if: steps.check_app.outputs.app_exists == 'true'
         run: |
           echo "⏳ Waiting for container to be healthy..."
           sleep 5
@@ -404,11 +426,13 @@ jobs:
           fi
       
       - name: Cleanup old images
+        if: steps.check_app.outputs.app_exists == 'true'
         run: |
           docker image prune -f
           echo "🧹 Cleanup complete"
       
       - name: Deployment summary
+        if: steps.check_app.outputs.app_exists == 'true'
         run: |
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

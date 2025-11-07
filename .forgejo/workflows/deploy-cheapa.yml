@@ -66,7 +66,24 @@ jobs:
           echo "✅ Correct VM for project: $RUNNER_PROJECT"
           echo ""
       
+      - name: Check if app exists on this VM
+        id: check_app
+        run: |
+          echo "🔍 Checking if $APP is configured on this VM..."
+          
+          cd /opt/superdeploy/projects/$PROJECT/compose
+          
+          # Check if app is defined in docker-compose.yml
+          if docker compose config 2>/dev/null | grep -q "^  $APP:"; then
+            echo "✅ App '$APP' is configured on this VM"
+            echo "app_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "⏭️  Skipping: App '$APP' not configured on this VM"
+            echo "app_exists=false" >> $GITHUB_OUTPUT
+          fi
+      
       - name: Display deployment info
+        if: steps.check_app.outputs.app_exists == 'true'
         run: |
           echo "🚀 Deploying application..."
           echo "  Project: $PROJECT"
@@ -77,16 +94,19 @@ jobs:
           echo ""
       
       - name: Pull latest image
+        if: steps.check_app.outputs.app_exists == 'true'
         run: |
           cd /opt/superdeploy/projects/$PROJECT/compose
           docker compose pull $APP
       
       - name: Restart container
+        if: steps.check_app.outputs.app_exists == 'true'
         run: |
           cd /opt/superdeploy/projects/$PROJECT/compose
           docker compose up -d $APP
       
       - name: Wait for health check
+        if: steps.check_app.outputs.app_exists == 'true'
         run: |
           echo "⏳ Waiting for container to be healthy..."
           sleep 5
@@ -104,11 +124,13 @@ jobs:
           fi
       
       - name: Cleanup old images
+        if: steps.check_app.outputs.app_exists == 'true'
         run: |
           docker image prune -f
           echo "🧹 Cleanup complete"
       
       - name: Deployment summary
+        if: steps.check_app.outputs.app_exists == 'true'
         run: |
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
