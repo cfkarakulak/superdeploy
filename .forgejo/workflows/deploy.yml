@@ -32,85 +32,13 @@ on:
         type: string
 
 jobs:
-  # Forgejo 13.0.1 bug: inputs can't be used in runs-on
-  # Workaround: Separate jobs for each VM role
-  
-  deploy-to-app:
-    if: ${{ inputs.vm_role == 'app' }}
+  deploy:
+    # Apps only deploy to app VMs (not core VMs)
+    # Core VMs are for backing services only (postgres, rabbitmq, etc.)
     runs-on: 
       - self-hosted
       - ${{ inputs.project }}
       - app
-    
-    env:
-      PROJECT: ${{ inputs.project }}
-      APP: ${{ inputs.app }}
-      VM_ROLE: ${{ inputs.vm_role }}
-      IMAGE: ${{ inputs.image }}
-      GIT_SHA: ${{ inputs.git_sha }}
-    
-    steps:
-      - name: Display deployment info
-        run: |
-          echo "🚀 Deploying application..."
-          echo "  Project: $PROJECT"
-          echo "  App: $APP"
-          echo "  VM Role: $VM_ROLE"
-          echo "  Image: $IMAGE"
-          echo "  Git SHA: $GIT_SHA"
-          echo ""
-      
-      - name: Pull latest image
-        run: |
-          cd /opt/superdeploy/projects/$PROJECT/compose
-          docker compose pull $APP
-      
-      - name: Restart container
-        run: |
-          cd /opt/superdeploy/projects/$PROJECT/compose
-          docker compose up -d $APP
-      
-      - name: Wait for health check
-        run: |
-          echo "⏳ Waiting for container to be healthy..."
-          sleep 5
-          
-          # Check container status (docker-compose uses underscore in names)
-          CONTAINER_NAME="${PROJECT}_${APP}"
-          STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
-          
-          if [ "$STATUS" = "running" ]; then
-            echo "✅ Container is running!"
-          else
-            echo "❌ Container failed to start (status: $STATUS)"
-            docker logs $CONTAINER_NAME --tail 50
-            exit 1
-          fi
-      
-      - name: Cleanup old images
-        run: |
-          docker image prune -f
-          echo "🧹 Cleanup complete"
-      
-      - name: Deployment summary
-        run: |
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "✅ Deployment successful!"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "  Project: $PROJECT"
-          echo "  App: $APP"
-          echo "  Image: $IMAGE"
-          echo "  SHA: $GIT_SHA"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-
-  deploy-to-core:
-    if: ${{ inputs.vm_role == 'core' }}
-    runs-on: 
-      - self-hosted
-      - ${{ inputs.project }}
-      - core
     
     env:
       PROJECT: ${{ inputs.project }}
