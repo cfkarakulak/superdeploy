@@ -21,10 +21,10 @@ console = Console()
 def clean_vm_ips_from_state(project_root, project):
     """Remove VM IP entries from state after destroying infrastructure"""
     from cli.state_manager import StateManager
-    
+
     state_mgr = StateManager(project_root, project)
     state = state_mgr.load_state()
-    
+
     if state and "vms" in state:
         # Clear VM IPs from state
         for vm_name in state["vms"]:
@@ -32,9 +32,10 @@ def clean_vm_ips_from_state(project_root, project):
                 del state["vms"][vm_name]["external_ip"]
             if "internal_ip" in state["vms"][vm_name]:
                 del state["vms"][vm_name]["internal_ip"]
-        
-        state_mgr.save_state(state["config"], {"vms": state["vms"], "addons": state.get("addons", {}), "apps": state.get("apps", {})})
-    
+
+        # Update the state dict and save
+        state_mgr.save_state(state)
+
     console.print("  [dim]✓ Cleaned VM IPs from state[/dim]")
 
 
