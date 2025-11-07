@@ -19,7 +19,13 @@
     # Determine the value based on source priority: secrets > project config > defaults
     processed_value: >-
       {%- if var_def.source == 'secret' and var_def.from_secrets is defined -%}
-        {{ project_secrets.shared.get(var_def.from_secrets, '') if project_secrets.shared is defined else '' }}
+        {%- if project_secrets.secrets is defined -%}
+          {{ project_secrets.secrets.get(var_def.from_secrets, '') }}
+        {%- elif project_secrets.shared is defined -%}
+          {{ project_secrets.shared.get(var_def.from_secrets, '') }}
+        {%- else -%}
+          
+        {%- endif -%}
       {%- elif var_def.source == 'config' and var_def.from_project is defined -%}
         {%- set path_parts = var_def.from_project.split('.') -%}
         {%- set ns = namespace(value=project_config, found=true) -%}

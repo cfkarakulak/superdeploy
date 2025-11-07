@@ -1,10 +1,93 @@
-"""SuperDeploy CLI - Scale command"""
+"""SuperDeploy CLI - Scale command (Refactored)"""
 
 import click
-from rich.console import Console
-from cli.ui_components import show_header
+from cli.base import ProjectCommand
 
-console = Console()
+
+class ScaleCommand(ProjectCommand):
+    """Scale VM count for a role."""
+
+    def __init__(
+        self, project_name: str, vm_role: str, count: int, verbose: bool = False
+    ):
+        super().__init__(project_name, verbose=verbose)
+        self.vm_role = vm_role
+        self.count = count
+
+    def execute(self) -> None:
+        """Execute scale command."""
+        self.show_header(
+            title="Scale Infrastructure",
+            project=self.project_name,
+            details={"VM Role": self.vm_role, "Count": str(self.count)},
+        )
+
+        # Initialize logger
+        logger = self.init_logger(self.project_name, f"scale-{self.vm_role}")
+
+        logger.step("Validating Configuration")
+
+        # Get current VM config
+        vms_config = self.config_service.get_vms(self.project_name)
+
+        if self.vm_role not in vms_config:
+            self.exit_with_error(
+                f"VM role '{self.vm_role}' not found in project config\n"
+                f"Available roles: {', '.join(vms_config.keys())}"
+            )
+
+        current_count = vms_config[self.vm_role].get("count", 1)
+        logger.log(f"Current count: {current_count}")
+        logger.log(f"Target count: {self.count}")
+
+        if current_count == self.count:
+            self.print_warning(
+                f"VM role '{self.vm_role}' is already at {self.count} instance(s)"
+            )
+            return
+
+        # Confirm scaling action
+        action = "scale up" if self.count > current_count else "scale down"
+        if not self.confirm(
+            f"[yellow]{action.title()} {self.vm_role} from {current_count} to {self.count} instance(s)?[/yellow]",
+            default=False,
+        ):
+            self.print_warning("Scaling cancelled")
+            return
+
+        logger.step("Updating Configuration")
+
+        # Update project.yml
+        try:
+            import yaml
+
+            project_path = self.config_service.get_project_path(self.project_name)
+            project_yml = project_path / "project.yml"
+
+            with open(project_yml, "r") as f:
+                config = yaml.safe_load(f)
+
+            config["vms"][self.vm_role]["count"] = self.count
+
+            with open(project_yml, "w") as f:
+                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+            logger.log(f"✓ Updated {project_yml}")
+
+        except Exception as e:
+            self.handle_error(e, "Failed to update configuration")
+            raise SystemExit(1)
+
+        logger.step("Applying Changes")
+
+        self.console.print("\n[bold yellow]To apply these changes, run:[/bold yellow]")
+        self.console.print(f"  [cyan]superdeploy {self.project_name}:up[/cyan]")
+        self.console.print()
+
+        logger.success("Configuration updated")
+
+        if not self.verbose:
+            self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
 
 @click.command()
@@ -13,28 +96,14 @@ console = Console()
 @click.option("--count", type=int, required=True, help="Number of VMs")
 def scale(project, vm_role, count):
     """
-    Scale VMs for a service
+    Scale VM count for a role
 
     \b
     Example:
-      superdeploy scale -p cheapa --vm-role api --count 3
+      superdeploy myproject:scale --vm-role worker --count 3
+
+    \b
+    Note: After scaling, run 'superdeploy up' to apply changes.
     """
-    show_header(
-        title="Scale Infrastructure",
-        project=project,
-        details={"VM Role": vm_role, "Target Count": str(count)},
-        console=console,
-    )
-
-    console.print("\n[bold]Steps:[/bold]")
-    console.print(f"1. Edit [green]projects/{project}/project.yml[/green]:")
-    console.print("   [dim]vms:")
-    console.print(f"     {vm_role}:")
-    console.print(f"       count: {count}[/dim]\n")
-
-    console.print("2. Apply changes:")
-    console.print(f"   [red]superdeploy up -p {project}[/red]\n")
-
-    console.print(
-        "[yellow]Note:[/yellow] Add load balancer (Caddy) to distribute traffic across VMs\n"
-    )
+    cmd = ScaleCommand(project, vm_role, count, verbose=False)
+    cmd.run()

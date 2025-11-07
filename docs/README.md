@@ -87,7 +87,7 @@ superdeploy orchestrator up
 superdeploy init -p myproject
 
 # Altyapıyı deploy et
-superdeploy up -p myproject
+superdeploy myproject:up
 
 # Secrets'ları sync et
 superdeploy sync -p myproject
@@ -257,7 +257,7 @@ superdeploy orchestrator up --addon caddy
 superdeploy init -p myproject
 
 # Altyapı deploy et (Terraform + Ansible)
-superdeploy up -p myproject
+superdeploy myproject:up
 
 # Secrets sync et (GitHub + Forgejo)
 superdeploy sync -p myproject
@@ -272,13 +272,13 @@ superdeploy logs -p myproject -a api --follow
 superdeploy ssh -p myproject
 
 # Selective addon deployment (sadece belirli addon'lar)
-superdeploy up -p myproject --addon postgres
+superdeploy myproject:up --addon postgres
 
 # IP adresi korumalı deployment
-superdeploy up -p myproject --preserve-ip
+superdeploy myproject:up --preserve-ip
 
 # Altyapıyı sil
-superdeploy destroy -p myproject
+superdeploy myproject:down
 ```
 
 ---

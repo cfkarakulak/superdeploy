@@ -1,14 +1,126 @@
-"""SuperDeploy CLI - Status command"""
+"""SuperDeploy CLI - Status command (Refactored)"""
 
-import os
 import click
-from rich.console import Console
 from rich.table import Table
-from cli.ui_components import show_header
-from cli.utils import get_project_root, ssh_command
-from cli.logger import DeployLogger
+from cli.base import ProjectCommand
 
-console = Console()
+
+class StatusCommand(ProjectCommand):
+    """Show infrastructure and application status."""
+
+    def __init__(self, project_name: str, verbose: bool = False):
+        super().__init__(project_name, verbose=verbose)
+        self.table = Table(
+            title=f"{project_name} - Infrastructure Status",
+            title_justify="left",
+            padding=(0, 1),
+        )
+        self.table.add_column("Component", style="cyan", no_wrap=True)
+        self.table.add_column("Status", style="green")
+        self.table.add_column("Details", style="dim")
+
+    def execute(self) -> None:
+        """Execute status command."""
+        self.show_header(title="Infrastructure Status", project=self.project_name)
+
+        # Initialize logger
+        logger = self.init_logger(self.project_name, "status")
+
+        logger.step("Loading project configuration")
+
+        # Check if deployed
+        try:
+            self.require_deployment()
+            logger.success("Configuration loaded")
+        except SystemExit:
+            logger.warning("No deployment state found")
+            logger.log(f"Run: [red]superdeploy {self.project_name}:up[/red]")
+            raise
+
+        logger.step("Checking VM and container status")
+
+        # Get services
+        vm_service = self.ensure_vm_service()
+        ssh_service = vm_service.get_ssh_service()
+
+        # Get all VMs
+        all_vms = vm_service.get_all_vms()
+
+        # Get apps
+        apps = self.list_apps()
+
+        # Check each VM and its containers
+        for vm_name in sorted(all_vms.keys()):
+            vm_data = all_vms[vm_name]
+            vm_ip = vm_data["external_ip"]
+            role = vm_service.get_vm_role_from_name(vm_name)
+
+            # Test SSH connectivity
+            if ssh_service.test_connection(vm_ip):
+                vm_status = "[green]Running[/green]"
+
+                # Get container status
+                try:
+                    result = ssh_service.execute_command(
+                        vm_ip,
+                        f"docker ps --filter name={self.project_name}- --format '{{{{.Names}}}}\\t{{{{.Status}}}}'",
+                        timeout=5,
+                    )
+
+                    if result.returncode == 0 and result.stdout.strip():
+                        # Add VM header
+                        self.table.add_row(
+                            f"[bold]{vm_name}[/bold] ({role})", vm_status, vm_ip
+                        )
+
+                        # Add containers under this VM
+                        for line in result.stdout.strip().split("\n"):
+                            if "\t" in line:
+                                container, status = line.split("\t", 1)
+                                # Extract app name from container name
+                                app_name = container.replace(
+                                    f"{self.project_name}-", ""
+                                )
+                                self.table.add_row(
+                                    f"  └─ {app_name}", status, "container"
+                                )
+                    else:
+                        # VM running but no containers
+                        self.table.add_row(
+                            f"[bold]{vm_name}[/bold] ({role})", vm_status, vm_ip
+                        )
+                        self.table.add_row(
+                            "  └─ No containers", "[yellow]Empty[/yellow]", ""
+                        )
+                except Exception as e:
+                    # SSH works but docker command failed
+                    self.table.add_row(
+                        f"[bold]{vm_name}[/bold] ({role})", vm_status, vm_ip
+                    )
+                    self.table.add_row("  └─ Error", "[red]Failed[/red]", str(e)[:30])
+            else:
+                # VM not reachable
+                self.table.add_row(
+                    f"[bold]{vm_name}[/bold] ({role})", "[red]Unreachable[/red]", vm_ip
+                )
+
+        logger.success("Status check complete")
+
+        # Display table
+        if not self.verbose:
+            self.console.print("\n")
+            self.console.print(self.table)
+            self.console.print()
+
+            # Show useful commands
+            self.console.print("[bold]Useful commands:[/bold]")
+            self.console.print("  [cyan]superdeploy logs -a <app> -f[/cyan]")
+            self.console.print("  [cyan]superdeploy restart -a <app>[/cyan]")
+            self.console.print("  [cyan]superdeploy run <app> <command>[/cyan]")
+            self.console.print()
+
+        if not self.verbose:
+            self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
 
 @click.command()
@@ -23,220 +135,5 @@ def status(project, verbose):
     - Container status per VM
     - Application health
     """
-    if not verbose:
-        show_header(
-            title="Infrastructure Status",
-            project=project,
-            console=console,
-        )
-
-    logger = DeployLogger(project, "status", verbose=verbose)
-
-    project_root = get_project_root()
-    projects_dir = project_root / "projects"
-
-    # Load project config
-    logger.step("Loading project configuration")
-    from cli.core.config_loader import ConfigLoader
-
-    try:
-        config_loader = ConfigLoader(projects_dir)
-        project_config = config_loader.load_project(project)
-        config = project_config.raw_config
-        logger.success("Configuration loaded")
-    except FileNotFoundError:
-        logger.log_error(f"Project '{project}' not found")
-        raise SystemExit(1)
-    except ValueError as e:
-        logger.log_error(f"Error loading config: {e}")
-        raise SystemExit(1)
-
-    # Load state to get VM IPs
-    from cli.state_manager import StateManager
-    state_mgr = StateManager(project_root, project)
-    state = state_mgr.load_state()
-    
-    if not state or "vms" not in state:
-        logger.warning("No deployment state found")
-        logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
-        raise SystemExit(1)
-
-    # Get VMs from state
-    vms = {}
-    for vm_name, vm_data in state.get("vms", {}).items():
-        if "external_ip" in vm_data:
-            vms[vm_name] = {
-                "ip": vm_data["external_ip"],
-                "internal_ip": vm_data.get("internal_ip", ""),
-            }
-
-    if not vms:
-        logger.warning("No VM IPs found in state")
-        logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
-        raise SystemExit(1)
-
-    # Get apps and their VM assignments
-    apps = config.get("apps", {})
-
-    # Get SSH config from project config
-    ssh_config = config.get("cloud", {}).get("ssh", {})
-    ssh_key_path = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
-    ssh_user = ssh_config.get("user", "superdeploy")
-    ssh_key = os.path.expanduser(ssh_key_path)
-
-    logger.step("Checking VM and container status")
-
-    # Create table
-    table = Table(
-        title=f"{project} - Infrastructure Status",
-        title_justify="left",
-        padding=(0, 1),
-    )
-    table.add_column("Component", style="cyan", no_wrap=True)
-    table.add_column("Status", style="green")
-    table.add_column("Details", style="dim")
-
-    # Check each VM and its containers
-    for role, vm_info in sorted(vms.items()):
-        vm_ip = vm_info["ip"]
-
-        # Check VM uptime
-        try:
-            uptime_cmd = "uptime -p"
-            uptime = ssh_command(
-                host=vm_ip, user=ssh_user, key_path=ssh_key, cmd=uptime_cmd
-            )
-            uptime = uptime.strip().replace("up ", "")
-            table.add_row(f"{role.upper()} VM", "✅ Running", f"{vm_ip} ({uptime})")
-        except Exception as e:
-            table.add_row(f"{role.upper()} VM", "❌ Down", f"{vm_ip} - {str(e)[:30]}")
-            continue
-
-        # Check containers on this VM
-        try:
-            ps_cmd = f'docker ps -a --filter name={project}- --format "{{{{.Names}}}}|{{{{.Status}}}}|{{{{.State}}}}"'
-            containers = ssh_command(
-                host=vm_ip, user=ssh_user, key_path=ssh_key, cmd=ps_cmd
-            )
-
-            for line in containers.strip().split("\n"):
-                if not line:
-                    continue
-
-                parts = line.split("|")
-                if len(parts) < 3:
-                    continue
-
-                container_name = parts[0]
-                status_text = parts[1]
-                state = parts[2]
-
-                # Extract service name (e.g., cheapa-api -> api)
-                import re
-
-                service_match = re.match(rf"{project}-(\w+)", container_name)
-                if not service_match:
-                    continue
-
-                service = service_match.group(1)
-
-                # Determine status icon
-                if state == "running":
-                    if "healthy" in status_text.lower():
-                        icon = "✅"
-                        status = "Running"
-                    elif "unhealthy" in status_text.lower():
-                        icon = "⚠️"
-                        status = "Unhealthy"
-                    else:
-                        icon = "✅"
-                        status = "Running"
-                else:
-                    icon = "❌"
-                    status = "Down"
-
-                # Clean up status text
-                status_display = status_text.replace("Up ", "").replace(
-                    "Exited ", "Exit "
-                )
-
-                table.add_row(f"  {service}", f"{icon} {status}", status_display)
-
-        except Exception as e:
-            table.add_row("  containers", "❌ Error", str(e)[:40])
-
-    console.print(table)
-    logger.success("Status check complete")
-
-    # Check for config drift (state vs current config)
-    from cli.state_manager import StateManager
-    from datetime import datetime
-
-    state_mgr = StateManager(project_root, project)
-    state = state_mgr.load_state()
-
-    if state:
-        console.print("\n[bold cyan]📊 Deployment State:[/bold cyan]")
-
-        last_applied = state.get("last_applied", {})
-        if last_applied:
-            timestamp = last_applied.get("timestamp", "")
-            if timestamp:
-                try:
-                    dt = datetime.fromisoformat(timestamp)
-                    from datetime import timedelta
-
-                    # Time ago
-                    now = datetime.now()
-                    delta = now - dt
-                    if delta < timedelta(hours=1):
-                        time_ago = f"{int(delta.total_seconds() / 60)} minutes ago"
-                    elif delta < timedelta(days=1):
-                        time_ago = f"{int(delta.total_seconds() / 3600)} hours ago"
-                    else:
-                        time_ago = f"{delta.days} days ago"
-
-                    console.print(f"Last applied: {time_ago}")
-                except:
-                    console.print(f"Last applied: {timestamp}")
-
-        # Check for drift
-        changes, _ = state_mgr.detect_changes(project_config)
-
-        if changes["has_changes"]:
-            console.print("\n[yellow]⚠️  Configuration drift detected![/yellow]")
-            console.print("[dim]Config has changes not yet applied:[/dim]")
-
-            if changes["vms"]["added"]:
-                console.print(f"  • New VMs: {', '.join(changes['vms']['added'])}")
-            if changes["vms"]["modified"]:
-                modified_vms = [v["name"] for v in changes["vms"]["modified"]]
-                console.print(f"  • Modified VMs: {', '.join(modified_vms)}")
-            if changes["addons"]["added"]:
-                console.print(
-                    f"  • New addons: {', '.join(changes['addons']['added'])}"
-                )
-            if changes["apps"]["added"]:
-                console.print(f"  • New apps: {', '.join(changes['apps']['added'])}")
-
-            console.print(f"\n[yellow]Run:[/yellow] superdeploy plan -p {project}")
-        else:
-            console.print("[green]✓ No drift - config matches deployed state[/green]")
-    else:
-        console.print(
-            "\n[dim]No state found (first deployment or pre-state version)[/dim]"
-        )
-
-    # Show access URLs
-    if not verbose:
-        console.print("\n[bold cyan]🌐 Access URLs:[/bold cyan]")
-
-        for app_name, app_config in apps.items():
-            vm_role = app_config.get("vm", "core")
-            port = app_config.get("external_port") or app_config.get("port")
-
-            if vm_role in vms and port:
-                vm_ip = vms[vm_role]["ip"]
-                console.print(f"{app_name.capitalize():12} http://{vm_ip}:{port}")
-
-        console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
+    cmd = StatusCommand(project, verbose=verbose)
+    cmd.run()

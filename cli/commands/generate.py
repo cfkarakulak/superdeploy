@@ -1,5 +1,5 @@
 """
-Generate deployment files V2 - with secret hierarchy and minimal workflows
+Generate deployment files - Forgejo workflows with secret hierarchy
 """
 
 import click
@@ -24,13 +24,13 @@ def generate(project, app):
     - .superdeploy marker files
 
     Example:
-        superdeploy generate -p cheapa
-        superdeploy generate -p cheapa --app api
+        superdeploy cheapa:generate
+        superdeploy cheapa:generate --app api
     """
     show_header(
-        title="Generate Deployment Files V2",
+        title="Generate Deployment Files",
         project=project,
-        subtitle="Minimal workflows + Secret hierarchy",
+        subtitle="Forgejo workflows + Secret hierarchy",
         console=console,
     )
 
@@ -123,7 +123,7 @@ def generate(project, app):
         secret_count = len(app_secrets)
         console.print(f"  Secrets: {secret_count}")
 
-        # 4. Generate GitHub workflow (minimal)
+        # 4. Generate GitHub workflow (uses central deploy.sh)
         github_template = _load_template(template_dir, app_type, "github")
         github_workflow = github_template.render(
             project=project, app=app_name, github_org=github_org
@@ -133,15 +133,8 @@ def generate(project, app):
         (github_dir / "deploy.yml").write_text(github_workflow)
         console.print("  [green]✓[/green] .github/workflows/deploy.yml")
 
-        # 5. Generate Forgejo workflow (minimal)
-        forgejo_template = _load_template(template_dir, app_type, "forgejo")
-        forgejo_workflow = forgejo_template.render(
-            project=project, app=app_name, github_org=github_org
-        )
-        forgejo_dir = app_path / ".forgejo" / "workflows"
-        forgejo_dir.mkdir(parents=True, exist_ok=True)
-        (forgejo_dir / "deploy.yml").write_text(forgejo_workflow)
-        console.print("  [green]✓[/green] .forgejo/workflows/deploy.yml")
+        # Note: .forgejo/workflows NOT needed in app repos
+        # Forgejo workflows are only in SuperDeploy central repo
 
         console.print()
 
@@ -151,10 +144,10 @@ def generate(project, app):
     console.print("\n1. Review generated files (especially secrets.yml)")
     console.print("\n2. Commit to app repos:")
     console.print("   [dim]cd <app-repo>[/dim]")
-    console.print("   [dim]git add .superdeploy .github/ .forgejo/[/dim]")
+    console.print("   [dim]git add .superdeploy .github/[/dim]")
     console.print('   [dim]git commit -m "Add SuperDeploy config"[/dim]')
     console.print("\n3. Deploy infrastructure:")
-    console.print(f"   [red]superdeploy up -p {project}[/red]")
+    console.print(f"   [red]superdeploy {project}:up[/red]")
 
 
 def _detect_app_type(app_path: Path) -> str:
@@ -176,13 +169,184 @@ def _detect_app_type(app_path: Path) -> str:
 
 
 def _load_template(template_dir: Path, app_type: str, platform: str) -> Template:
-    """Load Jinja2 template"""
+    """Generate workflow template dynamically (no external template files needed)"""
 
-    template_file = template_dir / f"{app_type}-{platform}.yml.j2"
+    if platform == "github":
+        template_content = _get_github_workflow_template(app_type)
+    elif platform == "forgejo":
+        template_content = _get_forgejo_workflow_template(app_type)
+    else:
+        raise ValueError(f"Unknown platform: {platform}")
 
-    if not template_file.exists():
-        # Fallback to python template
-        template_file = template_dir / f"python-{platform}.yml.j2"
+    return Template(template_content)
 
-    with open(template_file, "r") as f:
-        return Template(f.read())
+
+def _get_github_workflow_template(app_type: str) -> str:
+    """Generate GitHub workflow template"""
+
+    if app_type == "nextjs":
+        return """name: Deploy to {{ project }}
+
+on:
+  push:
+    branches: [production]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+      
+      - name: Deploy to VM
+        run: |
+          echo "Deploy {{ app }} to {{ project }}"
+          # Deployment logic handled by Forgejo
+"""
+
+    # Default: Python/Cara
+    return """name: Deploy to {{ project }}
+
+on:
+  push:
+    branches: [production]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run tests
+        run: |
+          # Add your test command here
+          echo "Tests passed"
+      
+      - name: Deploy to VM
+        env:
+          ORCHESTRATOR_IP: ${{ '{{' }} secrets.ORCHESTRATOR_IP {{ '}}' }}
+          DOCKER_USERNAME: ${{ '{{' }} secrets.DOCKER_USERNAME {{ '}}' }}
+          DOCKER_TOKEN: ${{ '{{' }} secrets.DOCKER_TOKEN {{ '}}' }}
+          DOCKER_ORG: ${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}
+        run: |
+          # Fetch and execute central deployment script from SuperDeploy repo
+          curl -fsSL https://raw.githubusercontent.com/{{ github_org }}/superdeploy/master/scripts/deploy.sh | bash
+"""
+
+
+def _get_forgejo_workflow_template(app_type: str) -> str:
+    """Generate Forgejo workflow template"""
+
+    if app_type == "nextjs":
+        return """name: Deploy {{ app }}
+
+on:
+  push:
+    branches: [production]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    container:
+      image: node:20-alpine
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build
+        run: npm run build
+        env:
+          NODE_ENV: production
+      
+      - name: Build Docker image
+        run: |
+          docker build -t {{ github_org }}/{{ app }}:${{ '{{' }} github.sha {{ '}}' }} .
+          docker tag {{ github_org }}/{{ app }}:${{ '{{' }} github.sha {{ '}}' }} {{ github_org }}/{{ app }}:latest
+      
+      - name: Push to registry
+        run: |
+          echo "${{ '{{' }} secrets.DOCKER_TOKEN {{ '}}' }}" | docker login -u "${{ '{{' }} secrets.DOCKER_USERNAME {{ '}}' }}" --password-stdin
+          docker push {{ github_org }}/{{ app }}:${{ '{{' }} github.sha {{ '}}' }}
+          docker push {{ github_org }}/{{ app }}:latest
+      
+      - name: Deploy to VM
+        run: |
+          # SSH to VM and update container
+          echo "Deploying {{ app }} to {{ project }}..."
+"""
+
+    # Default: Python/Cara
+    return """name: Deploy {{ app }}
+
+on:
+  push:
+    branches: [production]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.11-slim
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run tests
+        run: |
+          # Add your test command here
+          echo "Tests passed"
+      
+      - name: Build Docker image
+        run: |
+          docker build -t {{ github_org }}/{{ app }}:${{ '{{' }} github.sha {{ '}}' }} .
+          docker tag {{ github_org }}/{{ app }}:${{ '{{' }} github.sha {{ '}}' }} {{ github_org }}/{{ app }}:latest
+      
+      - name: Push to registry
+        run: |
+          echo "${{ '{{' }} secrets.DOCKER_TOKEN {{ '}}' }}" | docker login -u "${{ '{{' }} secrets.DOCKER_USERNAME {{ '}}' }}" --password-stdin
+          docker push {{ github_org }}/{{ app }}:${{ '{{' }} github.sha {{ '}}' }}
+          docker push {{ github_org }}/{{ app }}:latest
+      
+      - name: Deploy to VM
+        run: |
+          # SSH to VM and update container
+          echo "Deploying {{ app }} to {{ project }}..."
+"""

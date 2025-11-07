@@ -9,7 +9,7 @@
 project:
   name: cheapa
   description: cheapa project
-  created_at: '2025-11-07T00:24:37.554923'
+  created_at: '2025-11-07T15:15:22.435348'
   ssl_email: admin@cheapa.io
 
 # =============================================================================
@@ -61,21 +61,21 @@ apps:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/api
     vm: app
     port: 8000
-  services:
-    path: /Users/cfkarakulak/Desktop/cheapa.io/code/services
-    vm: app
-    port: 8100
   storefront:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/storefront
     vm: app
     port: 3000
+  services:
+    path: /Users/cfkarakulak/Desktop/cheapa.io/code/services
+    vm: app
+    port: 8001
 
 # =============================================================================
 # Docker Configuration
 # =============================================================================
 docker:
   registry: docker.io
-  organization: c100394  # Docker Hub username
+  organization: c100394
 
 # =============================================================================
 # GitHub Configuration

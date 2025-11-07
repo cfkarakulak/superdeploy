@@ -5,3 +5,13 @@
   systemd:
     name: docker
     state: restarted
+    
+- name: Wait for Docker daemon to be ready after restart
+  command: docker info
+  retries: 30
+  delay: 1
+  register: docker_ready
+  until: docker_ready.rc == 0
+  changed_when: false
+  failed_when: false
+  listen: "Restart Docker"

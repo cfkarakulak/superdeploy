@@ -1,13 +1,78 @@
-"""SuperDeploy CLI - Restart command"""
+"""SuperDeploy CLI - Restart command (Refactored)"""
 
 import click
-import subprocess
-from rich.console import Console
-from pathlib import Path
-from cli.ui_components import show_header
-from cli.logger import DeployLogger
+from cli.base import ProjectCommand
 
-console = Console()
+
+class RestartCommand(ProjectCommand):
+    """Restart application container."""
+
+    def __init__(self, project_name: str, app_name: str, verbose: bool = False):
+        super().__init__(project_name, verbose=verbose)
+        self.app_name = app_name
+
+    def execute(self) -> None:
+        """Execute restart command."""
+        self.show_header(
+            title="Restart Application", project=self.project_name, app=self.app_name
+        )
+
+        # Require deployment
+        self.require_deployment()
+
+        # Initialize logger
+        logger = self.init_logger(self.project_name, f"restart-{self.app_name}")
+
+        logger.step("Finding Application")
+
+        # Get VM and IP
+        try:
+            vm_name, vm_ip = self.get_vm_for_app(self.app_name)
+            logger.log(f"App '{self.app_name}' running on {vm_name} ({vm_ip})")
+        except Exception as e:
+            self.handle_error(e, f"Could not find VM for app '{self.app_name}'")
+            raise SystemExit(1)
+
+        # Get SSH service
+        vm_service = self.ensure_vm_service()
+        ssh_service = vm_service.get_ssh_service()
+
+        logger.step("Restarting Container")
+
+        container_name = f"{self.project_name}-{self.app_name}"
+
+        try:
+            # Restart container
+            result = ssh_service.execute_command(
+                vm_ip, f"docker restart {container_name}", check=True
+            )
+
+            logger.log(f"✓ Container restarted: {container_name}")
+
+            # Check container status
+            result = ssh_service.execute_command(
+                vm_ip,
+                f"docker ps --filter name={container_name} --format '{{{{.Status}}}}'",
+                check=True,
+            )
+
+            status = result.stdout.strip()
+            if status:
+                logger.log(f"Status: {status}")
+
+            logger.success("Application restarted successfully")
+
+            if not self.verbose:
+                self.console.print("\n[color(248)]Application restarted.[/color(248)]")
+                self.console.print("\n[dim]Monitor logs:[/dim]")
+                self.console.print(
+                    f"  [cyan]superdeploy logs -p {self.project_name} -a {self.app_name} -f[/cyan]"
+                )
+                self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
+
+        except Exception as e:
+            self.handle_error(e, "Failed to restart container")
+            raise SystemExit(1)
 
 
 @click.command()
@@ -22,102 +87,5 @@ def restart(project, app, verbose):
     Example:
       superdeploy restart -p cheapa -a api
     """
-    from cli.utils import get_project_root
-    from cli.core.config_loader import ConfigLoader
-
-    if not verbose:
-        show_header(
-            title="Restart Application",
-            project=project,
-            app=app,
-            console=console,
-        )
-
-    logger = DeployLogger(project, f"restart-{app}", verbose=verbose)
-
-    project_root = get_project_root()
-    projects_dir = project_root / "projects"
-
-    # Load config to find VM
-    logger.step("Loading project configuration")
-    try:
-        config_loader = ConfigLoader(projects_dir)
-        project_config = config_loader.load_project(project)
-        apps = project_config.raw_config.get("apps", {})
-        logger.success("Configuration loaded")
-
-        if app not in apps:
-            logger.log_error(f"App '{app}' not found in project config")
-            raise SystemExit(1)
-
-        vm_role = apps[app].get("vm", "core")
-
-        # Get SSH config from project config
-        ssh_config = project_config.raw_config.get("cloud", {}).get("ssh", {})
-        ssh_key_path = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
-        ssh_user = ssh_config.get("user", "superdeploy")
-
-        # Get VM IP from state
-        from cli.state_manager import StateManager
-        state_mgr = StateManager(project_root, project)
-        state = state_mgr.load_state()
-        
-        if not state or "vms" not in state:
-            logger.log_error("No deployment state found")
-            logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
-            raise SystemExit(1)
-        
-        # Find VM by role
-        vm_name = f"{vm_role}-0"
-        if vm_name not in state["vms"] or "external_ip" not in state["vms"][vm_name]:
-            logger.log_error(f"VM IP not found in state: {vm_name}")
-            logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
-            raise SystemExit(1)
-
-        ssh_host = state["vms"][vm_name]["external_ip"]
-        logger.log(f"Found VM: {ssh_host}")
-
-    except Exception as e:
-        logger.log_error(f"Error: {e}")
-        raise SystemExit(1)
-
-    # SSH and restart container
-    logger.step(f"Restarting {app} container")
-    ssh_key = Path(ssh_key_path).expanduser()
-    container_name = f"{project}-{app}"
-
-    cmd = [
-        "ssh",
-        "-i",
-        str(ssh_key),
-        "-o",
-        "StrictHostKeyChecking=no",
-        f"{ssh_user}@{ssh_host}",
-        f"docker restart {container_name}",
-    ]
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        logger.success(f"{app} restarted successfully")
-
-        # Show status
-        logger.log("Checking container status")
-        status_cmd = [
-            "ssh",
-            "-i",
-            str(ssh_key),
-            "-o",
-            "StrictHostKeyChecking=no",
-            f"{ssh_user}@{ssh_host}",
-            f"docker ps --filter name={container_name} --format 'table {{{{.Names}}}}\\t{{{{.Status}}}}'",
-        ]
-        status_result = subprocess.run(status_cmd, capture_output=True, text=True)
-
-        if not verbose:
-            console.print("\n[cyan]Status:[/cyan]")
-            console.print(status_result.stdout)
-            console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
-
-    except subprocess.CalledProcessError as e:
-        logger.log_error(f"Restart failed: {e.stderr}")
-        raise SystemExit(1)
+    cmd = RestartCommand(project, app, verbose=verbose)
+    cmd.run()

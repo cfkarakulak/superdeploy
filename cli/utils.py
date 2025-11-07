@@ -3,143 +3,10 @@
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional, Dict, Any
-from dotenv import dotenv_values
+from typing import Optional, Dict
 from rich.console import Console
 
 console = Console()
-
-
-def find_env_file() -> Optional[Path]:
-    """
-    Smart .env file detection (DEPRECATED - for backward compatibility only)
-
-    New behavior: SuperDeploy now uses environment variables instead of .env files.
-    This function is kept for backward compatibility during migration.
-    """
-    search_paths = [
-        Path.cwd() / ".env",
-        Path.home() / ".superdeploy" / ".env",
-        Path(__file__).parent.parent / ".env",
-    ]
-
-    for path in search_paths:
-        if path.exists():
-            return path
-
-    return None
-
-
-def load_env(project: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Load environment configuration from project.yml.
-
-    All configuration is now per-project in project.yml.
-    This function loads the project config and converts it to env-like dict
-    for backward compatibility with existing code.
-
-    Args:
-        project: Project name to load config from
-
-    Returns:
-        Dictionary of environment variables extracted from project.yml
-    """
-    if not project:
-        console.print("[red]❌ Project name required![/red]")
-        console.print("\n[cyan]Usage:[/cyan]")
-        console.print("  superdeploy <command> -p <project>")
-        raise SystemExit(1)
-
-    # Load project config
-    from cli.core.config_loader import ConfigLoader
-
-    project_root = get_project_root()
-    config_loader = ConfigLoader(project_root / "projects")
-
-    try:
-        project_config = config_loader.load_project(project)
-    except FileNotFoundError:
-        console.print(f"[red]❌ Project '{project}' not found![/red]")
-        console.print("\n[cyan]Create it with:[/cyan]")
-        console.print(f"  superdeploy init -p {project}")
-        raise SystemExit(1)
-    except ValueError as e:
-        console.print(f"[red]❌ Invalid project config: {e}[/red]")
-        raise SystemExit(1)
-
-    # Extract ALL non-sensitive config from project.yml
-    config = project_config.raw_config
-    cloud = config.get("cloud", {})
-    gcp = cloud.get("gcp", {})
-    ssh = cloud.get("ssh", {})
-    docker_config = config.get("docker", {})
-
-    # Get addons from new unified section
-    addons = project_config.get_addons()
-    forgejo = addons.get("forgejo", {})
-    postgres = addons.get("postgres", {})
-    rabbitmq = addons.get("rabbitmq", {})
-
-    # Get GitHub config
-    github_config = config.get("github", {})
-
-    env_vars = {
-        # GCP
-        "GCP_PROJECT_ID": gcp.get("project_id"),
-        "GCP_REGION": gcp.get("region", "us-central1"),
-        "GCP_ZONE": gcp.get("zone", "us-central1-a"),
-        # SSH
-        "SSH_KEY_PATH": ssh.get("key_path"),
-        "SSH_PUBLIC_KEY_PATH": ssh.get("public_key_path"),
-        "SSH_USER": ssh.get("user"),
-        # Docker (loaded from .env, not from project.yml)
-        # DOCKER_REGISTRY is always docker.io (not configurable)
-        # DOCKER_ORG, DOCKER_USERNAME, DOCKER_TOKEN loaded from .env
-        # GitHub
-        "GITHUB_ORG": github_config.get("organization"),
-        "GITHUB_REPO": github_config.get("repository"),
-        # Forgejo (all non-sensitive config from project.yml)
-        "FORGEJO_PORT": str(forgejo.get("port")),
-        "FORGEJO_SSH_PORT": str(forgejo.get("ssh_port")),
-        "FORGEJO_ORG": forgejo.get("org"),
-        "FORGEJO_ADMIN_USER": forgejo.get("admin_user"),
-        "FORGEJO_ADMIN_EMAIL": forgejo.get("admin_email"),
-        "FORGEJO_REPO": forgejo.get("repo"),
-        "FORGEJO_DB_NAME": forgejo.get("db_name"),
-        "FORGEJO_DB_USER": forgejo.get("db_user"),
-        "REPO_SUPERDEPLOY": forgejo.get("repo"),
-        # Postgres (non-sensitive config)
-        "POSTGRES_USER": postgres.get("user"),
-        "POSTGRES_DB": postgres.get("database"),
-        # RabbitMQ (non-sensitive config)
-        "RABBITMQ_USER": rabbitmq.get("user"),
-        # Monitoring
-        "ENABLE_MONITORING": str(
-            config.get("monitoring", {}).get("enabled", True)
-        ).lower(),
-    }
-
-    # Load sensitive values from project's .env file (including Docker credentials)
-    project_path = project_root / "projects" / project
-    project_env_file = project_path / ".env"
-    if project_env_file.exists():
-        env_secrets = dotenv_values(project_env_file)
-        env_vars.update(env_secrets)
-
-    # Load FORGEJO_PAT from orchestrator (global)
-    orchestrator_env_file = project_root / "shared" / "orchestrator" / ".env"
-    if orchestrator_env_file.exists():
-        orchestrator_env = dotenv_values(orchestrator_env_file)
-        if orchestrator_env.get("FORGEJO_PAT"):
-            env_vars["FORGEJO_PAT"] = orchestrator_env["FORGEJO_PAT"]
-
-    # Override with environment variables if set (for CI/CD)
-    sensitive_vars = ["DOCKER_TOKEN", "GITHUB_TOKEN", "FORGEJO_PAT"]
-    for var in sensitive_vars:
-        if var in os.environ:
-            env_vars[var] = os.environ[var]
-
-    return env_vars
 
 
 def get_available_projects() -> list:
@@ -246,11 +113,17 @@ def ssh_command(
 
 
 def get_project_root() -> Path:
-    """Get project root directory"""
-    env_file = find_env_file()
-    if env_file:
-        return env_file.parent
-    return Path.cwd()
+    """
+    Get SuperDeploy project root directory.
+
+    Returns:
+        Path to superdeploy directory (contains projects/, addons/, etc.)
+    """
+    # Start from current file location and go up to find superdeploy root
+    current = Path(__file__).resolve()
+
+    # Go up from cli/utils.py -> cli/ -> superdeploy/
+    return current.parent.parent
 
 
 def validate_env_vars(env: Dict, required_keys: list) -> bool:

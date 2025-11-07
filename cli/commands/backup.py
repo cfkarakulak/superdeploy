@@ -5,7 +5,7 @@ from datetime import datetime
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from cli.ui_components import show_header
-from cli.utils import validate_env_vars, ssh_command
+from cli.utils import ssh_command
 
 console = Console()
 
@@ -32,16 +32,16 @@ def backups_create(project, output):
     # Load state to get VM IPs
     from cli.utils import get_project_root
     from cli.state_manager import StateManager
-    
+
     project_root = get_project_root()
     state_mgr = StateManager(project_root, project)
     state = state_mgr.load_state()
-    
+
     if not state or "vms" not in state:
         console.print("[red]✗[/red] No deployment state found")
-        console.print(f"Run: [red]superdeploy up -p {project}[/red]")
+        console.print(f"Run: [red]superdeploy {project}:up[/red]")
         raise SystemExit(1)
-    
+
     # Build env dict from state for compatibility
     env = {}
     for vm_name, vm_data in state.get("vms", {}).items():
@@ -82,12 +82,17 @@ def backups_create(project, output):
         task2 = progress.add_task("[cyan]Backing up database...", total=1)
 
         try:
-            # Get database credentials from project config
-            from cli.utils import get_project_path
-            from dotenv import dotenv_values
+            # Get database credentials from secrets.yml
+            from cli.utils import get_project_path, get_project_root
+            from cli.secret_manager import SecretManager
 
+            project_root = get_project_root()
             project_path = get_project_path(project)
-            passwords = dotenv_values(project_path / ".env")
+
+            # Load secrets from secrets.yml
+            secret_mgr = SecretManager(project_root, project)
+            secrets_data = secret_mgr.load_secrets()
+            passwords = secrets_data.get("secrets", {}).get("shared", {})
 
             # Dump database via SSH - dynamically find database addon
             from cli.core.config_loader import ConfigLoader
@@ -156,8 +161,8 @@ def backups_create(project, output):
             # Copy config files
             shutil.copy(project_path / "project.yml", f"{output}/{backup_name}/")
 
-            if (project_path / ".env").exists():
-                shutil.copy(project_path / ".env", f"{output}/{backup_name}/")
+            if (project_path / "secrets.yml").exists():
+                shutil.copy(project_path / "secrets.yml", f"{output}/{backup_name}/")
 
             # Copy compose files
             compose_dir = project_path / "compose"
@@ -180,7 +185,7 @@ def backups_create(project, output):
             "files": [
                 "database.sql",
                 "project.yml",
-                ".env",
+                "secrets.yml",
                 "compose/",
             ],
         }

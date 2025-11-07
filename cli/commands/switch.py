@@ -74,13 +74,14 @@ def releases_rollback(project, app, version, force):
         # Get VM IP from state
         from cli.state_manager import StateManager
         from cli.utils import get_project_root as gpr
+
         state_mgr = StateManager(gpr(), project)
         state = state_mgr.load_state()
-        
+
         if not state or "vms" not in state:
             console.print("[red]✗[/red] No deployment state found")
             return
-        
+
         # Build env dict from state
         env = {}
         for vm_name, vm_data in state.get("vms", {}).items():
@@ -90,7 +91,7 @@ def releases_rollback(project, app, version, force):
 
         ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
         if ip_key not in env:
-            console.print(f"[red]❌ VM IP not found in .env: {ip_key}[/red]")
+            console.print(f"[red]❌ VM IP not found in state: {ip_key}[/red]")
             return
 
         ssh_host = env[ip_key]
@@ -268,8 +269,7 @@ def releases_rollback(project, app, version, force):
         
         echo "📦 Preparing new release..."
         
-        # Copy .env to /tmp/decrypted.env for docker-compose
-        cp .env /tmp/decrypted.env
+        # Note: .env no longer used in new releases (secrets via docker compose env_file or runtime injection)
         
         # Temporarily rename service in compose file to avoid name conflict
         sed "s/container_name: $CONTAINER_NAME/container_name: $NEW_CONTAINER/" docker-compose-{app}.yml > /tmp/docker-compose-new.yml
@@ -325,7 +325,7 @@ def releases_rollback(project, app, version, force):
         fi
         
         # Cleanup
-        rm -f /tmp/decrypted.env /tmp/docker-compose-new.yml
+        rm -f /tmp/docker-compose-new.yml
         """
 
         result = ssh_command(

@@ -59,7 +59,7 @@ This will:
 ### 3. Preview Changes (Optional)
 
 ```bash
-superdeploy plan -p myproject
+superdeploy myproject:plan
 ```
 
 This will show you what will be deployed (like `terraform plan`).
@@ -67,7 +67,7 @@ This will show you what will be deployed (like `terraform plan`).
 ### 4. Deploy Infrastructure
 
 ```bash
-superdeploy up -p myproject
+superdeploy myproject:up
 ```
 
 This will (~10 minutes):
@@ -111,10 +111,10 @@ SuperDeploy now tracks state and only deploys what's changed:
 nano projects/myproject/project.yml
 
 # Preview changes
-superdeploy plan -p myproject
+superdeploy myproject:plan
 
 # Apply changes (only deploys what's needed!)
-superdeploy up -p myproject
+superdeploy myproject:up
 
 # Check status and drift
 superdeploy status -p myproject
@@ -135,10 +135,10 @@ superdeploy status -p myproject
 
 ```bash
 superdeploy init -p myproject         # Interactive wizard
-superdeploy plan -p myproject         # Show what will be deployed (like terraform plan)
-superdeploy up -p myproject           # Deploy infrastructure (smart & idempotent!)
-superdeploy up -p myproject --dry-run # Preview changes without applying
-superdeploy up -p myproject --force   # Force update (ignore state)
+superdeploy myproject:plan         # Show what will be deployed (like terraform plan)
+superdeploy myproject:up           # Deploy infrastructure (smart & idempotent!)
+superdeploy myproject:up --dry-run # Preview changes without applying
+superdeploy myproject:up --force   # Force update (ignore state)
 superdeploy sync -p myproject         # Sync secrets to GitHub/Forgejo
 superdeploy validate -p myproject     # Validate configuration
 superdeploy doctor                    # Health check

@@ -168,6 +168,20 @@ class CallbackModule(CallbackBase):
                 f"├── \033[38;5;208m⊘\033[0m \033[2m{self.current_task}\033[0m"
             )
 
+    def v2_runner_retry(self, result):
+        """Called when a task is retrying"""
+        if not self.current_task:
+            return
+
+        # Get retry info
+        retries_left = result._result.get("retries", "?")
+        attempts = result._result.get("attempts", "?")
+
+        # Show retry as dim indented sub-item (no checkmark, just arrow)
+        self._display.display(
+            f"│   \033[2m\033[38;5;214m↻\033[0m \033[2mRetrying ({retries_left} attempts left)...\033[0m"
+        )
+
     def v2_playbook_on_stats(self, stats):
         """Called at the end"""
         self._display.display("\n└── Summary:")

@@ -1,32 +1,208 @@
-"""SuperDeploy CLI - Doctor command"""
+"""SuperDeploy CLI - Doctor command (Refactored)"""
 
 import click
 import subprocess
-from rich.console import Console
 from rich.table import Table
-from cli.ui_components import show_header
-
-console = Console()
-
-
-def check_tool(tool_name):
-    """Check if a tool is installed"""
-    try:
-        subprocess.run(["which", tool_name], check=True, capture_output=True)
-        return True
-    except subprocess.CalledProcessError:
-        return False
+from cli.base import BaseCommand
+from cli.services import ConfigService, StateService
+from cli.constants import REQUIRED_TOOLS
 
 
-def check_auth(tool_name, check_cmd):
-    """Check if a tool is authenticated"""
-    try:
-        result = subprocess.run(
-            check_cmd.split(), check=True, capture_output=True, text=True
+class DoctorCommand(BaseCommand):
+    """System health check and diagnostics."""
+
+    def __init__(self, verbose: bool = False):
+        super().__init__(verbose=verbose)
+        self.table = Table(
+            title="System Health Report", title_justify="left", padding=(0, 1)
         )
-        return True, result.stdout.strip()
-    except subprocess.CalledProcessError:
-        return False, None
+        self.table.add_column("Check", style="cyan", no_wrap=True)
+        self.table.add_column("Status")
+        self.table.add_column("Details", style="dim")
+
+    def check_tool(self, tool_name: str) -> bool:
+        """Check if a tool is installed."""
+        try:
+            subprocess.run(["which", tool_name], check=True, capture_output=True)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
+    def check_auth(self, check_cmd: str) -> tuple[bool, str]:
+        """Check if a tool is authenticated."""
+        try:
+            result = subprocess.run(
+                check_cmd.split(), check=True, capture_output=True, text=True
+            )
+            return True, result.stdout.strip()
+        except subprocess.CalledProcessError:
+            return False, ""
+
+    def check_tools(self) -> None:
+        """Check required tools installation."""
+        self.console.print("\n[cyan]━━━ Checking Tools ━━━[/cyan]")
+
+        for tool in REQUIRED_TOOLS:
+            if self.check_tool(tool):
+                self.table.add_row(f"✅ {tool}", "[green]Installed[/green]", "")
+            else:
+                self.table.add_row(
+                    f"❌ {tool}", "[red]Missing[/red]", f"brew install {tool}"
+                )
+
+    def check_authentication(self) -> None:
+        """Check authentication status."""
+        self.console.print("[cyan]━━━ Checking Authentication ━━━[/cyan]")
+
+        # GCloud
+        gcloud_ok, gcloud_project = self.check_auth("gcloud config get-value project")
+        if gcloud_ok and gcloud_project:
+            self.table.add_row(
+                "✅ GCloud auth", "[green]OK[/green]", f"Project: {gcloud_project}"
+            )
+        else:
+            self.table.add_row(
+                "❌ GCloud auth",
+                "[red]Not authenticated[/red]",
+                "Run: gcloud auth login",
+            )
+
+        # GitHub CLI
+        gh_ok, _ = self.check_auth("gh auth status")
+        if gh_ok:
+            self.table.add_row("✅ GitHub CLI", "[green]Authenticated[/green]", "")
+        else:
+            self.table.add_row(
+                "❌ GitHub CLI", "[red]Not authenticated[/red]", "Run: gh auth login"
+            )
+
+    def check_configuration(self) -> list[str]:
+        """Check project configuration. Returns list of projects."""
+        self.console.print("[cyan]━━━ Checking Configuration ━━━[/cyan]")
+
+        config_service = ConfigService(self.project_root)
+        projects = config_service.list_projects()
+
+        if not projects:
+            self.table.add_row(
+                "⏳ Projects",
+                "[yellow]None found[/yellow]",
+                "Run: superdeploy init -p myproject",
+            )
+            return []
+
+        self.table.add_row(
+            "✅ Projects", "[green]Found[/green]", f"{len(projects)} project(s)"
+        )
+
+        # Validate first project
+        first_project = projects[0]
+        try:
+            config_service.validate_project(first_project)
+            self.table.add_row(
+                f"  ✅ {first_project}", "[green]Valid config[/green]", ""
+            )
+        except Exception as e:
+            self.table.add_row(
+                f"  ❌ {first_project}", "[red]Invalid config[/red]", str(e)[:30]
+            )
+
+        return projects
+
+    def check_infrastructure(self, projects: list[str]) -> None:
+        """Check infrastructure deployment status."""
+        self.console.print("[cyan]━━━ Checking Infrastructure ━━━[/cyan]")
+
+        # Check orchestrator
+        self._check_orchestrator()
+
+        # Check project VMs
+        if projects:
+            self._check_project_vms(projects[0])
+
+    def _check_orchestrator(self) -> None:
+        """Check orchestrator status."""
+        from cli.core.orchestrator_loader import OrchestratorLoader
+
+        try:
+            orch_loader = OrchestratorLoader(self.project_root / "shared")
+            orch_config = orch_loader.load()
+
+            if orch_config.is_deployed():
+                orch_ip = orch_config.get_ip()
+                if orch_ip:
+                    # Try to ping
+                    try:
+                        subprocess.run(
+                            ["ping", "-c", "1", "-W", "2", orch_ip],
+                            check=True,
+                            capture_output=True,
+                        )
+                        self.table.add_row(
+                            "✅ Orchestrator", "[green]Reachable[/green]", orch_ip
+                        )
+                    except subprocess.CalledProcessError:
+                        self.table.add_row(
+                            "❌ Orchestrator", "[red]Unreachable[/red]", orch_ip
+                        )
+                else:
+                    self.table.add_row(
+                        "⏳ Orchestrator", "[yellow]IP not found[/yellow]", ""
+                    )
+            else:
+                self.table.add_row(
+                    "⏳ Orchestrator",
+                    "[yellow]Not deployed[/yellow]",
+                    "Run: superdeploy orchestrator up",
+                )
+        except Exception:
+            self.table.add_row("⏳ Orchestrator", "[yellow]Not configured[/yellow]", "")
+
+    def _check_project_vms(self, project_name: str) -> None:
+        """Check project VM deployment status."""
+        try:
+            state_service = StateService(self.project_root, project_name)
+
+            if state_service.has_state():
+                vm_ips = state_service.get_all_vm_ips()
+                self.table.add_row(
+                    f"✅ {project_name} VMs",
+                    "[green]Deployed[/green]",
+                    f"{len(vm_ips)} VM(s)",
+                )
+            else:
+                self.table.add_row(
+                    f"⏳ {project_name} VMs",
+                    "[yellow]Not deployed[/yellow]",
+                    f"Run: superdeploy {project_name}:up",
+                )
+        except Exception:
+            self.table.add_row(
+                f"⏳ {project_name} VMs",
+                "[yellow]Not deployed[/yellow]",
+                f"Run: superdeploy {project_name}:up",
+            )
+
+    def execute(self) -> None:
+        """Execute doctor command."""
+        self.show_header(
+            title="System Diagnostics",
+            subtitle="Running comprehensive health check of tools and configuration",
+        )
+
+        # Run all checks
+        self.check_tools()
+        self.check_authentication()
+        projects = self.check_configuration()
+        self.check_infrastructure(projects)
+
+        # Display results
+        self.console.print("\n")
+        self.console.print(self.table)
+
+        # Summary
+        self.console.print("\n[bold cyan]━━━ Summary ━━━[/bold cyan]")
+        self.print_success("Diagnostics complete! Review results above.")
 
 
 @click.command()
@@ -40,180 +216,5 @@ def doctor():
     - Configuration validity
     - VM connectivity
     """
-    show_header(
-        title="System Diagnostics",
-        subtitle="Running comprehensive health check of tools and configuration",
-        console=console,
-    )
-
-    # Create table
-    table = Table(title="System Health Report", title_justify="left", padding=(0, 1))
-    table.add_column("Check", style="cyan", no_wrap=True)
-    table.add_column("Status")
-    table.add_column("Details", style="dim")
-
-    # 1. Check required tools
-    console.print("\n[cyan]━━━ Checking Tools ━━━[/cyan]")
-
-    required_tools = [
-        "python3",
-        "terraform",
-        "ansible",
-        "gcloud",
-        "jq",
-        "gh",
-        "age",
-        "ssh",
-    ]
-
-    for tool in required_tools:
-        if check_tool(tool):
-            table.add_row(f"✅ {tool}", "[green]Installed[/green]", "")
-        else:
-            table.add_row(f"❌ {tool}", "[red]Missing[/red]", f"brew install {tool}")
-
-    # 2. Check authentication
-    console.print("[cyan]━━━ Checking Authentication ━━━[/cyan]")
-
-    # GCloud
-    gcloud_ok, gcloud_project = check_auth("gcloud", "gcloud config get-value project")
-    if gcloud_ok and gcloud_project:
-        table.add_row(
-            "✅ GCloud auth", "[green]OK[/green]", f"Project: {gcloud_project}"
-        )
-    else:
-        table.add_row(
-            "❌ GCloud auth", "[red]Not authenticated[/red]", "Run: gcloud auth login"
-        )
-
-    # GitHub CLI
-    gh_ok, gh_user = check_auth("gh", "gh auth status")
-    if gh_ok:
-        table.add_row("✅ GitHub CLI", "[green]Authenticated[/green]", "")
-    else:
-        table.add_row(
-            "❌ GitHub CLI", "[red]Not authenticated[/red]", "Run: gh auth login"
-        )
-
-    # 3. Check configuration
-    console.print("[cyan]━━━ Checking Configuration ━━━[/cyan]")
-
-    # Check if any projects exist
-    from cli.utils import get_project_root
-
-    project_root = get_project_root()
-    projects_dir = project_root / "projects"
-
-    if projects_dir.exists():
-        projects = [
-            d.name
-            for d in projects_dir.iterdir()
-            if d.is_dir()
-            and not d.name.startswith(".")
-            and (d / "project.yml").exists()
-        ]
-
-        if projects:
-            table.add_row(
-                "✅ Projects", "[green]Found[/green]", f"{len(projects)} project(s)"
-            )
-
-            # Check first project as example
-            first_project = projects[0]
-            from cli.core.config_loader import ConfigLoader
-
-            try:
-                config_loader = ConfigLoader(projects_dir)
-                project_config = config_loader.load_project(first_project)
-                table.add_row(
-                    f"  ✅ {first_project}", "[green]Valid config[/green]", ""
-                )
-            except Exception as e:
-                table.add_row(
-                    f"  ❌ {first_project}", "[red]Invalid config[/red]", str(e)[:30]
-                )
-        else:
-            table.add_row(
-                "⏳ Projects",
-                "[yellow]None found[/yellow]",
-                "Run: superdeploy init -p myproject",
-            )
-    else:
-        table.add_row(
-            "⏳ Projects",
-            "[yellow]None found[/yellow]",
-            "Run: superdeploy init -p myproject",
-        )
-
-    # 4. Check VMs (if deployed)
-    console.print("[cyan]━━━ Checking Infrastructure ━━━[/cyan]")
-
-    # Check orchestrator
-    from cli.core.orchestrator_loader import OrchestratorLoader
-
-    try:
-        orch_loader = OrchestratorLoader(project_root / "shared")
-        orch_config = orch_loader.load()
-
-        if orch_config.is_deployed():
-            orch_ip = orch_config.get_ip()
-            if orch_ip:
-                # Try to ping orchestrator
-                try:
-                    subprocess.run(
-                        ["ping", "-c", "1", "-W", "2", orch_ip],
-                        check=True,
-                        capture_output=True,
-                    )
-                    table.add_row(
-                        "✅ Orchestrator", "[green]Reachable[/green]", orch_ip
-                    )
-                except subprocess.CalledProcessError:
-                    table.add_row("❌ Orchestrator", "[red]Unreachable[/red]", orch_ip)
-            else:
-                table.add_row("⏳ Orchestrator", "[yellow]IP not found[/yellow]", "")
-        else:
-            table.add_row(
-                "⏳ Orchestrator",
-                "[yellow]Not deployed[/yellow]",
-                "Run: [red]superdeploy orchestrator up[/red]",
-            )
-    except Exception:
-        table.add_row("⏳ Orchestrator", "[yellow]Not configured[/yellow]", "")
-
-    # Check project VMs if projects exist
-    if projects_dir.exists() and projects:
-        first_project = projects[0]
-        try:
-            
-            env = load_env(project=first_project)
-
-            # Check for any VM IPs
-            vm_ips = {k: v for k, v in env.items() if k.endswith("_EXTERNAL_IP")}
-
-            if vm_ips:
-                table.add_row(
-                    f"✅ {first_project} VMs",
-                    "[green]Deployed[/green]",
-                    f"{len(vm_ips)} VM(s)",
-                )
-            else:
-                table.add_row(
-                    f"⏳ {first_project} VMs",
-                    "[yellow]Not deployed[/yellow]",
-                    f"Run: [red]superdeploy up -p {first_project}[/red]",
-                )
-        except Exception:
-            table.add_row(
-                f"⏳ {first_project} VMs",
-                "[yellow]Not deployed[/yellow]",
-                f"Run: superdeploy up -p {first_project}",
-            )
-
-    # Print table
-    console.print("\n")
-    console.print(table)
-
-    # Summary
-    console.print("\n[bold cyan]━━━ Summary ━━━[/bold cyan]")
-    console.print("[green]✅ Diagnostics complete! Review results above.[/green]")
+    cmd = DoctorCommand(verbose=False)
+    cmd.run()

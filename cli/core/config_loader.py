@@ -59,36 +59,42 @@ class ProjectConfig:
         # Ensure network section exists with defaults
         if "network" not in self.raw_config:
             self.raw_config["network"] = {}
-        
+
         # Auto-allocate subnets using SubnetAllocator
         project_name = self.raw_config.get("project", {}).get("name", "unknown")
         subnet_allocated = False
-        
+
         if "vpc_subnet" not in self.raw_config["network"]:
             from cli.subnet_allocator import SubnetAllocator
+
             allocator = SubnetAllocator()
-            self.raw_config["network"]["vpc_subnet"] = allocator.get_subnet(project_name)
+            self.raw_config["network"]["vpc_subnet"] = allocator.get_subnet(
+                project_name
+            )
             subnet_allocated = True
-        
+
         if "docker_subnet" not in self.raw_config["network"]:
             from cli.subnet_allocator import SubnetAllocator
+
             allocator = SubnetAllocator()
-            self.raw_config["network"]["docker_subnet"] = allocator.get_docker_subnet(project_name)
+            self.raw_config["network"]["docker_subnet"] = allocator.get_docker_subnet(
+                project_name
+            )
             subnet_allocated = True
-        
+
         # Save allocated subnets back to yaml file for transparency
         if subnet_allocated and self.config_path:
             self._save_config()
 
         # Note: Monitoring config removed - now only in orchestrator config
-    
+
     def _save_config(self) -> None:
         """Save configuration back to yaml file"""
         if not self.config_path or not self.config_path.exists():
             return
-        
+
         try:
-            with open(self.config_path, 'w') as f:
+            with open(self.config_path, "w") as f:
                 yaml.dump(self.raw_config, f, default_flow_style=False, sort_keys=False)
         except Exception:
             # Silently fail - not critical
@@ -111,12 +117,12 @@ class ProjectConfig:
                 "  description: My project\n"
                 "  created_at: 2025-10-31T10:00:00"
             )
-        
+
         if "name" not in project_field:
             raise ValueError("Missing required field: 'project.name'")
-        
+
         config_project_name = project_field["name"]
-        
+
         # Validate project name matches
         if config_project_name != self.project_name:
             raise ValueError(
@@ -163,7 +169,7 @@ class ProjectConfig:
     def get_network_config(self) -> Dict[str, Any]:
         """
         Get network configuration
-        
+
         Returns:
             Dictionary with network settings
         """
@@ -177,8 +183,6 @@ class ProjectConfig:
             Dictionary of application configurations
         """
         return self.raw_config.get("apps", {})
-
-
 
     def get_vms(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -198,17 +202,17 @@ class ProjectConfig:
         """
         return {
             "grafana": self.raw_config.get("grafana", {}),
-            "prometheus": self.raw_config.get("prometheus", {})
+            "prometheus": self.raw_config.get("prometheus", {}),
         }
 
     def get_addons(self) -> Dict[str, Dict[str, Any]]:
         """
         Get addon configurations from addons section.
-        
+
         Returns:
             Dictionary of addon configurations
         """
-        return self.raw_config.get('addons', {})
+        return self.raw_config.get("addons", {})
 
     def to_terraform_vars(self, preserve_ip: bool = False) -> Dict[str, Any]:
         """
@@ -228,36 +232,42 @@ class ProjectConfig:
         cloud_config = self.raw_config.get("cloud", {})
         gcp_config = cloud_config.get("gcp", {})
         ssh_config = cloud_config.get("ssh", {})
-        
+
         # Get unique subnet for this project
         from cli.subnet_allocator import SubnetAllocator
+
         allocator = SubnetAllocator()
         project_subnet = allocator.get_subnet(self.project_name)
 
         # Load existing IPs if preserve_ip is enabled
         existing_ips = {}
         if preserve_ip:
-            from pathlib import Path
             import click
-            env_file = Path(self.project_dir) / ".env"
-            click.echo(f"[DEBUG] preserve_ip=True, checking: {env_file}")
-            if env_file.exists():
-                from dotenv import dotenv_values
-                env_vars = dotenv_values(env_file)
-                click.echo(f"[DEBUG] Found {len(env_vars)} env vars in .env")
-                for key, value in env_vars.items():
-                    if key.endswith("_EXTERNAL_IP"):
-                        # Convert "API_0_EXTERNAL_IP" to "api-0"
-                        vm_key = key.replace("_EXTERNAL_IP", "").lower().replace("_", "-")
-                        existing_ips[vm_key] = value
-                        click.echo(f"[DEBUG] Preserving IP: {vm_key} = {value}")
-                
+            from cli.state_manager import StateManager
+            from cli.utils import get_project_root
+
+            # Load IPs from state.yml instead of .env
+            project_root = get_project_root()
+            state_mgr = StateManager(project_root, self.project_name)
+            state = state_mgr.load_state()
+
+            click.echo("[DEBUG] preserve_ip=True, loading from state.yml")
+            if state and "vms" in state:
+                vms = state.get("vms", {})
+                click.echo(f"[DEBUG] Found {len(vms)} VMs in state")
+                for vm_name, vm_data in vms.items():
+                    if "external_ip" in vm_data:
+                        existing_ips[vm_name] = vm_data["external_ip"]
+                        click.echo(
+                            f"[DEBUG] Preserving IP: {vm_name} = {vm_data['external_ip']}"
+                        )
+
                 if existing_ips:
                     click.echo(f"[DEBUG] Total IPs to preserve: {len(existing_ips)}")
                 else:
                     click.echo("[DEBUG] No IPs found to preserve!")
             else:
-                click.echo(f"[DEBUG] .env file not found at: {env_file}")
+                click.echo("[DEBUG] No state found or VMs not deployed yet")
 
         # Build dynamic vm_groups
         # Format: { "vm-name-index": { role: "...", machine_type: "...", ... } }
@@ -305,7 +315,7 @@ class ProjectConfig:
             port = app_config.get("external_port") or app_config.get("port")
             if port:
                 app_ports.append(str(port))
-        
+
         # Remove duplicates and sort
         app_ports = sorted(list(set(app_ports)))
 
@@ -313,14 +323,18 @@ class ProjectConfig:
         orchestrator_ip = ""
         try:
             from cli.core.orchestrator_loader import OrchestratorLoader
-            from pathlib import Path
-            project_root = self.project_dir.parent.parent if self.project_dir.parent.name == "projects" else self.project_dir.parent
+
+            project_root = (
+                self.project_dir.parent.parent
+                if self.project_dir.parent.name == "projects"
+                else self.project_dir.parent
+            )
             orch_loader = OrchestratorLoader(project_root / "shared")
             orch_config = orch_loader.load()
             orchestrator_ip = orch_config.get_ip() or ""
         except:
             pass  # Orchestrator not deployed yet, that's ok
-        
+
         return {
             "project_id": gcp_config.get("project_id", ""),
             "project_name": self.project_name,
@@ -342,7 +356,7 @@ class ProjectConfig:
             Dictionary suitable for Ansible extra vars
         """
         addons = self.get_addons()
-        
+
         return {
             "project_name": self.project_name,
             "project_config": self.raw_config,

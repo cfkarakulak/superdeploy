@@ -26,13 +26,13 @@ superdeploy logs -p myproject -a api --follow
 superdeploy sync -p myproject
 
 # Selective addon deployment (sadece belirli addon)
-superdeploy up -p myproject --addon postgres
+superdeploy myproject:up --addon postgres
 
 # IP korumalı deployment
-superdeploy up -p myproject --preserve-ip
+superdeploy myproject:up --preserve-ip
 
 # Infrastructure silme
-superdeploy down -p myproject
+superdeploy myproject:down
 ```
 
 ---
@@ -491,7 +491,7 @@ docker volume prune -f
 
 ```bash
 # 1. superdeploy up komutu otomatik günceller
-superdeploy up -p myproject
+superdeploy myproject:up
 
 # 2. Yeni IP'yi kontrol et
 superdeploy status -p myproject
@@ -517,10 +517,10 @@ superdeploy orchestrator up
 # orchestrator.host: "YENİ_IP"
 
 # 3. Her projeyi yeniden deploy et
-superdeploy up -p myproject
+superdeploy myproject:up
 
 # 4. Runner'ları yeniden register et
-superdeploy up -p myproject --tags runner
+superdeploy myproject:up --tags runner
 ```
 
 ---
@@ -541,7 +541,7 @@ gh auth login
 
 ```bash
 # Çözüm 1: up komutunu tekrar çalıştır
-superdeploy up -p myproject
+superdeploy myproject:up
 
 # Çözüm 2: Manuel kontrol et (project VM'de)
 ssh superdeploy@PROJECT_VM_IP
@@ -717,7 +717,7 @@ Sadece belirli bir addon'ı deploy et:
 
 ```bash
 # Sadece postgres'i deploy et
-superdeploy up -p myproject --addon postgres
+superdeploy myproject:up --addon postgres
 
 # Sadece caddy'yi güncelle (orchestrator'da)
 superdeploy orchestrator up --addon caddy

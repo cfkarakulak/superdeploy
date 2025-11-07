@@ -11,9 +11,7 @@ class SecretManager:
     def __init__(self, project_root: Path, project_name: str):
         self.project_root = project_root
         self.project_name = project_name
-        self.secrets_file = (
-            project_root / "projects" / project_name / "secrets.yml"
-        )
+        self.secrets_file = project_root / "projects" / project_name / "secrets.yml"
 
     def load_secrets(self) -> Dict[str, Any]:
         """Load secrets.yml"""
@@ -95,55 +93,6 @@ class SecretManager:
             secrets["secrets"][app_name] = {}
 
         secrets["secrets"][app_name][key] = value
-        self.save_secrets(secrets)
-
-    def migrate_from_env(self, env_file: Path, addons: Dict[str, Any]):
-        """
-        Migrate existing .env to hierarchical secrets.yml
-
-        Auto-categorizes:
-        - Addon passwords → shared
-        - App-specific → needs manual categorization
-        """
-        if not env_file.exists():
-            return
-
-        # Read existing .env
-        with open(env_file, "r") as f:
-            lines = f.readlines()
-
-        shared_secrets = {}
-
-        # Parse addon passwords
-        for line in lines:
-            line = line.strip()
-
-            # Skip comments and empty
-            if not line or line.startswith("#"):
-                continue
-
-            # Parse KEY=VALUE
-            if "=" in line:
-                key, value = line.split("=", 1)
-                key = key.strip()
-                value = value.split("#")[0].strip()  # Remove inline comments
-
-                # Categorize addon secrets as shared
-                if any(
-                    addon.upper() in key
-                    for addon in [
-                        "POSTGRES",
-                        "REDIS",
-                        "RABBITMQ",
-                        "MONGO",
-                        "ELASTICSEARCH",
-                    ]
-                ):
-                    shared_secrets[key] = value
-
-        # Create hierarchical structure
-        secrets = {"secrets": {"shared": shared_secrets}}
-
         self.save_secrets(secrets)
 
     def initialize_from_addons(self, addons: Dict[str, Any], project_name: str):

@@ -110,11 +110,11 @@ ssh ${SSH_OPTS} -o StrictHostKeyChecking=no superdeploy@${ORCHESTRATOR_IP} << EO
     set -e
     
     echo "📥 Pulling latest image..."
-    cd /opt/superdeploy/${PROJECT}/compose
-    docker-compose pull ${APP}
+    cd /opt/superdeploy/projects/${PROJECT}/compose
+    docker compose pull ${APP}
     
     echo "♻️  Restarting container..."
-    docker-compose up -d ${APP}
+    docker compose up -d ${APP}
     
     echo "🧹 Cleaning up old images..."
     docker image prune -f

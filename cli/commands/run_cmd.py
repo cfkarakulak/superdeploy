@@ -1,13 +1,114 @@
-"""SuperDeploy CLI - Run command"""
+"""SuperDeploy CLI - Run command (Refactored)"""
 
-import os
 import click
-import subprocess
-from rich.console import Console
-from cli.logger import DeployLogger
-from cli.ui_components import show_header
+from cli.base import ProjectCommand
+from cli.constants import CONTAINER_NAME_FORMAT
 
-console = Console()
+
+class RunCommand(ProjectCommand):
+    """Execute command in application container."""
+
+    def __init__(
+        self,
+        project_name: str,
+        app_name: str,
+        command: str,
+        interactive: bool = False,
+        verbose: bool = False,
+    ):
+        super().__init__(project_name, verbose=verbose)
+        self.app_name = app_name
+        self.command = command
+        self.interactive = interactive
+
+    def execute(self) -> None:
+        """Execute run command."""
+        if not self.verbose:
+            self.show_header(
+                title="Run Command",
+                project=self.project_name,
+                app=self.app_name,
+                details={
+                    "Command": self.command,
+                    "Interactive": "Yes" if self.interactive else "No",
+                },
+            )
+
+        # Require deployment
+        self.require_deployment()
+
+        # Initialize logger (unless interactive mode)
+        if not self.interactive:
+            logger = self.init_logger(self.project_name, f"run-{self.app_name}")
+            logger.step("Finding Application")
+
+        # Get VM and IP
+        try:
+            vm_name, vm_ip = self.get_vm_for_app(self.app_name)
+
+            if not self.interactive:
+                logger.log(f"App '{self.app_name}' running on {vm_name} ({vm_ip})")
+
+        except Exception as e:
+            self.handle_error(e, f"Could not find VM for app '{self.app_name}'")
+            raise SystemExit(1)
+
+        # Get SSH service
+        vm_service = self.ensure_vm_service()
+        ssh_service = vm_service.get_ssh_service()
+
+        # Build container name
+        container_name = CONTAINER_NAME_FORMAT.format(
+            project=self.project_name, app=self.app_name
+        )
+
+        if not self.interactive:
+            logger.step("Executing Command")
+            logger.log(f"Container: {container_name}")
+            logger.log(f"Command: {self.command}")
+
+        try:
+            if self.interactive:
+                # Interactive mode (with TTY)
+                exit_code = ssh_service.docker_exec(
+                    vm_ip, container_name, self.command, interactive=True
+                )
+
+                if exit_code != 0:
+                    raise SystemExit(exit_code)
+
+            else:
+                # Non-interactive mode
+                result = ssh_service.docker_exec(
+                    vm_ip, container_name, self.command, interactive=False
+                )
+
+                # Display output
+                if result.stdout:
+                    self.console.print("\n[bold cyan]Output:[/bold cyan]")
+                    self.console.print(result.stdout)
+
+                if result.stderr:
+                    self.console.print("\n[bold yellow]Errors:[/bold yellow]")
+                    self.console.print(result.stderr)
+
+                if result.returncode == 0:
+                    logger.success("Command executed successfully")
+                else:
+                    logger.log_error(
+                        f"Command failed with exit code: {result.returncode}"
+                    )
+                    raise SystemExit(result.returncode)
+
+                if not self.verbose:
+                    self.console.print(
+                        f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n"
+                    )
+
+        except Exception as e:
+            if not self.interactive:
+                self.handle_error(e, "Command execution failed")
+            raise SystemExit(1)
 
 
 @click.command(name="run")
@@ -18,165 +119,18 @@ console = Console()
 @click.argument("command")
 def run(project, app, command, verbose, interactive):
     """
-    Run one-off command in app container (like 'heroku run')
+    Run command in application container
 
     \b
     Examples:
-      superdeploy run -p cheapa api "python manage.py migrate"
-      superdeploy run -p cheapa api bash -i
-      superdeploy run -p cheapa dashboard "npm run build"
+      superdeploy run api "python manage.py migrate"
+      superdeploy run api "bash" -i                    # Interactive shell
+      superdeploy run services "npm run test"
 
     \b
-    Interactive commands (bash, sh, psql) are auto-detected.
-    Use -i flag to force interactive mode.
+    Interactive mode:
+      Use -i flag for commands that need user input or TTY
+      (e.g., bash, psql, redis-cli)
     """
-    from cli.utils import get_project_root
-    from cli.core.config_loader import ConfigLoader
-
-    if not verbose:
-        show_header(
-            title="Run Command",
-            project=project,
-            app=app,
-            details={"Command": command},
-            console=console,
-        )
-
-    logger = DeployLogger(project, f"run-{app}", verbose=verbose)
-
-    # Load config to find VM
-    logger.step("Loading project configuration")
-    project_root = get_project_root()
-    projects_dir = project_root / "projects"
-
-    try:
-        config_loader = ConfigLoader(projects_dir)
-        project_config = config_loader.load_project(project)
-        apps = project_config.raw_config.get("apps", {})
-        logger.success("Configuration loaded")
-
-        if app not in apps:
-            logger.log_error(f"App '{app}' not found in project config")
-            raise SystemExit(1)
-
-        vm_role = apps[app].get("vm", "core")
-
-        # Get SSH config from project config
-        ssh_config = project_config.raw_config.get("cloud", {}).get("ssh", {})
-        ssh_key_path = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
-        ssh_user = ssh_config.get("user", "superdeploy")
-
-        # Get VM IP from state
-        from cli.state_manager import StateManager
-        state_mgr = StateManager(project_root, project)
-        state = state_mgr.load_state()
-        
-        if not state or "vms" not in state:
-            logger.log_error("No deployment state found")
-            logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
-            raise SystemExit(1)
-        
-        # Find VM by role
-        vm_name = f"{vm_role}-0"
-        if vm_name not in state["vms"] or "external_ip" not in state["vms"][vm_name]:
-            logger.log_error(f"VM IP not found in state: {vm_name}")
-            logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
-            raise SystemExit(1)
-
-        ssh_host = state["vms"][vm_name]["external_ip"]
-        logger.log(f"Found VM: {ssh_host}")
-
-    except Exception as e:
-        logger.log_error(f"Error: {e}")
-        raise SystemExit(1)
-
-    # SSH config
-    logger.step(f"Executing command in {app} container")
-    ssh_key = os.path.expanduser(ssh_key_path)
-
-    # Auto-detect interactive commands (bash, sh, psql, etc.)
-    interactive_commands = [
-        "bash",
-        "sh",
-        "zsh",
-        "fish",
-        "psql",
-        "mysql",
-        "redis-cli",
-        "mongo",
-        "mongosh",
-    ]
-    is_interactive = interactive or command.strip().split()[0] in interactive_commands
-
-    # Find actual container name (try both formats)
-    container_candidates = [
-        f"{project}-{app}",  # new format
-        f"{project}_{app}",  # old format
-    ]
-
-    logger.log("Finding container...")
-    container_name = None
-    for candidate in container_candidates:
-        check_cmd = f"docker ps -q -f name={candidate}"
-        ssh_check = [
-            "ssh",
-            "-i",
-            ssh_key,
-            "-o",
-            "StrictHostKeyChecking=no",
-            f"{ssh_user}@{ssh_host}",
-            check_cmd,
-        ]
-        result = subprocess.run(ssh_check, capture_output=True, text=True)
-        if result.stdout.strip():
-            container_name = candidate
-            logger.log(f"Found container: {container_name}")
-            break
-
-    if not container_name:
-        logger.log_error(f"Container not found for app '{app}'")
-        logger.log(f"Tried: {', '.join(container_candidates)}")
-        logger.log(f"Run: superdeploy status -p {project}")
-        raise SystemExit(1)
-
-    # Build docker exec command with proper TTY handling
-    if is_interactive:
-        docker_cmd = f"docker exec -it {container_name} {command}"
-        ssh_flags = ["-t"]  # Allocate TTY
-        logger.log("Interactive mode: TTY enabled")
-    else:
-        docker_cmd = f"docker exec {container_name} {command}"
-        ssh_flags = []
-        logger.log("Non-interactive mode")
-
-    ssh_cmd = [
-        "ssh",
-        "-i",
-        ssh_key,
-        "-o",
-        "StrictHostKeyChecking=no",
-        *ssh_flags,
-        f"{ssh_user}@{ssh_host}",
-        docker_cmd,
-    ]
-
-    try:
-        # Use different subprocess call for interactive vs non-interactive
-        if is_interactive:
-            # Interactive: Don't capture output, let user interact
-            result = subprocess.run(ssh_cmd)
-        else:
-            # Non-interactive: Capture and log
-            result = subprocess.run(ssh_cmd, check=True)
-
-        if result.returncode == 0:
-            logger.success("Command executed successfully")
-            if not verbose and not is_interactive:
-                console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
-
-    except subprocess.CalledProcessError as e:
-        logger.log_error(f"Command failed with exit code {e.returncode}")
-        raise SystemExit(e.returncode)
-    except KeyboardInterrupt:
-        logger.warning("Interrupted by user")
-        raise SystemExit(130)
+    cmd = RunCommand(project, app, command, interactive=interactive, verbose=verbose)
+    cmd.run()

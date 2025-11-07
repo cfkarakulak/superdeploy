@@ -62,24 +62,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.commands import (
     init,
-    generate,
-    up,
-    sync,
-    status,
     logs,
     run_cmd,
     deploy,
-    scale,
     restart,
     doctor,
-    down,
     promote,
-    metrics,
     update_firewall,
     subnets,
     tunnel,
-    plan,
 )
+
+# NOTE: up, down, plan are imported dynamically in NamespacedGroup (not registered as standalone commands)
 from cli.commands.domain import domain_add, domain_list, domain_remove
 from cli.commands.config import (
     config_set,
@@ -99,7 +93,7 @@ from cli.commands.orchestrator import (
     orchestrator_status,
 )
 from cli.commands.project import projects_deploy
-from cli.commands.validate import validate_project, validate_addons
+from cli.commands.validate import validate_addons
 
 console = Console()
 
@@ -110,7 +104,98 @@ BANNER = """
 """
 
 
-@click.group()
+class NamespacedGroup(click.Group):
+    """Custom Click group that supports namespaced commands like 'project:up'"""
+
+    def get_command(self, ctx, cmd_name):
+        # Check if command has namespace (e.g., "cheapa:up", "orchestrator:down")
+        if ":" in cmd_name:
+            # First check if this is a registered command (e.g., orchestrator:up already exists)
+            existing_cmd = super().get_command(ctx, cmd_name)
+            if existing_cmd:
+                return existing_cmd
+
+            # Dynamic namespace resolution for project commands
+            namespace, sub_cmd = cmd_name.split(":", 1)
+
+            # Get the base command (up, down, etc.)
+            base_command = super().get_command(ctx, sub_cmd)
+
+            # If not registered, try to import directly (for unregistered project commands)
+            project_commands = [
+                "up",
+                "down",
+                "plan",
+                "generate",
+                "status",
+                "sync",
+                "validate",
+                "scale",
+                "metrics",
+            ]
+
+            if base_command is None and sub_cmd in project_commands:
+                from cli.commands import (
+                    up,
+                    down,
+                    plan,
+                    generate,
+                    status,
+                    sync,
+                    scale,
+                    metrics,
+                )
+                from cli.commands.validate import validate_project
+
+                command_map = {
+                    "up": up.up,
+                    "down": down.down,
+                    "plan": plan.plan,
+                    "generate": generate.generate,
+                    "status": status.status,
+                    "sync": sync.sync,
+                    "validate": validate_project,
+                    "scale": scale.scale,
+                    "metrics": metrics.metrics,
+                }
+                base_command = command_map.get(sub_cmd)
+
+            if base_command is None:
+                return None
+
+            # Create a wrapper that injects the project parameter
+            import functools
+
+            # Clone the command to avoid modifying the original
+            wrapper = click.Command(
+                name=cmd_name,
+                callback=functools.partial(
+                    self._inject_project, base_command.callback, namespace
+                ),
+                params=base_command.params,
+                help=base_command.help,
+            )
+
+            # Remove the --project/-p option if it exists
+            wrapper.params = [p for p in wrapper.params if p.name != "project"]
+
+            return wrapper
+
+        # Regular command without namespace
+        return super().get_command(ctx, cmd_name)
+
+    def _inject_project(self, original_callback, project_name, *args, **kwargs):
+        """Inject project parameter into the command"""
+        # Add project to kwargs if the command expects it
+        kwargs["project"] = project_name
+        return original_callback(*args, **kwargs)
+
+    def list_commands(self, ctx):
+        """List all available commands"""
+        return super().list_commands(ctx)
+
+
+@click.group(cls=NamespacedGroup)
 @click.version_option(version="1.0.0")
 @click.pass_context
 def cli(ctx: click.Context) -> None:
@@ -119,10 +204,10 @@ def cli(ctx: click.Context) -> None:
 
     \b
     Quick Start:
-      [red]superdeploy orchestrator up[/red]  # Deploy Forgejo (once)
-      superdeploy init -p myapp    # Create project
-      [red]superdeploy up -p myapp[/red]      # Deploy project
-      superdeploy sync -p myapp    # Sync secrets
+      [red]superdeploy orchestrator:up[/red]  # Deploy Forgejo (once)
+      superdeploy init -p myapp     # Create project
+      [red]superdeploy myapp:up[/red]         # Deploy project
+      superdeploy myapp:sync        # Sync secrets
 
     \b
     Daily Workflow:
@@ -130,6 +215,20 @@ def cli(ctx: click.Context) -> None:
       superdeploy logs -a api -f  # Watch logs
       superdeploy run api "cmd"   # Run commands
       superdeploy scale api=3     # Scale services
+
+    \b
+    Namespaced Commands (required for project operations):
+      [cyan]superdeploy <project>:up[/cyan]       # Deploy infrastructure
+      [cyan]superdeploy <project>:down[/cyan]     # Destroy infrastructure
+      [cyan]superdeploy <project>:plan[/cyan]     # Show deployment changes
+      [cyan]superdeploy <project>:status[/cyan]   # Show deployment status
+      [cyan]superdeploy <project>:generate[/cyan] # Generate workflow files
+      [cyan]superdeploy <project>:sync[/cyan]     # Sync secrets to GitHub
+      [cyan]superdeploy <project>:validate[/cyan] # Validate configuration
+      [cyan]superdeploy <project>:scale[/cyan]    # Scale services
+      [cyan]superdeploy <project>:metrics[/cyan]  # View metrics
+      [cyan]superdeploy orchestrator:up[/cyan]    # Deploy orchestrator
+      [cyan]superdeploy orchestrator:down[/cyan]  # Destroy orchestrator
     """
     if ctx.invoked_subcommand is None:
         console.print(BANNER)
@@ -138,17 +237,11 @@ def cli(ctx: click.Context) -> None:
 
 # Register commands
 cli.add_command(init.init)
-cli.add_command(generate.generate)
-cli.add_command(plan.plan)
-# Register up command (with improved logging)
-cli.add_command(up.up)
-cli.add_command(down.down)
-cli.add_command(sync.sync)
-cli.add_command(status.status)
+# NOTE: Project-specific commands use namespaced syntax: <project>:command
+# Examples: cheapa:up, cheapa:generate, cheapa:sync, cheapa:validate, cheapa:status, etc.
 cli.add_command(logs.logs)
 cli.add_command(run_cmd.run)
 cli.add_command(deploy.deploy)
-cli.add_command(scale.scale)
 cli.add_command(restart.restart)
 cli.add_command(doctor.doctor)
 # Register config commands (Heroku-style with colons)
@@ -172,10 +265,9 @@ cli.add_command(domain_list)
 cli.add_command(domain_remove)
 # Register backup commands (Heroku-style with colons)
 cli.add_command(backups_create)
-# Register validate commands (Heroku-style with colons)
-cli.add_command(validate_project)
+# NOTE: validate:project moved to <project>:validate (namespaced)
 cli.add_command(validate_addons)
-cli.add_command(metrics.metrics)
+# NOTE: metrics moved to <project>:metrics (namespaced)
 # Register orchestrator commands (Heroku-style with colons)
 cli.add_command(orchestrator_init)
 cli.add_command(orchestrator_up)

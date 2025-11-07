@@ -19,8 +19,8 @@ def plan(project, json_output, detailed):
     Shows what will be created, modified, or deleted.
 
     Example:
-        superdeploy plan -p myproject
-        superdeploy plan -p myproject --detailed
+        superdeploy myproject:plan
+        superdeploy myproject:plan --detailed
     """
 
     if not json_output:
@@ -269,5 +269,5 @@ def plan(project, json_output, detailed):
     console.print("━" * 60)
     console.print()
     console.print("[bold]To apply these changes:[/bold]")
-    console.print(f"  superdeploy up -p {project}")
+    console.print(f"  superdeploy {project}:up")
     console.print()

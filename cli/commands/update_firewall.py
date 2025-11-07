@@ -92,4 +92,4 @@ def update_firewall(project):
         console.print(
             "\n[yellow]💡 Tip: If firewall rule doesn't exist yet, run:[/yellow]"
         )
-        console.print(f"   [red]superdeploy up -p {project}[/red]")
+        console.print(f"   [red]superdeploy {project}:up[/red]")

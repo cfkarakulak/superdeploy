@@ -287,7 +287,7 @@ def sync_forgejo_secrets(
             console.print("[red]✗[/red] Forgejo PAT is invalid or expired (HTTP 401)")
             console.print(f"[dim]Response: {test_response.text}[/dim]")
             console.print(
-                f"[yellow]Run 'superdeploy sync -p {env.get('PROJECT', 'PROJECT')}' to regenerate PAT[/yellow]"
+                f"[yellow]Run 'superdeploy {env.get('PROJECT', 'PROJECT')}:sync' to regenerate PAT[/yellow]"
             )
             return
         elif test_response.status_code != 200:
@@ -391,27 +391,20 @@ def sync_forgejo_secrets(
 @click.option("--project", "-p", required=True, help="Project name")
 @click.option("--skip-forgejo", is_flag=True, help="Skip Forgejo PAT creation")
 @click.option("--skip-github", is_flag=True, help="Skip GitHub secrets sync")
-@click.option(
-    "--env-file",
-    "-e",
-    multiple=True,
-    help="Additional .env files to load (e.g., ../my-api/.env)",
-)
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def sync(project, skip_forgejo, skip_github, env_file, verbose):
+def sync(project, skip_forgejo, skip_github, verbose):
     """
-    Sync ALL secrets to GitHub (magic!)
+    Sync ALL secrets to GitHub/Forgejo
 
     This command will:
-    - Load secrets from superdeploy/.env (infrastructure)
-    - Load secrets from --env-file (app-specific, multiple allowed)
+    - Load secrets from secrets.yml (shared + app-specific)
     - Fetch AGE public key from runner VM
     - Create Forgejo PAT (if needed)
     - Push ALL secrets to GitHub repos (using gh CLI)
 
     \b
     Example:
-      superdeploy sync -p myproject -e ../my-api/.env -e ../my-dashboard/.env
+      superdeploy myproject:sync
 
     \b
     Requirements:
@@ -419,7 +412,6 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     - SSH access to VMs
     """
     from cli.utils import validate_project, get_project_path
-    from dotenv import dotenv_values
     from cli.logger import DeployLogger
 
     # Validate project first
@@ -462,7 +454,10 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
         / "shared"
         / "orchestrator"
         / "config.yml",
-        "shared/orchestrator/.env": project_root / "shared" / "orchestrator" / ".env",
+        "shared/orchestrator/secrets.yml": project_root
+        / "shared"
+        / "orchestrator"
+        / "secrets.yml",
     }
 
     missing_files = []
@@ -495,34 +490,17 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     # Add all secrets from secrets.yml
     if secrets_data.get("secrets", {}).get("shared"):
         env.update(secrets_data["secrets"]["shared"])
-    logger.log("Project .env loaded")
 
-    # Load additional env files (from CLI args)
-    additional_envs = {}
-    for env_path in env_file:
-        env_path = os.path.expanduser(env_path)
-        if os.path.exists(env_path):
-            file_envs = dotenv_values(env_path)
-            additional_envs.update(file_envs)
-            logger.log(f"✓ Loaded: {env_path}")
-        else:
-            logger.warning(f"Skipped (not found): {env_path}")
-
-    # All secrets are now in .env (already loaded via load_env)
+    # Add app-specific secrets from secrets.yml
     project_secrets = {}
+    for app_name, app_secrets in secrets_data.get("secrets", {}).items():
+        if app_name != "shared" and isinstance(app_secrets, dict):
+            project_secrets.update(app_secrets)
 
-    # Also load secrets.env if exists (for custom secrets)
-    secrets_file = project_path / "secrets.env"
-    if secrets_file.exists():
-        from dotenv import dotenv_values
+    logger.log("✓ Secrets loaded from secrets.yml")
 
-        custom_secrets = dotenv_values(secrets_file)
-        project_secrets.update(custom_secrets)
-        logger.log(f"✓ Loaded custom secrets: {secrets_file}")
-
-    # Merge all: infra → project passwords → custom secrets → additional
+    # Merge all: infra env → shared secrets → app secrets
     env.update(project_secrets)
-    env.update(additional_envs)
     logger.success("Environment variables loaded")
 
     # Auto-generate missing required secrets based on project name
@@ -588,27 +566,27 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
 
         logger.success("Orchestrator configuration loaded")
 
-        # Docker credentials are now in project .env (already loaded above)
+        # Docker credentials are now in secrets.yml (already loaded above)
         # Validate they exist
         logger.step("Validating Docker credentials")
         if not env.get("DOCKER_ORG"):
             logger.log_error(
-                f"DOCKER_ORG not found in projects/{project}/.env",
-                context="Edit .env and fill in Docker credentials",
+                f"DOCKER_ORG not found in projects/{project}/secrets.yml",
+                context="Edit secrets.yml and fill in Docker credentials",
             )
             raise SystemExit(1)
 
         if not env.get("DOCKER_USERNAME"):
             logger.log_error(
-                f"DOCKER_USERNAME not found in projects/{project}/.env",
-                context="Edit .env and fill in Docker credentials",
+                f"DOCKER_USERNAME not found in projects/{project}/secrets.yml",
+                context="Edit secrets.yml and fill in Docker credentials",
             )
             raise SystemExit(1)
 
         if not env.get("DOCKER_TOKEN"):
             logger.log_error(
-                f"DOCKER_TOKEN not found in projects/{project}/.env",
-                context="Edit .env and fill in Docker credentials",
+                f"DOCKER_TOKEN not found in projects/{project}/secrets.yml",
+                context="Edit secrets.yml and fill in Docker credentials",
             )
             raise SystemExit(1)
 
@@ -700,7 +678,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     if not runner_vm_ip:
         logger.log_error(
             "No runner VM found",
-            context="Run '[red]superdeploy up -p " + project + "[/red]' to deploy VMs",
+            context=f"Run '[red]superdeploy {project}:up[/red]' to deploy VMs",
         )
         raise SystemExit(1)
 
@@ -718,25 +696,27 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     # Step 2: Load Forgejo PAT from orchestrator
     logger.step("Loading Forgejo PAT")
 
-    # Load PAT from shared/orchestrator/.env
-    from dotenv import dotenv_values
+    # Load PAT from shared/orchestrator/secrets.yml
+    from cli.core.orchestrator_loader import OrchestratorLoader
 
     project_root = get_project_root()
-    orchestrator_env_file = project_root / "shared" / "orchestrator" / ".env"
 
-    if not orchestrator_env_file.exists():
+    try:
+        orch_loader = OrchestratorLoader(project_root / "shared")
+        orch_config = orch_loader.load()
+        orch_secrets = orch_config.get_secrets()
+    except FileNotFoundError:
         logger.log_error(
-            "Orchestrator .env not found",
+            "Orchestrator config not found",
             context="Run 'superdeploy orchestrator up' first",
         )
         raise SystemExit(1)
 
-    orchestrator_env = dotenv_values(orchestrator_env_file)
-    forgejo_pat = orchestrator_env.get("FORGEJO_PAT")
+    forgejo_pat = orch_secrets.get("FORGEJO_PAT")
 
     if not forgejo_pat:
         logger.log_error(
-            "FORGEJO_PAT not found in orchestrator .env",
+            "FORGEJO_PAT not found in orchestrator secrets",
             context="Run '[red]superdeploy orchestrator up[/red]' to generate PAT",
         )
         raise SystemExit(1)
@@ -759,27 +739,24 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
                 logger.warning(f"PAT invalid (HTTP {test_response.status_code})")
                 logger.log("Regenerating Forgejo PAT...")
 
-                # Create new PAT
-                new_pat = create_forgejo_pat(orchestrator_env, forgejo_host)
+                # Create new PAT - merge config and secrets
+                forgejo_env = {
+                    "FORGEJO_ADMIN_USER": orch_config.config.get("forgejo", {}).get(
+                        "admin_user", "admin"
+                    ),
+                    "FORGEJO_ADMIN_PASSWORD": orch_secrets.get(
+                        "FORGEJO_ADMIN_PASSWORD", ""
+                    ),
+                }
+                new_pat = create_forgejo_pat("orchestrator", forgejo_env)
                 if new_pat:
                     forgejo_pat = new_pat
                     logger.success("New Forgejo PAT created")
 
-                    # Update orchestrator .env file
-                    with open(orchestrator_env_file, "r") as f:
-                        env_content = f.read()
+                    # Update orchestrator secrets.yml file
+                    orch_config.secret_manager.add_secret("FORGEJO_PAT", new_pat)
 
-                    # Replace old PAT with new PAT
-                    import re
-
-                    env_content = re.sub(
-                        r"FORGEJO_PAT=.*", f"FORGEJO_PAT={new_pat}", env_content
-                    )
-
-                    with open(orchestrator_env_file, "w") as f:
-                        f.write(env_content)
-
-                    logger.success("Updated orchestrator .env with new PAT")
+                    logger.success("Updated orchestrator secrets with new PAT")
                 else:
                     logger.log_error(
                         "Failed to create new PAT",

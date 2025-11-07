@@ -14,11 +14,12 @@ console = Console()
 
 @click.command(name="orchestrator:init")
 def orchestrator_init():
-    """Initialize orchestrator configuration (interactive wizard)"""
+    """Initialize orchestrator configuration"""
+    import yaml
 
     show_header(
         title="Orchestrator Setup",
-        subtitle="Configure global orchestrator (Forgejo + Monitoring)",
+        subtitle="Global orchestrator (Forgejo + Monitoring)",
         show_logo=True,
         console=console,
     )
@@ -29,121 +30,33 @@ def orchestrator_init():
     orchestrator_dir.mkdir(parents=True, exist_ok=True)
 
     config_path = orchestrator_dir / "config.yml"
-    template_path = orchestrator_dir / "config.template.yml"
 
     # Check if config already exists
     if config_path.exists():
         console.print(
-            "\n[yellow]⚠️  Orchestrator config already exists. Overwrite?[/yellow] "
-            "[bold bright_white]\\[y/n][/bold bright_white] [dim](n)[/dim]: ",
+            "[yellow]Config exists. Overwrite? [y/n][/yellow] [dim](n)[/dim]: ",
             end="",
         )
         answer = input().strip().lower()
         if answer not in ["y", "yes"]:
-            console.print("\n[dim]Cancelled. Existing config preserved.[/dim]")
+            console.print("[dim]Cancelled[/dim]")
             return
 
-    # Check if template exists
-    if not template_path.exists():
-        console.print(f"\n[red]❌ Template not found: {template_path}[/red]")
-        raise SystemExit(1)
+    # Cloud Configuration
+    console.print("\n[white]Cloud Configuration[/white]")
+    gcp_project = Prompt.ask("GCP Project ID", default="")
+    region = Prompt.ask("GCP Region", default="us-central1")
+    zone = Prompt.ask("GCP Zone", default=f"{region}-a")
 
-    console.print("\n[bold cyan]📋 Cloud Configuration[/bold cyan]")
-    console.print("[dim]Configure your GCP project and region[/dim]\n")
+    # SSL Configuration
+    console.print("\n[white]SSL Configuration[/white]")
+    ssl_email = Prompt.ask("Email for Let's Encrypt", default="")
 
-    gcp_project = Prompt.ask("  [cyan]GCP Project ID[/cyan]", default="")
-
-    region = Prompt.ask("  [cyan]GCP Region[/cyan]", default="us-central1")
-
-    zone = Prompt.ask("  [cyan]GCP Zone[/cyan]", default=f"{region}-a")
-
-    console.print("\n[bold cyan]🔐 SSL Configuration[/bold cyan]")
-    console.print("[dim]Email for Let's Encrypt SSL certificates[/dim]\n")
-
-    ssl_email = Prompt.ask("  [cyan]SSL Email[/cyan]", default="")
-
-    console.print("\n[bold cyan]🔧 Forgejo Configuration[/bold cyan]")
-    console.print("[dim]Git server with CI/CD capabilities[/dim]\n")
-
-    admin_user = Prompt.ask("  [cyan]Admin Username[/cyan]", default="admin")
-
-    admin_email = Prompt.ask("  [cyan]Admin Email[/cyan]", default="")
-
-    org = Prompt.ask("  [cyan]Organization Name[/cyan]", default="")
-
-    console.print("\n[bold cyan]📊 Global Monitoring Configuration[/bold cyan]")
-    console.print("[dim]Grafana and Prometheus will monitor ALL projects[/dim]")
-    console.print(
-        "[dim]Optional: Enable HTTPS with custom domains (e.g., grafana.cfk.com)[/dim]\n"
-    )
-
-    console.print(
-        "  [cyan]Configure custom domains?[/cyan] "
-        "[bold bright_white]\\[y/n][/bold bright_white] [dim](n)[/dim]: ",
-        end="",
-    )
-    answer = input().strip().lower()
-    enable_domains = answer in ["y", "yes"]
-
-    grafana_domain = ""
-    prometheus_domain = ""
-    forgejo_domain = ""
-    enable_caddy = False
-
-    if enable_domains:
-        grafana_domain = Prompt.ask(
-            "  [cyan]Grafana Domain[/cyan] (global monitoring for all projects)",
-            default="",
-        )
-        prometheus_domain = Prompt.ask(
-            "  [cyan]Prometheus Domain[/cyan] (global metrics for all projects)",
-            default="",
-        )
-        forgejo_domain = Prompt.ask(
-            "  [cyan]Forgejo Domain[/cyan] (git server for all projects)", default=""
-        )
-        enable_caddy = True
-
-    # Read template
-    with open(template_path, "r") as f:
-        config_content = f.read()
-
-    # Replace placeholders
-    config_content = config_content.replace("YOUR_GCP_PROJECT_ID", gcp_project)
-    config_content = config_content.replace(
-        'region: "us-central1"', f'region: "{region}"'
-    )
-    config_content = config_content.replace('zone: "us-central1-a"', f'zone: "{zone}"')
-    config_content = config_content.replace(
-        'ssl_email: ""', f'ssl_email: "{ssl_email}"'
-    )
-    config_content = config_content.replace("YOUR_USERNAME", admin_user)
-    config_content = config_content.replace("YOUR_EMAIL@example.com", admin_email)
-    config_content = config_content.replace("YOUR_ORG", org)
-
-    # Update domains if configured
-    if enable_domains:
-        config_content = config_content.replace(
-            'grafana:\n  domain: ""', f'grafana:\n  domain: "{grafana_domain}"'
-        )
-        config_content = config_content.replace(
-            'prometheus:\n  domain: ""', f'prometheus:\n  domain: "{prometheus_domain}"'
-        )
-        config_content = config_content.replace(
-            'forgejo:\n  domain: ""', f'forgejo:\n  domain: "{forgejo_domain}"'
-        )
-        config_content = config_content.replace(
-            "enabled: false  # Set to true", "enabled: true  # Set to true"
-        )
-
-    # Update header
-    config_content = config_content.replace(
-        "# Orchestrator Configuration Template", "# Orchestrator Configuration"
-    )
-    config_content = config_content.replace(
-        "# Copy this to config.yml and customize for your setup",
-        "# Auto-generated by: superdeploy orchestrator init",
-    )
+    # Forgejo Configuration
+    console.print("\n[white]Forgejo Configuration[/white]")
+    admin_user = Prompt.ask("Admin Username", default="admin")
+    admin_email = Prompt.ask("Admin Email", default="")
+    org = Prompt.ask("Organization Name", default="")
 
     # Allocate Docker subnet for orchestrator
     console.print("\n[dim]Allocating network subnet...[/dim]")
@@ -153,7 +66,6 @@ def orchestrator_init():
 
     # Check if orchestrator already has a subnet allocated
     if "orchestrator" not in allocator.docker_allocations:
-        # Allocate and save to file
         docker_subnet = SubnetAllocator.ORCHESTRATOR_DOCKER_SUBNET
         allocator.docker_allocations["orchestrator"] = docker_subnet
         allocator.allocations["docker_subnets"] = allocator.docker_allocations
@@ -161,40 +73,199 @@ def orchestrator_init():
     else:
         docker_subnet = allocator.docker_allocations["orchestrator"]
 
-    # Add docker_subnet line to network section (preserve formatting)
-    lines = config_content.split("\n")
-    new_lines = []
-    for i, line in enumerate(lines):
-        new_lines.append(line)
-        # Add docker_subnet after subnet_cidr line
-        if "subnet_cidr:" in line and "docker_subnet" not in config_content:
-            # Get the indentation from current line
-            indent = len(line) - len(line.lstrip())
-            new_lines.append(
-                f'{" " * indent}docker_subnet: "{docker_subnet}"  # Reserved for orchestrator'
-            )
+    console.print(f"[dim]✓ Subnet allocated: {docker_subnet}[/dim]")
 
-    config_content = "\n".join(new_lines)
-    console.print(f"[dim]✓ Docker subnet allocated: {docker_subnet}[/dim]")
+    # Build configuration dictionary
+    orchestrator_config = {
+        "project": {
+            "name": "orchestrator",
+            "ssl_email": ssl_email,
+        },
+        "gcp": {
+            "project_id": gcp_project,
+            "region": region,
+            "zone": zone,
+        },
+        "ssh": {
+            "key_path": "~/.ssh/superdeploy_deploy",
+            "public_key_path": "~/.ssh/superdeploy_deploy.pub",
+            "user": "superdeploy",
+        },
+        "vm": {
+            "name": "orchestrator",
+            "machine_type": "e2-medium",
+            "disk_size": 50,
+        },
+        "network": {
+            "vpc_name": "superdeploy-network",
+            "subnet_cidr": "10.128.0.0/20",
+            "docker_subnet": docker_subnet,
+        },
+        "forgejo": {
+            "version": "13.0.1",
+            "port": 3001,
+            "ssh_port": 2222,
+            "admin_user": admin_user,
+            "admin_email": admin_email,
+            "org": org,
+            "repo": "superdeploy",
+            "db_name": "forgejo",
+            "db_user": "forgejo",
+            "domain": "",
+        },
+        "grafana": {
+            "domain": "",
+            "port": 3000,
+            "smtp_enabled": False,
+            "smtp_host": "",
+            "smtp_user": "",
+        },
+        "prometheus": {
+            "domain": "",
+            "port": 9090,
+            "retention": "15d",
+        },
+        "caddy": {
+            "enabled": False,
+            "version": "2-alpine",
+            "http_port": 80,
+            "https_port": 443,
+            "admin_port": 2019,
+        },
+    }
+
+    # Build formatted YAML with comments
+    yml_lines = []
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append("# Orchestrator Configuration")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append("# Auto-generated by: superdeploy orchestrator init")
+    yml_lines.append("# Then run: superdeploy orchestrator up")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append("")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append("# Project Information")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append(
+        yaml.dump(
+            {"project": orchestrator_config["project"]},
+            default_flow_style=False,
+            sort_keys=False,
+        ).strip()
+    )
+    yml_lines.append("")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append("# Cloud Provider Configuration")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append(
+        yaml.dump(
+            {"gcp": orchestrator_config["gcp"]},
+            default_flow_style=False,
+            sort_keys=False,
+        ).strip()
+    )
+    yml_lines.append("")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append("# SSH Configuration")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append(
+        yaml.dump(
+            {"ssh": orchestrator_config["ssh"]},
+            default_flow_style=False,
+            sort_keys=False,
+        ).strip()
+    )
+    yml_lines.append("")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append("# VM Configuration")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append(
+        yaml.dump(
+            {"vm": orchestrator_config["vm"]},
+            default_flow_style=False,
+            sort_keys=False,
+        ).strip()
+    )
+    yml_lines.append("")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append("# Network Configuration")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append(
+        yaml.dump(
+            {"network": orchestrator_config["network"]},
+            default_flow_style=False,
+            sort_keys=False,
+        ).strip()
+    )
+    yml_lines.append("")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append("# Forgejo Configuration (Git Server + CI/CD)")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append(
+        yaml.dump(
+            {"forgejo": orchestrator_config["forgejo"]},
+            default_flow_style=False,
+            sort_keys=False,
+        ).strip()
+    )
+    yml_lines.append("")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append("# Monitoring Configuration (Global - All Projects)")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append(
+        "# Grafana and Prometheus run on orchestrator VM and monitor ALL projects"
+    )
+    yml_lines.append(
+        "# Configure a single domain for global access (e.g., grafana.yourdomain.com)"
+    )
+    yml_lines.append("# All projects will be visible in Grafana with project filtering")
+    yml_lines.append("")
+    yml_lines.append("# Grafana Configuration")
+    yml_lines.append(
+        yaml.dump(
+            {"grafana": orchestrator_config["grafana"]},
+            default_flow_style=False,
+            sort_keys=False,
+        ).strip()
+    )
+    yml_lines.append(
+        "# Alert notification settings (optional - configure in Grafana UI)"
+    )
+    yml_lines.append(
+        "# Variables: GRAFANA_ADMIN_USER, GRAFANA_ADMIN_PASSWORD, GRAFANA_SMTP_PASSWORD (from secrets.yml)"
+    )
+    yml_lines.append("")
+    yml_lines.append("# Prometheus Configuration")
+    yml_lines.append(
+        yaml.dump(
+            {"prometheus": orchestrator_config["prometheus"]},
+            default_flow_style=False,
+            sort_keys=False,
+        ).strip()
+    )
+    yml_lines.append("")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append("# Caddy Configuration (Reverse Proxy for HTTPS)")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append(
+        yaml.dump(
+            {"caddy": orchestrator_config["caddy"]},
+            default_flow_style=False,
+            sort_keys=False,
+        ).strip()
+    )
+    yml_lines.append("")
 
     # Write config
     with open(config_path, "w") as f:
-        f.write(config_content)
+        f.write("\n".join(yml_lines))
 
-    console.print("\n[color(248)]Orchestrator configured.[/color(248)]")
-    console.print(f"\n[cyan]📄 Config saved to:[/cyan] {config_path}")
-    console.print("\n[bold]Next steps:[/bold]")
-    console.print("  1. [dim]Review config:[/dim] shared/orchestrator/config.yml")
     console.print(
-        "  2. [dim]Deploy orchestrator:[/dim] [red]superdeploy orchestrator up[/red]"
+        f"\n[dim]✓ Config saved: {config_path.relative_to(project_root)}[/dim]"
     )
-
-    if enable_domains:
-        console.print("\n[yellow]⚠️  Don't forget to:[/yellow]")
-        console.print("  • Point DNS A records to orchestrator IP")
-        console.print("  • Wait for DNS propagation before deployment")
-
-    console.print()
+    console.print("\n[white]Next steps:[/white]")
+    console.print("  [dim]1. Review: shared/orchestrator/config.yml[/dim]")
+    console.print("  [dim]2. Deploy: superdeploy orchestrator up[/dim]\n")
 
 
 @click.command(name="orchestrator:down")
@@ -424,17 +495,8 @@ def orchestrator_down(yes, preserve_ip, verbose):
 
         shutil.rmtree(terraform_state_dir)
 
-    # Clean .env (remove ORCHESTRATOR_IP)
-    env_path = shared_dir / "orchestrator" / ".env"
-    if env_path.exists():
-        env_lines = []
-        with open(env_path, "r") as f:
-            for line in f:
-                if not line.strip().startswith("ORCHESTRATOR_IP="):
-                    env_lines.append(line)
-
-        with open(env_path, "w") as f:
-            f.writelines(env_lines)
+    # Mark as destroyed in state.yml
+    orch_config.state_manager.mark_destroyed()
 
     # Clean inventory
     inventory_file = shared_dir / "ansible" / "inventories" / "orchestrator.ini"
@@ -475,9 +537,17 @@ def orchestrator_status():
         console.print("[green]✅ Orchestrator is deployed[/green]")
         console.print(f"  IP: {orch_config.get_ip()}")
         console.print(f"  URL: http://{orch_config.get_ip()}:3001")
-        console.print(
-            f"  Last Updated: {orch_config.config.get('state', {}).get('last_updated', 'Unknown')}"
-        )
+
+        # Get state details
+        state = orch_config.state_manager.load_state()
+        last_updated = state.get("last_updated", "Unknown")
+        vm_info = state.get("vm", {})
+
+        console.print(f"  Last Updated: {last_updated}")
+        if vm_info.get("machine_type"):
+            console.print(f"  VM Type: {vm_info.get('machine_type')}")
+        if vm_info.get("disk_size"):
+            console.print(f"  Disk Size: {vm_info.get('disk_size')}GB")
     else:
         console.print("[yellow]⚠️  Orchestrator not deployed[/yellow]")
         console.print("  Run: [red]superdeploy orchestrator up[/red]")
@@ -503,7 +573,12 @@ def orchestrator_status():
     is_flag=True,
     help="Show all command output (default: clean UI with logs)",
 )
-def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose):
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force deployment (ignore state, re-run everything)",
+)
+def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose, force):
     """Deploy orchestrator VM with Forgejo (runs Terraform + Ansible by default)"""
 
     if not verbose:
@@ -520,7 +595,7 @@ def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose):
     # Initialize logger
     with DeployLogger("orchestrator", "up", verbose=verbose) as logger:
         try:
-            _deploy_orchestrator_v2(
+            _deploy_orchestrator(
                 logger,
                 project_root,
                 shared_dir,
@@ -529,6 +604,7 @@ def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose):
                 addon,
                 tags,
                 verbose,
+                force,
             )
 
             if not verbose:
@@ -539,7 +615,7 @@ def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose):
             raise SystemExit(1)
 
 
-def _deploy_orchestrator_v2(
+def _deploy_orchestrator(
     logger,
     project_root,
     shared_dir,
@@ -548,6 +624,7 @@ def _deploy_orchestrator_v2(
     addon,
     tags,
     verbose,
+    force,
 ):
     """Internal function for orchestrator deployment with logging"""
 
@@ -566,58 +643,75 @@ def _deploy_orchestrator_v2(
         logger.log_error(str(e), context="Orchestrator config not found")
         raise SystemExit(1)
 
+    # Check state and detect changes (unless forced or specific addon)
+    if not force and not addon:
+        logger.log("Detecting changes...")
+
+        # Simple state check for orchestrator (different from project state management)
+        state = orch_config.state_manager.load_state()
+        is_deployed = state.get("deployed", False)
+
+        if is_deployed:
+            # Compare config hash (same as project state manager)
+            last_applied = state.get("last_applied", {})
+            last_hash = last_applied.get("config_hash", "")
+            current_hash = orch_config.state_manager._calculate_config_hash()
+
+            if current_hash == last_hash:
+                logger.success("✓ No changes detected. Infrastructure is up to date.")
+                logger.log("")
+                logger.log("Current state:")
+                logger.log(f"  • VM deployed: {is_deployed}")
+                logger.log(f"  • IP: {state.get('orchestrator_ip', 'N/A')}")
+                logger.log("")
+                logger.log("To force re-deployment, use: --force")
+                logger.log("To deploy specific addon, use: --addon <name>")
+                return
+            else:
+                logger.log("")
+                logger.log("Detected changes in configuration")
+
+                # Try to determine what changed
+                last_config = state.get("config", {})
+
+                # Check VM config changes
+                if orch_config.config.get("vm") != last_config.get("vm"):
+                    logger.log("  • VM configuration changed")
+                    skip_terraform = False  # Need terraform
+                else:
+                    logger.log("  • VM configuration unchanged")
+                    skip_terraform = True  # Skip terraform
+
+                # Check addon configs
+                if orch_config.config.get("forgejo") != last_config.get("forgejo"):
+                    logger.log("  • Forgejo configuration changed")
+                if orch_config.config.get("grafana") != last_config.get("grafana"):
+                    logger.log("  • Grafana configuration changed")
+                if orch_config.config.get("prometheus") != last_config.get(
+                    "prometheus"
+                ):
+                    logger.log("  • Prometheus configuration changed")
+
+                logger.log("")
+        else:
+            logger.log("First deployment detected")
+    elif force:
+        logger.log("Force mode enabled, running full deployment")
+    elif addon:
+        logger.log(f"Deploying specific addon: {addon}")
+
     # Generate and save secrets
     logger.log("Checking secrets...")
-    import secrets as secrets_module
 
     orchestrator_dir = shared_dir / "orchestrator"
     orchestrator_dir.mkdir(parents=True, exist_ok=True)
 
-    env_file = orchestrator_dir / ".env"
+    # Initialize secrets using secret manager
+    secrets = orch_config.initialize_secrets()
 
-    if env_file.exists():
+    if secrets:
         logger.log("✓ Secrets verified")
     else:
-        logger.log("Generating new secrets")
-        project_secrets = {
-            "FORGEJO_ADMIN_PASSWORD": secrets_module.token_urlsafe(32),
-            "FORGEJO_DB_PASSWORD": secrets_module.token_urlsafe(32),
-            "FORGEJO_SECRET_KEY": secrets_module.token_urlsafe(48),
-            "FORGEJO_INTERNAL_TOKEN": secrets_module.token_urlsafe(79),
-            "GRAFANA_ADMIN_PASSWORD": secrets_module.token_urlsafe(32),
-        }
-
-        env_content = """# =============================================================================
-# Orchestrator Secrets
-# =============================================================================
-# Auto-generated by: superdeploy orchestrator up
-# DO NOT COMMIT THIS FILE TO GIT!
-# =============================================================================
-
-# Forgejo Admin Password
-FORGEJO_ADMIN_PASSWORD={FORGEJO_ADMIN_PASSWORD}
-
-# Forgejo Database Password
-FORGEJO_DB_PASSWORD={FORGEJO_DB_PASSWORD}
-
-# Forgejo Secret Key (for encryption)
-FORGEJO_SECRET_KEY={FORGEJO_SECRET_KEY}
-
-# Forgejo Internal Token (for API)
-FORGEJO_INTERNAL_TOKEN={FORGEJO_INTERNAL_TOKEN}
-
-# Monitoring Addon Secrets
-GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
-
-# Grafana SMTP Password (optional - for email alerts)
-# Set this manually if you enable SMTP in config.yml
-# GRAFANA_SMTP_PASSWORD=your-smtp-password-here
-""".format(**project_secrets)
-
-        with open(env_file, "w") as f:
-            f.write(env_content)
-
-        env_file.chmod(0o600)
         logger.log("✓ Secrets generated")
 
     # Get GCP config
@@ -739,8 +833,11 @@ GRAFANA_ADMIN_PASSWORD={GRAFANA_ADMIN_PASSWORD}
             logger.log(f"Available outputs: {outputs}")
             raise SystemExit(1)
 
-        # Save IP to .env
-        orch_config.mark_deployed(orchestrator_ip)
+        # Save IP, VM details, and config to state
+        vm_config_data = orch_config.get_vm_config()
+        orch_config.mark_deployed(
+            orchestrator_ip, vm_config=vm_config_data, config=orch_config.config
+        )
 
         # Wait for SSH
         logger.log("Waiting for SSH...")
@@ -810,22 +907,11 @@ ansible_python_interpreter=/usr/bin/python3
     # Prepare ansible vars
     ansible_vars = orch_config.to_ansible_vars()
 
-    # Load orchestrator secrets from .env
-    from dotenv import dotenv_values
+    # Load orchestrator secrets from secrets.yml
+    orchestrator_secrets = orch_config.get_secrets()
 
-    orchestrator_secrets = {}
-    env_file = shared_dir / "orchestrator" / ".env"
-    if env_file.exists():
-        orchestrator_secrets = dotenv_values(env_file)
-        # Filter out non-secret values
-        orchestrator_secrets = {
-            k: v
-            for k, v in orchestrator_secrets.items()
-            if v and not k.startswith("#") and not k.startswith("ORCHESTRATOR_IP")
-        }
-
-    # Add secrets to ansible vars
-    ansible_vars["project_secrets"] = orchestrator_secrets
+    # Add secrets to ansible vars (wrap in 'secrets' key to match generate-env.yml expectations)
+    ansible_vars["project_secrets"] = {"secrets": orchestrator_secrets}
 
     # Add orchestrator IP and ansible_host for runtime variables
     ansible_env_vars = {
@@ -879,10 +965,7 @@ ansible_python_interpreter=/usr/bin/python3
     logger.success("Services configured successfully")
 
     # Display info and credentials (always show, regardless of verbose mode)
-    from dotenv import dotenv_values
-
-    env_file = shared_dir / "orchestrator" / ".env"
-    secrets = dotenv_values(env_file) if env_file.exists() else {}
+    secrets = orch_config.get_secrets()
 
     forgejo_admin = orch_config.config.get("forgejo", {}).get("admin_user", "admin")
     forgejo_pass = secrets.get("FORGEJO_ADMIN_PASSWORD", "")

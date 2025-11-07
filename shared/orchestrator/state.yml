@@ -1,0 +1,68 @@
+deployed: true
+orchestrator_ip: 34.56.139.39
+vm:
+  name: orchestrator-main-0
+  external_ip: 34.56.139.39
+  deployed_at: '2025-11-07T15:45:34.730314'
+  status: running
+  machine_type: e2-medium
+  disk_size: 50
+  services:
+  - forgejo
+  - monitoring
+addons:
+  forgejo:
+    status: installed
+  monitoring:
+    status: installed
+last_updated: '2025-11-07T15:13:53.724665'
+config:
+  project:
+    name: orchestrator
+    ssl_email: cradexco@gmail.com
+  gcp:
+    project_id: galvanic-camp-475519-d6
+    region: us-central1
+    zone: us-central1-a
+  ssh:
+    key_path: ~/.ssh/superdeploy_deploy
+    public_key_path: ~/.ssh/superdeploy_deploy.pub
+    user: superdeploy
+  vm:
+    name: orchestrator
+    machine_type: e2-medium
+    disk_size: 50
+  network:
+    vpc_name: superdeploy-network
+    subnet_cidr: 10.128.0.0/20
+    docker_subnet: 172.20.0.0/24
+  forgejo:
+    version: 13.0.1
+    port: 3001
+    ssh_port: 2222
+    admin_user: cradexco
+    admin_email: cradexco@gmail.com
+    org: cradexco
+    repo: superdeploy
+    db_name: forgejo
+    db_user: forgejo
+    domain: ''
+  grafana:
+    domain: ''
+    port: 3000
+    smtp_enabled: false
+    smtp_host: ''
+    smtp_user: ''
+  prometheus:
+    domain: ''
+    port: 9090
+    retention: 15d
+  caddy:
+    enabled: false
+    version: 2-alpine
+    http_port: 80
+    https_port: 443
+    admin_port: 2019
+last_applied:
+  timestamp: '2025-11-07T15:45:34.730375'
+  config_hash: 96bdcc18e5f7

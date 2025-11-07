@@ -18,8 +18,8 @@ def metrics(project, days):
 
     \b
     Examples:
-      superdeploy metrics -p acme                # Last 7 days
-      superdeploy metrics -p acme -d 30          # Last 30 days
+      superdeploy acme:metrics                # Last 7 days
+      superdeploy acme:metrics -d 30          # Last 30 days
 
     \b
     Metrics include:
@@ -31,14 +31,15 @@ def metrics(project, days):
     """
     # Load state to get VM IPs
     from cli.state_manager import StateManager
+
     state_mgr = StateManager(get_project_root(), project)
     state = state_mgr.load_state()
-    
+
     if not state or "vms" not in state:
         console.print("[red]✗[/red] No deployment state found")
-        console.print(f"Run: [red]superdeploy up -p {project}[/red]")
+        console.print(f"Run: [red]superdeploy {project}:up[/red]")
         raise SystemExit(1)
-    
+
     # Build env dict from state
     env = {}
     for vm_name, vm_data in state.get("vms", {}).items():
@@ -161,6 +162,4 @@ def metrics(project, days):
         console.print(f"[yellow]⚠️  Could not fetch deployment history: {e}[/yellow]")
 
     # Summary
-    console.print(
-        f"\n[dim]For detailed logs: superdeploy logs -p {project} -a <service>[/dim]"
-    )
+    console.print("\n[dim]For detailed logs: superdeploy logs -a <service>[/dim]")

@@ -70,16 +70,17 @@ services:
       - POSTGRES_USER=${FORGEJO_DB_USER}
       - POSTGRES_PASSWORD=${FORGEJO_DB_PASSWORD}
       - POSTGRES_DB=${FORGEJO_DB_NAME}
+      - PGDATA=/var/lib/postgresql/data/pgdata
     networks:
       - {{ project_name }}-network
     volumes:
       - forgejo-postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${FORGEJO_DB_USER}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U ${FORGEJO_DB_USER} -d ${FORGEJO_DB_NAME} || exit 1"]
+      interval: 5s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 12
+      start_period: 60s
     logging:
       driver: "json-file"
       options:

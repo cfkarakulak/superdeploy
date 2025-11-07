@@ -1,14 +1,88 @@
-import os
-
-"""SuperDeploy CLI - Logs command"""
+"""SuperDeploy CLI - Logs command (Refactored)"""
 
 import click
-import subprocess
-from rich.console import Console
-from cli.ui_components import show_header
-from cli.logger import DeployLogger
+from cli.base import ProjectCommand
 
-console = Console()
+
+class LogsCommand(ProjectCommand):
+    """View application logs."""
+
+    def __init__(
+        self,
+        project_name: str,
+        app_name: str,
+        follow: bool = False,
+        lines: int = 100,
+        verbose: bool = False,
+    ):
+        super().__init__(project_name, verbose=verbose)
+        self.app_name = app_name
+        self.follow = follow
+        self.lines = lines
+
+    def execute(self) -> None:
+        """Execute logs command."""
+        self.show_header(
+            title="Application Logs",
+            project=self.project_name,
+            app=self.app_name,
+            details={
+                "Follow": "Yes" if self.follow else "No",
+                "Lines": str(self.lines),
+            },
+        )
+
+        # Require deployment
+        self.require_deployment()
+
+        # Initialize logger
+        logger = self.init_logger(self.project_name, f"logs-{self.app_name}")
+
+        logger.step("Loading project configuration")
+
+        # Get VM and IP
+        try:
+            vm_name, vm_ip = self.get_vm_for_app(self.app_name)
+            logger.success("Configuration loaded")
+            logger.log(f"Found VM: {vm_ip}")
+        except Exception as e:
+            self.handle_error(e)
+            raise SystemExit(1)
+
+        # Get SSH service
+        vm_service = self.ensure_vm_service()
+        ssh_service = vm_service.get_ssh_service()
+
+        # Container name
+        container_name = f"{self.project_name}-{self.app_name}"
+
+        try:
+            # Stream logs
+            logger.step(f"Streaming logs from {self.app_name}")
+            logger.log("Press Ctrl+C to stop")
+
+            process = ssh_service.docker_logs(
+                vm_ip, container_name, follow=self.follow, tail=self.lines
+            )
+
+            # Stream output
+            if process.stdout:
+                for line in process.stdout:
+                    print(line, end="")
+
+            process.wait()
+
+            logger.success("Log streaming complete")
+            self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
+
+        except KeyboardInterrupt:
+            logger.warning("Stopped by user")
+            self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
+            if process:
+                process.terminate()
+        except Exception as e:
+            self.handle_error(e, "Failed to fetch logs")
+            raise SystemExit(1)
 
 
 @click.command()
@@ -28,110 +102,5 @@ def logs(project, app, follow, lines, environment, verbose):
       superdeploy logs -a api -f           # Follow logs
       superdeploy logs -a api -n 500       # Last 500 lines
     """
-    from cli.utils import get_project_root
-    from cli.core.config_loader import ConfigLoader
-
-    if not verbose:
-        show_header(
-            title="Application Logs",
-            project=project,
-            app=app,
-            details={"Follow": "Yes" if follow else "No", "Lines": str(lines)},
-            console=console,
-        )
-
-    logger = DeployLogger(project, f"logs-{app}", verbose=verbose)
-
-    # Load config to find VM
-    logger.step("Loading project configuration")
-    project_root = get_project_root()
-    projects_dir = project_root / "projects"
-
-    try:
-        config_loader = ConfigLoader(projects_dir)
-        project_config = config_loader.load_project(project)
-        apps = project_config.raw_config.get("apps", {})
-        logger.success("Configuration loaded")
-
-        if app not in apps:
-            logger.log_error(f"App '{app}' not found in project config")
-            raise SystemExit(1)
-
-        vm_role = apps[app].get("vm", "core")
-
-        # Get SSH config from project config
-        ssh_config = project_config.raw_config.get("cloud", {}).get("ssh", {})
-        ssh_key_path = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
-        ssh_user = ssh_config.get("user", "superdeploy")
-
-        # Get VM IP from state
-        from cli.state_manager import StateManager
-        state_mgr = StateManager(project_root, project)
-        state = state_mgr.load_state()
-        
-        if not state or "vms" not in state:
-            logger.log_error("No deployment state found")
-            logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
-            raise SystemExit(1)
-        
-        # Find VM by role
-        vm_name = f"{vm_role}-0"
-        if vm_name not in state["vms"] or "external_ip" not in state["vms"][vm_name]:
-            logger.log_error(f"VM IP not found in state: {vm_name}")
-            logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
-            raise SystemExit(1)
-
-        ssh_host = state["vms"][vm_name]["external_ip"]
-        logger.log(f"Found VM: {ssh_host}")
-
-    except Exception as e:
-        logger.log_error(f"Error: {e}")
-        raise SystemExit(1)
-
-    # SSH config
-    ssh_key = os.path.expanduser(ssh_key_path)
-
-    follow_flag = "-f" if follow else ""
-    # Container naming: {project}-{app}
-    docker_cmd = f"docker logs {follow_flag} --tail {lines} {project}-{app} 2>&1"
-
-    ssh_cmd = [
-        "ssh",
-        "-i",
-        ssh_key,
-        "-o",
-        "StrictHostKeyChecking=no",
-        f"{ssh_user}@{ssh_host}",
-        docker_cmd,
-    ]
-
-    process = None
-    try:
-        # Stream logs to terminal
-        logger.step(f"Streaming logs from {app}")
-        logger.log("Press Ctrl+C to stop")
-
-        process = subprocess.Popen(
-            ssh_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-
-        if process.stdout:
-            for line in process.stdout:
-                print(line, end="")
-
-        process.wait()
-        logger.success("Log streaming complete")
-        console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
-
-    except KeyboardInterrupt:
-        logger.warning("Stopped by user")
-        console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
-        if process:
-            process.terminate()
-    except subprocess.CalledProcessError as e:
-        logger.log_error(f"Failed to fetch logs: {e}")
-        raise SystemExit(1)
+    cmd = LogsCommand(project, app, follow=follow, lines=lines, verbose=verbose)
+    cmd.run()

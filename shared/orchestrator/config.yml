@@ -10,54 +10,54 @@
 # =============================================================================
 project:
   name: orchestrator
-  ssl_email: "cradexco@gmail.com"
+  ssl_email: cradexco@gmail.com
 
 # =============================================================================
 # Cloud Provider Configuration
 # =============================================================================
 gcp:
-  project_id: "galvanic-camp-475519-d6"
-  region: "us-central1"
-  zone: "us-central1-a"
+  project_id: galvanic-camp-475519-d6
+  region: us-central1
+  zone: us-central1-a
 
 # =============================================================================
 # SSH Configuration
 # =============================================================================
 ssh:
-  key_path: "~/.ssh/superdeploy_deploy"
-  public_key_path: "~/.ssh/superdeploy_deploy.pub"
-  user: "superdeploy"
+  key_path: ~/.ssh/superdeploy_deploy
+  public_key_path: ~/.ssh/superdeploy_deploy.pub
+  user: superdeploy
 
 # =============================================================================
 # VM Configuration
 # =============================================================================
 vm:
-  name: "orchestrator"
-  machine_type: "e2-medium"
+  name: orchestrator
+  machine_type: e2-medium
   disk_size: 50
 
 # =============================================================================
 # Network Configuration
 # =============================================================================
 network:
-  vpc_name: "superdeploy-network"
-  subnet_cidr: "10.128.0.0/20"
-  docker_subnet: "172.20.0.0/24"  # Reserved for orchestrator
+  vpc_name: superdeploy-network
+  subnet_cidr: 10.128.0.0/20
+  docker_subnet: 172.20.0.0/24
 
 # =============================================================================
 # Forgejo Configuration (Git Server + CI/CD)
 # =============================================================================
 forgejo:
-  version: "13.0.1"
+  version: 13.0.1
   port: 3001
   ssh_port: 2222
-  admin_user: "cradexco"
-  admin_email: "cradexco@gmail.com"
-  org: "cradexco"
-  repo: "superdeploy"
-  db_name: "forgejo"
-  db_user: "forgejo"
-  domain: ""  # Optional: Set for HTTPS access (e.g., git.yourdomain.com)
+  admin_user: cradexco
+  admin_email: cradexco@gmail.com
+  org: cradexco
+  repo: superdeploy
+  db_name: forgejo
+  db_user: forgejo
+  domain: ''
 
 # =============================================================================
 # Monitoring Configuration (Global - All Projects)
@@ -68,28 +68,26 @@ forgejo:
 
 # Grafana Configuration
 grafana:
-  domain: ""  # Global monitoring domain (e.g., grafana.yourdomain.com)
+  domain: ''
   port: 3000
-  # Alert notification settings (optional - configure in Grafana UI)
-  smtp_enabled: false  # Set to true to enable email alerts
-  smtp_host: ""  # e.g., smtp.gmail.com:587
-  smtp_user: ""  # e.g., alerts@yourdomain.com
-  # Variables: GRAFANA_ADMIN_USER, GRAFANA_ADMIN_PASSWORD, GRAFANA_SMTP_PASSWORD (from .env)
+  smtp_enabled: false
+  smtp_host: ''
+  smtp_user: ''
+# Alert notification settings (optional - configure in Grafana UI)
+# Variables: GRAFANA_ADMIN_USER, GRAFANA_ADMIN_PASSWORD, GRAFANA_SMTP_PASSWORD (from .env)
 
 # Prometheus Configuration
 prometheus:
-  domain: ""  # Global metrics domain (e.g., prometheus.yourdomain.com)
+  domain: ''
   port: 9090
-  retention: "15d"
+  retention: 15d
 
 # =============================================================================
 # Caddy Configuration (Reverse Proxy for HTTPS)
 # =============================================================================
 caddy:
-  enabled: false  # Set to true to enable domain-based HTTPS access
-  version: "2-alpine"
+  enabled: false
+  version: 2-alpine
   http_port: 80
   https_port: 443
   admin_port: 2019
-
-

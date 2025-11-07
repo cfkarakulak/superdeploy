@@ -5,7 +5,6 @@ Project deployment commands
 from pathlib import Path
 from rich.console import Console
 from cli.ui_components import show_header
-from dotenv import dotenv_values
 import click
 
 console = Console()
@@ -36,19 +35,31 @@ def projects_deploy(project, services):
         console.print(f"[red]❌ Project '{project}' not found at {project_path}[/red]")
         return
 
-    # Load infrastructure env
-    env_file = project_root / ".env"
-    env = dotenv_values(env_file)
+    # Load project secrets from secrets.yml
+    from cli.secret_manager import SecretManager
+    from cli.utils import get_project_root
 
-    # Load project secrets
-    project_secrets_file = project_path / "secrets.env"
-    if not project_secrets_file.exists():
+    project_root = get_project_root()
+    secret_mgr = SecretManager(project_root, project)
+
+    try:
+        secrets_data = secret_mgr.load_secrets()
+    except FileNotFoundError:
         console.print(
-            f"[red]❌ Project secrets not found: {project_secrets_file}[/red]"
+            f"[red]❌ Project secrets not found: {project_path / 'secrets.yml'}[/red]"
         )
+        console.print(f"[dim]Run: superdeploy init -p {project}[/dim]")
         return
 
-    project_secrets = dotenv_values(project_secrets_file)
+    # Extract all secrets (shared + app-specific)
+    project_secrets = {}
+    if secrets_data.get("secrets", {}).get("shared"):
+        project_secrets.update(secrets_data["secrets"]["shared"])
+
+    # Add app-specific secrets
+    for app_name, app_secrets in secrets_data.get("secrets", {}).items():
+        if app_name != "shared" and isinstance(app_secrets, dict):
+            project_secrets.update(app_secrets)
 
     # Run Ansible playbook for project deployment
     ansible_dir = project_root / "shared" / "ansible"
@@ -127,7 +138,7 @@ def _create_project_deploy_playbook(ansible_dir):
         delete: no
         recursive: yes
         rsync_opts:
-          - "--exclude=.env*"
+          - "--exclude=secrets.yml"
           - "--exclude=*.log"
 
     - name: Sync project provision files (if exists)

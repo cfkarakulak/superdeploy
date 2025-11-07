@@ -75,14 +75,14 @@
     fi
     
     # Phase 7: Deploy (guaranteed clean state)
-    docker compose --project-name orchestrator-forgejo up -d --pull always --force-recreate --remove-orphans --wait --wait-timeout 300
+    docker compose --project-name orchestrator-forgejo up -d --pull always --force-recreate --remove-orphans --wait --wait-timeout 120
     
     echo "✓ Deployment successful"
   args:
     executable: /bin/bash
   become_user: "{{ superdeploy_user }}"
   register: forgejo_deploy_result
-  retries: 2
+  retries: 1
   delay: 10
   until: forgejo_deploy_result.rc == 0
 
@@ -92,7 +92,6 @@
   until: db_health.stdout == 'healthy'
   retries: 30
   delay: 2
-  when: forgejo_deploy_result.changed
   changed_when: false
 
 - name: "Wait for {{ addon_name }} to be ready"

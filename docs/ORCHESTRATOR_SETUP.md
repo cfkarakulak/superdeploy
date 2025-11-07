@@ -166,7 +166,7 @@ apps:
 ### 3. Deploy Project
 
 ```bash
-superdeploy up -p cheapa
+superdeploy cheapa:up
 ```
 
 **Bu şunları yapar:**
@@ -206,7 +206,7 @@ jobs:
 ### Orchestrator (Bir Kere)
 
 ```bash
-superdeploy up -p orchestrator
+superdeploy orchestrator:up
 ```
 
 **Sonuç:**
@@ -219,7 +219,7 @@ superdeploy up -p orchestrator
 ### Proje 1: cheapa
 
 ```bash
-superdeploy up -p cheapa
+superdeploy cheapa:up
 ```
 
 **Sonuç:**
@@ -230,7 +230,7 @@ superdeploy up -p cheapa
 ### Proje 2: myapp
 
 ```bash
-superdeploy up -p myapp
+superdeploy myapp:up
 ```
 
 **Sonuç:**
@@ -241,7 +241,7 @@ superdeploy up -p myapp
 ### Proje 3: acme
 
 ```bash
-superdeploy up -p acme
+superdeploy acme:up
 ```
 
 **Sonuç:**
@@ -308,7 +308,7 @@ superdeploy up -p acme
 
 ```bash
 # Orchestrator'ı güncelle
-superdeploy up -p orchestrator --tags addons
+superdeploy orchestrator:up --tags addons
 
 # Diğer projelere dokunmaz
 ```
@@ -317,7 +317,7 @@ superdeploy up -p orchestrator --tags addons
 
 ```bash
 # Sadece yeni proje VM'lerini oluştur
-superdeploy up -p newproject
+superdeploy newproject:up
 
 # Orchestrator'a dokunmaz
 ```
@@ -326,7 +326,7 @@ superdeploy up -p newproject
 
 ```bash
 # Bir projenin runner'larını yeniden kaydet
-superdeploy up -p cheapa --tags runner
+superdeploy cheapa:up --tags runner
 ```
 
 ## 🚨 Önemli Notlar

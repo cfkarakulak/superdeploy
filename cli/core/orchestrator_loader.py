@@ -20,6 +20,14 @@ class OrchestratorConfig:
             config_path.parent.parent
         )  # shared/orchestrator/config.yml -> shared/
         self.config = self._load_config()
+        self.raw_config = self.config  # For StateManager compatibility
+
+        # Initialize managers
+        from cli.core.orchestrator_secret_manager import OrchestratorSecretManager
+        from cli.core.orchestrator_state_manager import OrchestratorStateManager
+
+        self.secret_manager = OrchestratorSecretManager(self.base_path)
+        self.state_manager = OrchestratorStateManager(self.base_path)
 
     def _load_config(self) -> Dict[str, Any]:
         """Load orchestrator configuration from YAML"""
@@ -64,25 +72,12 @@ class OrchestratorConfig:
             pass
 
     def is_deployed(self) -> bool:
-        """Check if orchestrator is already deployed by checking if IP exists in .env"""
-        return self.get_ip() is not None
+        """Check if orchestrator is already deployed by checking state.yml"""
+        return self.state_manager.is_deployed()
 
     def get_ip(self) -> Optional[str]:
-        """Get orchestrator IP from .env file"""
-        env_path = self.base_path / "orchestrator" / ".env"
-        if env_path.exists():
-            try:
-                with open(env_path, "r") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith("ORCHESTRATOR_IP="):
-                            ip = line.split("=", 1)[1].strip()
-                            if ip:
-                                return ip
-            except:
-                pass
-
-        return None
+        """Get orchestrator IP from state.yml"""
+        return self.state_manager.get_ip()
 
     def get_vm_config(self) -> Dict[str, Any]:
         """Get VM configuration for orchestrator"""
@@ -96,85 +91,18 @@ class OrchestratorConfig:
         """Get network configuration"""
         return self.config.get("network", {})
 
-    def mark_deployed(self, ip: str) -> None:
+    def mark_deployed(
+        self, ip: str, vm_config: dict = None, config: dict = None
+    ) -> None:
         """
-        Mark orchestrator as deployed and save IP to .env + all project secrets.yml
+        Mark orchestrator as deployed and save IP to state.yml + all project secrets.yml
 
         Args:
             ip: External IP of orchestrator VM
+            vm_config: VM configuration details
+            config: Full configuration for change detection
         """
-        # 1. Save to shared/orchestrator/.env (backward compatibility)
-        env_path = self.base_path / "orchestrator" / ".env"
-
-        # Read existing .env content
-        env_lines = []
-        ip_found = False
-
-        if env_path.exists():
-            with open(env_path, "r") as f:
-                for line in f:
-                    if line.strip().startswith("ORCHESTRATOR_IP="):
-                        env_lines.append(f"ORCHESTRATOR_IP={ip}\n")
-                        ip_found = True
-                    else:
-                        env_lines.append(line)
-
-        # If ORCHESTRATOR_IP not found, append it
-        if not ip_found:
-            env_lines.append(f"ORCHESTRATOR_IP={ip}\n")
-
-        # Write back to .env
-        with open(env_path, "w") as f:
-            f.writelines(env_lines)
-
-        # 2. Update all project secrets.yml files
-        self._update_project_secrets(ip)
-
-    def _update_project_secrets(self, ip: str) -> None:
-        """
-        Update ORCHESTRATOR_IP in all project secrets.yml files
-
-        Args:
-            ip: Orchestrator IP address
-        """
-        projects_dir = self.base_path.parent / "projects"
-
-        if not projects_dir.exists():
-            return
-
-        # Find all secrets.yml files
-        for project_dir in projects_dir.iterdir():
-            if not project_dir.is_dir():
-                continue
-
-            secrets_file = project_dir / "secrets.yml"
-            if not secrets_file.exists():
-                continue
-
-            try:
-                # Load existing passwords
-                with open(secrets_file, "r") as f:
-                    secrets_data = yaml.safe_load(f) or {}
-
-                # Ensure secrets.shared exists
-                if "secrets" not in secrets_data:
-                    secrets_data["secrets"] = {}
-                if "shared" not in secrets_data["secrets"]:
-                    secrets_data["secrets"]["shared"] = {}
-
-                # Update ORCHESTRATOR_IP
-                secrets_data["secrets"]["shared"]["ORCHESTRATOR_IP"] = ip
-
-                # Save back
-                with open(secrets_file, "w") as f:
-                    yaml.dump(
-                        secrets_data, f, default_flow_style=False, sort_keys=False
-                    )
-
-            except Exception as e:
-                # Don't fail if one project fails
-                print(f"Warning: Could not update {secrets_file}: {e}")
-                continue
+        self.state_manager.mark_deployed(ip, vm_config=vm_config, config=config)
 
     def to_terraform_vars(
         self, project_id: str, ssh_pub_key_path: str
@@ -221,6 +149,18 @@ class OrchestratorConfig:
             "network_name": network_config.get("vpc_name", "superdeploy-network"),
             "ssh_pub_key_path": ssh_pub_key_path,
         }
+
+    def get_secrets(self) -> Dict[str, str]:
+        """Get all orchestrator secrets"""
+        return self.secret_manager.get_all_secrets()
+
+    def get_secret(self, key: str) -> str:
+        """Get specific secret"""
+        return self.secret_manager.get_secret(key)
+
+    def initialize_secrets(self) -> Dict[str, str]:
+        """Initialize secrets if they don't exist"""
+        return self.secret_manager.initialize_secrets()
 
     def to_ansible_vars(self) -> Dict[str, Any]:
         """
@@ -284,7 +224,6 @@ class OrchestratorLoader:
         self.shared_dir = Path(shared_dir)
         self.orchestrator_dir = self.shared_dir / "orchestrator"
         self.config_path = self.orchestrator_dir / "config.yml"
-        self.env_path = self.orchestrator_dir / ".env"
 
     def load(self) -> OrchestratorConfig:
         """

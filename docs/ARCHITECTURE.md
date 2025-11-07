@@ -584,7 +584,7 @@ superdeploy sync -p myproject
 superdeploy init -p newproject
 
 # Altyapıyı deploy et
-superdeploy up -p newproject
+superdeploy newproject:up
 
 # Secret'ları sync et
 superdeploy sync -p newproject
@@ -828,7 +828,7 @@ Deployment sonrası sistem şunları doğrular:
 6. **Selective Addon Deployment:** 
    - `--addon` flag ile sadece belirli addon'lar deploy edilir
    - Hızlı güncelleme ve test
-   - Örnek: `superdeploy up -p myproject --addon postgres`
+   - Örnek: `superdeploy myproject:up --addon postgres`
 
 7. **GitHub Actions → Forgejo Integration:** 
    - Düzeltilmiş API endpoint'leri (`/api/v1/repos/.../actions/workflows/.../dispatches`)

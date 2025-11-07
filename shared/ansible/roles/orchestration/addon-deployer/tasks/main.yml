@@ -69,13 +69,23 @@
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
     mode: '0644'
+  register: sync_result
+  
+- name: Show sync result
+  debug:
+    msg: "✓ Configuration synced ({{ sync_result.changed | ternary('updated', 'unchanged') }})"
+    verbosity: 0
 
 - name: Check if project Docker network exists
   shell: "docker network inspect {{ project_name }}-network >/dev/null 2>&1"
   register: network_exists
   changed_when: false
   failed_when: false
-  become_user: "{{ superdeploy_user }}"
+  
+- name: Show network check result  
+  debug:
+    msg: "Network '{{ project_name }}-network' {{ 'exists' if network_exists.rc == 0 else 'will be created' }}"
+    verbosity: 0
 
 - name: Get current network subnet (if exists)
   shell: "docker network inspect {{ project_name }}-network --format '{{'{{range .IPAM.Config}}{{.Subnet}}{{end}}'}}'  2>/dev/null || echo ''"

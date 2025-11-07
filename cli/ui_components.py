@@ -34,7 +34,7 @@ def show_header(
         project: Project name (if applicable)
         app: App name (if applicable)
         details: Additional key-value pairs to display
-        show_logo: Deprecated - ASCII logo is always shown
+        show_logo: Legacy parameter (kept for backward compatibility, ignored)
         border_color: Panel border color (default: cyan)
         console: Rich Console instance (creates new if None)
 

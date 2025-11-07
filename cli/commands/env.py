@@ -47,30 +47,28 @@ def get_addon_prefixes(project):
                 prefix = var_name.split("_")[0]
                 prefixes.add(prefix)
 
-        # Add app-specific prefixes
-        prefixes.update(["API", "SENTRY"])
-
+        # Only addon prefixes - no hardcoded app-specific prefixes
         return list(prefixes)
     except Exception as e:
-        # Fallback to common prefixes if addon loading fails
+        # Fallback to common addon prefixes if loading fails
         console.print(f"[dim]Could not load addon prefixes: {e}[/dim]")
-        return ["POSTGRES", "RABBITMQ", "REDIS", "API", "SENTRY"]
+        return ["POSTGRES", "RABBITMQ", "REDIS", "MONGODB", "ELASTICSEARCH"]
 
 
 def verify_password(env_vars):
     """Verify user identity with password challenge"""
-    # Use GITHUB_TOKEN as verification (secure and already in .env)
+    # Use GITHUB_TOKEN as verification (secure and already in secrets.yml)
     expected_token = env_vars.get("GITHUB_TOKEN", "")
 
     if not expected_token or expected_token in ["", "your-github-token"]:
-        console.print("[red]❌ GITHUB_TOKEN not configured in .env[/red]")
+        console.print("[red]❌ GITHUB_TOKEN not configured in secrets.yml[/red]")
         console.print("[yellow]Set a valid GITHUB_TOKEN to use --no-mask[/yellow]")
         return False
 
     console.print(
         Panel(
             "[yellow]⚠️  Sensitive data access[/yellow]\n\n"
-            "[white]Enter your GITHUB_TOKEN (from .env):[/white]",
+            "[white]Enter your GITHUB_TOKEN (from secrets.yml):[/white]",
             border_style="yellow",
         )
     )
@@ -121,6 +119,7 @@ def env_list(show_all, app, no_mask):
     # Load from orchestrator secrets.yml (shared secrets)
     # This command is for global env, not project-specific
     from cli.secret_manager import SecretManager
+
     project_root = get_project_root()
     # Get first project or use default
     projects_dir = project_root / "projects"
@@ -190,10 +189,6 @@ def env_list(show_all, app, no_mask):
 
     # Filter logic
     for key, value in sorted(env_vars.items()):
-        # Skip internal keys
-        if key in ["ENV_FILE_PATH"]:
-            continue
-
         # Category determination
         if key in infra_keys:
             category = "infra"
@@ -264,6 +259,7 @@ def env_check():
     # Load from orchestrator secrets.yml (shared secrets)
     # This command is for global env, not project-specific
     from cli.secret_manager import SecretManager
+
     project_root = get_project_root()
     # Get first project or use default
     projects_dir = project_root / "projects"

@@ -318,7 +318,7 @@ Generate secure passwords? [Y/n]: Y
 ## 🚀 Adım 8: Infrastructure'ı Deploy Et
 
 ```bash
-superdeploy up -p myproject
+superdeploy myproject:up
 ```
 
 ### Bu Komut Ne Yapar?

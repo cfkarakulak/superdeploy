@@ -64,13 +64,14 @@ def releases_list(project, app, limit):
         # Get VM IP from state
         from cli.state_manager import StateManager
         from cli.utils import get_project_root as gpr
+
         state_mgr = StateManager(gpr(), project)
         state = state_mgr.load_state()
-        
+
         if not state or "vms" not in state:
             console.print("[red]✗[/red] No deployment state found")
             return
-        
+
         # Build env dict from state
         env = {}
         for vm_name, vm_data in state.get("vms", {}).items():
@@ -80,7 +81,7 @@ def releases_list(project, app, limit):
 
         ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
         if ip_key not in env:
-            console.print(f"[red]❌ VM IP not found in .env: {ip_key}[/red]")
+            console.print(f"[red]❌ VM IP not found in state: {ip_key}[/red]")
             return
 
         ssh_host = env[ip_key]
