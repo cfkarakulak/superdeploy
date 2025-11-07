@@ -6,8 +6,7 @@ import click
 import subprocess
 from rich.console import Console
 from cli.ui_components import show_header
-from cli.utils import load_env, ssh_command, validate_env_vars, get_project_root
-from cli.core.env_manager import EnvManager
+from cli.utils import ssh_command, validate_env_vars, get_project_root
 
 console = Console()
 
@@ -443,14 +442,20 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     logger.log("Checking required files...")
     project_root = get_project_root()
 
-    # Load project config and initialize EnvManager
+    # Load project config and secrets from .passwords.yml
+    from cli.secret_manager import SecretManager
+    from cli.core.config_loader import ConfigLoader
+    
     project_config_file = project_root / "projects" / project / "project.yml"
     if not project_config_file.exists():
         logger.log_error(f"Project config not found: {project_config_file}")
         raise SystemExit(1)
-
-    env_manager = EnvManager.from_project_file(project_config_file)
-    logger.log("✓ EnvManager initialized")
+    
+    # Load secrets
+    secret_mgr = SecretManager(project_root, project)
+    passwords_data = secret_mgr.load_secrets()
+    
+    logger.log("✓ Secrets loaded from .passwords.yml")
 
     required_files = {
         "shared/orchestrator/config.yml": project_root
@@ -474,9 +479,20 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
 
     logger.log("✓ Required files found")
 
-    # Load infrastructure .env
+    # Load environment from project.yml + .passwords.yml
     logger.log("Loading environment...")
-    env = load_env(project)
+    config_loader = ConfigLoader(project_root / "projects")
+    project_config_obj = config_loader.load_project(project)
+    
+    # Build env dict
+    env = {
+        "GCP_PROJECT_ID": project_config_obj.raw_config["cloud"]["gcp"]["project_id"],
+        "GCP_REGION": project_config_obj.raw_config["cloud"]["gcp"]["region"],
+    }
+    
+    # Add all secrets
+    if passwords_data.get("secrets", {}).get("shared"):
+        env.update(passwords_data["secrets"]["shared"])
     logger.log("Project .env loaded")
 
     # Load additional env files (from CLI args)
