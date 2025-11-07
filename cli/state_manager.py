@@ -186,6 +186,11 @@ class StateManager:
                 changes["apps"]["removed"].append(app_name)
                 # No action needed for removed apps
 
+        # Check secrets.yml changes
+        secrets_changed = self._check_secrets_changes(state)
+        if secrets_changed:
+            changes["needs_sync"] = True
+
         # Set has_changes flag
         if any(
             [
@@ -197,6 +202,7 @@ class StateManager:
                 changes["apps"]["added"],
                 changes["apps"]["modified"],
                 changes["apps"]["removed"],
+                secrets_changed,
             ]
         ):
             changes["has_changes"] = True
@@ -254,12 +260,52 @@ class StateManager:
         self.save_state(state)
 
     def mark_synced(self):
-        """Mark secrets as synced"""
+        """Mark secrets as synced and update secrets hash"""
         state = self.load_state()
 
         if "secrets" not in state:
             state["secrets"] = {}
 
         state["secrets"]["last_sync"] = datetime.now().isoformat()
+        
+        # Update secrets hash
+        secrets_hash = self._get_secrets_hash()
+        if secrets_hash:
+            state["secrets"]["hash"] = secrets_hash
 
         self.save_state(state)
+
+    def _get_secrets_hash(self) -> str:
+        """Calculate SHA256 hash of secrets.yml file"""
+        secrets_file = self.project_root / "projects" / self.project_name / "secrets.yml"
+        
+        if not secrets_file.exists():
+            return ""
+        
+        try:
+            with open(secrets_file, "rb") as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        except Exception:
+            return ""
+
+    def _check_secrets_changes(self, state: Dict[str, Any]) -> bool:
+        """Check if secrets.yml has changed since last deployment"""
+        if not state:
+            # First deployment - secrets exist
+            return True
+        
+        # Get current secrets hash
+        current_hash = self._get_secrets_hash()
+        if not current_hash:
+            # No secrets file - no changes
+            return False
+        
+        # Get stored hash from state
+        stored_hash = state.get("secrets", {}).get("hash", "")
+        
+        # If no stored hash, consider it changed
+        if not stored_hash:
+            return True
+        
+        # Compare hashes
+        return current_hash != stored_hash

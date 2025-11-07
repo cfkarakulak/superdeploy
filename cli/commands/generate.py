@@ -114,8 +114,9 @@ def generate(project, app):
         app_type = _detect_app_type(app_path)
         console.print(f"  Type: {app_type}")
 
-        # 2. Create .superdeploy marker
-        marker = MarkerManager.create_marker(app_path, project, app_name)
+        # 2. Create .superdeploy marker (with vm_role for Forgejo runner routing)
+        vm_role = app_config.get("vm", "app")  # Default to 'app' if not specified
+        marker = MarkerManager.create_marker(app_path, project, app_name, vm_role)
         console.print(f"  [green]✓[/green] {marker.name}")
 
         # 3. Get app secrets (merged)
@@ -227,7 +228,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -248,15 +249,46 @@ jobs:
           # Add your test command here
           echo "Tests passed"
       
-      - name: Deploy to VM
-        env:
-          ORCHESTRATOR_IP: ${{ '{{' }} secrets.ORCHESTRATOR_IP {{ '}}' }}
-          DOCKER_USERNAME: ${{ '{{' }} secrets.DOCKER_USERNAME {{ '}}' }}
-          DOCKER_TOKEN: ${{ '{{' }} secrets.DOCKER_TOKEN {{ '}}' }}
-          DOCKER_ORG: ${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}
+      - name: Read app configuration
+        id: config
         run: |
-          # Fetch and execute central deployment script from SuperDeploy repo
-          curl -fsSL https://raw.githubusercontent.com/{{ github_org }}/superdeploy/master/scripts/deploy.sh | bash
+          PROJECT=$(grep "^project:" .superdeploy | cut -d: -f2 | xargs)
+          APP=$(grep "^app:" .superdeploy | cut -d: -f2 | xargs)
+          VM_ROLE=$(grep "^vm:" .superdeploy | cut -d: -f2 | xargs)
+          echo "project=$PROJECT" >> $GITHUB_OUTPUT
+          echo "app=$APP" >> $GITHUB_OUTPUT
+          echo "vm_role=$VM_ROLE" >> $GITHUB_OUTPUT
+      
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}/${{ '{{' }} steps.config.outputs.app {{ '}}' }}:latest .
+          docker tag ${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}/${{ '{{' }} steps.config.outputs.app {{ '}}' }}:latest \
+                     ${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}/${{ '{{' }} steps.config.outputs.app {{ '}}' }}:${{ '{{' }} github.sha {{ '}}' }}
+      
+      - name: Push to Docker Hub
+        run: |
+          echo "${{ '{{' }} secrets.DOCKER_TOKEN {{ '}}' }}" | docker login -u "${{ '{{' }} secrets.DOCKER_USERNAME {{ '}}' }}" --password-stdin
+          docker push ${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}/${{ '{{' }} steps.config.outputs.app {{ '}}' }}:latest
+          docker push ${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}/${{ '{{' }} steps.config.outputs.app {{ '}}' }}:${{ '{{' }} github.sha {{ '}}' }}
+      
+      - name: Trigger Forgejo deployment
+        run: |
+          curl -X POST \
+            "http://${{ '{{' }} secrets.ORCHESTRATOR_IP {{ '}}' }}:3001/api/v1/repos/{{ github_org }}/superdeploy/dispatches" \
+            -H "Authorization: token ${{ '{{' }} secrets.FORGEJO_TOKEN {{ '}}' }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "event_type": "deploy",
+              "client_payload": {
+                "project": "${{ '{{' }} steps.config.outputs.project {{ '}}' }}",
+                "app": "${{ '{{' }} steps.config.outputs.app {{ '}}' }}",
+                "vm_role": "${{ '{{' }} steps.config.outputs.vm_role {{ '}}' }}",
+                "image": "${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}/${{ '{{' }} steps.config.outputs.app {{ '}}' }}:latest",
+                "sha": "${{ '{{' }} github.sha {{ '}}' }}"
+              }
+            }'
+          
+          echo "✅ Deployment triggered on Forgejo"
 """
 
 

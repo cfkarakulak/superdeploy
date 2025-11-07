@@ -1,0 +1,74 @@
+# =============================================================================
+# SuperDeploy - Central Deployment Workflow (Forgejo)
+# =============================================================================
+# Triggered by GitHub Actions via API dispatch
+# Routes deployment to correct project VM runner
+# =============================================================================
+
+name: Deploy Application to VM
+
+on:
+  repository_dispatch:
+    types: [deploy]
+
+jobs:
+  deploy:
+    # Route to project-specific VM runner based on labels
+    # Labels format: [self-hosted, {project}, {vm_role}]
+    runs-on: 
+      - self-hosted
+      - ${{ github.event.client_payload.project }}
+      - ${{ github.event.client_payload.vm_role }}
+    
+    steps:
+      - name: Display deployment info
+        run: |
+          echo "🚀 Deploying application..."
+          echo "  Project: ${{ github.event.client_payload.project }}"
+          echo "  App: ${{ github.event.client_payload.app }}"
+          echo "  VM Role: ${{ github.event.client_payload.vm_role }}"
+          echo "  Image: ${{ github.event.client_payload.image }}"
+          echo ""
+      
+      - name: Pull latest image
+        run: |
+          cd /opt/superdeploy/projects/${{ github.event.client_payload.project }}/compose
+          docker compose pull ${{ github.event.client_payload.app }}
+      
+      - name: Restart container
+        run: |
+          cd /opt/superdeploy/projects/${{ github.event.client_payload.project }}/compose
+          docker compose up -d ${{ github.event.client_payload.app }}
+      
+      - name: Wait for health check
+        run: |
+          echo "⏳ Waiting for container to be healthy..."
+          sleep 5
+          
+          # Check container status
+          STATUS=$(docker inspect -f '{{.State.Status}}' ${{ github.event.client_payload.project }}_${{ github.event.client_payload.app }} 2>/dev/null || echo "not_found")
+          
+          if [ "$STATUS" = "running" ]; then
+            echo "✅ Container is running!"
+          else
+            echo "❌ Container failed to start (status: $STATUS)"
+            exit 1
+          fi
+      
+      - name: Cleanup old images
+        run: |
+          docker image prune -f
+          echo "🧹 Cleanup complete"
+      
+      - name: Deployment summary
+        run: |
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Deployment successful!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Project: ${{ github.event.client_payload.project }}"
+          echo "  App: ${{ github.event.client_payload.app }}"
+          echo "  Container: ${{ github.event.client_payload.project }}_${{ github.event.client_payload.app }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+
