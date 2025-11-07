@@ -42,22 +42,47 @@
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0600'
 
-- name: "Force stop and remove superdeploy-caddy container"
-  shell: docker rm -f superdeploy-caddy || true
-  ignore_errors: true
-
-- name: Stop and remove existing {{ addon_name }} containers (idempotent cleanup)
-  community.docker.docker_compose_v2:
-    project_src: "{{ addon_base_path }}/{{ addon_name }}"
-    state: absent
-    remove_orphans: true
-  become_user: "{{ superdeploy_user }}"
-  failed_when: false
-  ignore_errors: true
-
-- name: Force remove {{ addon_name }} container if still exists (running or stopped)
-  shell: |
-    docker ps -a --filter "name={{ project_name }}-{{ addon_name }}" --format "{% raw %}{{.Names}}{% endraw %}" | xargs -r docker rm -f 2>/dev/null || true
+- name: Deploy {{ addon_name }} with intelligent cleanup
+  shell:
+    cmd: |
+      set -e
+      cd "${ADDON_BASE_PATH}/${ADDON_NAME}"
+      
+      echo "Starting cleanup for orchestrator Caddy..."
+      
+      # Remove old superdeploy-caddy if exists
+      docker rm -f superdeploy-caddy 2>/dev/null || true
+      
+      # Stop via Docker Compose
+      docker compose down --remove-orphans --timeout 30 2>&1 || true
+      sleep 3
+      
+      # Cleanup with retry
+      for attempt in 1 2 3; do
+        CONTAINER_IDS=$(docker ps -aq --filter "name=superdeploy-caddy" 2>/dev/null || true)
+        if [ -z "$CONTAINER_IDS" ]; then
+          echo "✓ All containers removed (attempt $attempt)"
+          break
+        fi
+        
+        echo "Attempt $attempt: Removing containers: $CONTAINER_IDS"
+        for cid in $CONTAINER_IDS; do
+          docker kill "$cid" 2>&1 || true
+          docker rm -f "$cid" 2>&1 || true
+        done
+        sleep 2
+      done
+      
+      docker container prune -f >/dev/null 2>&1 || true
+      echo "✓ Cleanup completed"
+      
+      # Critical: Wait for Docker daemon to fully update its metadata
+      echo "Waiting for Docker daemon to sync metadata..."
+      sleep 5
+    executable: /bin/bash
+  environment:
+    ADDON_BASE_PATH: "{{ addon_base_path }}"
+    ADDON_NAME: "{{ addon_name }}"
   become_user: "{{ superdeploy_user }}"
   changed_when: false
 

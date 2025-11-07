@@ -34,6 +34,7 @@ class DownCommand(ProjectCommand):
 
         # Show what will be destroyed
         self._show_resources_to_destroy(logger)
+        self.console.print()
 
         # Confirm destruction
         if not self.yes and not self._confirm_destruction():
@@ -61,7 +62,7 @@ class DownCommand(ProjectCommand):
         if self.verbose:
             return
 
-        self.console.print("[bold yellow]📋 Resources to be destroyed:[/bold yellow]")
+        self.console.print("Resources to be destroyed:")
 
         # Try to get resources from Terraform state
         try:
@@ -73,29 +74,31 @@ class DownCommand(ProjectCommand):
             if outputs and "vm_names" in outputs:
                 vm_names = outputs["vm_names"].get("value", {})
                 if vm_names:
-                    self.console.print(f"  • [cyan]{len(vm_names)} VM(s)[/cyan]")
+                    self.console.print(f"  {len(vm_names)} VM(s)")
                     for key, name in vm_names.items():
                         self.console.print(f"    - {name}")
                 else:
-                    self.console.print("  • [dim]No VMs in Terraform state[/dim]")
+                    self.console.print("  [dim]No VMs in Terraform state[/dim]")
             else:
-                self.console.print("  • [dim]No VMs in Terraform state[/dim]")
+                self.console.print("  [dim]No VMs in Terraform state[/dim]")
 
             if not self.keep_infra:
-                self.console.print("  • [cyan]VPC Network & Firewall Rules[/cyan]")
+                self.console.print("  VPC Network & Firewall Rules")
 
         except Exception as e:
             self.console.print(
                 f"[yellow]⚠️  Could not read Terraform state: {e}[/yellow]"
             )
-            self.console.print("  • [dim]Will attempt destruction anyway[/dim]")
+            self.console.print("  [dim]Will attempt destruction anyway[/dim]")
 
     def _confirm_destruction(self) -> bool:
         """Ask for user confirmation."""
-        return self.confirm(
+        result = self.confirm(
             "[bold red]Are you sure you want to destroy all infrastructure?[/bold red]",
             default=False,
         )
+        self.console.print()  # Add newline after confirmation
+        return result
 
     def _prepare_destruction(self, logger) -> bool:
         """Prepare for destruction. Returns True if should skip terraform."""
@@ -333,12 +336,14 @@ class DownCommand(ProjectCommand):
 
     def _clean_local_files(self) -> None:
         """Clean up local project files."""
-        # Clean VM IPs from state
-        state_service = self.ensure_state_service()
-        try:
-            state_service.mark_destroyed()
-        except Exception:
-            pass
+        # Delete state.yml completely
+        from cli.utils import get_project_root
+
+        project_root = get_project_root()
+        state_file = project_root / "projects" / self.project_name / "state.yml"
+        if state_file.exists():
+            state_file.unlink()
+            self.console.print("  [dim]✓ State file deleted[/dim]")
 
         # Clean inventory file
         inventory_file = (

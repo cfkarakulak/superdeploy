@@ -35,6 +35,9 @@ class CallbackModule(CallbackBase):
         self.task_start_time = {}  # Track task start times
         self.play_start_time = None
         self.play_task_times = []  # Track all task times in current play
+        self.task_roles = {}  # Map task -> role name
+        self.shown_roles = set()  # Track which roles we've shown headers for
+        self.shown_tasks = set()  # Track which tasks we've shown (dedupe across hosts)
 
     def v2_playbook_on_play_start(self, play):
         """Called when a play starts"""
@@ -45,6 +48,8 @@ class CallbackModule(CallbackBase):
             self.play_name = name
             self.play_start_time = time.time()
             self.play_task_times = []
+            self.shown_roles = set()  # Reset role tracking for new play
+            self.shown_tasks = set()  # Reset task tracking for new play
             # Orange arrow for play
             self._display.display(f"└── \033[38;5;214m▶\033[0m {name}")
 
@@ -52,7 +57,23 @@ class CallbackModule(CallbackBase):
         """Called when a task starts"""
         import time
 
-        self.current_task = task.get_name().strip()
+        task_name = task.get_name().strip()
+
+        # Extract role name if this is a role task
+        role_name = None
+        if " : " in task_name:
+            role_name, task_name = task_name.split(" : ", 1)
+
+            # Don't show role headers - play names are descriptive enough
+            # Role paths like "system/base" add noise without value
+            # We track roles internally for indentation but don't display them
+
+        self.current_task = task_name
+
+        # Store role mapping for this task (for indentation purposes)
+        if role_name:
+            self.task_roles[self.current_task] = role_name
+            self.shown_roles.add(role_name)  # Track to maintain state
 
         # Skip noise/verbose tasks
         skip_tasks = [
@@ -71,10 +92,6 @@ class CallbackModule(CallbackBase):
         if any(x in self.current_task.lower() for x in skip_tasks):
             self.current_task = None
             return
-
-        # Clean task name (remove role prefix)
-        if " : " in self.current_task:
-            _, self.current_task = self.current_task.split(" : ", 1)
 
         # Show phase headers [X/Y] immediately (only from CLI, not Ansible tasks)
         # These are injected by up.py/down.py/orchestrator.py as debug tasks
@@ -113,6 +130,11 @@ class CallbackModule(CallbackBase):
         if not self.current_task or self.current_task not in self.task_status:
             return
 
+        # Dedupe: only show each task once (called once per host)
+        if self.current_task in self.shown_tasks:
+            return
+        self.shown_tasks.add(self.current_task)
+
         # Only update if not already completed
         if self.task_status[self.current_task] == "running":
             self.task_status[self.current_task] = "ok"
@@ -125,8 +147,11 @@ class CallbackModule(CallbackBase):
             duration_str = self._format_duration(elapsed)
 
             # Show checkmark (green) with time (cyan) in parentheses
+            # Use │   for nested items (role tasks), ├── for top-level
+            is_role_task = self.current_task in self.task_roles
+            prefix = "│   " if is_role_task else "├── "
             self._display.display(
-                f"├── \033[32m✓\033[0m \033[2m{self.current_task}\033[0m \033[2m\033[36m({duration_str})\033[0m"
+                f"{prefix}\033[32m✓\033[0m \033[2m{self.current_task}\033[0m \033[2m\033[36m({duration_str})\033[0m"
             )
 
     def v2_runner_on_failed(self, result, ignore_errors=False):
@@ -135,6 +160,11 @@ class CallbackModule(CallbackBase):
 
         if not self.current_task or self.current_task not in self.task_status:
             return
+
+        # Dedupe: only show each task once
+        if self.current_task in self.shown_tasks:
+            return
+        self.shown_tasks.add(self.current_task)
 
         if self.task_status[self.current_task] == "running":
             self.task_status[self.current_task] = "failed"
@@ -146,8 +176,11 @@ class CallbackModule(CallbackBase):
             duration_str = self._format_duration(elapsed)
 
             # Show X (red) with time in parentheses
+            # Use │   for nested items (role tasks), ├── for top-level
+            is_role_task = self.current_task in self.task_roles
+            prefix = "│   " if is_role_task else "├── "
             self._display.display(
-                f"├── \033[31m✗\033[0m \033[2m{self.current_task}\033[0m \033[2m\033[36m({duration_str})\033[0m"
+                f"{prefix}\033[31m✗\033[0m \033[2m{self.current_task}\033[0m \033[2m\033[36m({duration_str})\033[0m"
             )
 
             # Show error message
@@ -161,11 +194,19 @@ class CallbackModule(CallbackBase):
         if not self.current_task or self.current_task not in self.task_status:
             return
 
+        # Dedupe: only show each task once
+        if self.current_task in self.shown_tasks:
+            return
+        self.shown_tasks.add(self.current_task)
+
         if self.task_status[self.current_task] == "running":
             self.task_status[self.current_task] = "skipped"
             # Show skip (dark orange) - no time for skipped tasks
+            # Use │   for nested items (role tasks), ├── for top-level
+            is_role_task = self.current_task in self.task_roles
+            prefix = "│   " if is_role_task else "├── "
             self._display.display(
-                f"├── \033[38;5;208m⊘\033[0m \033[2m{self.current_task}\033[0m"
+                f"{prefix}\033[38;5;208m⊘\033[0m \033[2m{self.current_task}\033[0m"
             )
 
     def v2_runner_retry(self, result):
@@ -173,13 +214,19 @@ class CallbackModule(CallbackBase):
         if not self.current_task:
             return
 
-        # Get retry info
-        retries_left = result._result.get("retries", "?")
-        attempts = result._result.get("attempts", "?")
+        # Get host name
+        hostname = result._host.get_name()
 
-        # Show retry as dim indented sub-item (no checkmark, just arrow)
+        # Get retry info
+        retries = result._result.get("retries", 0)
+        attempts = result._result.get("attempts", 1)
+
+        # Calculate remaining attempts
+        retries_left = retries - attempts + 1 if retries and attempts else "?"
+
+        # Show retry as dim indented sub-item (no checkmark, just arrow) with hostname
         self._display.display(
-            f"│   \033[2m\033[38;5;214m↻\033[0m \033[2mRetrying ({retries_left} attempts left)...\033[0m"
+            f"│   \033[2m\033[38;5;214m↻\033[0m \033[2m{hostname}: Retrying (attempt {attempts}/{retries})...\033[0m"
         )
 
     def v2_playbook_on_stats(self, stats):

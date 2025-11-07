@@ -42,49 +42,77 @@
     mode: '0644'
 
 - name: "Deploy {{ addon_name }} services with intelligent cleanup"
-  shell: |
-    set -e
-    cd {{ addon_base_path }}/{{ addon_name }}
-    
-    # Phase 1: Stop and remove via Docker Compose (proper way)
-    docker compose --project-name orchestrator-forgejo down --volumes --remove-orphans --timeout 30 2>&1 || true
-    
-    # Phase 2: Wait for Docker to process (CRITICAL!)
-    sleep 3
-    
-    # Phase 3: Nuclear cleanup - remove ANY remaining forgejo containers by ID
-    CONTAINER_IDS=$(docker ps -aq --filter name=orchestrator-forgejo 2>/dev/null || true)
-    if [ -n "$CONTAINER_IDS" ]; then
-      echo "Force removing remaining containers: $CONTAINER_IDS"
-      echo "$CONTAINER_IDS" | xargs -r docker rm -f 2>&1 || true
-      sleep 2
-    fi
-    
-    # Phase 4: Clean Docker cache (containers only - preserve networks!)
-    docker container prune -f >/dev/null 2>&1 || true
-    
-    # Phase 5: Final wait for Docker daemon to update metadata
-    sleep 5
-    
-    # Phase 6: Verify cleanup (fail if containers still exist)
-    REMAINING=$(docker ps -aq --filter name=orchestrator-forgejo 2>/dev/null | wc -l)
-    if [ "$REMAINING" -gt 0 ]; then
-      echo "ERROR: $REMAINING forgejo containers still exist after cleanup!"
-      docker ps -a --filter name=orchestrator-forgejo
-      exit 1
-    fi
-    
-    # Phase 7: Deploy (guaranteed clean state)
-    docker compose --project-name orchestrator-forgejo up -d --pull always --force-recreate --remove-orphans --wait --wait-timeout 120
-    
-    echo "✓ Deployment successful"
-  args:
+  shell:
+    cmd: |
+      set -e
+      cd "${ADDON_BASE_PATH}/${ADDON_NAME}"
+      
+      echo "Starting cleanup for ${PROJECT_NAME}-${ADDON_NAME}..."
+      docker compose --project-name "${PROJECT_NAME}-${ADDON_NAME}" down --volumes --remove-orphans --timeout 30 2>&1 || true
+      sleep 3
+      
+      # Cleanup ALL forgejo-related containers (forgejo, forgejo-db, forgejo-runner)
+      for attempt in 1 2 3 4 5; do
+        FOUND=0
+        for pattern in "${PROJECT_NAME}-forgejo" "${PROJECT_NAME}-forgejo-db" "${PROJECT_NAME}-forgejo-runner"; do
+          CONTAINER_IDS=$(docker ps -aq --filter "name=$pattern" 2>/dev/null || true)
+          if [ -n "$CONTAINER_IDS" ]; then
+            FOUND=1
+            echo "Attempt $attempt: Removing $pattern containers: $CONTAINER_IDS"
+            for cid in $CONTAINER_IDS; do
+              docker kill "$cid" 2>&1 || true
+              docker rm -f "$cid" 2>&1 || true
+            done
+          fi
+        done
+        
+        if [ $FOUND -eq 0 ]; then
+          echo "✓ All forgejo containers removed (attempt $attempt)"
+          break
+        fi
+        
+        sleep 2
+        
+        if [ $attempt -eq 5 ]; then
+          echo "ERROR: Failed to remove all containers after 5 attempts"
+          exit 1
+        fi
+      done
+      
+      docker container prune -f >/dev/null 2>&1 || true
+      
+      # Final verification
+      REMAINING=$(docker ps -aq --filter "name=${PROJECT_NAME}-forgejo" 2>/dev/null | wc -l)
+      if [ "$REMAINING" -gt 0 ]; then
+        echo "ERROR: $REMAINING forgejo containers still exist after cleanup!"
+        docker ps -a --filter "name=${PROJECT_NAME}-forgejo"
+        exit 1
+      fi
+      
+      echo "✓ Cleanup completed - ready for deployment"
+      
+      # Critical: Wait for Docker daemon to fully update its metadata
+      echo "Waiting for Docker daemon to sync metadata..."
+      sleep 5
     executable: /bin/bash
+  environment:
+    PROJECT_NAME: "{{ project_name }}"
+    ADDON_NAME: "{{ addon_name }}"
+    ADDON_BASE_PATH: "{{ addon_base_path }}"
   become_user: "{{ superdeploy_user }}"
+  register: forgejo_cleanup_result
+  changed_when: false
+
+- name: "Start {{ addon_name }} services with docker compose"
+  community.docker.docker_compose_v2:
+    project_name: "{{ project_name }}-{{ addon_name }}"
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: present
+    pull: "always"
+    recreate: "always"
+    remove_orphans: true
+  become: yes
   register: forgejo_deploy_result
-  retries: 1
-  delay: 10
-  until: forgejo_deploy_result.rc == 0
 
 - name: "Wait for {{ addon_name }} database to be ready"
   shell: docker inspect -f '{{"{{"}}.State.Health.Status{{"}}"}}' orchestrator-forgejo-db

@@ -18,6 +18,18 @@
         - Fix: Ensure all Docker configuration variables are set in defaults/main.yml or host vars
         - Docs: See shared/ansible/roles/system/docker/defaults/main.yml for required variables
 
+- name: Wait for APT lock to be released
+  shell: |
+    while fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
+          fuser /var/lib/dpkg/lock >/dev/null 2>&1 || \
+          fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+      echo "Waiting for APT lock..."
+      sleep 2
+    done
+  changed_when: false
+  retries: 30
+  delay: 2
+
 - name: Add Docker GPG key
   apt_key:
     url: "https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}/gpg"

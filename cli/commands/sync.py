@@ -7,6 +7,7 @@ import subprocess
 from rich.console import Console
 from cli.ui_components import show_header
 from cli.utils import ssh_command, get_project_root
+from cli.core.env_manager import EnvManager
 
 console = Console()
 
@@ -140,17 +141,18 @@ def clear_github_repo_secrets(repo):
             capture_output=True,
             text=True,
         )
-        
+
         import json
+
         secrets = json.loads(result.stdout)
-        
+
         if not secrets:
             console.print("  [dim]No secrets to clear[/dim]")
             return
-        
+
         delete_count = 0
         fail_count = 0
-        
+
         for secret in secrets:
             secret_name = secret.get("name")
             try:
@@ -165,9 +167,9 @@ def clear_github_repo_secrets(repo):
             except subprocess.CalledProcessError:
                 console.print(f"  [yellow]⚠[/yellow] {secret_name} (failed to delete)")
                 fail_count += 1
-        
+
         console.print(f"[dim]  → {delete_count} deleted, {fail_count} failed[/dim]")
-        
+
     except subprocess.CalledProcessError as e:
         console.print(f"  [yellow]⚠[/yellow] Could not list secrets: {e}")
     except Exception as e:
@@ -528,6 +530,7 @@ def sync(project, skip_forgejo, skip_github, clear, verbose):
         "GCP_REGION": project_config_obj.raw_config["cloud"]["gcp"]["region"],
         "SSH_KEY_PATH": project_config_obj.raw_config["cloud"]["ssh"]["key_path"],
         "SSH_USER": project_config_obj.raw_config["cloud"]["ssh"]["user"],
+        "DOCKER_ORG": project_config_obj.raw_config["docker"]["organization"],
     }
 
     # Add all secrets from secrets.yml
@@ -609,15 +612,17 @@ def sync(project, skip_forgejo, skip_github, clear, verbose):
 
         logger.success("Orchestrator configuration loaded")
 
-        # Docker credentials are now in secrets.yml (already loaded above)
-        # Validate they exist
+        # Validate Docker credentials
+        # DOCKER_ORG comes from project.yml, credentials come from secrets.yml
         logger.step("Validating Docker credentials")
         if not env.get("DOCKER_ORG"):
             logger.log_error(
-                f"DOCKER_ORG not found in projects/{project}/secrets.yml",
-                context="Edit secrets.yml and fill in Docker credentials",
+                f"docker.organization not found in projects/{project}/project.yml",
+                context="Edit project.yml and fill in Docker organization",
             )
             raise SystemExit(1)
+        else:
+            logger.log(f"Docker organization: {env['DOCKER_ORG']}")
 
         if not env.get("DOCKER_USERNAME"):
             logger.log_error(
@@ -703,27 +708,53 @@ def sync(project, skip_forgejo, skip_github, clear, verbose):
     # Runners are on project VMs, NOT on orchestrator
     logger.step("Fetching AGE public key from runner VM")
 
-    # Find first available project VM with runner (dynamically from env)
+    # Load VM IPs from state.yml (saved during 'superdeploy up')
+    from cli.state_manager import StateManager
+
+    state_mgr = StateManager(project_root, project)
+    state = state_mgr.load_state()
+
+    vms = state.get("vms", {})
+    if not vms:
+        logger.log_error(
+            "No VMs found in state",
+            context=f"Run '[red]superdeploy {project}:up[/red]' to deploy VMs first",
+        )
+        raise SystemExit(1)
+
+    # Load ALL VM IPs into env (for GitHub secrets sync)
+    logger.log("Loading VM IPs from state...")
     runner_vm_ip = None
     runner_vm_name = None
 
-    # Look for any VM IP in environment (format: {ROLE}_{INDEX}_EXTERNAL_IP)
-    for key, value in env.items():
-        if key.endswith("_EXTERNAL_IP") and value:
-            # Skip orchestrator
-            if "ORCHESTRATOR" in key:
-                continue
-            runner_vm_ip = value
-            runner_vm_name = key.replace("_EXTERNAL_IP", "").lower().replace("_", "-")
-            logger.log(f"Using runner VM: {key} ({runner_vm_ip})")
-            break
+    for vm_name, vm_data in vms.items():
+        external_ip = vm_data.get("external_ip")
+        internal_ip = vm_data.get("internal_ip")
+
+        if external_ip:
+            # Add to env (format: CORE_0_EXTERNAL_IP, APP_0_EXTERNAL_IP, etc.)
+            env_key = f"{vm_name.upper()}_0_EXTERNAL_IP"
+            env[env_key] = external_ip
+            logger.log(f"  {env_key}: {external_ip}")
+
+            # Use first VM as runner
+            if not runner_vm_ip:
+                runner_vm_ip = external_ip
+                runner_vm_name = f"{project}-{vm_name}-0"
+
+        if internal_ip:
+            env_key = f"{vm_name.upper()}_0_INTERNAL_IP"
+            env[env_key] = internal_ip
+            logger.log(f"  {env_key}: {internal_ip}")
 
     if not runner_vm_ip:
         logger.log_error(
-            "No runner VM found",
+            "No VM with external IP found in state",
             context=f"Run '[red]superdeploy {project}:up[/red]' to deploy VMs",
         )
         raise SystemExit(1)
+
+    logger.log(f"Using runner VM: {runner_vm_name} ({runner_vm_ip})")
 
     age_public_key = get_age_public_key(env, runner_vm_ip)
 
@@ -916,6 +947,7 @@ def sync(project, skip_forgejo, skip_github, clear, verbose):
             # Resolve env_aliases from project config (NO HARDCODING!)
             # This replaces hardcoded DB_* mapping with config-driven approach
             # Each app defines its own aliases in project.yml
+            env_manager = EnvManager(project_config_obj.raw_config)
             app_env_with_aliases = env_manager.resolve_aliases(app_name, merged_env)
             env_secrets.update(app_env_with_aliases)
 

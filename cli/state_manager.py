@@ -114,6 +114,9 @@ class StateManager:
         deployment_state = state.get("deployment", {})
         if deployment_state.get("foundation_complete"):
             changes["needs_foundation"] = False
+        else:
+            # Foundation not complete = needs Ansible for base system + docker
+            changes["needs_ansible"] = True
 
         # Check VMs
         state_vms = state.get("vms", {})
@@ -281,8 +284,14 @@ class StateManager:
 
         self.save_state(state)
 
-    def mark_vms_provisioned(self, vm_configs: dict):
-        """Mark VMs as provisioned (after Terraform success)"""
+    def mark_vms_provisioned(self, vm_configs: dict, vm_ips: dict = None):
+        """
+        Mark VMs as provisioned (after Terraform success)
+
+        Args:
+            vm_configs: VM configuration from project.yml
+            vm_ips: Optional dict with 'external' and 'internal' IP mappings
+        """
         state = self.load_state()
 
         if "vms" not in state:
@@ -296,6 +305,24 @@ class StateManager:
                 "status": "provisioned",
                 "provisioned_at": datetime.now().isoformat(),
             }
+
+            # Add IPs if provided
+            if vm_ips:
+                external_ips = vm_ips.get("external", {})
+                internal_ips = vm_ips.get("internal", {})
+
+                # VM name format: "core" or "app" (from vms section in project.yml)
+                # Terraform output format: "core-0", "app-0", "app-1", etc.
+                # Find matching IPs by prefix
+                for vm_key, external_ip in external_ips.items():
+                    if vm_key.startswith(vm_name + "-"):
+                        state["vms"][vm_name]["external_ip"] = external_ip
+                        break
+
+                for vm_key, internal_ip in internal_ips.items():
+                    if vm_key.startswith(vm_name + "-"):
+                        state["vms"][vm_name]["internal_ip"] = internal_ip
+                        break
 
         self.save_state(state)
 
@@ -324,6 +351,12 @@ class StateManager:
         }
 
         self.save_state(state)
+
+    def mark_destroyed(self):
+        """Mark project as destroyed and clear all state"""
+        # Delete the entire state file
+        if self.state_file.exists():
+            self.state_file.unlink()
 
     def _get_secrets_hash(self) -> str:
         """Calculate SHA256 hash of secrets.yml file"""

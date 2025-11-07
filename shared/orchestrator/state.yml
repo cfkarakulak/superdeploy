@@ -1,9 +1,9 @@
 deployed: true
-orchestrator_ip: 34.56.139.39
+orchestrator_ip: 34.41.132.41
 vm:
   name: orchestrator-main-0
-  external_ip: 34.56.139.39
-  deployed_at: '2025-11-07T15:45:34.730314'
+  external_ip: 34.41.132.41
+  deployed_at: '2025-11-07T19:09:56.736776'
   status: running
   machine_type: e2-medium
   disk_size: 50
@@ -15,7 +15,6 @@ addons:
     status: installed
   monitoring:
     status: installed
-last_updated: '2025-11-07T15:13:53.724665'
 config:
   project:
     name: orchestrator
@@ -64,5 +63,5 @@ config:
     https_port: 443
     admin_port: 2019
 last_applied:
-  timestamp: '2025-11-07T15:45:34.730375'
+  timestamp: '2025-11-07T19:09:56.736833'
   config_hash: 96bdcc18e5f7

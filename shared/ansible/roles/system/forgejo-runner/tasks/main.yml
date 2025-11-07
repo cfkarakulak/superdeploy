@@ -231,6 +231,23 @@
     - runner_label_check.rc != 0
   register: runner_removal_result
 
+- name: Check if runner service has authentication errors
+  shell: journalctl -u forgejo-runner --no-pager -n 50 | grep -E "unauthenticated|unregistered" || true
+  register: runner_auth_errors
+  changed_when: false
+  when: runner_registration_check.stat.exists
+
+- name: Remove runner config if token is invalid
+  file:
+    path: /opt/forgejo-runner/.runner
+    state: absent
+  when:
+    - runner_registration_check.stat.exists
+    - runner_auth_errors is defined
+    - runner_auth_errors.stdout is defined
+    - runner_auth_errors.stdout | length > 0
+  register: runner_token_removal_result
+
 - name: Re-check runner registration status
   stat:
     path: /opt/forgejo-runner/.runner
@@ -381,6 +398,22 @@
     state: started
     daemon_reload: yes
   when: runner_registration_check.stat.exists or runner_register_result is changed
+
+- name: Wait for runner service to initialize
+  pause:
+    seconds: 5
+  when: runner_registration_check.stat.exists or runner_register_result is changed
+
+- name: Verify runner is working (no auth errors)
+  shell: journalctl -u forgejo-runner --no-pager -n 20 | grep -E "unauthenticated|unregistered" || echo "OK"
+  register: final_runner_check
+  changed_when: false
+  when: runner_registration_check.stat.exists or runner_register_result is changed
+
+- name: Display runner health status
+  debug:
+    msg: "{{ 'Runner working properly' if (final_runner_check.stdout == 'OK') else 'WARNING: Runner may have auth issues - check logs with: journalctl -u forgejo-runner -f' }}"
+  when: final_runner_check is defined
 
 - name: Cleanup duplicate runner registrations (keep only newest)
   shell: |

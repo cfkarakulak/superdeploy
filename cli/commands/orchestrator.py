@@ -495,8 +495,11 @@ def orchestrator_down(yes, preserve_ip, verbose):
 
         shutil.rmtree(terraform_state_dir)
 
-    # Mark as destroyed in state.yml
-    orch_config.state_manager.mark_destroyed()
+    # Delete state.yml completely
+    state_file = shared_dir / "orchestrator" / "state.yml"
+    if state_file.exists():
+        state_file.unlink()
+        console.print("  [dim]✓ State file deleted[/dim]")
 
     # Clean inventory
     inventory_file = shared_dir / "ansible" / "inventories" / "orchestrator.ini"
@@ -612,6 +615,7 @@ def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose, force):
 
         except Exception as e:
             logger.log_error(str(e), context="Orchestrator deployment failed")
+            console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
             raise SystemExit(1)
 
 
@@ -642,6 +646,14 @@ def _deploy_orchestrator(
     except FileNotFoundError as e:
         logger.log_error(str(e), context="Orchestrator config not found")
         raise SystemExit(1)
+
+    # Force mode: Clear state to trigger full re-deployment
+    if force:
+        state_file = shared_dir / "orchestrator" / "state.yml"
+        if state_file.exists():
+            state_file.unlink()
+            logger.log("🗑️  State cleared (force mode)")
+            logger.log("")
 
     # Check state and detect changes (unless forced or specific addon)
     if not force and not addon:
@@ -867,6 +879,11 @@ def _deploy_orchestrator(
             logger.warning("VM may not be fully ready, continuing anyway...")
             console.print("  [yellow]⚠[/yellow] [dim]VM partially ready[/dim]")
 
+        # Show configuration summary with IP
+        console.print(
+            f"  [dim]✓ Configuration • Environment • Orchestrator (main-0: {orchestrator_ip})[/dim]"
+        )
+
         # Clean SSH known_hosts
         subprocess.run(["ssh-keygen", "-R", orchestrator_ip], capture_output=True)
 
@@ -875,6 +892,11 @@ def _deploy_orchestrator(
         if not orchestrator_ip:
             logger.log_error("Orchestrator IP not found. Deploy with Terraform first.")
             raise SystemExit(1)
+
+        # Show configuration summary with IP (skip-terraform mode)
+        console.print(
+            f"  [dim]✓ Configuration • Environment • Orchestrator (main-0: {orchestrator_ip})[/dim]"
+        )
 
     # Create/Update Ansible inventory file (for both terraform and skip-terraform cases)
     inventory_dir = shared_dir / "ansible" / "inventories"
@@ -946,6 +968,7 @@ ansible_python_interpreter=/usr/bin/python3
         project_name="orchestrator",
         ask_become_pass=False,
         enabled_addons=enabled_addons_list,
+        force=force,
     )
 
     # Run ansible with clean tree view (no messy logs)
@@ -957,6 +980,10 @@ ansible_python_interpreter=/usr/bin/python3
     if result_returncode != 0:
         logger.log_error(
             "Ansible configuration failed", context="Check logs for details"
+        )
+        console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
+        console.print(
+            f"[dim]Ansible detailed log:[/dim] {logger.log_path.parent / f'{logger.log_path.stem}_ansible.log'}\n"
         )
         raise SystemExit(1)
 
@@ -985,4 +1012,7 @@ ansible_python_interpreter=/usr/bin/python3
     console.print(f"   URL: http://{orchestrator_ip}:9090")
     console.print("   [dim](No authentication required)[/dim]")
 
-    console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
+    console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
+    console.print(
+        f"[dim]Ansible detailed log:[/dim] {logger.log_path.parent / f'{logger.log_path.stem}_ansible.log'}\n"
+    )

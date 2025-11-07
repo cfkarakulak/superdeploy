@@ -125,6 +125,22 @@
   become: no
   failed_when: false
 
+- name: Save PAT to orchestrator secrets.yml
+  lineinfile:
+    path: "{{ superdeploy_root }}/shared/orchestrator/secrets.yml"
+    regexp: '^  FORGEJO_PAT:'
+    line: "  FORGEJO_PAT: {{ pat_create_result.json.sha1 }}"
+    insertafter: '^secrets:'
+    create: no
+    mode: '0600'
+  when: 
+    - pat_create_result.status == 201
+    - pat_create_result.json is defined
+    - pat_create_result.json.sha1 is defined
+  delegate_to: localhost
+  become: no
+  failed_when: false
+
 - name: Display PAT creation result
   debug:
-    msg: "{{ 'Personal Access Token created and saved to local .env' if pat_create_result.status == 201 else 'PAT already exists or creation skipped' }}"
+    msg: "{{ 'Personal Access Token created and saved to secrets.yml' if pat_create_result.status == 201 else 'PAT already exists or creation skipped' }}"

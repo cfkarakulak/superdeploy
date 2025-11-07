@@ -95,6 +95,7 @@ def build_ansible_command(
     ask_become_pass=False,
     enabled_addons=None,
     playbook=None,
+    force=False,
 ):
     """
     Build complete Ansible playbook command with all necessary variables
@@ -107,6 +108,7 @@ def build_ansible_command(
         tags (str): Optional Ansible tags to run (e.g. 'foundation', 'addons', 'project')
         project_name (str): Project name for dynamic inventory file selection
         ask_become_pass (bool): Whether to prompt for sudo password
+        force (bool): Force deployment ignoring Ansible facts cache
 
     Returns:
         str: Complete ansible-playbook command
@@ -130,6 +132,9 @@ def build_ansible_command(
 
     # Add --ask-become-pass if needed (for first-time setup before passwordless sudo is configured)
     become_pass_str = "--ask-become-pass" if ask_become_pass else ""
+    
+    # Add --flush-cache if force flag is set (forces re-run of all tasks)
+    force_str = "--flush-cache" if force else ""
 
     # Use project-specific inventory file if project_name is provided
     if not project_name:
@@ -172,7 +177,7 @@ def build_ansible_command(
     # Build the command
     cmd = f"""
 cd {ansible_dir} && \\
-SUPERDEPLOY_ROOT={project_root} {ansible_playbook_path} -i {inventory_file} playbooks/{playbook} {tags_str} {become_pass_str} {private_key_str} \\
+SUPERDEPLOY_ROOT={project_root} {ansible_playbook_path} -i {inventory_file} playbooks/{playbook} {tags_str} {become_pass_str} {force_str} {private_key_str} \\
   --extra-vars '{extra_vars_json}'
 """
 

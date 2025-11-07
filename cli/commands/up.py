@@ -83,6 +83,17 @@ def up(
                 console.print("")
                 raise SystemExit(1)
 
+            # Force mode: Clear state to trigger full re-deployment
+            if force:
+                from cli.state_manager import StateManager
+
+                state_mgr = StateManager(project_root, project)
+                state_file = project_root / "projects" / project / "state.yml"
+                if state_file.exists():
+                    state_file.unlink()
+                    logger.log("🗑️  State cleared (force mode)")
+                    logger.log("")
+
             # Change detection (smart deployment)
             if not force and not skip_terraform and not skip_ansible:
                 from cli.core.config_loader import ConfigLoader
@@ -218,6 +229,7 @@ def up(
                 tags,
                 preserve_ip,
                 verbose,
+                force,  # Pass force flag
                 changes if not force else None,  # Pass changes for smart skip
             )
 
@@ -238,6 +250,7 @@ def up(
 
         except Exception as e:
             logger.log_error(str(e), context=f"Project {project} deployment failed")
+            console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
             raise SystemExit(1)
 
 
@@ -254,6 +267,7 @@ def _deploy_project(
     tags,
     preserve_ip,
     verbose,
+    force,
     changes=None,  # For smart skip logic
 ):
     """Internal function for project deployment with logging"""
@@ -424,22 +438,23 @@ def _deploy_project(
 
             console.print("  [dim]✓ VMs provisioned[/dim]")
 
-            # Update state: VMs provisioned (partial state update for resume)
-            from cli.state_manager import StateManager
-
-            state_mgr = StateManager(project_root, project)
-            state_mgr.mark_vms_provisioned(project_config_obj.raw_config.get("vms", {}))
-
-            # Get VM IPs
+            # Get VM IPs from Terraform outputs
             from cli.terraform_utils import get_terraform_outputs
 
             outputs = get_terraform_outputs(project)
             public_ips = outputs.get("vm_public_ips", {}).get("value", {})
             internal_ips = outputs.get("vm_internal_ips", {}).get("value", {})
 
-            # Update env dict with IPs (no need to write .env file anymore)
+            # Update state: VMs provisioned WITH IPs
+            from cli.state_manager import StateManager
 
-            # Add IPs to env dict
+            state_mgr = StateManager(project_root, project)
+            state_mgr.mark_vms_provisioned(
+                project_config_obj.raw_config.get("vms", {}),
+                vm_ips={"external": public_ips, "internal": internal_ips},
+            )
+
+            # Add IPs to env dict for Ansible
             for vm_key, ip in sorted(public_ips.items()):
                 env_key = vm_key.upper().replace("-", "_")
                 env[f"{env_key}_EXTERNAL_IP"] = ip
@@ -495,32 +510,56 @@ def _deploy_project(
 
                 if all_ready:
                     vm_count = len(public_ips)
-                    vm_list = ", ".join(public_ips.keys())
+                    # Create VM list with IPs: "app-0: 35.184.122.251, core-0: 34.41.132.41"
+                    vm_list_with_ips = ", ".join(
+                        [f"{name}: {ip}" for name, ip in sorted(public_ips.items())]
+                    )
                     console.print("  [dim]✓ VMs ready[/dim]")
                 else:
                     logger.warning("Some VMs may not be fully ready, continuing...")
                     vm_count = len(public_ips)
-                    vm_list = ", ".join(public_ips.keys())
+                    # Create VM list with IPs even if not fully ready
+                    vm_list_with_ips = ", ".join(
+                        [f"{name}: {ip}" for name, ip in sorted(public_ips.items())]
+                    )
                     console.print("  [yellow]⚠[/yellow] [dim]VMs partially ready[/dim]")
 
-                # Show phase 1 completion
+                # Show phase 1 completion with VM IPs
                 console.print(
-                    f"  [dim]✓ Configuration • Environment • {vm_count} VMs ({vm_list})[/dim]"
+                    f"  [dim]✓ Configuration • Environment • {vm_count} VMs ({vm_list_with_ips})[/dim]"
                 )
             else:
                 logger.log("No VMs found in outputs")
 
     else:
-        # Skip terraform, still show phase completion
-        # env already loaded above from secrets.yml
-        vm_ips = {k: v for k, v in env.items() if "_EXTERNAL_IP" in k}
-        vm_count = len(vm_ips)
+        # Skip terraform, load VMs from state
+        from cli.state_manager import StateManager
         from rich.console import Console
 
         console = Console()
-        console.print(
-            f"  [dim]✓ Configuration • Environment • {vm_count} VMs (existing)[/dim]"
-        )
+        state_mgr = StateManager(project_root, project)
+        state = state_mgr.load_state()
+        vms = state.get("vms", {})
+
+        if vms:
+            vm_count = len(vms)
+            # Build VM list with IPs from state
+            vm_list_parts = []
+            for vm_name, vm_data in sorted(vms.items()):
+                external_ip = vm_data.get("external_ip", "no-ip")
+                internal_ip = vm_data.get("internal_ip", "no-ip")
+                vm_list_parts.append(f"{vm_name}-0: {external_ip}")
+
+                # CRITICAL: Add IPs to env dict for inventory generation
+                env[f"{vm_name.upper()}_0_EXTERNAL_IP"] = external_ip
+                env[f"{vm_name.upper()}_0_INTERNAL_IP"] = internal_ip
+
+            vm_list_with_ips = ", ".join(vm_list_parts)
+            console.print(
+                f"  [dim]✓ Configuration • Environment • {vm_count} VMs ({vm_list_with_ips})[/dim]"
+            )
+        else:
+            console.print("  [dim]✓ Configuration • Environment loaded[/dim]")
 
     # Ansible - Smart skip logic
     if not skip_ansible:
@@ -592,6 +631,7 @@ def _deploy_project(
                 project_name=project,
                 ask_become_pass=False,
                 enabled_addons=enabled_addons_list,
+                force=force,
             )
 
             # Run ansible with clean tree view (or raw output if verbose)
@@ -605,6 +645,10 @@ def _deploy_project(
             if result_returncode != 0:
                 logger.log_error(
                     "Ansible configuration failed", context="Check logs for details"
+                )
+                console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
+                console.print(
+                    f"[dim]Ansible detailed log:[/dim] {logger.log_path.parent / f'{logger.log_path.stem}_ansible.log'}\n"
                 )
                 raise SystemExit(1)
 
@@ -640,16 +684,20 @@ def _deploy_project(
         try:
             from cli.commands.sync import sync
 
-            # Call sync command programmatically
+            # Call sync command programmatically with verbose mode to avoid Rich formatting
             from click.testing import CliRunner
 
             runner = CliRunner()
-            result = runner.invoke(sync, ["-p", project, "--skip-github"])
+            result = runner.invoke(sync, ["-p", project, "--skip-github", "--verbose"])
 
             if result.exit_code == 0:
                 logger.log("✓ Secrets synced to Forgejo")
             else:
-                logger.warning(f"Secret sync had issues: {result.output}")
+                # Strip ANSI codes for clean error display
+                import re
+
+                clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+                logger.warning(f"Secret sync had issues:\n{clean_output}")
         except Exception as e:
             logger.log_error(f"Failed to sync secrets: {e}")
             logger.warning("Continuing deployment without secret sync")
@@ -805,7 +853,12 @@ def _deploy_project(
     logger.log("━" * 60)
     logger.success("Infrastructure Deployed!")
     logger.log("━" * 60)
-    logger.log(f"Logs saved to: {logger.log_path}")
+
+    if not verbose:
+        console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
+        console.print(
+            f"[dim]Ansible detailed log:[/dim] {logger.log_path.parent / f'{logger.log_path.stem}_ansible.log'}\n"
+        )
 
 
 def generate_ansible_inventory(
