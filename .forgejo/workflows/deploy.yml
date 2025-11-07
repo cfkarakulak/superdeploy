@@ -75,14 +75,15 @@ jobs:
           echo "⏳ Waiting for container to be healthy..."
           sleep 5
           
-          # Check container status
-          STATUS=$(docker inspect -f '{{.State.Status}}' $PROJECT-$APP 2>/dev/null || echo "not_found")
+          # Check container status (docker-compose uses underscore in names)
+          CONTAINER_NAME="${PROJECT}_${APP}"
+          STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
           
           if [ "$STATUS" = "running" ]; then
             echo "✅ Container is running!"
           else
             echo "❌ Container failed to start (status: $STATUS)"
-            docker logs $PROJECT-$APP --tail 50
+            docker logs $CONTAINER_NAME --tail 50
             exit 1
           fi
       
