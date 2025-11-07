@@ -401,43 +401,16 @@ def _deploy_project_v2(
 
         # Update env dict with IPs (no need to write .env file anymore)
 
-        with open(env_file, "r") as f:
-            env_lines = f.readlines()
-
-        # Remove old IP lines and the comment header
-        env_lines = [
-            line
-            for line in env_lines
-            if not (
-                line.startswith(
-                    ("CORE_", "WEB_", "ALL_", "API_", "DASHBOARD_", "SERVICES_")
-                )
-                and "_IP=" in line
-            )
-            and "# VM IPs (Auto-populated by Terraform)" not in line
-        ]
-
-        # Remove trailing empty lines
-        while env_lines and env_lines[-1].strip() == "":
-            env_lines.pop()
-
-        # Add new IPs with header (ensure single blank line before)
-        if env_lines and not env_lines[-1].endswith("\n"):
-            env_lines[-1] += "\n"
-        env_lines.append("\n# VM IPs (Auto-populated by Terraform)\n")
-
+        # Add IPs to env dict
         for vm_key, ip in sorted(public_ips.items()):
             env_key = vm_key.upper().replace("-", "_")
-            env_lines.append(f"{env_key}_EXTERNAL_IP={ip}\n")
+            env[f"{env_key}_EXTERNAL_IP"] = ip
 
         for vm_key, ip in sorted(internal_ips.items()):
             env_key = vm_key.upper().replace("-", "_")
-            env_lines.append(f"{env_key}_INTERNAL_IP={ip}\n")
+            env[f"{env_key}_INTERNAL_IP"] = ip
 
-        with open(env_file, "w") as f:
-            f.writelines(env_lines)
-
-        logger.log("✓ VM IPs updated in .env")
+        logger.log("✓ VM IPs loaded to environment")
 
         # Wait for VMs
         logger.log("Waiting for VMs to be ready...")
