@@ -285,9 +285,25 @@ def _deploy_project_v2(
         raise SystemExit(1)
 
     # Load environment
-    from cli.utils import load_env, validate_env_vars
-
-    env = load_env(project)
+    from cli.utils import validate_env_vars
+    from cli.secret_manager import SecretManager
+    
+    # Load from .passwords.yml instead of .env
+    project_root = get_project_root()
+    secret_mgr = SecretManager(project_root / "projects" / project)
+    passwords_data = secret_mgr.load_secrets()
+    
+    # Build env dict from project.yml + .passwords.yml
+    env = {
+        "GCP_PROJECT_ID": project_config.raw_config["cloud"]["gcp"]["project_id"],
+        "GCP_REGION": project_config.raw_config["cloud"]["gcp"]["region"],
+        "SSH_KEY_PATH": project_config.raw_config["cloud"]["ssh"]["key_path"],
+        "SSH_USER": project_config.raw_config["cloud"]["ssh"]["user"],
+    }
+    
+    # Add secrets to env
+    if passwords_data.get("secrets", {}).get("shared"):
+        env.update(passwords_data["secrets"]["shared"])
 
     # Validate required vars
     required = ["GCP_PROJECT_ID", "GCP_REGION", "SSH_KEY_PATH"]
@@ -383,15 +399,7 @@ def _deploy_project_v2(
         public_ips = outputs.get("vm_public_ips", {}).get("value", {})
         internal_ips = outputs.get("vm_internal_ips", {}).get("value", {})
 
-        # Update .env with IPs
-        env_file = project_root / "projects" / project / ".env"
-
-        if not env_file.exists():
-            logger.log_error(f".env file not found: {env_file}")
-            logger.log_error(
-                "Run 'superdeploy generate -p {project}' first to create .env"
-            )
-            raise SystemExit(1)
+        # Update env dict with IPs (no need to write .env file anymore)
 
         with open(env_file, "r") as f:
             env_lines = f.readlines()
@@ -491,7 +499,7 @@ def _deploy_project_v2(
 
     else:
         # Skip terraform, still show phase completion
-        env = load_env(project)
+        # env already loaded above from .passwords.yml
         vm_ips = {k: v for k, v in env.items() if "_EXTERNAL_IP" in k}
         vm_count = len(vm_ips)
         from rich.console import Console
@@ -505,8 +513,7 @@ def _deploy_project_v2(
     if not skip_ansible:
         logger.step("[2/4] Base System")
 
-        # Reload env (IPs may have changed)
-        env = load_env(project)
+        # env already has IPs from terraform outputs above
 
         # Generate inventory
         from cli.commands.up import generate_ansible_inventory
@@ -607,8 +614,7 @@ def _deploy_project_v2(
         logger.log("✓ Code deployment complete (git push via Forgejo Actions)")
         logger.log("  Tip: Push to 'production' branch to trigger deployment")
 
-    # Load environment for IPs and credentials
-    env = load_env(project)
+    # env already loaded at the beginning from .passwords.yml
 
     # Orchestrator info
     orchestrator_ip = env.get("ORCHESTRATOR_IP")
