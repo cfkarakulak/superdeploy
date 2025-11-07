@@ -128,6 +128,52 @@ def create_forgejo_pat(env, forgejo_host):
         return None
 
 
+def clear_github_repo_secrets(repo):
+    """Clear all GitHub repository secrets using gh CLI"""
+    console.print(f"[dim]Clearing repository secrets for {repo}...[/dim]")
+
+    # List all secrets
+    try:
+        result = subprocess.run(
+            ["gh", "secret", "list", "-R", repo, "--json", "name"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        
+        import json
+        secrets = json.loads(result.stdout)
+        
+        if not secrets:
+            console.print("  [dim]No secrets to clear[/dim]")
+            return
+        
+        delete_count = 0
+        fail_count = 0
+        
+        for secret in secrets:
+            secret_name = secret.get("name")
+            try:
+                subprocess.run(
+                    ["gh", "secret", "delete", secret_name, "-R", repo],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                console.print(f"  [red]✗[/red] {secret_name} (deleted)")
+                delete_count += 1
+            except subprocess.CalledProcessError:
+                console.print(f"  [yellow]⚠[/yellow] {secret_name} (failed to delete)")
+                fail_count += 1
+        
+        console.print(f"[dim]  → {delete_count} deleted, {fail_count} failed[/dim]")
+        
+    except subprocess.CalledProcessError as e:
+        console.print(f"  [yellow]⚠[/yellow] Could not list secrets: {e}")
+    except Exception as e:
+        console.print(f"  [yellow]⚠[/yellow] Error: {str(e)}")
+
+
 def set_github_repo_secrets(repo, secrets):
     """Set GitHub repository secrets using gh CLI"""
     console.print(f"[dim]Setting repository secrets for {repo}...[/dim]")
@@ -324,10 +370,6 @@ def sync_forgejo_secrets(
     if age_secret_key:
         secrets["AGE_SECRET_KEY"] = age_secret_key
 
-    # Add optional app-specific URLs if defined in env
-    if "PUBLIC_URL" in merged_env:
-        secrets["PUBLIC_URL"] = merged_env["PUBLIC_URL"]
-
     # Add core service secrets dynamically from addon metadata
     if not project_name:
         # Fallback: try to get from repo name
@@ -346,7 +388,7 @@ def sync_forgejo_secrets(
 
     # Add service-specific secrets dynamically (no hardcoding!)
     for key, value in merged_env.items():
-        if key.endswith("_SECRET_KEY") or key == "PROXY_REGISTRY_API_KEY":
+        if key.endswith("_SECRET_KEY"):
             secrets[key] = value
 
     success_count = 0
@@ -391,8 +433,9 @@ def sync_forgejo_secrets(
 @click.option("--project", "-p", required=True, help="Project name")
 @click.option("--skip-forgejo", is_flag=True, help="Skip Forgejo PAT creation")
 @click.option("--skip-github", is_flag=True, help="Skip GitHub secrets sync")
+@click.option("--clear", is_flag=True, help="Clear all existing secrets before syncing")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def sync(project, skip_forgejo, skip_github, verbose):
+def sync(project, skip_forgejo, skip_github, clear, verbose):
     """
     Sync ALL secrets to GitHub/Forgejo
 
@@ -815,6 +858,11 @@ def sync(project, skip_forgejo, skip_github, verbose):
     for app_name, repo in repos.items():
         logger.log(f"Syncing {app_name} ({repo})")
 
+        # Clear existing secrets if --clear flag is set
+        if clear:
+            logger.log(f"Clearing existing secrets for {repo}")
+            clear_github_repo_secrets(repo)
+
         # Repository secrets (infrastructure/build related)
         repo_secrets = {
             "AGE_PUBLIC_KEY": age_public_key,
@@ -855,12 +903,6 @@ def sync(project, skip_forgejo, skip_github, verbose):
                 "FORGEJO_ORG": env["FORGEJO_ORG"],
             }
 
-            # Add optional app-specific URLs if defined
-            if "PUBLIC_URL" in merged_env:
-                env_secrets["PUBLIC_URL"] = merged_env["PUBLIC_URL"]
-            if "API_BASE_URL" in merged_env:
-                env_secrets["API_BASE_URL"] = merged_env["API_BASE_URL"]
-
             # Add core service secrets dynamically from addon metadata
             core_service_patterns = build_service_patterns_from_addons(
                 project, merged_env
@@ -882,15 +924,6 @@ def sync(project, skip_forgejo, skip_github, verbose):
             service_secret_key = f"{service_upper}_SECRET_KEY"
             if service_secret_key in merged_env:
                 env_secrets[service_secret_key] = merged_env[service_secret_key]
-
-            # Add APP_TITLE for branding
-            env_secrets["APP_TITLE"] = f"{project.title()} {app_name.title()}"
-
-            # Add PROXY_REGISTRY_API_KEY if exists
-            if "PROXY_REGISTRY_API_KEY" in merged_env:
-                env_secrets["PROXY_REGISTRY_API_KEY"] = merged_env[
-                    "PROXY_REGISTRY_API_KEY"
-                ]
 
             set_github_env_secrets(repo, env_name, env_secrets)
 

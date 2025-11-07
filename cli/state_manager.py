@@ -89,6 +89,7 @@ class StateManager:
             "needs_terraform": False,
             "needs_ansible": False,
             "needs_sync": False,
+            "needs_foundation": True,  # Assume foundation needed unless proven otherwise
         }
 
         # First deployment (no state)
@@ -108,6 +109,11 @@ class StateManager:
             changes["needs_sync"] = True
 
             return changes, state
+
+        # Check if foundation is already complete (for partial deployments)
+        deployment_state = state.get("deployment", {})
+        if deployment_state.get("foundation_complete"):
+            changes["needs_foundation"] = False
 
         # Check VMs
         state_vms = state.get("vms", {})
@@ -272,6 +278,50 @@ class StateManager:
         secrets_hash = self._get_secrets_hash()
         if secrets_hash:
             state["secrets"]["hash"] = secrets_hash
+
+        self.save_state(state)
+
+    def mark_vms_provisioned(self, vm_configs: dict):
+        """Mark VMs as provisioned (after Terraform success)"""
+        state = self.load_state()
+
+        if "vms" not in state:
+            state["vms"] = {}
+
+        for vm_name, vm_config in vm_configs.items():
+            state["vms"][vm_name] = {
+                "machine_type": vm_config.get("machine_type"),
+                "disk_size": vm_config.get("disk_size"),
+                "services": vm_config.get("services", []),
+                "status": "provisioned",
+                "provisioned_at": datetime.now().isoformat(),
+            }
+
+        self.save_state(state)
+
+    def mark_foundation_complete(self):
+        """Mark foundation (base system + docker) as complete"""
+        state = self.load_state()
+
+        if "deployment" not in state:
+            state["deployment"] = {}
+
+        state["deployment"]["foundation_complete"] = True
+        state["deployment"]["foundation_completed_at"] = datetime.now().isoformat()
+
+        self.save_state(state)
+
+    def mark_addon_deployed(self, addon_name: str):
+        """Mark specific addon as deployed"""
+        state = self.load_state()
+
+        if "addons" not in state:
+            state["addons"] = {}
+
+        state["addons"][addon_name] = {
+            "status": "deployed",
+            "deployed_at": datetime.now().isoformat(),
+        }
 
         self.save_state(state)
 

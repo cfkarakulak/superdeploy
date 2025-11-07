@@ -424,6 +424,12 @@ def _deploy_project(
 
             console.print("  [dim]✓ VMs provisioned[/dim]")
 
+            # Update state: VMs provisioned (partial state update for resume)
+            from cli.state_manager import StateManager
+
+            state_mgr = StateManager(project_root, project)
+            state_mgr.mark_vms_provisioned(project_config_obj.raw_config.get("vms", {}))
+
             # Get VM IPs
             from cli.terraform_utils import get_terraform_outputs
 
@@ -567,7 +573,15 @@ def _deploy_project(
             elif tags:
                 ansible_tags = tags
             else:
-                ansible_tags = "foundation,addons,project"
+                # Smart foundation skip: if foundation already complete, skip it
+                tag_parts = []
+                if changes and changes.get("needs_foundation", True):
+                    tag_parts.append("foundation")
+                else:
+                    logger.log("[dim]✓ Foundation: already complete, skipping[/dim]")
+
+                tag_parts.extend(["addons", "project"])
+                ansible_tags = ",".join(tag_parts)
 
             ansible_cmd = build_ansible_command(
                 ansible_dir=ansible_dir,
@@ -595,6 +609,23 @@ def _deploy_project(
                 raise SystemExit(1)
 
             logger.success("Services configured successfully")
+
+            # Update state: Foundation complete + addons deployed (partial state for resume)
+            from cli.state_manager import StateManager
+
+            state_mgr = StateManager(project_root, project)
+
+            # Mark foundation as complete (if foundation tag was run)
+            if not tags or "foundation" in ansible_tags:
+                state_mgr.mark_foundation_complete()
+
+            # Mark each deployed addon
+            if not tags or "addons" in ansible_tags:
+                deployed_addons = enabled_addons_list or list(
+                    project_config_obj.raw_config.get("addons", {}).keys()
+                )
+                for addon_name in deployed_addons:
+                    state_mgr.mark_addon_deployed(addon_name)
 
     else:
         logger.step("Skipping Ansible (--skip-ansible)")
