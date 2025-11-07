@@ -6,7 +6,7 @@ from rich.console import Console
 from cli.ui_components import show_header
 from rich.table import Table
 from rich.panel import Panel
-from cli.utils import load_env
+from cli.utils import get_project_root
 
 console = Console()
 
@@ -118,7 +118,19 @@ def env_list(show_all, app, no_mask):
         console=console,
     )
 
-    env_vars = load_env()
+    # Load from orchestrator .passwords.yml (shared secrets)
+    # This command is for global env, not project-specific
+    from cli.secret_manager import SecretManager
+    project_root = get_project_root()
+    # Get first project or use default
+    projects_dir = project_root / "projects"
+    projects = [p.name for p in projects_dir.iterdir() if p.is_dir()]
+    if not projects:
+        console.print("[red]❌ No projects found[/red]")
+        raise SystemExit(1)
+    secret_mgr = SecretManager(project_root, projects[0])
+    passwords_data = secret_mgr.load_secrets()
+    env_vars = passwords_data.get("secrets", {}).get("shared", {})
 
     # Verification for unmasked view
     if no_mask:
@@ -249,7 +261,19 @@ def env_check():
         console=console,
     )
 
-    env_vars = load_env()
+    # Load from orchestrator .passwords.yml (shared secrets)
+    # This command is for global env, not project-specific
+    from cli.secret_manager import SecretManager
+    project_root = get_project_root()
+    # Get first project or use default
+    projects_dir = project_root / "projects"
+    projects = [p.name for p in projects_dir.iterdir() if p.is_dir()]
+    if not projects:
+        console.print("[red]❌ No projects found[/red]")
+        raise SystemExit(1)
+    secret_mgr = SecretManager(project_root, projects[0])
+    passwords_data = secret_mgr.load_secrets()
+    env_vars = passwords_data.get("secrets", {}).get("shared", {})
 
     issues = []
     warnings = []

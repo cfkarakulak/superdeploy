@@ -64,16 +64,24 @@ def logs(project, app, follow, lines, environment, verbose):
         ssh_key_path = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
         ssh_user = ssh_config.get("user", "superdeploy")
 
-        # Get VM IP from .env (source of truth)
-        env = load_env(project=project)
-
-        ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
-        if ip_key not in env:
-            logger.log_error(f"VM IP not found in .env: {ip_key}")
+        # Get VM IP from state
+        from cli.state_manager import StateManager
+        state_mgr = StateManager(project_root, project)
+        state = state_mgr.load_state()
+        
+        if not state or "vms" not in state:
+            logger.log_error("No deployment state found")
+            logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
+            raise SystemExit(1)
+        
+        # Find VM by role
+        vm_name = f"{vm_role}-0"
+        if vm_name not in state["vms"] or "external_ip" not in state["vms"][vm_name]:
+            logger.log_error(f"VM IP not found in state: {vm_name}")
             logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
             raise SystemExit(1)
 
-        ssh_host = env[ip_key]
+        ssh_host = state["vms"][vm_name]["external_ip"]
         logger.log(f"Found VM: {ssh_host}")
 
     except Exception as e:

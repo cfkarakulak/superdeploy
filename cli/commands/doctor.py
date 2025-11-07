@@ -185,8 +185,7 @@ def doctor():
     if projects_dir.exists() and projects:
         first_project = projects[0]
         try:
-            from cli.utils import load_env
-
+            
             env = load_env(project=first_project)
 
             # Check for any VM IPs

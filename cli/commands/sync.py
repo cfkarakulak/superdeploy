@@ -445,16 +445,16 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     # Load project config and secrets from .passwords.yml
     from cli.secret_manager import SecretManager
     from cli.core.config_loader import ConfigLoader
-    
+
     project_config_file = project_root / "projects" / project / "project.yml"
     if not project_config_file.exists():
         logger.log_error(f"Project config not found: {project_config_file}")
         raise SystemExit(1)
-    
+
     # Load secrets
     secret_mgr = SecretManager(project_root, project)
     passwords_data = secret_mgr.load_secrets()
-    
+
     logger.log("✓ Secrets loaded from .passwords.yml")
 
     required_files = {
@@ -483,13 +483,13 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     logger.log("Loading environment...")
     config_loader = ConfigLoader(project_root / "projects")
     project_config_obj = config_loader.load_project(project)
-    
+
     # Build env dict
     env = {
         "GCP_PROJECT_ID": project_config_obj.raw_config["cloud"]["gcp"]["project_id"],
         "GCP_REGION": project_config_obj.raw_config["cloud"]["gcp"]["region"],
     }
-    
+
     # Add all secrets
     if passwords_data.get("secrets", {}).get("shared"):
         env.update(passwords_data["secrets"]["shared"])

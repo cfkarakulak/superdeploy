@@ -5,7 +5,7 @@ from datetime import datetime
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from cli.ui_components import show_header
-from cli.utils import load_env, validate_env_vars, ssh_command
+from cli.utils import validate_env_vars, ssh_command
 
 console = Console()
 
@@ -29,12 +29,25 @@ def backups_create(project, output):
     - Environment variables (encrypted)
     - Docker compose files
     """
-    env = load_env(project=project)
-
-    # Validate required vars
-    required = ["CORE_EXTERNAL_IP", "SSH_KEY_PATH"]
-    if not validate_env_vars(env, required):
+    # Load state to get VM IPs
+    from cli.utils import get_project_root
+    from cli.state_manager import StateManager
+    
+    project_root = get_project_root()
+    state_mgr = StateManager(project_root, project)
+    state = state_mgr.load_state()
+    
+    if not state or "vms" not in state:
+        console.print("[red]✗[/red] No deployment state found")
+        console.print(f"Run: [red]superdeploy up -p {project}[/red]")
         raise SystemExit(1)
+    
+    # Build env dict from state for compatibility
+    env = {}
+    for vm_name, vm_data in state.get("vms", {}).items():
+        if "external_ip" in vm_data:
+            env_key = vm_name.upper().replace("-", "_")
+            env[f"{env_key}_EXTERNAL_IP"] = vm_data["external_ip"]
 
     # Default output path
     if not output:

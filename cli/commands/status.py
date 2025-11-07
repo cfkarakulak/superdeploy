@@ -5,7 +5,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 from cli.ui_components import show_header
-from cli.utils import get_project_root, ssh_command, load_env
+from cli.utils import get_project_root, ssh_command
 from cli.logger import DeployLogger
 
 console = Console()
@@ -51,24 +51,27 @@ def status(project, verbose):
         logger.log_error(f"Error loading config: {e}")
         raise SystemExit(1)
 
-    # Load .env to get VM IPs
-    env = load_env(project=project)
+    # Load state to get VM IPs
+    from cli.state_manager import StateManager
+    state_mgr = StateManager(project_root, project)
+    state = state_mgr.load_state()
+    
+    if not state or "vms" not in state:
+        logger.warning("No deployment state found")
+        logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
+        raise SystemExit(1)
 
-    # Get VMs from config and their IPs from .env
-    vms_config = config.get("vms", {})
+    # Get VMs from state
     vms = {}
-
-    for role in vms_config.keys():
-        # Get IP from .env (e.g., API_0_EXTERNAL_IP)
-        ip_key = f"{role.upper()}_0_EXTERNAL_IP"
-        if ip_key in env:
-            vms[role] = {
-                "ip": env[ip_key],
-                "internal_ip": env.get(f"{role.upper()}_0_INTERNAL_IP", ""),
+    for vm_name, vm_data in state.get("vms", {}).items():
+        if "external_ip" in vm_data:
+            vms[vm_name] = {
+                "ip": vm_data["external_ip"],
+                "internal_ip": vm_data.get("internal_ip", ""),
             }
 
     if not vms:
-        logger.warning("No VM IPs found in .env")
+        logger.warning("No VM IPs found in state")
         logger.log(f"Run: [red]superdeploy up -p {project}[/red]")
         raise SystemExit(1)
 

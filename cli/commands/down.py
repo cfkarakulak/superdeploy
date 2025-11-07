@@ -6,7 +6,7 @@ from rich.console import Console
 from cli.ui_components import show_header
 
 # Confirmation prompts handled with console.print + input()
-from cli.utils import load_env, get_project_root
+from cli.utils import get_project_root
 from cli.terraform_utils import (
     get_terraform_dir,
     select_workspace,
@@ -18,29 +18,24 @@ from cli.logger import DeployLogger, run_with_progress
 console = Console()
 
 
-def clean_vm_ips_from_env(project_root, project):
-    """Remove VM IP entries from .env file after destroying infrastructure"""
-    env_file = project_root / "projects" / project / ".env"
-
-    if not env_file.exists():
-        return
-
-    with open(env_file, "r") as f:
-        lines = f.readlines()
-
-    # Filter out lines with VM IPs
-    cleaned_lines = []
-    for line in lines:
-        # Skip lines that are VM IP entries (both EXTERNAL and INTERNAL)
-        if "_EXTERNAL_IP=" in line or "_INTERNAL_IP=" in line:
-            continue
-        cleaned_lines.append(line)
-
-    # Write back
-    with open(env_file, "w") as f:
-        f.writelines(cleaned_lines)
-
-    console.print("  [dim]✓ Cleaned VM IPs from .env[/dim]")
+def clean_vm_ips_from_state(project_root, project):
+    """Remove VM IP entries from state after destroying infrastructure"""
+    from cli.state_manager import StateManager
+    
+    state_mgr = StateManager(project_root, project)
+    state = state_mgr.load_state()
+    
+    if state and "vms" in state:
+        # Clear VM IPs from state
+        for vm_name in state["vms"]:
+            if "external_ip" in state["vms"][vm_name]:
+                del state["vms"][vm_name]["external_ip"]
+            if "internal_ip" in state["vms"][vm_name]:
+                del state["vms"][vm_name]["internal_ip"]
+        
+        state_mgr.save_state(state["config"], {"vms": state["vms"], "addons": state.get("addons", {}), "apps": state.get("apps", {})})
+    
+    console.print("  [dim]✓ Cleaned VM IPs from state[/dim]")
 
 
 @click.command()
@@ -373,7 +368,7 @@ def down(project, yes, verbose, keep_infra):
             logger.warning(f"Subnet release warning: {e}")
 
         # Clean up local files
-        clean_vm_ips_from_env(project_root, project)
+        clean_vm_ips_from_state(project_root, project)
         project_dir = projects_dir / project
 
         # Clean up inventory file

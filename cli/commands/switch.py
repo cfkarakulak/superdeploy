@@ -6,7 +6,7 @@ from cli.ui_components import show_header
 from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Prompt
-from cli.utils import load_env, ssh_command
+from cli.utils import ssh_command
 
 console = Console()
 
@@ -71,8 +71,22 @@ def releases_rollback(project, app, version, force):
         ssh_key_path = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
         ssh_user = ssh_config.get("user", "superdeploy")
 
-        # Get VM IP from .env
-        env = load_env(project=project)
+        # Get VM IP from state
+        from cli.state_manager import StateManager
+        from cli.utils import get_project_root as gpr
+        state_mgr = StateManager(gpr(), project)
+        state = state_mgr.load_state()
+        
+        if not state or "vms" not in state:
+            console.print("[red]✗[/red] No deployment state found")
+            return
+        
+        # Build env dict from state
+        env = {}
+        for vm_name, vm_data in state.get("vms", {}).items():
+            if "external_ip" in vm_data:
+                env_key = vm_name.upper().replace("-", "_")
+                env[f"{env_key}_EXTERNAL_IP"] = vm_data["external_ip"]
 
         ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
         if ip_key not in env:

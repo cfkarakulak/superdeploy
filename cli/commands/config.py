@@ -6,7 +6,7 @@ import yaml
 from rich.console import Console
 from rich.table import Table
 from cli.ui_components import show_header
-from cli.utils import load_env, get_project_root
+from cli.utils import get_project_root
 from cli.terraform_utils import get_terraform_outputs
 
 console = Console()
@@ -235,7 +235,11 @@ def config_get(key, project):
         console=console,
     )
 
-    env_vars = load_env(project)
+    # Load from .passwords.yml
+    from cli.secret_manager import SecretManager
+    secret_mgr = SecretManager(get_project_root(), project)
+    passwords_data = secret_mgr.load_secrets()
+    env_vars = passwords_data.get("secrets", {}).get("shared", {})
 
     value = env_vars.get(key)
 
@@ -279,7 +283,11 @@ def config_list(project, filter):
         console=console,
     )
 
-    env_vars = load_env(project)
+    # Load from .passwords.yml
+    from cli.secret_manager import SecretManager
+    secret_mgr = SecretManager(get_project_root(), project)
+    passwords_data = secret_mgr.load_secrets()
+    env_vars = passwords_data.get("secrets", {}).get("shared", {})
 
     # Create table
     table = Table(title="Configuration Variables", padding=(0, 1))
@@ -466,9 +474,12 @@ def config_show(project, mask):
 
     project_root = get_project_root()
 
-    # Load project .env
+    # Load project secrets from .passwords.yml
     try:
-        env_vars = load_env(project)
+        from cli.secret_manager import SecretManager
+        secret_mgr = SecretManager(project_root, project)
+        passwords_data = secret_mgr.load_secrets()
+        env_vars = passwords_data.get("secrets", {}).get("shared", {})
     except Exception:
         console.print(f"[red]❌ Project '{project}' not found[/red]")
         raise SystemExit(1)
