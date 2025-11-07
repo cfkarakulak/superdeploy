@@ -333,9 +333,18 @@
   failed_when: false
   when: not runner_registration_check.stat.exists
 
-- name: Build runner labels (avoid duplicates)
+- name: Create project identifier file
+  copy:
+    content: "{{ runner_project_name }}"
+    dest: /opt/superdeploy/.project
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_user }}"
+    mode: '0644'
+  become: true
+
+- name: Build runner labels (generic - works for all projects)
   set_fact:
-    runner_labels: "self-hosted,{{ runner_project_name }},{{ vm_role }}"
+    runner_labels: "self-hosted,{{ vm_role }}"
   when: 
     - not runner_registration_check.stat.exists
     - runner_token is defined
