@@ -288,10 +288,11 @@ def _deploy_project_v2(
     # Load environment
     from cli.utils import validate_env_vars
     from cli.secret_manager import SecretManager
-
+    
     # Load from .passwords.yml instead of .env
     project_root = get_project_root()
-    secret_mgr = SecretManager(project_root / "projects" / project)
+    project_dir = project_root / "projects" / project
+    secret_mgr = SecretManager(project_dir, project)
     passwords_data = secret_mgr.load_secrets()
 
     # Build env dict from project.yml + .passwords.yml
