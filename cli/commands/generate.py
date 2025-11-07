@@ -67,7 +67,7 @@ def generate(project, app):
     secret_mgr = SecretManager(project_root, project)
 
     # Check if secrets.yml exists
-    if not secret_mgr.passwords_file.exists():
+    if not secret_mgr.secrets_file.exists():
         console.print("\n[red]❌ No secrets.yml found![/red]")
         console.print("[yellow]Run first:[/yellow] superdeploy init -p " + project)
         console.print("[dim]Or create manually with structure:[/dim]")

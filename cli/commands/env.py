@@ -129,8 +129,8 @@ def env_list(show_all, app, no_mask):
         console.print("[red]❌ No projects found[/red]")
         raise SystemExit(1)
     secret_mgr = SecretManager(project_root, projects[0])
-    passwords_data = secret_mgr.load_secrets()
-    env_vars = passwords_data.get("secrets", {}).get("shared", {})
+    secrets_data = secret_mgr.load_secrets()
+    env_vars = secrets_data.get("secrets", {}).get("shared", {})
 
     # Verification for unmasked view
     if no_mask:
@@ -272,8 +272,8 @@ def env_check():
         console.print("[red]❌ No projects found[/red]")
         raise SystemExit(1)
     secret_mgr = SecretManager(project_root, projects[0])
-    passwords_data = secret_mgr.load_secrets()
-    env_vars = passwords_data.get("secrets", {}).get("shared", {})
+    secrets_data = secret_mgr.load_secrets()
+    env_vars = secrets_data.get("secrets", {}).get("shared", {})
 
     issues = []
     warnings = []

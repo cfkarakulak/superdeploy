@@ -274,7 +274,7 @@ def init(project):
             }
 
     # Generate secrets.yml with beautiful formatting
-    passwords_yml = project_dir / "secrets.yml"
+    secrets_yml = project_dir / "secrets.yml"
 
     yml_lines = []
     yml_lines.append("# " + "=" * 77)
@@ -346,13 +346,13 @@ def init(project):
                 yml_lines.append(f"    {key}: {value}")
         yml_lines.append("  ")
 
-    with open(passwords_yml, "w") as f:
+    with open(secrets_yml, "w") as f:
         f.write("\n".join(yml_lines))
 
     # Set restrictive permissions
-    passwords_yml.chmod(0o600)
+    secrets_yml.chmod(0o600)
 
-    console.print(f"[green]✓[/green] Created: {passwords_yml}")
+    console.print(f"[green]✓[/green] Created: {secrets_yml}")
     console.print("[dim]  Generated secure passwords for addons[/dim]")
     console.print("[yellow]  ⚠️  Add app-specific secrets manually[/yellow]")
 
@@ -360,7 +360,7 @@ def init(project):
     console.print("\n[green]✅ Project initialized![/green]")
     console.print("\n[bold]📝 Next steps:[/bold]")
     console.print("\n1. Edit secrets:")
-    console.print(f"   nano {passwords_yml}")
+    console.print(f"   nano {secrets_yml}")
     console.print("   [dim]Add app-specific secrets (API keys, etc.)[/dim]")
     console.print("\n2. Generate deployment files:")
     console.print(f"   superdeploy generate -p {project}")

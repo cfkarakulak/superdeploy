@@ -67,7 +67,7 @@ def generate(project, app):
     secret_mgr = SecretManager(project_root, project)
 
     # Check if secrets.yml exists
-    if not secret_mgr.passwords_file.exists():
+    if not secret_mgr.secrets_file.exists():
         console.print(
             "\n[yellow]⚠️  No secrets.yml found. Creating from addons...[/yellow]"
         )
@@ -80,7 +80,7 @@ def generate(project, app):
         addons = addon_loader.load_addons_for_project(config)
 
         secret_mgr.initialize_from_addons(addons, project)
-        console.print(f"[green]✓[/green] Created: {secret_mgr.passwords_file}")
+        console.print(f"[green]✓[/green] Created: {secret_mgr.secrets_file}")
         console.print("[dim]  Edit this file to add app-specific secrets[/dim]")
 
     # Load secrets

@@ -11,27 +11,27 @@ class SecretManager:
     def __init__(self, project_root: Path, project_name: str):
         self.project_root = project_root
         self.project_name = project_name
-        self.passwords_file = (
+        self.secrets_file = (
             project_root / "projects" / project_name / "secrets.yml"
         )
 
     def load_secrets(self) -> Dict[str, Any]:
         """Load secrets.yml"""
-        if not self.passwords_file.exists():
+        if not self.secrets_file.exists():
             return {}
 
-        with open(self.passwords_file, "r") as f:
+        with open(self.secrets_file, "r") as f:
             return yaml.safe_load(f) or {}
 
     def save_secrets(self, secrets: Dict[str, Any]):
         """Save secrets to secrets.yml"""
-        self.passwords_file.parent.mkdir(parents=True, exist_ok=True)
+        self.secrets_file.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(self.passwords_file, "w") as f:
+        with open(self.secrets_file, "w") as f:
             yaml.dump(secrets, f, default_flow_style=False, sort_keys=False)
 
         # Set restrictive permissions
-        self.passwords_file.chmod(0o600)
+        self.secrets_file.chmod(0o600)
 
     def get_app_secrets(self, app_name: str) -> Dict[str, str]:
         """

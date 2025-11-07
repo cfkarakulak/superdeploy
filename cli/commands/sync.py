@@ -453,7 +453,7 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
 
     # Load secrets
     secret_mgr = SecretManager(project_root, project)
-    passwords_data = secret_mgr.load_secrets()
+    secrets_data = secret_mgr.load_secrets()
 
     logger.log("✓ Secrets loaded from secrets.yml")
 
@@ -493,8 +493,8 @@ def sync(project, skip_forgejo, skip_github, env_file, verbose):
     }
 
     # Add all secrets from secrets.yml
-    if passwords_data.get("secrets", {}).get("shared"):
-        env.update(passwords_data["secrets"]["shared"])
+    if secrets_data.get("secrets", {}).get("shared"):
+        env.update(secrets_data["secrets"]["shared"])
     logger.log("Project .env loaded")
 
     # Load additional env files (from CLI args)

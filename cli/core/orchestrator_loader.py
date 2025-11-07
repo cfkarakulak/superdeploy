@@ -128,9 +128,9 @@ class OrchestratorConfig:
             f.writelines(env_lines)
 
         # 2. Update all project secrets.yml files
-        self._update_project_passwords(ip)
+        self._update_project_secrets(ip)
 
-    def _update_project_passwords(self, ip: str) -> None:
+    def _update_project_secrets(self, ip: str) -> None:
         """
         Update ORCHESTRATOR_IP in all project secrets.yml files
 
@@ -147,33 +147,33 @@ class OrchestratorConfig:
             if not project_dir.is_dir():
                 continue
 
-            passwords_file = project_dir / "secrets.yml"
-            if not passwords_file.exists():
+            secrets_file = project_dir / "secrets.yml"
+            if not secrets_file.exists():
                 continue
 
             try:
                 # Load existing passwords
-                with open(passwords_file, "r") as f:
-                    passwords_data = yaml.safe_load(f) or {}
+                with open(secrets_file, "r") as f:
+                    secrets_data = yaml.safe_load(f) or {}
 
                 # Ensure secrets.shared exists
-                if "secrets" not in passwords_data:
-                    passwords_data["secrets"] = {}
-                if "shared" not in passwords_data["secrets"]:
-                    passwords_data["secrets"]["shared"] = {}
+                if "secrets" not in secrets_data:
+                    secrets_data["secrets"] = {}
+                if "shared" not in secrets_data["secrets"]:
+                    secrets_data["secrets"]["shared"] = {}
 
                 # Update ORCHESTRATOR_IP
-                passwords_data["secrets"]["shared"]["ORCHESTRATOR_IP"] = ip
+                secrets_data["secrets"]["shared"]["ORCHESTRATOR_IP"] = ip
 
                 # Save back
-                with open(passwords_file, "w") as f:
+                with open(secrets_file, "w") as f:
                     yaml.dump(
-                        passwords_data, f, default_flow_style=False, sort_keys=False
+                        secrets_data, f, default_flow_style=False, sort_keys=False
                     )
 
             except Exception as e:
                 # Don't fail if one project fails
-                print(f"Warning: Could not update {passwords_file}: {e}")
+                print(f"Warning: Could not update {secrets_file}: {e}")
                 continue
 
     def to_terraform_vars(

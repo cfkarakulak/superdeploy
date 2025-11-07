@@ -299,7 +299,7 @@ def _deploy_project_v2(
 
     # Load from secrets.yml instead of .env
     secret_mgr = SecretManager(project_root, project)
-    passwords_data = secret_mgr.load_secrets()
+    secrets_data = secret_mgr.load_secrets()
 
     # Build env dict from project.yml + secrets.yml
     env = {
@@ -310,8 +310,8 @@ def _deploy_project_v2(
     }
 
     # Add secrets to env
-    if passwords_data.get("secrets", {}).get("shared"):
-        env.update(passwords_data["secrets"]["shared"])
+    if secrets_data.get("secrets", {}).get("shared"):
+        env.update(secrets_data["secrets"]["shared"])
 
     # Validate required vars
     required = ["GCP_PROJECT_ID", "GCP_REGION", "SSH_KEY_PATH"]

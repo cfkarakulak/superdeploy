@@ -72,15 +72,15 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
     logger = DeployLogger(project, "config-set", verbose=False)
 
     project_root = get_project_root()
-    passwords_file = project_root / "projects" / project / "secrets.yml"
+    secrets_file = project_root / "projects" / project / "secrets.yml"
 
     # Step 1: Update secrets.yml
     logger.step("[1/4] Updating Local Config")
-    logger.log(f"File: {passwords_file}")
+    logger.log(f"File: {secrets_file}")
 
     # Load existing passwords
-    if passwords_file.exists():
-        with open(passwords_file) as f:
+    if secrets_file.exists():
+        with open(secrets_file) as f:
             passwords = yaml.safe_load(f) or {}
     else:
         passwords = {}
@@ -92,7 +92,7 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
     passwords[key] = value
 
     # Write back
-    with open(passwords_file, "w") as f:
+    with open(secrets_file, "w") as f:
         yaml.dump(passwords, f, default_flow_style=False, sort_keys=True)
 
     if old_value:
@@ -238,8 +238,8 @@ def config_get(key, project):
     # Load from secrets.yml
     from cli.secret_manager import SecretManager
     secret_mgr = SecretManager(get_project_root(), project)
-    passwords_data = secret_mgr.load_secrets()
-    env_vars = passwords_data.get("secrets", {}).get("shared", {})
+    secrets_data = secret_mgr.load_secrets()
+    env_vars = secrets_data.get("secrets", {}).get("shared", {})
 
     value = env_vars.get(key)
 
@@ -286,8 +286,8 @@ def config_list(project, filter):
     # Load from secrets.yml
     from cli.secret_manager import SecretManager
     secret_mgr = SecretManager(get_project_root(), project)
-    passwords_data = secret_mgr.load_secrets()
-    env_vars = passwords_data.get("secrets", {}).get("shared", {})
+    secrets_data = secret_mgr.load_secrets()
+    env_vars = secrets_data.get("secrets", {}).get("shared", {})
 
     # Create table
     table = Table(title="Configuration Variables", padding=(0, 1))
@@ -356,16 +356,16 @@ def config_unset(key, project, deploy, no_sync):
     logger = DeployLogger(project, "config-unset", verbose=False)
 
     project_root = get_project_root()
-    passwords_file = project_root / "projects" / project / "secrets.yml"
+    secrets_file = project_root / "projects" / project / "secrets.yml"
 
     # Step 1: Remove from secrets.yml
     logger.step("[1/3] Removing from Local Config")
 
-    if not passwords_file.exists():
-        console.print(f"[yellow]⚠️  {passwords_file} not found[/yellow]")
+    if not secrets_file.exists():
+        console.print(f"[yellow]⚠️  {secrets_file} not found[/yellow]")
         raise SystemExit(1)
 
-    with open(passwords_file) as f:
+    with open(secrets_file) as f:
         passwords = yaml.safe_load(f) or {}
 
     if key not in passwords:
@@ -376,7 +376,7 @@ def config_unset(key, project, deploy, no_sync):
     passwords.pop(key)
 
     # Write back
-    with open(passwords_file, "w") as f:
+    with open(secrets_file, "w") as f:
         yaml.dump(passwords, f, default_flow_style=False, sort_keys=True)
 
     logger.log(f"✓ Removed {key} from secrets.yml")
@@ -478,8 +478,8 @@ def config_show(project, mask):
     try:
         from cli.secret_manager import SecretManager
         secret_mgr = SecretManager(project_root, project)
-        passwords_data = secret_mgr.load_secrets()
-        env_vars = passwords_data.get("secrets", {}).get("shared", {})
+        secrets_data = secret_mgr.load_secrets()
+        env_vars = secrets_data.get("secrets", {}).get("shared", {})
     except Exception:
         console.print(f"[red]❌ Project '{project}' not found[/red]")
         raise SystemExit(1)
