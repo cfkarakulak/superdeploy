@@ -213,19 +213,34 @@ class StateManager:
         """Update state from successful deployment"""
         config = project_config.raw_config
 
-        state = {
-            "vms": {},
-            "addons": {},
-            "apps": {},
-        }
+        # Load existing state to preserve IPs and other runtime data
+        state = self.load_state()
 
-        # Store VM state
+        if "vms" not in state:
+            state["vms"] = {}
+        if "addons" not in state:
+            state["addons"] = {}
+        if "apps" not in state:
+            state["apps"] = {}
+
+        # Update VM state (preserve existing IPs if present)
         for vm_name, vm_config in config.get("vms", {}).items():
+            # Get existing VM state to preserve IPs
+            existing_vm = state["vms"].get(vm_name, {})
+
             state["vms"][vm_name] = {
                 "machine_type": vm_config.get("machine_type"),
                 "disk_size": vm_config.get("disk_size"),
                 "services": vm_config.get("services", []),
                 "status": "applied",
+                # Preserve IPs if they exist
+                "external_ip": existing_vm.get("external_ip"),
+                "internal_ip": existing_vm.get("internal_ip"),
+            }
+
+            # Remove None values
+            state["vms"][vm_name] = {
+                k: v for k, v in state["vms"][vm_name].items() if v is not None
             }
 
         # Store addon state
