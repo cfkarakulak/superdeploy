@@ -124,23 +124,30 @@ def generate(project, app):
         secret_count = len(app_secrets)
         console.print(f"  Secrets: {secret_count}")
 
-        # 4. Generate GitHub workflow (uses central deploy.sh)
-        github_template = _load_template(template_dir, app_type, "github")
-        github_workflow = github_template.render(
-            project=project, app=app_name, github_org=github_org
+        # 4. Generate GitHub workflow
+        github_workflow_template = _get_github_workflow_template(app_type)
+        github_workflow = Template(github_workflow_template).render(
+            project=project, app=app_name
         )
         github_dir = app_path / ".github" / "workflows"
         github_dir.mkdir(parents=True, exist_ok=True)
         (github_dir / "deploy.yml").write_text(github_workflow)
         console.print("  [green]✓[/green] .github/workflows/deploy.yml")
 
-        # Note: .forgejo/workflows NOT needed in app repos
-        # Forgejo workflows are only in SuperDeploy central repo
-
         console.print()
 
+    # 5. Generate Forgejo project-specific workflow (in superdeploy repo)
+    console.print(f"\n[bold cyan]📝 Generating Forgejo workflow for {project}...[/bold cyan]\n")
+    forgejo_workflow = _get_forgejo_project_workflow_template(project)
+    forgejo_dir = project_root / ".forgejo" / "workflows"
+    forgejo_dir.mkdir(parents=True, exist_ok=True)
+    forgejo_file = forgejo_dir / f"deploy-{project}.yml"
+    forgejo_file.write_text(forgejo_workflow)
+    console.print(f"  [green]✓[/green] .forgejo/workflows/deploy-{project}.yml")
+    console.print(f"  [dim]Commit this to superdeploy repo![/dim]")
+
     # Summary
-    console.print("[green]✅ Generation complete![/green]")
+    console.print("\n[green]✅ Generation complete![/green]")
     console.print("\n[bold]📝 Next steps:[/bold]")
     console.print("\n1. Review generated files (especially secrets.yml)")
     console.print("\n2. Commit to app repos:")
@@ -289,8 +296,135 @@ jobs:
 """
 
 
+def _get_forgejo_project_workflow_template(project: str) -> str:
+    """Generate project-specific Forgejo workflow template"""
+    return f"""# =============================================================================
+# SuperDeploy - Deployment Workflow for Project: {project}
+# =============================================================================
+# Triggered by GitHub Actions via workflow_dispatch API
+# Runs ONLY on {project} project VMs
+# =============================================================================
+
+name: Deploy Application ({project})
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'App name (e.g., api, storefront)'
+        required: true
+        type: string
+      vm_role:
+        description: 'VM role (e.g., app, core)'
+        required: true
+        type: string
+      image:
+        description: 'Docker image (e.g., c100394/api:latest)'
+        required: true
+        type: string
+      git_sha:
+        description: 'Git commit SHA'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    # Project-specific runner labels - only {project} VMs will pick this up
+    runs-on: 
+      - self-hosted
+      - {project}
+      - app
+    
+    env:
+      PROJECT: {project}
+      APP: ${{{{ inputs.app }}}}
+      VM_ROLE: ${{{{ inputs.vm_role }}}}
+      IMAGE: ${{{{ inputs.image }}}}
+      GIT_SHA: ${{{{ inputs.git_sha }}}}
+    
+    steps:
+      - name: Validate runner project
+        run: |
+          echo "🔍 Validating runner project..."
+          
+          # Each VM has a .project file identifying which project it runs
+          if [ ! -f /opt/superdeploy/.project ]; then
+            echo "❌ ERROR: /opt/superdeploy/.project not found!"
+            echo "   This VM is not properly configured."
+            exit 1
+          fi
+          
+          RUNNER_PROJECT=$(cat /opt/superdeploy/.project)
+          
+          if [ "$RUNNER_PROJECT" != "$PROJECT" ]; then
+            echo "❌ ERROR: Wrong VM!"
+            echo "   This runner is for project: $RUNNER_PROJECT"
+            echo "   But job is for project: $PROJECT"
+            exit 1
+          fi
+          
+          echo "✅ Correct VM for project: $RUNNER_PROJECT"
+          echo ""
+      
+      - name: Display deployment info
+        run: |
+          echo "🚀 Deploying application..."
+          echo "  Project: $PROJECT"
+          echo "  App: $APP"
+          echo "  VM Role: $VM_ROLE"
+          echo "  Image: $IMAGE"
+          echo "  Git SHA: $GIT_SHA"
+          echo ""
+      
+      - name: Pull latest image
+        run: |
+          cd /opt/superdeploy/projects/$PROJECT/compose
+          docker compose pull $APP
+      
+      - name: Restart container
+        run: |
+          cd /opt/superdeploy/projects/$PROJECT/compose
+          docker compose up -d $APP
+      
+      - name: Wait for health check
+        run: |
+          echo "⏳ Waiting for container to be healthy..."
+          sleep 5
+          
+          # Check container status (docker-compose uses underscore in names)
+          CONTAINER_NAME="${{PROJECT}}_${{APP}}"
+          STATUS=$(docker inspect -f '{{{{.State.Status}}}}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
+          
+          if [ "$STATUS" = "running" ]; then
+            echo "✅ Container is running!"
+          else
+            echo "❌ Container failed to start (status: $STATUS)"
+            docker logs $CONTAINER_NAME --tail 50
+            exit 1
+          fi
+      
+      - name: Cleanup old images
+        run: |
+          docker image prune -f
+          echo "🧹 Cleanup complete"
+      
+      - name: Deployment summary
+        run: |
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Deployment successful!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Project: $PROJECT"
+          echo "  App: $APP"
+          echo "  Image: $IMAGE"
+          echo "  SHA: $GIT_SHA"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+"""
+
+
 def _get_forgejo_workflow_template(app_type: str) -> str:
-    """Generate Forgejo workflow template"""
+    """Generate Forgejo workflow template (deprecated - use project-specific workflows)"""
 
     if app_type == "nextjs":
         return """name: Deploy {{ app }}
