@@ -275,7 +275,6 @@ def _deploy_project(
     logger.step("[1/4] Setup & Infrastructure")
 
     # Load project config
-    logger.log("Loading configuration...")
     from cli.core.config_loader import ConfigLoader
     from cli.core.orchestrator_loader import OrchestratorLoader
 
@@ -287,7 +286,7 @@ def _deploy_project(
 
     try:
         project_config_obj = config_loader.load_project(project)
-        logger.log("✓ Project configuration loaded")
+        console.print("  [dim]✓ Configuration loaded[/dim]")
     except FileNotFoundError as e:
         logger.log_error(str(e), context=f"Project '{project}' not found")
         raise SystemExit(1)
@@ -312,7 +311,7 @@ def _deploy_project(
             logger.log_error("Orchestrator IP not found")
             raise SystemExit(1)
 
-        logger.log(f"✓ Orchestrator @ {orchestrator_ip}")
+        console.print(f"  [dim]✓ Orchestrator @ {orchestrator_ip}[/dim]")
 
     except FileNotFoundError as e:
         logger.log_error(str(e), context="Orchestrator config not found")
@@ -396,9 +395,6 @@ def _deploy_project(
                 logger.log_error("Terraform init failed", context=stderr)
                 raise SystemExit(1)
 
-            from rich.console import Console
-
-            console = Console()
             console.print("  [dim]✓ Terraform initialized[/dim]")
 
             # Generate tfvars
@@ -534,9 +530,7 @@ def _deploy_project(
     else:
         # Skip terraform, load VMs from state
         from cli.state_manager import StateManager
-        from rich.console import Console
 
-        console = Console()
         state_mgr = StateManager(project_root, project)
         state = state_mgr.load_state()
         vms = state.get("vms", {})

@@ -6,7 +6,7 @@ Combines StateService and ConfigService for VM operations.
 """
 
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 from .state_service import StateService
 from .config_service import ConfigService
 from .ssh_service import SSHService
@@ -87,32 +87,6 @@ class VMService:
 
         return result
 
-    def check_vm_health(
-        self, vm_name: str, ssh_service: Optional[SSHService] = None
-    ) -> bool:
-        """
-        Check if VM is healthy (SSH accessible).
-
-        Args:
-            vm_name: VM name
-            ssh_service: Optional SSHService instance (creates new if None)
-
-        Returns:
-            True if healthy
-        """
-        try:
-            vm_ip = self.state_service.get_vm_ip(vm_name)
-
-            if ssh_service is None:
-                ssh_config = self.config_service.get_ssh_config(self.project_name)
-                ssh_service = SSHService(
-                    ssh_key_path=ssh_config["key_path"], ssh_user=ssh_config["user"]
-                )
-
-            return ssh_service.test_connection(vm_ip)
-        except Exception:
-            return False
-
     def get_vm_role_from_name(self, vm_name: str) -> str:
         """
         Extract role from VM name.
@@ -127,60 +101,6 @@ class VMService:
             return vm_name.rsplit("-", 1)[0]
         return vm_name
 
-    def get_vm_index_from_name(self, vm_name: str) -> int:
-        """
-        Extract index from VM name.
-
-        Args:
-            vm_name: VM name (e.g., "core-0")
-
-        Returns:
-            Index (e.g., 0)
-        """
-        if "-" in vm_name:
-            index_str = vm_name.rsplit("-", 1)[1]
-            if index_str.isdigit():
-                return int(index_str)
-        return 0
-
-    def list_vms_by_role(self, role: str) -> list[str]:
-        """
-        List all VMs for a specific role.
-
-        Args:
-            role: VM role
-
-        Returns:
-            List of VM names
-        """
-        all_vms = self.state_service.load_state().get("vms", {})
-        return [
-            vm_name
-            for vm_name in all_vms.keys()
-            if self.get_vm_role_from_name(vm_name) == role
-        ]
-
-    def get_primary_vm_ip(self, ip_type: str = "external") -> str:
-        """
-        Get primary (core-0) VM IP.
-
-        Args:
-            ip_type: "external" or "internal"
-
-        Returns:
-            IP address
-        """
-        return self.resolve_vm_ip("core-0", ip_type)
-
-    def has_deployed_vms(self) -> bool:
-        """
-        Check if project has any deployed VMs.
-
-        Returns:
-            True if VMs exist in state
-        """
-        return self.state_service.has_state()
-
     def get_ssh_service(self) -> SSHService:
         """
         Get configured SSHService for this project.
@@ -192,4 +112,3 @@ class VMService:
         return SSHService(
             ssh_key_path=ssh_config["key_path"], ssh_user=ssh_config["user"]
         )
-

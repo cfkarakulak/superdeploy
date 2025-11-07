@@ -1,9 +1,9 @@
 deployed: true
-orchestrator_ip: 34.41.132.41
+orchestrator_ip: 35.184.122.251
 vm:
   name: orchestrator-main-0
-  external_ip: 34.41.132.41
-  deployed_at: '2025-11-07T19:09:56.736776'
+  external_ip: 35.184.122.251
+  deployed_at: '2025-11-07T22:33:33.631330'
   status: running
   machine_type: e2-medium
   disk_size: 50
@@ -63,5 +63,5 @@ config:
     https_port: 443
     admin_port: 2019
 last_applied:
-  timestamp: '2025-11-07T19:09:56.736833'
+  timestamp: '2025-11-07T22:33:33.631441'
   config_hash: 96bdcc18e5f7

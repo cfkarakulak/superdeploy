@@ -132,15 +132,6 @@ class Addon:
         """
         return self.metadata.get("conflicts", [])
 
-    def is_shared(self) -> bool:
-        """
-        Check if this is a shared addon (single instance across all projects).
-
-        Returns:
-            True if addon is shared, False otherwise
-        """
-        return self.metadata.get("shared", False)
-
     def get_version(self) -> str:
         """
         Get addon version.
@@ -183,31 +174,6 @@ class Addon:
                 names.append(var["name"])
 
         return names
-
-    def get_env_vars_for_template(self) -> List[str]:
-        """
-        Get environment variable names for workflow templates.
-
-        Returns:
-            List of environment variable names
-        """
-        return self.get_env_var_names()
-
-    def get_secret_vars(self) -> List[str]:
-        """
-        Get list of secret environment variable names.
-
-        Returns:
-            List of secret variable names
-        """
-        env_vars = self.metadata.get("env_vars", [])
-        secrets = []
-
-        for var in env_vars:
-            if isinstance(var, dict) and var.get("secret", False):
-                secrets.append(var["name"])
-
-        return secrets
 
     def get_env_var_structure(self) -> Dict[str, str]:
         """

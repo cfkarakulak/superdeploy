@@ -91,10 +91,6 @@ class BaseCommand(ABC):
         """Print warning message."""
         self.console.print(f"[yellow]⚠ {message}[/yellow]")
 
-    def print_info(self, message: str) -> None:
-        """Print info message."""
-        self.console.print(f"[cyan]ℹ {message}[/cyan]")
-
     def print_dim(self, message: str) -> None:
         """Print dim message."""
         self.console.print(f"[dim]{message}[/dim]")
@@ -178,4 +174,3 @@ class BaseCommand(ABC):
         except Exception as e:
             self.handle_error(e)
             raise SystemExit(1)
-

@@ -14,8 +14,6 @@ from cli.constants import (
     DEFAULT_SSH_USER,
     DEFAULT_GCP_REGION,
     DEFAULT_GCP_ZONE,
-    DEFAULT_APP_PORT,
-    DEFAULT_DOCKER_REGISTRY,
 )
 
 
@@ -115,35 +113,6 @@ class ConfigService:
         """
         app_config = self.get_app_config(project_name, app_name)
         return app_config.get("vm", "core")
-
-    def get_app_port(self, project_name: str, app_name: str) -> int:
-        """
-        Get app port.
-
-        Args:
-            project_name: Project name
-            app_name: App name
-
-        Returns:
-            Port number
-        """
-        app_config = self.get_app_config(project_name, app_name)
-        return app_config.get("port", DEFAULT_APP_PORT)
-
-    def get_app_path(self, project_name: str, app_name: str) -> Path:
-        """
-        Get app path as Path object.
-
-        Args:
-            project_name: Project name
-            app_name: App name
-
-        Returns:
-            App path
-        """
-        app_config = self.get_app_config(project_name, app_name)
-        path_str = app_config.get("path", "")
-        return Path(path_str).expanduser().resolve()
 
     def get_ssh_config(self, project_name: str) -> Dict[str, str]:
         """
@@ -264,22 +233,6 @@ class ConfigService:
         self.load_project_config(project_name)
         return True
 
-    def project_exists(self, project_name: str) -> bool:
-        """
-        Check if project exists without raising error.
-
-        Args:
-            project_name: Project name
-
-        Returns:
-            True if exists
-        """
-        try:
-            self.validate_project(project_name)
-            return True
-        except (FileNotFoundError, ValueError):
-            return False
-
     def get_project_path(self, project_name: str) -> Path:
         """
         Get project directory path.
@@ -291,38 +244,3 @@ class ConfigService:
             Project directory path
         """
         return self.projects_dir / project_name
-
-    def get_github_org(self, project_name: str) -> str:
-        """
-        Get GitHub organization.
-
-        Args:
-            project_name: Project name
-
-        Returns:
-            GitHub org name
-        """
-        config = self.get_raw_config(project_name)
-        return config.get("github", {}).get("organization", f"{project_name}io")
-
-    def get_docker_config(self, project_name: str) -> Dict[str, str]:
-        """
-        Get Docker configuration.
-
-        Args:
-            project_name: Project name
-
-        Returns:
-            Docker config with registry, organization
-        """
-        config = self.get_raw_config(project_name)
-        docker_config = config.get("docker", {})
-
-        return {
-            "registry": docker_config.get("registry", DEFAULT_DOCKER_REGISTRY),
-            "organization": docker_config.get("organization", ""),
-        }
-
-    def clear_cache(self) -> None:
-        """Clear config cache."""
-        self._config_cache.clear()

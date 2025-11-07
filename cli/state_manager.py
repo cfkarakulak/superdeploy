@@ -47,15 +47,6 @@ class StateManager:
             content = f.read()
             return hashlib.sha256(content).hexdigest()[:12]
 
-    def config_changed(self) -> bool:
-        """Check if project.yml has changed since last apply"""
-        state = self.load_state()
-        last_applied = state.get("last_applied", {})
-        last_hash = last_applied.get("config_hash", "")
-        current_hash = self._calculate_config_hash()
-
-        return last_hash != current_hash
-
     def detect_changes(
         self, project_config: Any
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
@@ -250,21 +241,6 @@ class StateManager:
                 "vm": app_config.get("vm"),
                 "workflows_generated": True,
             }
-
-        self.save_state(state)
-
-    def mark_generated(self, app_name: str):
-        """Mark app workflows as generated"""
-        state = self.load_state()
-
-        if "apps" not in state:
-            state["apps"] = {}
-
-        if app_name not in state["apps"]:
-            state["apps"][app_name] = {}
-
-        state["apps"][app_name]["workflows_generated"] = True
-        state["apps"][app_name]["last_generated"] = datetime.now().isoformat()
 
         self.save_state(state)
 

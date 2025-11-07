@@ -301,7 +301,6 @@ def orchestrator_down(yes, preserve_ip, verbose):
             logger.log("User cancelled destruction")
             return
 
-    console.print()  # Add 1 newline after confirmation
     logger.step("[1/3] Preparing Destruction")
 
     shared_dir = project_root / "shared"
@@ -330,9 +329,7 @@ def orchestrator_down(yes, preserve_ip, verbose):
 
     # Check workspace before init
     if not workspace_exists("orchestrator"):
-        console.print(
-            "  [green]✓[/green] [dim]No workspace found (already destroyed)[/dim]"
-        )
+        console.print("  [dim]✓ No workspace found (already destroyed)[/dim]")
         terraform_success = True
     else:
         logger.step("[2/3] Terraform Destroy")
@@ -635,14 +632,13 @@ def _deploy_orchestrator(
     logger.step("[1/3] Setup & Infrastructure")
 
     # Load orchestrator config
-    logger.log("Loading configuration...")
     from cli.core.orchestrator_loader import OrchestratorLoader
 
     orchestrator_loader = OrchestratorLoader(shared_dir)
 
     try:
         orch_config = orchestrator_loader.load()
-        logger.log("✓ Configuration loaded")
+        console.print("  [dim]✓ Configuration loaded[/dim]")
     except FileNotFoundError as e:
         logger.log_error(str(e), context="Orchestrator config not found")
         raise SystemExit(1)
@@ -739,10 +735,7 @@ def _deploy_orchestrator(
 
     # Terraform
     if not skip_terraform:
-        logger.log("Provisioning VM (2-3 min)...")
-
         # First ensure we're on default workspace, then init
-        logger.log("Ensuring default workspace")
         terraform_dir = shared_dir / "terraform"
 
         # Check if .terraform directory exists
@@ -756,12 +749,22 @@ def _deploy_orchestrator(
                 capture_output=True,
             )
 
-        # Init silently
-        from cli.terraform_utils import terraform_init
+        # Init
+        from cli.logger import run_with_progress
 
         try:
-            terraform_init(quiet=True)
-            logger.log("Terraform initialized")
+            returncode, stdout, stderr = run_with_progress(
+                logger,
+                "cd shared/terraform && terraform init -upgrade -migrate-state -input=false -no-color",
+                "Initializing Terraform",
+                cwd=project_root,
+            )
+
+            if returncode != 0:
+                logger.log_error("Terraform init failed", context=stderr)
+                raise SystemExit(1)
+
+            console.print("  [dim]✓ Terraform initialized[/dim]")
         except Exception as e:
             logger.log_error("Terraform init failed", context=str(e))
             raise SystemExit(1)
@@ -771,7 +774,6 @@ def _deploy_orchestrator(
 
         try:
             select_workspace("orchestrator", create=True)
-            logger.log("Workspace ready: orchestrator")
         except Exception as e:
             logger.log_error("Workspace setup failed", context=str(e))
             raise SystemExit(1)
@@ -779,6 +781,16 @@ def _deploy_orchestrator(
         # Generate tfvars
         logger.log("Generating terraform variables")
         tfvars = orch_config.to_terraform_vars(gcp_project_id, ssh_key_path)
+
+        # Preserve IP logic: If preserve_ip is enabled, get current IP from state
+        if preserve_ip:
+            logger.log("Preserve IP mode enabled - keeping static IP")
+            current_ip = orch_config.get_ip()
+            if current_ip:
+                logger.log(f"Current IP to preserve: {current_ip}")
+                # Terraform will use existing IP address by name convention
+            else:
+                logger.log("No existing IP found, will create new one")
 
         tfvars_file = (
             project_root / "shared" / "terraform" / "orchestrator.auto.tfvars.json"
@@ -788,14 +800,11 @@ def _deploy_orchestrator(
         with open(tfvars_file, "w") as f:
             json.dump(tfvars, f, indent=2)
 
-        logger.log(f"Terraform vars saved to: {tfvars_file}")
+        logger.log("Terraform vars written to: orchestrator.auto.tfvars.json")
 
         # Apply
         logger.log("Running terraform apply")
         apply_cmd = "cd shared/terraform && terraform apply -auto-approve -no-color -compact-warnings"
-
-        if preserve_ip:
-            logger.log("Preserve IP mode enabled")
 
         returncode, stdout, stderr = run_with_progress(
             logger,
@@ -852,28 +861,21 @@ def _deploy_orchestrator(
         )
 
         # Wait for SSH
-        logger.log("Waiting for SSH...")
         ssh_key = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
         ssh_user = ssh_config.get("user", "superdeploy")
 
         max_attempts = 18
         for attempt in range(1, max_attempts + 1):
-            logger.log(f"SSH check attempt {attempt}/{max_attempts}")
-
             check_cmd = f"ssh -i {ssh_key} -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes {ssh_user}@{orchestrator_ip} 'sudo -n whoami' 2>&1"
             result = subprocess.run(
                 check_cmd, shell=True, capture_output=True, text=True, timeout=10
             )
-
-            logger.log_output(result.stdout, "stdout")
-            logger.log_output(result.stderr, "stderr")
 
             if result.returncode == 0 and "root" in result.stdout:
                 console.print("  [dim]✓ VM ready[/dim]")
                 break
 
             if attempt < max_attempts:
-                logger.log("VM not ready yet, waiting 10 seconds...")
                 time.sleep(10)
         else:
             logger.warning("VM may not be fully ready, continuing anyway...")

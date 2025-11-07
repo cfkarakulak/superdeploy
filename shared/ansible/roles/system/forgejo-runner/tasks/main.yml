@@ -409,8 +409,8 @@
   when: runner_registration_check.stat.exists or runner_register_result is changed
 
 - name: Wait for runner service to initialize
-  pause:
-    seconds: 5
+  shell: sleep 5
+  changed_when: false
   when: runner_registration_check.stat.exists or runner_register_result is changed
 
 - name: Verify runner is working (no auth errors)

@@ -35,7 +35,7 @@
       sleep 3
       
       for attempt in 1 2 3 4 5; do
-        CONTAINER_IDS=$(docker ps -aq --filter "name=^${PROJECT_NAME}-${ADDON_NAME}$" 2>/dev/null || true)
+        CONTAINER_IDS=$(docker ps -aq --filter "name=${PROJECT_NAME}-${ADDON_NAME}" 2>/dev/null || true)
         if [ -z "$CONTAINER_IDS" ]; then
           echo "✓ All containers removed (attempt $attempt)"
           break

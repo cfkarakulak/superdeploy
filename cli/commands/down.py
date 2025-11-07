@@ -93,16 +93,38 @@ class DownCommand(ProjectCommand):
 
     def _confirm_destruction(self) -> bool:
         """Ask for user confirmation."""
-        result = self.confirm(
+        return self.confirm(
             "[bold red]Are you sure you want to destroy all infrastructure?[/bold red]",
             default=False,
         )
-        self.console.print()  # Add newline after confirmation
-        return result
 
     def _prepare_destruction(self, logger) -> bool:
         """Prepare for destruction. Returns True if should skip terraform."""
         from cli.terraform_utils import workspace_exists
+
+        # Delete state.yml FIRST (before any operations that might fail)
+        state_file = self.project_root / "projects" / self.project_name / "state.yml"
+        if state_file.exists():
+            try:
+                state_file.unlink()
+                self.console.print("  [dim]✓ State file removed[/dim]")
+            except Exception as e:
+                self.console.print(
+                    f"  [yellow]⚠ Could not delete state.yml: {e}[/yellow]"
+                )
+
+        # Load project config
+        from cli.core.config_loader import ConfigLoader
+
+        projects_dir = self.project_root / "projects"
+        config_loader = ConfigLoader(projects_dir)
+        try:
+            project_config = config_loader.load_project(self.project_name)
+            self.console.print("  [dim]✓ Configuration loaded[/dim]")
+        except FileNotFoundError:
+            self.console.print(
+                "  [dim]✓ Configuration not found (project may not exist)[/dim]"
+            )
 
         terraform_dir = self.project_root / "shared" / "terraform"
 
@@ -115,15 +137,13 @@ class DownCommand(ProjectCommand):
         )
         if lock_file.exists():
             lock_file.unlink()
-
-        self.console.print("  [dim]✓ State locks cleaned[/dim]")
+            self.console.print("  [dim]✓ State locks cleaned[/dim]")
 
         # Check if workspace exists
         if not workspace_exists(self.project_name):
             self.console.print("  [dim]✓ No workspace found (already destroyed)[/dim]")
             return True
 
-        self.console.print("  [dim]✓ Workspace found[/dim]")
         return False
 
     def _terraform_destroy(self, logger) -> None:
@@ -313,12 +333,32 @@ class DownCommand(ProjectCommand):
         """Clean up Terraform state workspace."""
         try:
             terraform_dir = self.project_root / "shared" / "terraform"
-            state_dir = terraform_dir / "terraform.tfstate.d" / self.project_name
 
-            if state_dir.exists():
-                import shutil
+            # Switch to default workspace first
+            subprocess.run(
+                "terraform workspace select default",
+                shell=True,
+                cwd=terraform_dir,
+                capture_output=True,
+            )
 
-                shutil.rmtree(state_dir)
+            # Delete the project workspace (this also removes state)
+            # Use -force because after destroy, state might have stale references
+            result = subprocess.run(
+                f"terraform workspace delete -force {self.project_name}",
+                shell=True,
+                cwd=terraform_dir,
+                capture_output=True,
+                text=True,
+            )
+
+            # If workspace deletion failed, manually remove state directory
+            if result.returncode != 0:
+                state_dir = terraform_dir / "terraform.tfstate.d" / self.project_name
+                if state_dir.exists():
+                    import shutil
+
+                    shutil.rmtree(state_dir)
 
             self.console.print("  [dim]✓ Terraform state cleaned[/dim]")
         except Exception:
@@ -336,14 +376,18 @@ class DownCommand(ProjectCommand):
 
     def _clean_local_files(self) -> None:
         """Clean up local project files."""
-        # Delete state.yml completely
-        from cli.utils import get_project_root
+        deleted_items = []
 
-        project_root = get_project_root()
-        state_file = project_root / "projects" / self.project_name / "state.yml"
+        # Delete state.yml (CRITICAL - always delete)
+        state_file = self.project_root / "projects" / self.project_name / "state.yml"
         if state_file.exists():
-            state_file.unlink()
-            self.console.print("  [dim]✓ State file deleted[/dim]")
+            try:
+                state_file.unlink()
+                deleted_items.append("state.yml")
+            except Exception as e:
+                self.console.print(
+                    f"  [yellow]⚠ Could not delete state.yml: {e}[/yellow]"
+                )
 
         # Clean inventory file
         inventory_file = (
@@ -354,13 +398,28 @@ class DownCommand(ProjectCommand):
             / f"{self.project_name}.ini"
         )
         if inventory_file.exists():
-            inventory_file.unlink()
+            try:
+                inventory_file.unlink()
+                deleted_items.append("inventory")
+            except Exception:
+                pass
 
         # Clean tfvars
         terraform_dir = self.project_root / "shared" / "terraform"
         tfvars_file = terraform_dir / f"{self.project_name}.tfvars.json"
         if tfvars_file.exists():
-            tfvars_file.unlink()
+            try:
+                tfvars_file.unlink()
+                deleted_items.append("tfvars")
+            except Exception:
+                pass
+
+        if deleted_items:
+            self.console.print(
+                f"  [dim]✓ Local files cleaned ({', '.join(deleted_items)})[/dim]"
+            )
+        else:
+            self.console.print("  [dim]✓ No local files to clean[/dim]")
 
 
 @click.command()

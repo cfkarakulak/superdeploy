@@ -127,28 +127,6 @@ class StateService:
 
         return result
 
-    def get_env_dict(self) -> Dict[str, str]:
-        """
-        Get environment dictionary compatible with old load_env() format.
-
-        Returns:
-            Dictionary with VM_NAME_EXTERNAL_IP style keys
-        """
-        env = {}
-        state = self.load_state()
-        vms = state.get("vms", {})
-
-        for vm_name, vm_data in vms.items():
-            if "external_ip" in vm_data:
-                env_key = vm_name.upper().replace("-", "_")
-                env[f"{env_key}_EXTERNAL_IP"] = vm_data["external_ip"]
-
-            if "internal_ip" in vm_data:
-                env_key = vm_name.upper().replace("-", "_")
-                env[f"{env_key}_INTERNAL_IP"] = vm_data["internal_ip"]
-
-        return env
-
     def has_state(self) -> bool:
         """
         Check if state exists without raising error.
@@ -176,46 +154,4 @@ class StateService:
     def mark_destroyed(self) -> None:
         """Mark project as destroyed in state."""
         self.state_manager.mark_destroyed()
-        self._state_cache = None
-
-    def update_vm_ips(
-        self,
-        vm_name: str,
-        external_ip: Optional[str] = None,
-        internal_ip: Optional[str] = None,
-    ) -> None:
-        """
-        Update VM IPs in state.
-
-        Args:
-            vm_name: VM name
-            external_ip: External IP (optional)
-            internal_ip: Internal IP (optional)
-        """
-        state = self.load_state()
-
-        if "vms" not in state:
-            state["vms"] = {}
-
-        if vm_name not in state["vms"]:
-            state["vms"][vm_name] = {}
-
-        if external_ip:
-            state["vms"][vm_name]["external_ip"] = external_ip
-
-        if internal_ip:
-            state["vms"][vm_name]["internal_ip"] = internal_ip
-
-        # Save with existing config
-        config = state.get("config", {})
-        state_data = {
-            "vms": state["vms"],
-            "addons": state.get("addons", {}),
-            "apps": state.get("apps", {}),
-        }
-
-        self.save_state(config, state_data)
-
-    def clear_cache(self) -> None:
-        """Clear cached state, force reload on next access."""
         self._state_cache = None

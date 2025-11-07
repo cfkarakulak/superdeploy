@@ -103,18 +103,23 @@ def workspace_exists(workspace_name: str) -> bool:
         True if workspace exists, False otherwise
     """
     import subprocess
+
     terraform_dir = get_terraform_dir()
-    
+
     try:
         result = subprocess.run(
             ["terraform", "workspace", "list"],
             cwd=terraform_dir,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         # Parse workspace list (format: "  workspace1\n* workspace2\n  workspace3")
-        workspaces = [line.strip().lstrip('*').strip() for line in result.stdout.split('\n') if line.strip()]
+        workspaces = [
+            line.strip().lstrip("*").strip()
+            for line in result.stdout.split("\n")
+            if line.strip()
+        ]
         return workspace_name in workspaces
     except subprocess.CalledProcessError:
         return False
@@ -133,18 +138,24 @@ def select_workspace(project_name: str, create: bool = False):
     """
     if create:
         # Use select -or-create to create if needed (suppress output)
-        run_terraform_command(["workspace", "select", "-or-create", project_name], capture_output=True)
+        run_terraform_command(
+            ["workspace", "select", "-or-create", project_name], capture_output=True
+        )
     else:
         # Check if workspace exists first
         if not workspace_exists(project_name):
             raise click.ClickException(f"Workspace '{project_name}' does not exist")
-        
+
         # Just select (suppress output)
-        run_terraform_command(["workspace", "select", project_name], capture_output=True)
+        run_terraform_command(
+            ["workspace", "select", project_name], capture_output=True
+        )
 
 
 def generate_tfvars(
-    project_config: ProjectConfig, output_file: Optional[Path] = None, preserve_ip: bool = False
+    project_config: ProjectConfig,
+    output_file: Optional[Path] = None,
+    preserve_ip: bool = False,
 ) -> Path:
     """
     Generate Terraform variables file from project configuration
@@ -175,105 +186,13 @@ def generate_tfvars(
 def terraform_init(quiet: bool = False):
     """
     Initialize Terraform (download providers, etc.)
-    
+
     Args:
         quiet: If True, suppress output
     """
     if not quiet:
         click.echo("Initializing Terraform...")
     run_terraform_command(["init"], capture_output=quiet)
-
-
-def terraform_plan(
-    project_name: str, project_config: ProjectConfig, var_file: Optional[Path] = None
-):
-    """
-    Run Terraform plan for a project
-
-    Args:
-        project_name: Name of the project
-        project_config: Loaded project configuration
-        var_file: Optional path to tfvars file (will be generated if not provided)
-    """
-    # Select workspace
-    select_workspace(project_name, create=True)
-
-    # Generate tfvars if not provided
-    if var_file is None:
-        var_file = generate_tfvars(project_config)
-
-    # Run plan
-    click.echo(f"\nRunning Terraform plan for project: {project_name}")
-    run_terraform_command(["plan", f"-var-file={var_file}"])
-
-
-def terraform_apply(
-    project_name: str,
-    project_config: ProjectConfig,
-    var_file: Optional[Path] = None,
-    auto_approve: bool = False,
-    preserve_ip: bool = False,
-):
-    """
-    Run Terraform apply for a project
-
-    Args:
-        project_name: Name of the project
-        project_config: Loaded project configuration
-        var_file: Optional path to tfvars file (will be generated if not provided)
-        auto_approve: Whether to skip confirmation prompt
-        preserve_ip: Whether to preserve existing static IPs
-    """
-    # Select workspace
-    select_workspace(project_name, create=True)
-
-    # Generate tfvars if not provided
-    if var_file is None:
-        var_file = generate_tfvars(project_config, preserve_ip=preserve_ip)
-
-    # Build command
-    args = ["apply", f"-var-file={var_file}"]
-    if auto_approve:
-        args.append("-auto-approve")
-
-    # Run apply
-    click.echo(f"\nApplying Terraform configuration for project: {project_name}")
-    run_terraform_command(args)
-
-
-def terraform_destroy(
-    project_name: str,
-    project_config: ProjectConfig,
-    var_file: Optional[Path] = None,
-    auto_approve: bool = False,
-    force: bool = False,
-):
-    """
-    Run Terraform destroy for a project
-
-    Args:
-        project_name: Name of the project
-        project_config: Loaded project configuration
-        var_file: Optional path to tfvars file (will be generated if not provided)
-        auto_approve: Whether to skip confirmation prompt
-        force: Whether to bypass state locking
-    """
-    # Select workspace
-    select_workspace(project_name, create=False)
-
-    # Generate tfvars if not provided
-    if var_file is None:
-        var_file = generate_tfvars(project_config)
-
-    # Build command
-    args = ["destroy", f"-var-file={var_file}"]
-    if auto_approve:
-        args.append("-auto-approve")
-    if force:
-        args.append("-lock=false")
-
-    # Run destroy (capture output to suppress verbose messages)
-    run_terraform_command(args, capture_output=True)
 
 
 def get_terraform_outputs(project_name: str) -> Dict[str, Any]:

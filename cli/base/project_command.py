@@ -60,17 +60,6 @@ class ProjectCommand(BaseCommand):
             self.state_service = StateService(self.project_root, self.project_name)
         return self.state_service
 
-    def ensure_secret_service(self) -> SecretService:
-        """
-        Ensure SecretService is initialized.
-
-        Returns:
-            SecretService instance
-        """
-        if self.secret_service is None:
-            self.secret_service = SecretService(self.project_root, self.project_name)
-        return self.secret_service
-
     def ensure_vm_service(self) -> VMService:
         """
         Ensure VMService is initialized.

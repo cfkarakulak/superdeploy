@@ -16,8 +16,6 @@ Example project.yml:
 """
 
 from typing import Dict, Any
-from pathlib import Path
-import yaml
 
 
 class EnvManager:
@@ -102,59 +100,3 @@ class EnvManager:
                 resolved[alias_name] = str(alias_value)
 
         return resolved
-
-    def get_app_env_secrets(
-        self, app_name: str, addon_secrets: Dict[str, str]
-    ) -> Dict[str, str]:
-        """
-        Get complete environment secrets for an app (addon + aliases).
-
-        This replaces hardcoded mapping in sync.py:
-            OLD: if "POSTGRES_HOST" in env: secrets["DB_HOST"] = env["POSTGRES_HOST"]
-            NEW: secrets = env_manager.get_app_env_secrets("api", env)
-
-        Args:
-            app_name: Name of the app
-            addon_secrets: Secrets from addons (POSTGRES_*, RABBITMQ_*, etc.)
-
-        Returns:
-            Complete secrets dict with resolved aliases
-        """
-        return self.resolve_aliases(app_name, addon_secrets)
-
-    def get_alias_keys(self, app_name: str) -> list[str]:
-        """
-        Get list of alias keys for an app.
-
-        Useful for adding aliases to github_secrets/forgejo_secrets lists.
-
-        Args:
-            app_name: Name of the app
-
-        Returns:
-            List of alias key names (e.g., ["DB_HOST", "DB_PORT", ...])
-        """
-        apps = self.project_config.get("apps", {})
-        app_config = apps.get(app_name)
-
-        if not app_config:
-            return []
-
-        env_aliases = app_config.get("env_aliases", {})
-        return list(env_aliases.keys())
-
-    @staticmethod
-    def from_project_file(project_file: Path) -> "EnvManager":
-        """
-        Create EnvManager from project.yml file.
-
-        Args:
-            project_file: Path to project.yml
-
-        Returns:
-            EnvManager instance
-        """
-        with open(project_file, "r") as f:
-            project_config = yaml.safe_load(f)
-
-        return EnvManager(project_config)
