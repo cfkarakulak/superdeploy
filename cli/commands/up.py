@@ -285,22 +285,28 @@ def _deploy_project_v2(
         logger.log_error(str(e), context="Orchestrator config not found")
         raise SystemExit(1)
 
-    # Load environment
+    # Load project config and environment
     from cli.utils import validate_env_vars
     from cli.secret_manager import SecretManager
+    from cli.core.config_loader import ConfigLoader
     
-    # Load from .passwords.yml instead of .env
     project_root = get_project_root()
     project_dir = project_root / "projects" / project
-    secret_mgr = SecretManager(project_dir, project)
+    
+    # Load project config
+    config_loader = ConfigLoader(project_root / "projects")
+    project_config_obj = config_loader.load_project(project)
+    
+    # Load from .passwords.yml instead of .env
+    secret_mgr = SecretManager(project_root, project)
     passwords_data = secret_mgr.load_secrets()
 
     # Build env dict from project.yml + .passwords.yml
     env = {
-        "GCP_PROJECT_ID": project_config.raw_config["cloud"]["gcp"]["project_id"],
-        "GCP_REGION": project_config.raw_config["cloud"]["gcp"]["region"],
-        "SSH_KEY_PATH": project_config.raw_config["cloud"]["ssh"]["key_path"],
-        "SSH_USER": project_config.raw_config["cloud"]["ssh"]["user"],
+        "GCP_PROJECT_ID": project_config_obj.raw_config["cloud"]["gcp"]["project_id"],
+        "GCP_REGION": project_config_obj.raw_config["cloud"]["gcp"]["region"],
+        "SSH_KEY_PATH": project_config_obj.raw_config["cloud"]["ssh"]["key_path"],
+        "SSH_USER": project_config_obj.raw_config["cloud"]["ssh"]["user"],
     }
 
     # Add secrets to env
