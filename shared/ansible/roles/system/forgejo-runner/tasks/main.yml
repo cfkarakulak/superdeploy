@@ -335,7 +335,7 @@
 
 - name: Build runner labels (avoid duplicates)
   set_fact:
-    runner_labels: "self-hosted:host,project-runner:host,ubuntu-latest:host,{{ runner_project_name }}:host{% if vm_role != runner_project_name %},{{ vm_role }}:host{% endif %},linux:host,docker:host"
+    runner_labels: "self-hosted,{{ runner_project_name }},{{ vm_role }}"
   when: 
     - not runner_registration_check.stat.exists
     - runner_token is defined

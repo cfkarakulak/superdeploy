@@ -263,21 +263,27 @@ jobs:
             exit 1
           fi
           
+          # Build JSON payload properly
+          PAYLOAD=$(cat <<EOF
+          {
+            "ref": "master",
+            "inputs": {
+              "project": "${{ '{{' }} steps.config.outputs.project {{ '}}' }}",
+              "app": "${{ '{{' }} steps.config.outputs.app {{ '}}' }}",
+              "vm_role": "${{ '{{' }} steps.config.outputs.vm_role {{ '}}' }}",
+              "image": "${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}/${{ '{{' }} steps.config.outputs.app {{ '}}' }}:latest",
+              "git_sha": "${{ '{{' }} github.sha {{ '}}' }}"
+            }
+          }
+          EOF
+          )
+          
           # Trigger Forgejo workflow_dispatch
           curl -X POST \
             "http://${{ '{{' }} secrets.ORCHESTRATOR_IP {{ '}}' }}:3001/api/v1/repos/cradexco/superdeploy/actions/workflows/deploy.yml/dispatches" \
             -H "Authorization: token ${{ '{{' }} secrets.FORGEJO_PAT {{ '}}' }}" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"ref\": \"master\",
-              \"inputs\": {
-                \"project\": \"${{ '{{' }} steps.config.outputs.project {{ '}}' }}\",
-                \"app\": \"${{ '{{' }} steps.config.outputs.app {{ '}}' }}\",
-                \"vm_role\": \"${{ '{{' }} steps.config.outputs.vm_role {{ '}}' }}\",
-                \"image\": \"${{ '{{' }} secrets.DOCKER_ORG {{ '}}' }}/${{ '{{' }} steps.config.outputs.app {{ '}}' }}:latest\",
-                \"git_sha\": \"${{ '{{' }} github.sha {{ '}}' }}\"
-              }
-            }"
+            -d "$PAYLOAD"
           
           echo "✅ Deployment triggered on Forgejo"
 """
