@@ -514,7 +514,7 @@ def _deploy_project_v2(
         # Load and pass .passwords.yml to Ansible
         from cli.secret_manager import SecretManager
 
-        secret_mgr = SecretManager(project_root / "projects" / project)
+        secret_mgr = SecretManager(project_root, project)
         all_secrets = secret_mgr.load_secrets()
         ansible_vars["project_secrets"] = all_secrets.get("secrets", {})
         ansible_vars["env_aliases"] = all_secrets.get("env_aliases", {})
