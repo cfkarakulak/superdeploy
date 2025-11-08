@@ -7,6 +7,7 @@ superdeploy_group: "superdeploy"
 
 # Base directories to create
 base_directories:
+  - /var/lib/superdeploy
   - /opt/superdeploy
   - /opt/superdeploy/compose
   - /opt/superdeploy/logs
