@@ -226,17 +226,17 @@ def up(
                 # Auto-generate workflows if needed
                 if changes["needs_generate"]:
                     logger.log("  [cyan]→ Auto-generating workflows...[/cyan]")
-                    
+
                     # Use subprocess to call generate with namespace syntax
                     import sys
-                    
+
                     generate_cmd = [
                         sys.executable,
                         "-m",
                         "cli.main",
                         f"{project}:generate",
                     ]
-                    
+
                     result = subprocess.run(
                         generate_cmd,
                         capture_output=True,
