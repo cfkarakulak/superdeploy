@@ -250,7 +250,7 @@ jobs:
           # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
           case "$APP_NAME" in
             {{ app }})
-              SECRET_VALUE='${{ secrets.{{ app|upper }}_ENV_JSON }}'
+              SECRET_VALUE='{% endraw %}${{ secrets.{{ app|upper }}_ENV_JSON }}{% raw %}'
               ;;
             *)
               echo "❌ App '$APP_NAME' not configured in workflow"
@@ -376,7 +376,7 @@ jobs:
           # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
           case "$APP_NAME" in
             {{ app }})
-              SECRET_VALUE='${{ secrets.{{ app|upper }}_ENV_JSON }}'
+              SECRET_VALUE='{% endraw %}${{ secrets.{{ app|upper }}_ENV_JSON }}{% raw %}'
               ;;
             *)
               echo "❌ App '$APP_NAME' not configured in workflow"

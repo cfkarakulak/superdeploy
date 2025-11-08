@@ -926,27 +926,30 @@ def _deploy_project(
     if not verbose:
         # Display deployment summary like orchestrator:up does
         console.print("\n" + "=" * 80)
-        console.print(f"[bold cyan]🚀 {project.upper()} DEPLOYED SUCCESSFULLY[/bold cyan]")
+        console.print(
+            f"[bold cyan]🚀 {project.upper()} DEPLOYED SUCCESSFULLY[/bold cyan]"
+        )
         console.print("=" * 80)
-        
+
         # VMs
         if vm_ips:
-            console.print(f"\n[bold cyan]📍 Virtual Machines:[/bold cyan]")
+            console.print("\n[bold cyan]📍 Virtual Machines:[/bold cyan]")
             for vm_name, ip in sorted(vm_ips.items()):
                 console.print(f"   • [cyan]{vm_name}:[/cyan] {ip}")
-        
+
         # Orchestrator (if available)
         if orchestrator_ip:
-            console.print(f"\n[bold cyan]🎯 Orchestrator:[/bold cyan]")
+            console.print("\n[bold cyan]🎯 Orchestrator:[/bold cyan]")
             console.print(f"   IP: {orchestrator_ip}")
             try:
                 from cli.core.orchestrator_loader import OrchestratorLoader
+
                 project_root = get_project_root()
                 orch_loader = OrchestratorLoader(project_root / "shared")
                 orch_config = orch_loader.load()
                 orch_secrets = orch_config.get_secrets()
                 grafana_pass = orch_secrets.get("GRAFANA_ADMIN_PASSWORD", "")
-                
+
                 console.print(f"   📊 Grafana: http://{orchestrator_ip}:3000")
                 if grafana_pass:
                     console.print("      Username: [bold]admin[/bold]")
@@ -954,10 +957,10 @@ def _deploy_project(
                 console.print(f"   📈 Prometheus: http://{orchestrator_ip}:9090")
             except Exception:
                 pass
-        
+
         # Credentials
-        console.print(f"\n[bold cyan]🔐 Access Credentials:[/bold cyan]")
-        
+        console.print("\n[bold cyan]🔐 Access Credentials:[/bold cyan]")
+
         # PostgreSQL
         if postgres_pass:
             console.print("\n[cyan]🐘 PostgreSQL:[/cyan]")
@@ -965,7 +968,7 @@ def _deploy_project(
             console.print(f"   Database: [bold]{postgres_db}[/bold]")
             console.print(f"   Username: [bold]{postgres_user}[/bold]")
             console.print(f"   Password: [bold]{postgres_pass}[/bold]")
-        
+
         # RabbitMQ
         if rabbitmq_pass:
             console.print("\n[cyan]🐰 RabbitMQ:[/cyan]")
@@ -974,34 +977,36 @@ def _deploy_project(
             console.print(f"   Password: [bold]{rabbitmq_pass}[/bold]")
             if core_vm_ip:
                 console.print(f"   Management UI: http://{core_vm_ip}:15672")
-        
+
         # Redis (if exists)
         if redis_pass:
             console.print("\n[cyan]📦 Redis:[/cyan]")
             console.print(f"   Host: [bold]{redis_host}[/bold]")
             console.print(f"   Password: [bold]{redis_pass}[/bold]")
-        
+
         # Applications
         if apps:
-            console.print(f"\n[bold cyan]🌐 Applications:[/bold cyan]")
+            console.print("\n[bold cyan]🌐 Applications:[/bold cyan]")
             for app_name, app_config in apps.items():
                 domain = app_config.get("domain", "")
                 port = app_config.get("port")
                 vm_role = app_config.get("vm", "")
-                
+
                 # Find VM IP for this app
                 vm_ip = None
                 for vm_name, ip in vm_ips.items():
                     if vm_role in vm_name:
                         vm_ip = ip
                         break
-                
+
                 if vm_ip:
                     if domain:
                         console.print(f"   • [cyan]{app_name}:[/cyan] https://{domain}")
                     else:
-                        console.print(f"   • [cyan]{app_name}:[/cyan] http://{vm_ip}:{port}")
-        
+                        console.print(
+                            f"   • [cyan]{app_name}:[/cyan] http://{vm_ip}:{port}"
+                        )
+
         console.print("\n" + "=" * 80)
         console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
         console.print(
@@ -1231,36 +1236,36 @@ def _validate_secrets(project_root, project_name, logger):
 def _update_secrets_with_vm_ips(project_root, project, env, logger):
     """
     Auto-update secrets.yml with VM internal IPs for multi-VM architecture
-    
+
     This ensures services like postgres/rabbitmq on core VM can be reached
     from apps on app VM using internal IPs instead of hostnames.
     """
     from cli.secret_manager import SecretManager
     from cli.state_manager import StateManager
-    
+
     secret_mgr = SecretManager(project_root, project)
     secrets_data = secret_mgr.load_secrets()
-    
+
     if not secrets_data or "secrets" not in secrets_data:
         return  # No secrets to update
-    
+
     shared_secrets = secrets_data.get("secrets", {}).get("shared", {})
     if not shared_secrets:
         return  # No shared secrets
-    
+
     # Get core VM internal IP from env or state
     core_internal_ip = env.get("CORE_0_INTERNAL_IP")
-    
+
     if not core_internal_ip:
         # Try to load from state
         state_mgr = StateManager(project_root, project)
         state = state_mgr.load_state()
         core_vm = state.get("vms", {}).get("core", {})
         core_internal_ip = core_vm.get("internal_ip")
-    
+
     if not core_internal_ip:
         return  # No core VM found
-    
+
     # Update service hosts with internal IP
     updated = False
     service_hosts = {
@@ -1270,7 +1275,7 @@ def _update_secrets_with_vm_ips(project_root, project, env, logger):
         "REDIS_HOST": ("redis", "Redis"),
         "ELASTICSEARCH_HOST": ("elasticsearch", "Elasticsearch"),
     }
-    
+
     for host_key, (default_name, service_name) in service_hosts.items():
         if host_key in shared_secrets:
             current_value = shared_secrets[host_key]
@@ -1278,11 +1283,12 @@ def _update_secrets_with_vm_ips(project_root, project, env, logger):
             if current_value == default_name:
                 shared_secrets[host_key] = core_internal_ip
                 updated = True
-                logger.log(f"  [dim]✓ Updated {service_name} host: {default_name} → {core_internal_ip}[/dim]")
-    
+                logger.log(
+                    f"  [dim]✓ Updated {service_name} host: {default_name} → {core_internal_ip}[/dim]"
+                )
+
     if updated:
         # Save updated secrets
         secrets_data["secrets"]["shared"] = shared_secrets
         secret_mgr.save_secrets(secrets_data)
-        logger.log(f"  [dim]✓ secrets.yml updated with VM internal IPs[/dim]")
-
+        logger.log("  [dim]✓ secrets.yml updated with VM internal IPs[/dim]")
