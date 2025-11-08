@@ -15,36 +15,12 @@
     - /opt/superdeploy/projects
     - /opt/github-runner
 
-- name: Check if Node.js is installed
-  command: node --version
-  register: node_check
-  failed_when: false
-  changed_when: false
-
-- name: Install Node.js (if not present)
-  block:
-    - name: Download Node.js setup script
-      get_url:
-        url: https://deb.nodesource.com/setup_20.x
-        dest: /tmp/nodesource_setup.sh
-        mode: '0755'
-      when: node_check.rc != 0
-
-    - name: Run Node.js setup script
-      command: bash /tmp/nodesource_setup.sh
-      when: node_check.rc != 0
-
-    - name: Install Node.js package
-      apt:
-        name: nodejs
-        state: present
-        update_cache: yes
-      when: node_check.rc != 0
-      retries: 5
-      delay: 10
-      register: nodejs_install
-      until: nodejs_install is succeeded
-  when: ansible_facts['os_family'] == "Debian"
+# NOTE: Node.js is NOT installed on VMs
+# Reasoning:
+#   - Next.js builds happen in GitHub Actions (ubuntu-latest)
+#   - Production containers already have Node.js
+#   - GitHub Runner is a Go binary (doesn't need Node.js)
+#   - Reduces VM dependencies and attack surface
 
 - name: Determine project name
   set_fact:
@@ -53,14 +29,6 @@
 - name: Get VM role from inventory
   set_fact:
     vm_role: "{{ hostvars[inventory_hostname].vm_role }}"
-
-- name: Create project identifier file (legacy location)
-  copy:
-    content: "{{ runner_project_name }}"
-    dest: /var/lib/superdeploy/project_identifier
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_user }}"
-    mode: '0644'
 
 - name: Create project identifier file (for deployment workflows)
   copy:

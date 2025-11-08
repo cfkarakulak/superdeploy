@@ -171,13 +171,54 @@
         state: started
       register: docker_check
       failed_when: false
-      
+    
+    - name: Display Docker status
+      debug:
+        msg: "Docker service: {{ 'running ✅' if docker_check.status.ActiveState == 'active' else 'not running ❌' }}"
+    
+    # GitHub Runner Health Check
+    - name: Check if GitHub runner service exists
+      stat:
+        path: /etc/systemd/system/github-runner.service
+      register: runner_service_file
+    
+    - name: Check GitHub runner service status
+      systemd:
+        name: github-runner
+      register: runner_service
+      when: runner_service_file.stat.exists
+      failed_when: false
+    
+    - name: Display runner status
+      debug:
+        msg: "GitHub Runner: {{ 'running ✅' if (runner_service_file.stat.exists and runner_service.status.ActiveState == 'active') else 'not installed or not running' }}"
+    
+    - name: Check if project identifier exists
+      stat:
+        path: /opt/superdeploy/.project
+      register: project_file
+      when: runner_service_file.stat.exists
+    
+    - name: Read project identifier
+      slurp:
+        path: /opt/superdeploy/.project
+      register: project_content
+      when: 
+        - runner_service_file.stat.exists
+        - project_file.stat.exists
+    
+    - name: Display project identifier
+      debug:
+        msg: "Project ID: {{ (project_content.content | b64decode).strip() if project_content is defined and project_content.content is defined else 'not found' }}"
+      when: runner_service_file.stat.exists
+    
+    # Project Structure Check
     - name: Check if project compose directory exists
       stat:
         path: "/opt/superdeploy/projects/{{ project_name }}/compose"
       register: compose_dir
       when: project_name is defined
-      
+    
     - name: Check if docker-compose file exists
       find:
         paths: "/opt/superdeploy/projects/{{ project_name }}/compose"
@@ -187,25 +228,78 @@
         - project_name is defined
         - compose_dir is defined
         - compose_dir.stat.exists
-      
-    - name: Verify Docker Compose services (if compose files exist)
-      command: docker compose ps
-      args:
-        chdir: "/opt/superdeploy/projects/{{ project_name }}"
-      register: compose_status
-      ignore_errors: yes
+    
+    - name: Display compose file status
+      debug:
+        msg: "Docker Compose files: {{ compose_files.matched | default(0) }} found"
+      when: compose_files is defined
+    
+    # Container Health Check
+    - name: Check running containers
+      command: docker ps --format '{{"{{.Names}}"}}'
+      register: running_containers
+      changed_when: false
+      failed_when: false
       when: 
         - project_name is defined
-        - compose_files is defined
-        - compose_files.matched is defined
-        - compose_files.matched > 0
-      
-    - name: Display service status
+        - compose_dir is defined
+        - compose_dir.stat.exists
+    
+    - name: Display running containers
       debug:
-        var: compose_status.stdout_lines
+        msg: 
+          - "Running containers:"
+          - "{{ running_containers.stdout_lines | default(['none']) }}"
+      when: running_containers is defined and running_containers.stdout_lines is defined
+    
+    # Container Health Status (detailed)
+    - name: Get container health status
+      shell: |
+        docker ps --format 'table {{"{{.Names}}\t{{.Status}}\t{{.Ports}}"}}' | grep "{{ project_name }}" || echo "No containers"
+      register: container_health
+      changed_when: false
+      failed_when: false
       when: 
-        - compose_status is defined
-        - compose_status.stdout_lines is defined
+        - project_name is defined
+        - running_containers is defined
+        - running_containers.stdout_lines is defined
+        - running_containers.stdout_lines | length > 0
+    
+    - name: Display container health
+      debug:
+        msg: "{{ container_health.stdout_lines | default(['No project containers running']) }}"
+      when: container_health is defined
+    
+    # Network Check
+    - name: Check if project Docker network exists
+      command: docker network inspect {{ project_name }}-network
+      register: network_check
+      changed_when: false
+      failed_when: false
+      when: project_name is defined
+    
+    - name: Display network status
+      debug:
+        msg: "Docker network '{{ project_name }}-network': {{ 'exists ✅' if network_check.rc == 0 else 'not found ❌' }}"
+      when: 
+        - project_name is defined
+        - network_check is defined
+    
+    # Final Summary
+    - name: Deployment verification summary
+      debug:
+        msg:
+          - "========================================="
+          - "DEPLOYMENT VERIFICATION SUMMARY"
+          - "========================================="
+          - "Host: {{ inventory_hostname }}"
+          - "Project: {{ project_name | default('N/A') }}"
+          - "VM Role: {{ vm_role | default('N/A') }}"
+          - "Docker: {{ 'running ✅' if docker_check.status.ActiveState == 'active' else 'not running ❌' }}"
+          - "GitHub Runner: {{ 'running ✅' if (runner_service_file.stat.exists and runner_service.status.ActiveState == 'active') else 'not running' }}"
+          - "Compose Files: {{ compose_files.matched | default(0) }}"
+          - "Containers: {{ running_containers.stdout_lines | default([]) | length }}"
+          - "========================================="
   tags:
     - verify
     - health

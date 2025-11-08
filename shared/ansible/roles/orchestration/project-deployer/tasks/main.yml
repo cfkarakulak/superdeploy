@@ -78,15 +78,9 @@
   debug:
     msg: "Project directory structure created at {{ project_base_path }}"
 
-# Copy secrets.yml to VM (single source of truth for secrets)
-- name: Copy secrets.yml to VM
-  copy:
-    content: "{{ {'secrets': project_secrets, 'env_aliases': env_aliases} | to_nice_yaml }}"
-    dest: "{{ project_base_path }}/secrets.yml"
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group }}"
-    mode: '0600'
-  when: project_secrets is defined
+# NOTE: secrets.yml is NOT copied to VMs anymore
+# Secrets are managed via GitHub Secrets and injected during deployment
+# This eliminates the risk of secrets being exposed on VMs
 
 # Generate docker-compose.yml for apps
 - name: Generate docker-compose.yml for applications
@@ -100,21 +94,11 @@
     apps: "{{ apps_for_this_vm }}"
   when: apps_for_this_vm | length > 0
 
-# Generate .env files for each app from secrets.yml (placed in data/ directory)
-- name: Generate .env files for applications
-  template:
-    src: "app.env.j2"
-    dest: "{{ project_base_path }}/data/{{ item.key }}/.env"
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group }}"
-    mode: '0600'
-  loop: "{{ apps_for_this_vm | dict2items }}"
-  when: 
-    - apps_for_this_vm | length > 0
-    - project_secrets is defined
-  vars:
-    network_name: "{{ project_name }}-network"
-    prometheus_endpoint: "http://localhost:9090"
+# NOTE: .env files are now created by GitHub Actions during deployment
+# This ensures they always contain the latest merged values from:
+#   1. App's local .env (base configuration)
+#   2. secrets.yml (deployment-specific overrides)
+# The merged JSON is stored in GitHub Secrets and injected at deploy time.
 
 # This role prepares the infrastructure (VMs, directories, secrets, docker-compose)
 # Apps will be deployed when code is pushed to their respective repositories
