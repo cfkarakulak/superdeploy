@@ -112,7 +112,13 @@ def up(
 
                 # Detect changes
                 state_mgr = StateManager(project_root, project)
-                changes, state = state_mgr.detect_changes(project_config)
+                
+                # Skip change detection if --force
+                if force:
+                    changes = {"has_changes": True, "needs_terraform": True, "needs_ansible": True, "needs_sync": True}
+                    logger.log("🔄 Force mode: skipping change detection")
+                else:
+                    changes, state = state_mgr.detect_changes(project_config)
 
                 # Dry-run mode
                 if dry_run:
