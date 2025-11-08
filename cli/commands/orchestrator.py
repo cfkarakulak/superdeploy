@@ -293,6 +293,9 @@ def orchestrator_down(yes, preserve_ip, verbose):
         zone = "us-central1-a"
         region = "us-central1"
 
+    import subprocess
+    from cli.terraform_utils import workspace_exists
+
     # Always do manual cleanup FIRST to ensure GCP resources are gone
     current_step = 1
     total_steps = 3
