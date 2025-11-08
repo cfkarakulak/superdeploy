@@ -11,7 +11,6 @@ console = Console()
 
 
 @click.command(name="backups:create")
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option("--output", "-o", help="Backup output path (default: ./backups/)")
 def backups_create(project, output):
     """

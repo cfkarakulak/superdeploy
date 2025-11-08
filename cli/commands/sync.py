@@ -92,7 +92,6 @@ def set_github_env_secrets(repo, env_name, secrets_dict, console):
 
 
 @click.command(name="sync")
-@click.option("--project", "-p", required=True, help="Project name")
 def sync(project):
     """
     Sync ALL secrets to GitHub

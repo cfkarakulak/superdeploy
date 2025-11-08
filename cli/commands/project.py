@@ -11,7 +11,6 @@ console = Console()
 
 
 @click.command(name="projects:deploy")
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option(
     "--services",
     "-s",

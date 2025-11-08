@@ -14,7 +14,6 @@ console = Console()
 
 @click.command(name="config:set")
 @click.argument("key_value")
-@click.option("-p", "--project", required=True, help="Project name")
 @click.option(
     "-a",
     "--app",
@@ -214,7 +213,6 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
 
 @click.command(name="config:get")
 @click.argument("key")
-@click.option("-p", "--project", required=True, help="Project name")
 def config_get(key, project):
     """
     Get configuration variable (Heroku-like!)
@@ -262,7 +260,6 @@ def config_get(key, project):
 
 
 @click.command(name="config:list")
-@click.option("-p", "--project", required=True, help="Project name")
 @click.option("--filter", help="Filter by prefix (e.g., POSTGRES, REDIS)")
 def config_list(project, filter):
     """
@@ -330,7 +327,6 @@ def config_list(project, filter):
 
 @click.command(name="config:unset")
 @click.argument("key")
-@click.option("-p", "--project", required=True, help="Project name")
 @click.option("--deploy", is_flag=True, help="Auto-deploy after unsetting config")
 @click.option("--no-sync", is_flag=True, help="Skip GitHub sync")
 def config_unset(key, project, deploy, no_sync):
@@ -456,7 +452,6 @@ def config_unset(key, project, deploy, no_sync):
 
 
 @click.command(name="config:show")
-@click.option("-p", "--project", required=True, help="Project name")
 @click.option("--mask", is_flag=True, help="Mask sensitive values")
 def config_show(project, mask):
     """

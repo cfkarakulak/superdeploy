@@ -10,7 +10,6 @@ console = Console()
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name")
 def update_firewall(project):
     """
     Update firewall rules after changing ports in project.yml

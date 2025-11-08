@@ -290,7 +290,6 @@ class DownCommand(ProjectCommand):
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
 @click.option(

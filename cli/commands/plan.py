@@ -8,7 +8,6 @@ console = Console()
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
 @click.option("--detailed", is_flag=True, help="Show detailed diff")
 def plan(project, json_output, detailed):

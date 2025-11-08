@@ -10,7 +10,6 @@ console = Console()
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option("--days", "-d", default=7, help="Number of days to analyze")
 def metrics(project, days):
     """

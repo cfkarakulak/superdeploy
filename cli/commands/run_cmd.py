@@ -112,7 +112,6 @@ class RunCommand(ProjectCommand):
 
 
 @click.command(name="run")
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
 @click.option("--interactive", "-i", is_flag=True, help="Interactive mode (with TTY)")
 @click.argument("app")

@@ -181,7 +181,6 @@ class TunnelCommand(ProjectCommand):
 
 
 @click.command()
-@click.option("-p", "--project", required=True, help="Project name")
 @click.argument("service", required=False)
 @click.option("--all", "all_services", is_flag=True, help="Tunnel all services")
 @click.option("--list", "list_services", is_flag=True, help="List available services")

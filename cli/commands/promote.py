@@ -8,7 +8,6 @@ console = Console()
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option("-a", "--app", required=True, help="App name")
 @click.option("--from-branch", default="staging", help="Source branch")
 @click.option("--to-branch", default="production", help="Target branch")

@@ -12,7 +12,6 @@ console = Console()
 
 
 @click.command(name="generate")
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option("--app", help="Generate for specific app only")
 def generate(project, app):
     """

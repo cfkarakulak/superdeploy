@@ -124,7 +124,6 @@ class StatusCommand(ProjectCommand):
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
 def status(project, verbose):
     """

@@ -76,7 +76,6 @@ class RestartCommand(ProjectCommand):
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
 def restart(project, app, verbose):

@@ -356,7 +356,6 @@ class ValidateAddonsCommand(BaseCommand):
 
 
 @click.command(name="validate:project")
-@click.option("--project", "-p", required=True, help="Project name")
 def validate_project(project):
     """
     Validate project configuration
@@ -378,7 +377,6 @@ def validate_project(project):
 
 
 @click.command(name="validate:addons")
-@click.option("--project", "-p", help="Validate addons for specific project")
 @click.option("--addon", "-a", help="Validate specific addon")
 @click.option(
     "--fix", is_flag=True, help="Attempt to auto-fix issues (not implemented yet)"

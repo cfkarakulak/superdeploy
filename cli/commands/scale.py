@@ -91,7 +91,6 @@ class ScaleCommand(ProjectCommand):
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option("--vm-role", required=True, help="VM role (api, web, worker)")
 @click.option("--count", type=int, required=True, help="Number of VMs")
 def scale(project, vm_role, count):

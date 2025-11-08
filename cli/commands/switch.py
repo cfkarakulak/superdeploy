@@ -12,7 +12,6 @@ console = Console()
 
 
 @click.command(name="releases:rollback")
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
 @click.option(
     "--version",

@@ -14,7 +14,6 @@ console = Console()
 
 
 @click.command(name="init")
-@click.option("--project", "-p", required=True, help="Project name")
 def init(project):
     """
     Initialize new project with secrets.yml

@@ -11,7 +11,6 @@ console = Console()
 
 
 @click.command()
-@click.option("--project", "-p", required=True, help="Project name")
 @click.option("--skip-terraform", is_flag=True, help="Skip Terraform provisioning")
 @click.option("--skip-ansible", is_flag=True, help="Skip Ansible configuration")
 @click.option("--skip-git-push", is_flag=True, help="Skip Git push")

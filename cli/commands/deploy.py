@@ -7,7 +7,6 @@ console = Console()
 
 
 @click.command(name="deploy")
-@click.option("-p", "--project", required=True, help="Project name")
 @click.option("-a", "--app", required=True, help="App name")
 @click.option("-m", "--message", default="Deploy", help="Commit message")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
