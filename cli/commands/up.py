@@ -708,20 +708,38 @@ def _deploy_project(
         try:
             from cli.commands.sync import sync
 
-            # Call sync command programmatically with verbose mode to avoid Rich formatting
-            from click.testing import CliRunner
-
-            runner = CliRunner()
-            result = runner.invoke(sync, ["-p", project, "--verbose"])
-
-            if result.exit_code == 0:
-                logger.log("✓ Secrets synced to GitHub")
-            else:
-                # Strip ANSI codes for clean error display
-                import re
-
-                clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
-                logger.warning(f"Secret sync had issues:\n{clean_output}")
+            # Call sync command programmatically
+            # Note: CliRunner with namespace commands doesn't work well
+            # Use subprocess to call the actual CLI with namespace syntax
+            import sys
+            
+            sync_cmd = [
+                sys.executable,
+                "-m",
+                "cli.main",
+                f"{project}:sync",
+            ]
+            
+            try:
+                result = subprocess.run(
+                    sync_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                
+                if result.returncode == 0:
+                    logger.log("✓ Secrets synced to GitHub")
+                else:
+                    logger.warn("⚠ Secret sync had issues:")
+                    if result.stderr:
+                        for line in result.stderr.split("\n")[:5]:
+                            if line.strip():
+                                logger.warn(f"  {line}")
+            except subprocess.TimeoutExpired:
+                logger.warn("⚠ Secret sync timed out")
+            except Exception as e:
+                logger.warn(f"⚠ Secret sync failed: {e}")
         except Exception as e:
             logger.log_error(f"Failed to sync secrets: {e}")
             logger.warning("Continuing deployment without secret sync")
