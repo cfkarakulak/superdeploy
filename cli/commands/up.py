@@ -576,7 +576,24 @@ def _deploy_project(
         else:
             logger.step("[2/4] Base System")
 
-            # env already has IPs from terraform outputs above
+            # Load VM IPs from state if terraform was skipped
+            if skip_terraform:
+                from cli.state_manager import StateManager
+                state_mgr = StateManager(project_root, project)
+                state = state_mgr.load_state()
+                
+                # Extract VM IPs from state and add to env
+                if "vms" in state:
+                    for vm_role, vm_data in state["vms"].items():
+                        # Add VM IPs in Terraform output format for inventory generation
+                        # Format: {ROLE}_{INDEX}_EXTERNAL_IP and {ROLE}_{INDEX}_INTERNAL_IP
+                        if "external_ip" in vm_data:
+                            env[f"{vm_role.upper()}_0_EXTERNAL_IP"] = vm_data["external_ip"]
+                        if "internal_ip" in vm_data:
+                            env[f"{vm_role.upper()}_0_INTERNAL_IP"] = vm_data["internal_ip"]
+                
+                logger.log("✓ VM IPs loaded from state")
+            # else: env already has IPs from terraform outputs above
 
             # Generate inventory
             from cli.commands.up import generate_ansible_inventory
@@ -900,11 +917,11 @@ def generate_ansible_inventory(
     # Get VM services and apps from project config
     vm_services_map = {}
     vm_apps_map = {}
-    
+
     if project_config:
         vms_config = project_config.raw_config.get("vms", {})
         apps_config = project_config.raw_config.get("apps", {})
-        
+
         # Build services map per VM
         for vm_role, vm_def in vms_config.items():
             services = list(vm_def.get("services", []))  # Make a copy
@@ -914,7 +931,7 @@ def generate_ansible_inventory(
                 services.append("caddy")
 
             vm_services_map[vm_role] = services
-        
+
         # Build apps map per VM (which apps are assigned to which VM)
         for app_name, app_config in apps_config.items():
             app_vm = app_config.get("vm", "app")  # Default to 'app' VM
@@ -944,7 +961,7 @@ def generate_ansible_inventory(
             services = vm_services_map.get(role, [])
             # Get apps for this VM role
             apps = vm_apps_map.get(role, [])
-            
+
             # Convert to JSON and properly quote for INI format
             # INI parser needs quotes around JSON arrays
             services_json = json.dumps(services).replace('"', '\\"')
