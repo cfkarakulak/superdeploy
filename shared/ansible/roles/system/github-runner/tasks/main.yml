@@ -57,7 +57,7 @@
 - name: Create project identifier file
   copy:
     content: "{{ runner_project_name }}"
-    dest: /opt/superdeploy/.project
+    dest: /var/lib/superdeploy/project_identifier
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_user }}"
     mode: '0644'
