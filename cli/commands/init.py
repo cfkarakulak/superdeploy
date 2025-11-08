@@ -341,9 +341,11 @@ def init(project):
     yml_lines.append("    # " + "-" * 73)
     yml_lines.append("    # Required for building and deploying container images")
     yml_lines.append("    # Get token from: https://hub.docker.com/settings/security")
-    yml_lines.append("    DOCKER_USERNAME: ''  # Your Docker Hub username")
+    yml_lines.append("    DOCKER_REGISTRY: 'docker.io'  # Docker registry URL")
+    yml_lines.append("    DOCKER_ORG: ''        # Docker Hub organization/username")
+    yml_lines.append("    DOCKER_USERNAME: ''   # Your Docker Hub username")
     yml_lines.append(
-        "    DOCKER_TOKEN: ''     # Docker Hub access token (NOT password)"
+        "    DOCKER_TOKEN: ''      # Docker Hub access token (NOT password)"
     )
     yml_lines.append("")
     yml_lines.append("    # " + "-" * 73)
@@ -444,7 +446,7 @@ def init(project):
         "  [dim]1. Edit secrets: nano projects/{}/secrets.yml[/dim]".format(project)
     )
     console.print(
-        "     [yellow]→ Add DOCKER_USERNAME, DOCKER_TOKEN (required)[/yellow]"
+        "     [yellow]→ Add DOCKER_ORG, DOCKER_USERNAME, DOCKER_TOKEN (required)[/yellow]"
     )
     console.print(
         "     [yellow]→ Add GITHUB_TOKEN (required - with admin:org scope)[/yellow]"
