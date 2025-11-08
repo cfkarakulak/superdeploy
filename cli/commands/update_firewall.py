@@ -12,15 +12,15 @@ console = Console()
 @click.command()
 def update_firewall(project):
     """
-    Update firewall rules after changing ports in project.yml
+    Update firewall rules after changing ports in config.yml
 
     This command:
-    1. Reads updated ports from project.yml
+    1. Reads updated ports from config.yml
     2. Updates only the firewall rules (doesn't touch VMs)
     3. Much faster than full terraform apply
 
     Example:
-        # After changing port in project.yml:
+        # After changing port in config.yml:
         superdeploy update-firewall -p cheapa
     """
     show_header(
@@ -47,7 +47,7 @@ def update_firewall(project):
     try:
         project_config = config_loader.load_project(project)
         console.print(
-            f"[dim]✓ Loaded config: {projects_dir / project}/project.yml[/dim]"
+            f"[dim]✓ Loaded config: {projects_dir / project}/config.yml[/dim]"
         )
     except FileNotFoundError as e:
         console.print(f"[red]❌ {e}[/red]")

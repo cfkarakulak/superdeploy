@@ -181,7 +181,7 @@ def sync(project):
     if not github_org:
         console.print("[red]❌ GitHub organization not configured![/red]")
         console.print("")
-        console.print("Add to project.yml:")
+        console.print("Add to config.yml:")
         console.print("[dim]github:")
         console.print("  organization: your-github-org[/dim]")
         console.print("")

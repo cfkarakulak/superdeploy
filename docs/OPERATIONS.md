@@ -9,7 +9,7 @@ Operations rehberi - production sistemini yönetmek için daily kullanım kılav
 ### New App Deployment
 
 ```bash
-# 1. project.yml'e app ekle
+# 1. config.yml'e app ekle
 # 2. secrets.yml'e app secrets ekle
 # 3. Workflow generate et
 superdeploy myproject:generate --app newapp
@@ -55,7 +55,7 @@ git push origin production
 ### Scale Up VM
 
 ```bash
-# project.yml'de machine_type değiştir
+# config.yml'de machine_type değiştir
 vms:
   app:
     machine_type: e2-standard-2  # e2-medium'dan upgrade
@@ -68,7 +68,7 @@ superdeploy myproject:up
 ### Add New VM
 
 ```bash
-# project.yml'e yeni VM ekle
+# config.yml'e yeni VM ekle
 vms:
   worker:
     machine_type: e2-medium
@@ -83,7 +83,7 @@ superdeploy myproject:up
 ### Add Infrastructure Service
 
 ```bash
-# project.yml'de service ekle
+# config.yml'de service ekle
 vms:
   core:
     services:
@@ -166,7 +166,7 @@ superdeploy myproject:status
 ### SSH to VM
 
 ```bash
-# project.yml'den IP al veya:
+# config.yml'den IP al veya:
 superdeploy myproject:status
 
 # SSH
@@ -322,7 +322,7 @@ superdeploy myproject:sync
 ### Setup SSL with Caddy
 
 ```bash
-# 1. project.yml'e caddy ekle
+# 1. config.yml'e caddy ekle
 vms:
   app:
     services:
@@ -378,7 +378,7 @@ superdeploy myproject:down
 ### Horizontal Scaling (Multiple Instances)
 
 ```yaml
-# project.yml - Multiple app VMs
+# config.yml - Multiple app VMs
 vms:
   app-1:
     machine_type: e2-medium
@@ -393,7 +393,7 @@ vms:
 ### Vertical Scaling
 
 ```yaml
-# project.yml - Bigger machines
+# config.yml - Bigger machines
 vms:
   app:
     machine_type: e2-standard-4  # More CPU/RAM

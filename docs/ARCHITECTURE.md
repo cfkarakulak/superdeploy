@@ -9,7 +9,7 @@ SuperDeploy, kendi altyapınızda **Heroku benzeri deployment deneyimi** sunan *
 1. **GitHub-First Architecture**: Merkezi CI/CD için GitHub Actions
 2. **Self-Hosted Runners**: Project VMs'de direkt deployment için GitHub runners
 3. **Addon-Tabanlı Mimari**: Tüm servisler (veritabanları, kuyruklar, proxy'ler) addon olarak tanımlanır
-4. **Dinamik Konfigürasyon**: Hardcoded servis isimleri veya mantık yok - her şey `project.yml` ile yönetilir
+4. **Dinamik Konfigürasyon**: Hardcoded servis isimleri veya mantık yok - her şey `config.yml` ile yönetilir
 5. **Proje İzolasyonu**: Her proje kendi izole kaynaklarına ve network'üne sahiptir
 6. **Template → Instance Pattern**: Addon'lar template'dir, deployment'lar instance'dır
 7. **Label-Based Routing**: Runner labels ile guaranteed project-specific routing
@@ -100,12 +100,12 @@ Her projenin kendi izole konfigürasyonu ve kaynakları vardır:
 ```
 projects/
 └── myproject/
-    ├── project.yml           # Proje konfigürasyonu
+    ├── config.yml           # Proje konfigürasyonu
     ├── secrets.yml           # Encrypted secrets
     └── state.yml             # Deployment state
 ```
 
-**project.yml Yapısı:**
+**config.yml Yapısı:**
 ```yaml
 project: myproject
 description: Harika projem
@@ -164,7 +164,7 @@ shared/
 │   └── variables.tf          # Input variable'ları
 └── ansible/                   # Konfigürasyon yönetimi
     ├── playbooks/
-    │   └── project.yml        # Ana orkestrasyon playbook
+    │   └── config.yml        # Ana orkestrasyon playbook
     └── roles/
         ├── system/            # Foundation katmanı
         │   ├── base/          # OS paketleri, kullanıcılar, swap
@@ -237,7 +237,7 @@ SuperDeploy, addon'ların bir kez tanımlanıp her proje için instance'lanması
 ```
 TEMPLATE (addons/postgres/)
     ↓
-project.yml konfigürasyonu
+config.yml konfigürasyonu
     ↓
 Jinja2 rendering
     ↓
@@ -306,7 +306,7 @@ Project VM (blogapp):
 ```
 Kullanıcı Girişi
     ↓
-project.yml oluştur
+config.yml oluştur
     ↓
 Güvenli şifreler oluştur (secrets.yml)
     ↓
@@ -533,7 +533,7 @@ Project B:
 ### ✅ Tam Esneklik
 
 - Yeni addon'lar ekle
-- project.yml ile yapılandır
+- config.yml ile yapılandır
 - İstediğin kadar proje
 - Cloud-agnostic
 

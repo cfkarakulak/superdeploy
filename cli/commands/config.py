@@ -127,7 +127,7 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
         logger.step("[3/4] Triggering Deployment")
 
         # Load project config
-        project_config_file = project_root / "projects" / project / "project.yml"
+        project_config_file = project_root / "projects" / project / "config.yml"
         with open(project_config_file) as f:
             config = yaml.safe_load(f)
 
@@ -407,7 +407,7 @@ def config_unset(key, project, deploy, no_sync):
         logger.log("Redeploying to apply changes...")
 
         # Load project config
-        project_config_file = project_root / "projects" / project / "project.yml"
+        project_config_file = project_root / "projects" / project / "config.yml"
         with open(project_config_file) as f:
             config = yaml.safe_load(f)
 
@@ -490,7 +490,7 @@ def config_show(project, mask):
             orchestrator_config = yaml.safe_load(f) or {}
 
     # Load project config
-    project_config_path = project_root / "projects" / project / "project.yml"
+    project_config_path = project_root / "projects" / project / "config.yml"
     project_config = {}
     if project_config_path.exists():
         with open(project_config_path) as f:

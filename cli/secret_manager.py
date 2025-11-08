@@ -48,12 +48,41 @@ class SecretManager:
         # Shared secrets
         if "shared" in secrets_data:
             lines.append("")
-            lines.append("  # Shared secrets (available to all applications)")
+            lines.append("  # ---------------------------------------------------------------------------")
+            lines.append("  # Shared Secrets (available to all applications)")
+            lines.append("  # ---------------------------------------------------------------------------")
             lines.append("  shared:")
             shared = secrets_data["shared"]
             if shared:
-                for key, value in shared.items():
-                    lines.append(f"    {key}: {value}")
+                # Group by category for better readability
+                db_keys = [k for k in shared if k.startswith("POSTGRES_")]
+                mq_keys = [k for k in shared if k.startswith("RABBITMQ_")]
+                docker_keys = [k for k in shared if k.startswith("DOCKER_")]
+                other_keys = [k for k in shared if not any(k.startswith(p) for p in ["POSTGRES_", "RABBITMQ_", "DOCKER_"])]
+                
+                if db_keys:
+                    lines.append("")
+                    lines.append("    # Database Configuration")
+                    for key in sorted(db_keys):
+                        lines.append(f"    {key}: {shared[key]}")
+                
+                if mq_keys:
+                    lines.append("")
+                    lines.append("    # Message Queue Configuration")
+                    for key in sorted(mq_keys):
+                        lines.append(f"    {key}: {shared[key]}")
+                
+                if docker_keys:
+                    lines.append("")
+                    lines.append("    # Docker Registry Configuration")
+                    for key in sorted(docker_keys):
+                        lines.append(f"    {key}: {shared[key]}")
+                
+                if other_keys:
+                    lines.append("")
+                    lines.append("    # Other Shared Secrets")
+                    for key in sorted(other_keys):
+                        lines.append(f"    {key}: {shared[key]}")
             else:
                 lines.append("    {}")
 
@@ -61,13 +90,16 @@ class SecretManager:
         for app_name in secrets_data:
             if app_name != "shared":
                 lines.append("")
-                lines.append(f"  # App-specific secrets for {app_name}")
+                lines.append("  # ---------------------------------------------------------------------------")
+                lines.append(f"  # {app_name.upper()} - Application-specific secrets")
+                lines.append("  # ---------------------------------------------------------------------------")
                 lines.append(f"  {app_name}:")
                 app_secrets = secrets_data[app_name]
                 if app_secrets:
-                    for key, value in app_secrets.items():
+                    for key, value in sorted(app_secrets.items()):
                         lines.append(f"    {key}: {value}")
-                # Empty app secrets - just show comment, no explicit {}
+                else:
+                    lines.append("    # No app-specific secrets")
 
         # Environment aliases section
         if "env_aliases" in secrets:
@@ -75,8 +107,8 @@ class SecretManager:
             lines.append("# " + "=" * 77)
             lines.append("# Environment Variable Aliases")
             lines.append("# " + "=" * 77)
-            lines.append("# Map addon env vars to app-specific names")
-            lines.append("# Example: POSTGRES_HOST -> DB_HOST")
+            lines.append("# Maps addon environment variables to application-expected names")
+            lines.append("# Example: DB_HOST: POSTGRES_HOST → DB_HOST gets value from POSTGRES_HOST")
             lines.append("# " + "=" * 77)
             lines.append("env_aliases:")
 
@@ -86,9 +118,10 @@ class SecretManager:
                 lines.append(f"  {app_name}:")
                 aliases = env_aliases[app_name]
                 if aliases:
-                    for alias_key, alias_value in aliases.items():
+                    for alias_key, alias_value in sorted(aliases.items()):
                         lines.append(f"    {alias_key}: {alias_value}")
-                # Empty aliases - just show comment, no explicit {}
+                else:
+                    lines.append("    # No aliases needed")
 
         lines.append("")
 
@@ -136,7 +169,11 @@ class SecretManager:
         if app_aliases:
             for alias_key, alias_value in app_aliases.items():
                 # If alias_value is a reference to another variable (uppercase with underscore)
-                if isinstance(alias_value, str) and alias_value.isupper() and '_' in alias_value:
+                if (
+                    isinstance(alias_value, str)
+                    and alias_value.isupper()
+                    and "_" in alias_value
+                ):
                     # Look up the actual value from merged secrets
                     if alias_value in merged:
                         merged[alias_key] = merged[alias_value]

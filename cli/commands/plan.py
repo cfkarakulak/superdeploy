@@ -14,7 +14,7 @@ def plan(project, json_output, detailed):
     """
     Show what changes will be applied (like terraform plan)
 
-    Analyzes project.yml and compares with last applied state.
+    Analyzes config.yml and compares with last applied state.
     Shows what will be created, modified, or deleted.
 
     Example:
@@ -63,7 +63,7 @@ def plan(project, json_output, detailed):
     # No changes
     if not changes["has_changes"]:
         console.print("\n[green]✅ No changes detected.[/green]\n")
-        console.print("Infrastructure is up to date with project.yml\n")
+        console.print("Infrastructure is up to date with config.yml\n")
         return
 
     # Display changes

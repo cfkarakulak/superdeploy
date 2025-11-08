@@ -25,7 +25,7 @@ pip install -e .
 
 # 2. Create project
 mkdir -p projects/myproject
-cp projects/cheapa/project.yml projects/myproject/
+cp projects/cheapa/config.yml projects/myproject/
 
 # 3. Configure secrets
 cp projects/cheapa/secrets.yml projects/myproject/
@@ -90,7 +90,7 @@ GitHub automatically routes the job to the runner with ALL matching labels.
 superdeploy/
 ├── projects/
 │   └── myproject/
-│       ├── project.yml      # Infrastructure config
+│       ├── config.yml      # Infrastructure config
 │       └── secrets.yml      # Encrypted secrets
 ├── cli/
 │   └── commands/
@@ -114,7 +114,7 @@ superdeploy/
 
 ## 🎛️ Configuration
 
-### project.yml
+### config.yml
 
 ```yaml
 name: myproject
@@ -191,7 +191,7 @@ superdeploy myproject:config validate # Validate configuration
 
 ## 🏗️ Adding a New App
 
-1. **Update project.yml**:
+1. **Update config.yml**:
 ```yaml
 apps:
   newapp:

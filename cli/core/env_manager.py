@@ -7,7 +7,7 @@ Handles:
 - Static values and clones from other variables
 - No more hardcoded mappings in sync.py or generate.py!
 
-Example project.yml:
+Example config.yml:
     apps:
       api:
         env_aliases:
@@ -32,7 +32,7 @@ class EnvManager:
         Initialize EnvManager with project configuration.
 
         Args:
-            project_config: Loaded project.yml as dict
+            project_config: Loaded config.yml as dict
         """
         self.project_config = project_config
         self.project_name = project_config.get("project", {}).get("name", "unknown")

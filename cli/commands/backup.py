@@ -158,7 +158,7 @@ def backups_create(project, output):
             project_path = get_project_path(project)
 
             # Copy config files
-            shutil.copy(project_path / "project.yml", f"{output}/{backup_name}/")
+            shutil.copy(project_path / "config.yml", f"{output}/{backup_name}/")
 
             if (project_path / "secrets.yml").exists():
                 shutil.copy(project_path / "secrets.yml", f"{output}/{backup_name}/")
@@ -183,7 +183,7 @@ def backups_create(project, output):
             "backup_date": datetime.now().isoformat(),
             "files": [
                 "database.sql",
-                "project.yml",
+                "config.yml",
                 "secrets.yml",
                 "compose/",
             ],

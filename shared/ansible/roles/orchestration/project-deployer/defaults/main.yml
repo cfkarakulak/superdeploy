@@ -8,10 +8,10 @@ project_base_path: "/opt/superdeploy/projects/{{ project_name }}"
 superdeploy_user: "superdeploy"
 superdeploy_group: "superdeploy"
 
-# Project configuration (should be provided from project.yml)
+# Project configuration (should be provided from config.yml)
 project_config: {}
 
-# Application configurations (should be provided from project.yml apps section)
+# Application configurations (should be provided from config.yml apps section)
 apps: {}
 
 # Network configuration

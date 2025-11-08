@@ -670,7 +670,7 @@ class ValidationEngine:
             if not project_dir.is_dir() or project_dir.name.startswith("."):
                 continue
 
-            config_file = project_dir / "project.yml"
+            config_file = project_dir / "config.yml"
             if config_file.exists():
                 try:
                     with open(config_file, "r") as f:
@@ -714,7 +714,7 @@ class ValidationEngine:
             if not project_dir.is_dir() or project_dir.name.startswith("."):
                 continue
 
-            config_file = project_dir / "project.yml"
+            config_file = project_dir / "config.yml"
             if config_file.exists():
                 try:
                     with open(config_file, "r") as f:

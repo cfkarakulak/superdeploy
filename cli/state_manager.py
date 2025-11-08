@@ -137,8 +137,8 @@ class StateManager:
             f.write("\n".join(lines))
 
     def _calculate_config_hash(self) -> str:
-        """Calculate hash of project.yml for change detection"""
-        project_yml = self.project_root / "projects" / self.project_name / "project.yml"
+        """Calculate hash of config.yml for change detection"""
+        project_yml = self.project_root / "projects" / self.project_name / "config.yml"
 
         if not project_yml.exists():
             return ""
@@ -388,7 +388,7 @@ class StateManager:
         Mark VMs as provisioned (after Terraform success)
 
         Args:
-            vm_configs: VM configuration from project.yml
+            vm_configs: VM configuration from config.yml
             vm_ips: Optional dict with 'external' and 'internal' IP mappings
         """
         state = self.load_state()
@@ -410,7 +410,7 @@ class StateManager:
                 external_ips = vm_ips.get("external", {})
                 internal_ips = vm_ips.get("internal", {})
 
-                # VM name format: "core" or "app" (from vms section in project.yml)
+                # VM name format: "core" or "app" (from vms section in config.yml)
                 # Terraform output format: "core-0", "app-0", "app-1", etc.
                 # Find matching IPs by prefix
                 for vm_key, external_ip in external_ips.items():

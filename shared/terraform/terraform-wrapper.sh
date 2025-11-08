@@ -11,13 +11,13 @@ set -e
 # Validate required vars
 if [ -z "$GCP_PROJECT_ID" ] || [ "$GCP_PROJECT_ID" = "your-gcp-project-id-here" ]; then
     echo "❌ ERROR: GCP_PROJECT_ID not set"
-    echo "This should be passed from the CLI via project.yml"
+    echo "This should be passed from the CLI via config.yml"
     exit 1
 fi
 
 if [ -z "$SSH_KEY_PATH" ]; then
     echo "❌ ERROR: SSH_KEY_PATH not set"
-    echo "This should be passed from the CLI via project.yml"
+    echo "This should be passed from the CLI via config.yml"
     exit 1
 fi
 

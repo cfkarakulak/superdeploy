@@ -135,7 +135,7 @@
           [system/monitoring-agent] ERROR: Missing project monitoring configuration
             - Expected: prometheus_endpoint and project_name to be defined
             - Found: prometheus_endpoint='{{ prometheus_endpoint | default("undefined") }}', project_name='{{ project_name | default("undefined") }}'
-            - Fix: Ensure prometheus_endpoint and project_name are passed from project.yml configuration
+            - Fix: Ensure prometheus_endpoint and project_name are passed from config.yml configuration
             - Docs: See design.md for project configuration schema
 
     - name: Create project-specific metric labels file

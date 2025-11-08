@@ -80,7 +80,7 @@
   vars:
     error_msg: |
       Failed to get GitHub runner token.
-      Ensure github.organization is set in project.yml
+      Ensure github.organization is set in config.yml
       Ensure GITHUB_TOKEN is set in secrets.yml with admin:org scope (not just repo)
 
 - name: Extract runner token
@@ -109,7 +109,7 @@
   vars:
     error_msg: |
       Failed to configure GitHub runner.
-      Ensure github.organization is set correctly in project.yml
+      Ensure github.organization is set correctly in config.yml
 
 - name: Display runner registration result
   debug:

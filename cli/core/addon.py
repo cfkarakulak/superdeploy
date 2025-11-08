@@ -49,7 +49,7 @@ class Addon:
         else:
             project_name = str(project_info)
 
-        # Get addon-specific config from project.yml
+        # Get addon-specific config from config.yml
         addon_config = project_config.get("addons", {}).get(self.name, {})
 
         for var_name, var_config in self.env_schema.get("variables", {}).items():

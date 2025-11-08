@@ -49,7 +49,7 @@ cd superdeploy && pip install -e .
 
 # 2. Create project
 mkdir -p projects/myproject
-# ... configure project.yml and secrets.yml ...
+# ... configure config.yml and secrets.yml ...
 
 # 3. Get GitHub runner token
 # https://github.com/yourorg/settings/actions/runners/new
@@ -137,7 +137,7 @@ Workflows specify ALL labels → GitHub routes to correct runner → **Guarantee
 Services are **templates** that become **instances**:
 
 ```
-Template (addons/postgres/) → project.yml → Instance (myproject-postgres)
+Template (addons/postgres/) → config.yml → Instance (myproject-postgres)
 ```
 
 **Benefits:**
@@ -200,7 +200,7 @@ superdeploy/
 │   └── ...
 ├── projects/               # Project configs
 │   └── myproject/
-│       ├── project.yml    # Infrastructure config
+│       ├── config.yml    # Infrastructure config
 │       └── secrets.yml    # Encrypted secrets
 ├── shared/
 │   ├── terraform/         # Infrastructure provisioning
@@ -226,7 +226,7 @@ We welcome contributions!
 
 ### Q: Do I need to know Terraform/Ansible?
 
-A: No! SuperDeploy abstracts the complexity. Just configure `project.yml`.
+A: No! SuperDeploy abstracts the complexity. Just configure `config.yml`.
 
 ### Q: Can I use AWS instead of GCP?
 
@@ -242,7 +242,7 @@ A: Yes! Used in production for multiple projects.
 
 ### Q: How do I scale horizontally?
 
-A: Add more VMs in `project.yml` and configure a load balancer.
+A: Add more VMs in `config.yml` and configure a load balancer.
 
 ---
 

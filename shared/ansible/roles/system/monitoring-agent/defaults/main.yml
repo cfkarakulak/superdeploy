@@ -33,7 +33,7 @@ node_exporter_disabled_collectors:
   - bcache
 
 # Prometheus endpoint (dynamic from project configuration)
-# This will be set by the playbook based on project.yml
+# This will be set by the playbook based on config.yml
 prometheus_endpoint: ""
 project_name: ""
 

@@ -20,7 +20,7 @@
       [PROJECT-DEPLOYER] ERROR: Cannot setup monitoring without apps configuration
         - Expected: apps to be defined as a dictionary
         - Found: apps={{ apps | default('undefined') }}
-        - Fix: Ensure project.yml contains an 'apps' section
+        - Fix: Ensure config.yml contains an 'apps' section
     quiet: true
   when: monitoring_enabled
 

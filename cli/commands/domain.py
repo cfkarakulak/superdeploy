@@ -184,7 +184,7 @@ def domain_add(project: str, app_name: str, domain: str):
         # PROJECT MODE (existing code)
         # Load project config
         project_dir = Path.cwd() / "projects" / project
-        config_file = project_dir / "project.yml"
+        config_file = project_dir / "config.yml"
 
         if not config_file.exists():
             console.print(
@@ -273,8 +273,8 @@ def domain_add(project: str, app_name: str, domain: str):
             console.print("Aborted. Add the DNS record and try again.")
             raise click.Abort()
 
-        # Update project.yml
-        console.print("Updating project.yml...")
+        # Update config.yml
+        console.print("Updating config.yml...")
         apps[app_name]["domain"] = domain
 
         with open(config_file, "w") as f:
@@ -360,7 +360,7 @@ def domain_list(project: str):
             [
                 d.name
                 for d in projects_dir.iterdir()
-                if d.is_dir() and (d / "project.yml").exists()
+                if d.is_dir() and (d / "config.yml").exists()
             ]
             if projects_dir.exists()
             else []
@@ -448,7 +448,7 @@ def domain_list(project: str):
 
         for proj_name in projects_to_show:
             project_dir = Path.cwd() / "projects" / proj_name
-            config_file = project_dir / "project.yml"
+            config_file = project_dir / "config.yml"
 
             if not config_file.exists():
                 continue
@@ -618,7 +618,7 @@ def domain_remove(project: str, app_name: str):
         # PROJECT MODE
         # Load project config
         project_dir = Path.cwd() / "projects" / project
-        config_file = project_dir / "project.yml"
+        config_file = project_dir / "config.yml"
 
         if not config_file.exists():
             console.print(f"[red]✗ Project '{project}' not found[/red]")

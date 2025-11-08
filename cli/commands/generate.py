@@ -48,7 +48,7 @@ def generate(project, app):
 
     try:
         project_config = config_loader.load_project(project)
-        console.print(f"[dim]✓ Loaded config: {project_dir}/project.yml[/dim]")
+        console.print(f"[dim]✓ Loaded config: {project_dir}/config.yml[/dim]")
     except FileNotFoundError as e:
         console.print(f"[red]❌ {e}[/red]")
         return

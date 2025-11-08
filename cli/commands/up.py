@@ -165,7 +165,7 @@ def up(
                     logger.log("")
                     logger.success("✅ No changes detected.")
                     logger.log("")
-                    logger.log("Infrastructure is up to date with project.yml")
+                    logger.log("Infrastructure is up to date with config.yml")
                     logger.log("")
                     logger.log(f"To force update: superdeploy {project}:up --force")
                     return
@@ -373,7 +373,7 @@ def _deploy_project(
     secret_mgr = SecretManager(project_root, project)
     secrets_data = secret_mgr.load_secrets()
 
-    # Build env dict from project.yml + secrets.yml
+    # Build env dict from config.yml + secrets.yml
     env = {
         "GCP_PROJECT_ID": project_config_obj.raw_config["cloud"]["gcp"]["project_id"],
         "GCP_REGION": project_config_obj.raw_config["cloud"]["gcp"]["region"],

@@ -14,7 +14,7 @@ superdeploy_group: "superdeploy"
 # List of enabled addons (empty by default, should be provided by project config)
 enabled_addons: []
 
-# Addon configuration from project.yml (should be provided)
+# Addon configuration from config.yml (should be provided)
 addon_configs: {}
 
 # Project secrets (should be provided from .env)

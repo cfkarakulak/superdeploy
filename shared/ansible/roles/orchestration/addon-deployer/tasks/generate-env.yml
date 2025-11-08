@@ -1,6 +1,6 @@
 ---
 # Generate environment variables for an addon
-# This task processes env.yml definitions and merges values from project.yml, secrets, and defaults
+# This task processes env.yml definitions and merges values from config.yml, secrets, and defaults
 
 - name: Load addon env.yml configuration
   include_vars:
@@ -69,7 +69,7 @@
         - Description: {{ item.value.description | default('No description') }}
         - Source: {{ item.value.source | default('unknown') }}
         - Expected path: {{ item.value.from_project | default('N/A') }}
-        - Fix: {% if item.value.from_project is defined %}Add '{{ item.value.from_project }}' to project.yml with a valid value{% elif item.value.from_secrets is defined %}Add '{{ item.value.from_secrets }}' to project secrets{% else %}Provide value for {{ item.key }}{% endif %}
+        - Fix: {% if item.value.from_project is defined %}Add '{{ item.value.from_project }}' to config.yml with a valid value{% elif item.value.from_secrets is defined %}Add '{{ item.value.from_secrets }}' to project secrets{% else %}Provide value for {{ item.key }}{% endif %}
         - Docs: See {{ addon_path }}/env.yml for variable definitions
     quiet: true
   loop: "{{ addon_env_config.variables | dict2items }}"

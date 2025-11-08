@@ -127,10 +127,10 @@ cd superdeploy
 mkdir -p projects/myproject
 ```
 
-### 4.2. project.yml Oluştur
+### 4.2. config.yml Oluştur
 
 ```yaml
-# projects/myproject/project.yml
+# projects/myproject/config.yml
 
 project: myproject
 description: "My production project"
@@ -413,7 +413,7 @@ superdeploy myproject:status
 Caddy addon ekleyerek otomatik SSL:
 
 ```yaml
-# project.yml
+# config.yml
 vms:
   app:
     services:
@@ -423,7 +423,7 @@ vms:
 ### Monitoring Ekle
 
 ```yaml
-# project.yml
+# config.yml
 vms:
   monitoring:
     machine_type: e2-small

@@ -57,12 +57,12 @@ class ScaleCommand(ProjectCommand):
 
         logger.step("Updating Configuration")
 
-        # Update project.yml
+        # Update config.yml
         try:
             import yaml
 
             project_path = self.config_service.get_project_path(self.project_name)
-            project_yml = project_path / "project.yml"
+            project_yml = project_path / "config.yml"
 
             with open(project_yml, "r") as f:
                 config = yaml.safe_load(f)

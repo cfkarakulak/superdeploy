@@ -153,13 +153,13 @@ def build_ansible_command(
 
     # Determine which playbook to use
     # orchestrator -> orchestrator.yml
-    # project -> project.yml
+    # project -> config.yml
     # default -> site.yml (legacy, for backward compatibility)
     if playbook is None:
         if project_name == "orchestrator":
             playbook = "orchestrator.yml"
         elif project_name:
-            playbook = "project.yml"
+            playbook = "config.yml"
         else:
             playbook = "site.yml"
 

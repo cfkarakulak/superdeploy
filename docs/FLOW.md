@@ -226,7 +226,7 @@ docker ps | grep api
 ┌─────────────────────────────────────────────────────────────────┐
 │ 1. CONFIGURATION                                                │
 │                                                                 │
-│  Create project.yml:                                           │
+│  Create config.yml:                                           │
 │    - VMs (app, core)                                           │
 │    - Services (postgres, rabbitmq)                             │
 │    - Apps (api, storefront)                                    │
@@ -369,7 +369,7 @@ docker ps | grep api
 
 ### 4. Scalable
 
-- **Add VMs**: Just update `project.yml`
+- **Add VMs**: Just update `config.yml`
 - **Add apps**: Generate workflow + sync secrets
 - **Add projects**: Completely isolated
 - **No conflicts**: Project-specific everything

@@ -43,13 +43,13 @@ class ProjectConfig:
 
         Args:
             project_name: Name of the project
-            config_dict: Raw configuration dictionary from project.yml
+            config_dict: Raw configuration dictionary from config.yml
             project_dir: Path to project directory (optional)
         """
         self.project_name = project_name
         self.raw_config = config_dict
         self.project_dir = project_dir
-        self.config_path = project_dir / "project.yml" if project_dir else None
+        self.config_path = project_dir / "config.yml" if project_dir else None
         self.project_dir = project_dir
         self._apply_defaults()
         self._validate()
@@ -218,7 +218,7 @@ class ProjectConfig:
         """
         Convert to Terraform variables format
 
-        Dynamically builds vm_groups from project.yml vms section.
+        Dynamically builds vm_groups from config.yml vms section.
         Each VM is created with all its properties.
 
         Args:
@@ -396,7 +396,7 @@ class ConfigLoader:
             FileNotFoundError: If project config file doesn't exist
             ValueError: If configuration is invalid
         """
-        config_file = self.projects_dir / project_name / "project.yml"
+        config_file = self.projects_dir / project_name / "config.yml"
 
         if not config_file.exists():
             raise FileNotFoundError(
@@ -426,7 +426,7 @@ class ConfigLoader:
         projects = []
         for item in self.projects_dir.iterdir():
             if item.is_dir() and not item.name.startswith("."):
-                config_file = item / "project.yml"
+                config_file = item / "config.yml"
                 if config_file.exists():
                     projects.append(item.name)
 
@@ -442,5 +442,5 @@ class ConfigLoader:
         Returns:
             True if project exists, False otherwise
         """
-        config_file = self.projects_dir / project_name / "project.yml"
+        config_file = self.projects_dir / project_name / "config.yml"
         return config_file.exists()
