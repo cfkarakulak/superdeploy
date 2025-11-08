@@ -124,10 +124,13 @@ def generate(project, app):
         # 4. Generate GitHub workflow
         # Build the secret variable line dynamically (can't use Jinja2 inside raw block)
         secret_var_line = f"              SECRET_VALUE='${{{{ secrets.{app_name.upper()}_ENV_JSON }}}}'"
-        
+
         github_workflow_template = _get_github_workflow_template(app_type)
         github_workflow = Template(github_workflow_template).render(
-            project=project, app=app_name, vm_role=vm_role, secret_var_line=secret_var_line
+            project=project,
+            app=app_name,
+            vm_role=vm_role,
+            secret_var_line=secret_var_line,
         )
         github_dir = app_path / ".github" / "workflows"
         github_dir.mkdir(parents=True, exist_ok=True)
