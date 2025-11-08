@@ -1,8 +1,8 @@
-orchestrator_ip: 34.56.139.39
+orchestrator_ip: 35.222.115.67
 vm:
   name: orchestrator-main-0
-  external_ip: 34.56.139.39
-  deployed_at: '2025-11-08T14:06:44.170222'
+  external_ip: 35.222.115.67
+  deployed_at: '2025-11-08T19:10:07.521601'
   status: running
   machine_type: e2-medium
   disk_size: 50
@@ -10,7 +10,7 @@ vm:
   - monitoring
 deployed: true
 last_applied:
-  timestamp: '2025-11-08T14:06:44.170315'
+  timestamp: '2025-11-08T19:10:07.521674'
   config_hash: ced7656b659e
 addons:
   monitoring:

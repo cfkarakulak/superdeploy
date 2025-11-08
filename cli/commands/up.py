@@ -95,7 +95,7 @@ def up(
 
             # Change detection (smart deployment)
             changes = None  # Initialize - will be set if change detection runs
-            
+
             if not force and not skip_terraform and not skip_ansible:
                 from cli.core.config_loader import ConfigLoader
                 from cli.state_manager import StateManager
@@ -114,10 +114,15 @@ def up(
 
                 # Detect changes
                 state_mgr = StateManager(project_root, project)
-                
+
                 # Skip change detection if --force
                 if force:
-                    changes = {"has_changes": True, "needs_terraform": True, "needs_ansible": True, "needs_sync": True}
+                    changes = {
+                        "has_changes": True,
+                        "needs_terraform": True,
+                        "needs_ansible": True,
+                        "needs_sync": True,
+                    }
                     logger.log("🔄 Force mode: skipping change detection")
                 else:
                     changes, state = state_mgr.detect_changes(project_config)
@@ -221,14 +226,30 @@ def up(
                 # Auto-generate workflows if needed
                 if changes["needs_generate"]:
                     logger.log("  [cyan]→ Auto-generating workflows...[/cyan]")
-                    from cli.commands.generate import generate
-                    from click.testing import CliRunner
+                    
+                    # Use subprocess to call generate with namespace syntax
+                    import sys
+                    
+                    generate_cmd = [
+                        sys.executable,
+                        "-m",
+                        "cli.main",
+                        f"{project}:generate",
+                    ]
+                    
+                    result = subprocess.run(
+                        generate_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
 
-                    runner = CliRunner()
-                    result = runner.invoke(generate, ["-p", project])
-
-                    if result.exit_code != 0:
+                    if result.returncode != 0:
                         logger.log_error("Workflow generation failed")
+                        if result.stderr:
+                            for line in result.stderr.split("\n")[:5]:
+                                if line.strip():
+                                    logger.warn(f"  {line}")
                         raise SystemExit(1)
 
                     logger.log("  [dim]✓ Workflows generated[/dim]")
@@ -586,19 +607,24 @@ def _deploy_project(
             # Load VM IPs from state if terraform was skipped
             if skip_terraform:
                 from cli.state_manager import StateManager
+
                 state_mgr = StateManager(project_root, project)
                 state = state_mgr.load_state()
-                
+
                 # Extract VM IPs from state and add to env
                 if "vms" in state:
                     for vm_role, vm_data in state["vms"].items():
                         # Add VM IPs in Terraform output format for inventory generation
                         # Format: {ROLE}_{INDEX}_EXTERNAL_IP and {ROLE}_{INDEX}_INTERNAL_IP
                         if "external_ip" in vm_data:
-                            env[f"{vm_role.upper()}_0_EXTERNAL_IP"] = vm_data["external_ip"]
+                            env[f"{vm_role.upper()}_0_EXTERNAL_IP"] = vm_data[
+                                "external_ip"
+                            ]
                         if "internal_ip" in vm_data:
-                            env[f"{vm_role.upper()}_0_INTERNAL_IP"] = vm_data["internal_ip"]
-                
+                            env[f"{vm_role.upper()}_0_INTERNAL_IP"] = vm_data[
+                                "internal_ip"
+                            ]
+
                 logger.log("✓ VM IPs loaded from state")
             # else: env already has IPs from terraform outputs above
 
@@ -714,20 +740,18 @@ def _deploy_project(
     if not skip_sync and not skip_ansible:
         logger.log("Syncing secrets to GitHub...")
         try:
-            from cli.commands.sync import sync
-
             # Call sync command programmatically
             # Note: CliRunner with namespace commands doesn't work well
             # Use subprocess to call the actual CLI with namespace syntax
             import sys
-            
+
             sync_cmd = [
                 sys.executable,
                 "-m",
                 "cli.main",
                 f"{project}:sync",
             ]
-            
+
             try:
                 result = subprocess.run(
                     sync_cmd,
@@ -735,7 +759,7 @@ def _deploy_project(
                     text=True,
                     timeout=120,
                 )
-                
+
                 if result.returncode == 0:
                     logger.log("✓ Secrets synced to GitHub")
                 else:

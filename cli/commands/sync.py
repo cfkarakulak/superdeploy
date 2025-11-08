@@ -139,7 +139,7 @@ def sync(project):
         return
 
     all_secrets = secret_mgr.load_secrets()
-    
+
     # Get GitHub organization from config (NO DEFAULT - must be configured)
     github_org = config.get("github", {}).get("organization")
     if not github_org:
