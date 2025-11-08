@@ -58,6 +58,39 @@
     path: /opt/github-runner/.runner
   register: runner_config_check
 
+- name: Check if runner is registered with GitHub (verify it actually exists)
+  uri:
+    url: "https://api.github.com/orgs/{{ github_org }}/actions/runners"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ project_secrets.shared.GITHUB_TOKEN }}"
+      Accept: "application/vnd.github+json"
+    status_code: 200
+    return_content: yes
+  register: github_runners_list
+  when: runner_config_check.stat.exists
+
+- name: Check if this runner exists in GitHub
+  set_fact:
+    runner_exists_in_github: "{{ github_runners_list.json.runners | selectattr('name', 'equalto', inventory_hostname_short | default(inventory_hostname)) | list | length > 0 }}"
+  when: runner_config_check.stat.exists
+
+- name: Remove stale runner configuration if not in GitHub
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /opt/github-runner/.runner
+    - /opt/github-runner/.credentials
+  when: 
+    - runner_config_check.stat.exists
+    - not (runner_exists_in_github | default(true))
+
+- name: Update runner config check after cleanup
+  stat:
+    path: /opt/github-runner/.runner
+  register: runner_config_check
+
 - name: Get GitHub runner registration token from API
   uri:
     url: "https://api.github.com/orgs/{{ github_org }}/actions/runners/registration-token"
@@ -142,12 +175,10 @@
     enabled: yes
     state: started
     daemon_reload: yes
-  when: runner_config_check.stat.exists or runner_register_result is changed
 
 - name: Wait for runner service to initialize
-  shell: sleep 3
+  shell: sleep 5
   changed_when: false
-  when: runner_config_check.stat.exists or runner_register_result is changed
 
 - name: Display runner health status
   debug:
