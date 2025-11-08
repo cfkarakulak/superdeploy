@@ -239,6 +239,38 @@ jobs:
           
           echo "✅ Correct VM for project: $RUNNER_PROJECT"
       
+      - name: Create .env from merged secrets
+        run: |
+          APP_NAME="${{ needs.build.outputs.app }}"
+          SECRET_NAME="${APP_NAME^^}_ENV_JSON"
+          ENV_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}/data/$APP_NAME"
+          
+          echo "📝 Creating .env from $SECRET_NAME..."
+          
+          # GitHub Actions cannot dynamically access secrets
+          # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
+          case "$APP_NAME" in
+            {{ app }})
+              SECRET_VALUE='${{ secrets.{{ app|upper }}_ENV_JSON }}'
+              ;;
+            *)
+              echo "❌ App '$APP_NAME' not configured in workflow"
+              exit 1
+              ;;
+          esac
+          
+          # Convert JSON to .env format
+          echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
+          
+          # Write to VM directory
+          sudo mkdir -p "$ENV_DIR"
+          sudo cp /tmp/final.env "$ENV_DIR/.env"
+          sudo chown superdeploy:superdeploy "$ENV_DIR/.env"
+          sudo chmod 600 "$ENV_DIR/.env"
+          
+          echo "✅ Environment file created at $ENV_DIR/.env"
+          echo "📊 Total variables: $(wc -l < "$ENV_DIR/.env")"
+      
       - name: Deploy application
         run: |
           cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}/compose
@@ -333,6 +365,38 @@ jobs:
           fi
           
           echo "✅ Correct VM for project: $RUNNER_PROJECT"
+      
+      - name: Create .env from merged secrets
+        run: |
+          APP_NAME="${{ needs.build.outputs.app }}"
+          SECRET_NAME="${APP_NAME^^}_ENV_JSON"
+          ENV_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}/data/$APP_NAME"
+          
+          echo "📝 Creating .env from $SECRET_NAME..."
+          
+          # GitHub Actions cannot dynamically access secrets
+          # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
+          case "$APP_NAME" in
+            {{ app }})
+              SECRET_VALUE='${{ secrets.{{ app|upper }}_ENV_JSON }}'
+              ;;
+            *)
+              echo "❌ App '$APP_NAME' not configured in workflow"
+              exit 1
+              ;;
+          esac
+          
+          # Convert JSON to .env format
+          echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
+          
+          # Write to VM directory
+          sudo mkdir -p "$ENV_DIR"
+          sudo cp /tmp/final.env "$ENV_DIR/.env"
+          sudo chown superdeploy:superdeploy "$ENV_DIR/.env"
+          sudo chmod 600 "$ENV_DIR/.env"
+          
+          echo "✅ Environment file created at $ENV_DIR/.env"
+          echo "📊 Total variables: $(wc -l < "$ENV_DIR/.env")"
       
       - name: Deploy application
         run: |

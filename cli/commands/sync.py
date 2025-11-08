@@ -2,11 +2,47 @@
 
 import click
 import subprocess
+import json
+from pathlib import Path
 from rich.console import Console
 from cli.ui_components import show_header
 from cli.utils import get_project_root
 
 console = Console()
+
+
+def read_env_file(env_path):
+    """Read .env file and return as dictionary"""
+    env_dict = {}
+    
+    if not env_path.exists():
+        return env_dict
+    
+    try:
+        with open(env_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                # Skip empty lines and comments
+                if not line or line.startswith('#'):
+                    continue
+                
+                # Parse KEY=VALUE
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    # Remove quotes if present
+                    if value.startswith('"') and value.endswith('"'):
+                        value = value[1:-1]
+                    elif value.startswith("'") and value.endswith("'"):
+                        value = value[1:-1]
+                    
+                    env_dict[key] = value
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Could not read .env file: {e}[/yellow]")
+    
+    return env_dict
 
 
 def set_github_repo_secrets(repo, secrets_dict, console):
@@ -185,23 +221,52 @@ def sync(project):
 
         # Environment secrets (production)
         env_name = "production"
-        console.print(f"[cyan]Environment '{env_name}':[/cyan]")
+        console.print(f"[cyan]Environment '{env_name}' (merged .env + secrets.yml):[/cyan]")
 
-        # Get app-specific secrets
+        # Read app's local .env file
+        app_path = Path(app_config["path"]).expanduser().resolve()
+        env_file_path = app_path / ".env"
+        
+        local_env = {}
+        if env_file_path.exists():
+            local_env = read_env_file(env_file_path)
+            console.print(f"  [dim]📄 Read {len(local_env)} variables from .env[/dim]")
+        else:
+            console.print(f"  [dim]⚠️  No .env file found at {env_file_path}[/dim]")
+
+        # Get app-specific secrets from secrets.yml
         app_secrets = secret_mgr.get_app_secrets(app_name)
+        console.print(f"  [dim]🔐 Read {len(app_secrets)} secrets from secrets.yml[/dim]")
 
-        # Create environment if needed
+        # MERGE: local .env as base, secrets.yml overrides
+        merged_env = {**local_env, **app_secrets}
+        console.print(f"  [dim]🔀 Merged total: {len(merged_env)} variables[/dim]")
+
+        # Create JSON secret with merged environment
+        env_json_secret_name = f"{app_name.upper()}_ENV_JSON"
+        env_json_value = json.dumps(merged_env)
+        
+        # Add JSON secret to repo secrets
+        repo_secrets_with_json = {
+            **repo_secrets,
+            env_json_secret_name: env_json_value
+        }
+        
+        console.print(f"  [green]✓[/green] {env_json_secret_name} [dim](JSON with {len(merged_env)} vars)[/dim]")
+
+        # Set the JSON secret
         try:
             subprocess.run(
-                ["gh", "api", f"repos/{repo}/environments/{env_name}", "-X", "PUT"],
+                ["gh", "secret", "set", env_json_secret_name, "-b", env_json_value, "-R", repo],
                 check=True,
                 capture_output=True,
+                text=True,
+                timeout=30,
             )
-        except subprocess.CalledProcessError:
-            pass  # Environment might already exist
+        except Exception as e:
+            console.print(f"  [red]✗[/red] Failed to set {env_json_secret_name}: {e}")
 
-        success, fail = set_github_env_secrets(repo, env_name, app_secrets, console)
-        console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
+        console.print()
 
     console.print("\n[green]✅ Sync complete![/green]")
     console.print("\n[bold]📝 Next steps:[/bold]")
