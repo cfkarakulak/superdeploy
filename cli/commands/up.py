@@ -94,6 +94,8 @@ def up(
                     logger.log("")
 
             # Change detection (smart deployment)
+            changes = None  # Initialize - will be set if change detection runs
+            
             if not force and not skip_terraform and not skip_ansible:
                 from cli.core.config_loader import ConfigLoader
                 from cli.state_manager import StateManager
