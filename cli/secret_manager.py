@@ -48,9 +48,13 @@ class SecretManager:
         # Shared secrets
         if "shared" in secrets_data:
             lines.append("")
-            lines.append("  # ---------------------------------------------------------------------------")
+            lines.append(
+                "  # ---------------------------------------------------------------------------"
+            )
             lines.append("  # Shared Secrets (available to all applications)")
-            lines.append("  # ---------------------------------------------------------------------------")
+            lines.append(
+                "  # ---------------------------------------------------------------------------"
+            )
             lines.append("  shared:")
             shared = secrets_data["shared"]
             if shared:
@@ -58,26 +62,32 @@ class SecretManager:
                 db_keys = [k for k in shared if k.startswith("POSTGRES_")]
                 mq_keys = [k for k in shared if k.startswith("RABBITMQ_")]
                 docker_keys = [k for k in shared if k.startswith("DOCKER_")]
-                other_keys = [k for k in shared if not any(k.startswith(p) for p in ["POSTGRES_", "RABBITMQ_", "DOCKER_"])]
-                
+                other_keys = [
+                    k
+                    for k in shared
+                    if not any(
+                        k.startswith(p) for p in ["POSTGRES_", "RABBITMQ_", "DOCKER_"]
+                    )
+                ]
+
                 if db_keys:
                     lines.append("")
                     lines.append("    # Database Configuration")
                     for key in sorted(db_keys):
                         lines.append(f"    {key}: {shared[key]}")
-                
+
                 if mq_keys:
                     lines.append("")
                     lines.append("    # Message Queue Configuration")
                     for key in sorted(mq_keys):
                         lines.append(f"    {key}: {shared[key]}")
-                
+
                 if docker_keys:
                     lines.append("")
                     lines.append("    # Docker Registry Configuration")
                     for key in sorted(docker_keys):
                         lines.append(f"    {key}: {shared[key]}")
-                
+
                 if other_keys:
                     lines.append("")
                     lines.append("    # Other Shared Secrets")
@@ -90,9 +100,13 @@ class SecretManager:
         for app_name in secrets_data:
             if app_name != "shared":
                 lines.append("")
-                lines.append("  # ---------------------------------------------------------------------------")
+                lines.append(
+                    "  # ---------------------------------------------------------------------------"
+                )
                 lines.append(f"  # {app_name.upper()} - Application-specific secrets")
-                lines.append("  # ---------------------------------------------------------------------------")
+                lines.append(
+                    "  # ---------------------------------------------------------------------------"
+                )
                 lines.append(f"  {app_name}:")
                 app_secrets = secrets_data[app_name]
                 if app_secrets:
@@ -107,8 +121,12 @@ class SecretManager:
             lines.append("# " + "=" * 77)
             lines.append("# Environment Variable Aliases")
             lines.append("# " + "=" * 77)
-            lines.append("# Maps addon environment variables to application-expected names")
-            lines.append("# Example: DB_HOST: POSTGRES_HOST → DB_HOST gets value from POSTGRES_HOST")
+            lines.append(
+                "# Maps addon environment variables to application-expected names"
+            )
+            lines.append(
+                "# Example: DB_HOST: POSTGRES_HOST → DB_HOST gets value from POSTGRES_HOST"
+            )
             lines.append("# " + "=" * 77)
             lines.append("env_aliases:")
 

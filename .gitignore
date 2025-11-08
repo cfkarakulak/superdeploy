@@ -124,3 +124,7 @@ projects/*/ansible/generated/
 shared/orchestrator/.env
 shared/orchestrator/.secrets
 shared/config/.env
+
+# Orchestrator secrets and state (NEVER commit!)
+shared/orchestrator/secrets.yml
+shared/orchestrator/state.yml
