@@ -107,7 +107,11 @@
       X-GitHub-Api-Version: "2022-11-28"
     status_code: 201
     validate_certs: yes
+    timeout: 30
   register: github_runner_token_response
+  retries: 3
+  delay: 5
+  until: github_runner_token_response.status == 201
   when: not runner_config_check.stat.exists
   failed_when:
     - github_runner_token_response.failed is defined
@@ -116,7 +120,7 @@
     error_msg: |
       Failed to get GitHub runner token.
       Ensure github.organization is set in project.yml
-      Ensure GITHUB_TOKEN is set in secrets.yml with org:admin scope
+      Ensure GITHUB_TOKEN is set in secrets.yml with admin:org scope (not just repo)
 
 - name: Extract runner token
   set_fact:
