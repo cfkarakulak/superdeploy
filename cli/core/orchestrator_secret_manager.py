@@ -22,11 +22,32 @@ class OrchestratorSecretManager:
             return yaml.safe_load(f) or {}
 
     def save_secrets(self, secrets: Dict[str, Any]):
-        """Save secrets to secrets.yml"""
+        """Save secrets to secrets.yml with nice formatting"""
         self.secrets_file.parent.mkdir(parents=True, exist_ok=True)
 
+        # Build formatted YAML manually for better readability
+        lines = []
+        lines.append("# " + "=" * 77)
+        lines.append("# Orchestrator - Secrets Configuration")
+        lines.append("# " + "=" * 77)
+        lines.append("# WARNING: This file contains sensitive information")
+        lines.append("# Keep this file secure and never commit to version control")
+        lines.append("# " + "=" * 77)
+        lines.append("")
+        lines.append("secrets:")
+
+        secrets_data = secrets.get("secrets", {})
+        if secrets_data:
+            for key, value in sorted(secrets_data.items()):
+                lines.append(f"  {key}: {value}")
+        else:
+            lines.append("  # No secrets configured yet")
+
+        lines.append("")
+
+        # Write formatted content
         with open(self.secrets_file, "w") as f:
-            yaml.dump(secrets, f, default_flow_style=False, sort_keys=False)
+            f.write("\n".join(lines))
 
         # Restrictive permissions
         self.secrets_file.chmod(0o600)

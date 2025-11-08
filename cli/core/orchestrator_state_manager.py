@@ -24,7 +24,7 @@ class OrchestratorStateManager:
             return yaml.safe_load(f) or {}
 
     def save_state(self, state: Dict[str, Any]):
-        """Save state to file with config hash"""
+        """Save state to file with config hash and nice formatting"""
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Add timestamp and config hash (like project state manager)
@@ -33,8 +33,110 @@ class OrchestratorStateManager:
             "config_hash": self._calculate_config_hash(),
         }
 
+        # Build formatted YAML manually for better readability
+        lines = []
+
+        # Header
+        lines.append("# " + "=" * 77)
+        lines.append("# Orchestrator - Deployment State")
+        lines.append("# " + "=" * 77)
+        lines.append("# This file tracks the current state of orchestrator infrastructure")
+        lines.append("# WARNING: Do not manually edit this file")
+        lines.append("# " + "=" * 77)
+        lines.append("")
+
+        # Basic info
+        if "deployed" in state:
+            lines.append(f"deployed: {str(state['deployed']).lower()}")
+        if "orchestrator_ip" in state:
+            lines.append(f"orchestrator_ip: {state['orchestrator_ip']}")
+            lines.append("")
+
+        # VM section
+        if "vm" in state and state["vm"]:
+            lines.append("# " + "=" * 77)
+            lines.append("# Virtual Machine")
+            lines.append("# " + "=" * 77)
+            lines.append("vm:")
+            for key, value in state["vm"].items():
+                if isinstance(value, list):
+                    if value:
+                        lines.append(f"  {key}:")
+                        for item in value:
+                            lines.append(f"    - {item}")
+                    else:
+                        lines.append(f"  {key}: []")
+                elif isinstance(value, bool):
+                    lines.append(f"  {key}: {str(value).lower()}")
+                else:
+                    lines.append(f"  {key}: {value}")
+            lines.append("")
+
+        # Addons section
+        if "addons" in state and state["addons"]:
+            lines.append("# " + "=" * 77)
+            lines.append("# Installed Addons")
+            lines.append("# " + "=" * 77)
+            lines.append("addons:")
+            for addon_name, addon_data in state["addons"].items():
+                lines.append(f"  {addon_name}:")
+                if isinstance(addon_data, dict):
+                    for key, value in addon_data.items():
+                        lines.append(f"    {key}: {value}")
+            lines.append("")
+
+        # Config section
+        if "config" in state and state["config"]:
+            lines.append("# " + "=" * 77)
+            lines.append("# Applied Configuration")
+            lines.append("# " + "=" * 77)
+            lines.append("config:")
+            lines.append(
+                self._format_dict_section(state["config"], indent=1)
+            )
+            lines.append("")
+
+        # Last applied section
+        if "last_applied" in state:
+            lines.append("# " + "=" * 77)
+            lines.append("# Last Applied")
+            lines.append("# " + "=" * 77)
+            lines.append("last_applied:")
+            for key, value in state["last_applied"].items():
+                lines.append(f"  {key}: {value}")
+            lines.append("")
+
+        # Write formatted content
         with open(self.state_file, "w") as f:
-            yaml.dump(state, f, default_flow_style=False, sort_keys=False)
+            f.write("\n".join(lines))
+
+    def _format_dict_section(self, data: dict, indent: int = 0) -> str:
+        """Recursively format dict to YAML string"""
+        lines = []
+        prefix = "  " * indent
+        
+        for key, value in data.items():
+            if isinstance(value, dict):
+                lines.append(f"{prefix}{key}:")
+                lines.append(self._format_dict_section(value, indent + 1))
+            elif isinstance(value, list):
+                if value:
+                    lines.append(f"{prefix}{key}:")
+                    for item in value:
+                        if isinstance(item, dict):
+                            lines.append(f"{prefix}  -")
+                            for k, v in item.items():
+                                lines.append(f"{prefix}    {k}: {v}")
+                        else:
+                            lines.append(f"{prefix}  - {item}")
+                else:
+                    lines.append(f"{prefix}{key}: []")
+            elif isinstance(value, bool):
+                lines.append(f"{prefix}{key}: {str(value).lower()}")
+            else:
+                lines.append(f"{prefix}{key}: {value}")
+        
+        return "\n".join(lines)
 
     def _calculate_config_hash(self) -> str:
         """Calculate hash of config.yml for change detection"""

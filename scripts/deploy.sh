@@ -53,7 +53,7 @@ fi
 # Docker image name
 REGISTRY="${DOCKER_REGISTRY:-docker.io}"
 IMAGE="${DOCKER_ORG:-$DOCKER_USERNAME}/${APP}"
-TAG="${GITHUB_SHA:-${GITEA_SHA:-latest}}"
+TAG="${GITHUB_SHA:-latest}"
 FULL_IMAGE="${REGISTRY}/${IMAGE}:${TAG}"
 LATEST_IMAGE="${REGISTRY}/${IMAGE}:latest"
 
