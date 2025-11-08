@@ -3,10 +3,10 @@
 import click
 import subprocess
 import time
-from cli.base import ProjectCommand
+from cli.base import BaseCommand  # Changed from ProjectCommand
 
 
-class DownCommand(ProjectCommand):
+class DownCommand(BaseCommand):  # Changed from ProjectCommand
     """Destroy project resources."""
 
     def __init__(
@@ -16,7 +16,8 @@ class DownCommand(ProjectCommand):
         keep_infra: bool = False,
         verbose: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(verbose=verbose)
+        self.project_name = project_name
         self.yes = yes
         self.keep_infra = keep_infra
 
