@@ -206,8 +206,7 @@ jobs:
       - name: Build Docker image
         run: |
           docker build -t ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest .
-          docker tag ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest \
-                     ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
+          docker tag ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
       
       - name: Push to Docker Hub
         run: |
@@ -302,8 +301,7 @@ jobs:
       - name: Build Docker image
         run: |
           docker build -t ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest .
-          docker tag ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest \
-                     ${{ secrets.DOCKER_ORG }}/${{ secrets.config.outputs.app }}:${{ github.sha }}
+          docker tag ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
       
       - name: Push to Docker Hub
         run: |
