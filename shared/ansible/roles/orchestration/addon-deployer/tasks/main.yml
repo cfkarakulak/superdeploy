@@ -46,36 +46,6 @@
       - "Addons to deploy: {{ enabled_addons | join(', ') if enabled_addons | length > 0 else 'none' }}"
     verbosity: 0
 
-- name: Create project configuration directory
-  file:
-    path: "/opt/superdeploy/projects/{{ project_name }}"
-    state: directory
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group }}"
-    mode: '0755'
-
-- name: Debug project_config before sync
-  debug:
-    msg:
-      - "Project name: {{ project_name }}"
-      - "Project config keys: {{ project_config.keys() | list }}"
-      - "Project config size: {{ project_config | to_json | length }}"
-    verbosity: 0
-
-- name: Write project config to file for debugging
-  copy:
-    content: "{{ project_config | to_nice_yaml }}"
-    dest: "/opt/superdeploy/projects/{{ project_name }}/project.yml"
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group }}"
-    mode: '0644'
-  register: sync_result
-  
-- name: Show sync result
-  debug:
-    msg: "✓ Configuration synced ({{ sync_result.changed | ternary('updated', 'unchanged') }})"
-    verbosity: 0
-
 - name: Check if project Docker network exists
   shell: "docker network inspect {{ project_name }}-network >/dev/null 2>&1"
   register: network_exists

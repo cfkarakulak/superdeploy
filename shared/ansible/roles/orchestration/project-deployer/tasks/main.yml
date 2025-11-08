@@ -24,15 +24,31 @@
     network_subnet: "{{ project_config.network.docker_subnet | default('172.30.0.0/24') }}"
     monitoring_enabled: true  # Monitoring is always enabled
 
+- name: Parse vm_apps from inventory (JSON string to list)
+  set_fact:
+    vm_apps_list: "{{ vm_apps | from_json if vm_apps is defined and vm_apps is string else (vm_apps if vm_apps is defined else []) }}"
+
+- name: Filter apps for this VM only
+  set_fact:
+    apps_for_this_vm: "{{ apps | dict2items | selectattr('key', 'in', vm_apps_list) | items2dict }}"
+  when: vm_apps_list | length > 0
+
+- name: Set empty apps if no apps assigned to this VM
+  set_fact:
+    apps_for_this_vm: {}
+  when: vm_apps_list | length == 0
+
 - name: Display project deployment configuration
   debug:
     msg:
       - "Project: {{ project_name }}"
       - "Project base path: {{ project_base_path }}"
-      - "Applications: {{ apps.keys() | list | join(', ') if apps | length > 0 else 'none' }}"
+      - "VM Role: {{ vm_role | default('undefined') }}"
+      - "VM Apps: {{ vm_apps_list | join(', ') if vm_apps_list | length > 0 else 'none' }}"
+      - "Applications to deploy: {{ apps_for_this_vm.keys() | list | join(', ') if apps_for_this_vm | length > 0 else 'none (skipping)' }}"
       - "Network subnet: {{ network_subnet }}"
       - "Monitoring enabled: {{ monitoring_enabled }}"
-    verbosity: 1
+    verbosity: 0
 
 - name: Create project directory structure
   file:
@@ -55,8 +71,8 @@
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
     mode: '0755'
-  loop: "{{ [project_base_path + '/data', project_base_path + '/logs'] | product(apps | dict2items) | list }}"
-  when: apps | length > 0
+  loop: "{{ [project_base_path + '/data', project_base_path + '/logs'] | product(apps_for_this_vm | dict2items) | list }}"
+  when: apps_for_this_vm | length > 0
 
 - name: Display directory structure created
   debug:
@@ -80,7 +96,9 @@
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
     mode: '0644'
-  when: apps | length > 0
+  vars:
+    apps: "{{ apps_for_this_vm }}"
+  when: apps_for_this_vm | length > 0
 
 # Generate .env files for each app from secrets.yml (placed in data/ directory)
 - name: Generate .env files for applications
@@ -90,9 +108,9 @@
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
     mode: '0600'
-  loop: "{{ apps | dict2items }}"
+  loop: "{{ apps_for_this_vm | dict2items }}"
   when: 
-    - apps | length > 0
+    - apps_for_this_vm | length > 0
     - project_secrets is defined
   vars:
     network_name: "{{ project_name }}-network"

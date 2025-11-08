@@ -61,11 +61,28 @@
   hosts: all:!orchestrator
   become: yes
   serial: 1  # Run one host at a time to avoid duplicate registrations
-  roles:
-    - role: system/github-runner
-      when: "'services' not in (vm_services | default([]))"
-      # Only install runner on VMs that don't have backing services
-      # App VMs need runners, Core VMs (postgres, rabbitmq, etc.) don't
+  tasks:
+    - name: Parse vm_services if string (from inventory JSON)
+      set_fact:
+        parsed_vm_services: "{{ vm_services | from_json if vm_services is defined and vm_services is string else (vm_services if vm_services is defined else []) }}"
+    
+    - name: Check if this VM should have a runner
+      set_fact:
+        should_install_runner: "{{ (parsed_vm_services | select('in', ['postgres', 'rabbitmq', 'redis', 'mongodb', 'elasticsearch']) | list | length == 0) }}"
+    
+    - name: Debug runner installation decision
+      debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "VM Role: {{ vm_role | default('undefined') }}"
+          - "Parsed vm_services: {{ parsed_vm_services }}"
+          - "Should install runner: {{ should_install_runner }}"
+      when: should_install_runner is defined
+    
+    - name: Install GitHub Runner
+      include_role:
+        name: system/github-runner
+      when: should_install_runner | default(false)
   tags:
     - system
     - runner

@@ -897,10 +897,15 @@ def generate_ansible_inventory(
 
             vm_groups[role].append(vm_info)
 
-    # Get VM services from project config
+    # Get VM services and apps from project config
     vm_services_map = {}
+    vm_apps_map = {}
+    
     if project_config:
         vms_config = project_config.raw_config.get("vms", {})
+        apps_config = project_config.raw_config.get("apps", {})
+        
+        # Build services map per VM
         for vm_role, vm_def in vms_config.items():
             services = list(vm_def.get("services", []))  # Make a copy
 
@@ -909,6 +914,13 @@ def generate_ansible_inventory(
                 services.append("caddy")
 
             vm_services_map[vm_role] = services
+        
+        # Build apps map per VM (which apps are assigned to which VM)
+        for app_name, app_config in apps_config.items():
+            app_vm = app_config.get("vm", "app")  # Default to 'app' VM
+            if app_vm not in vm_apps_map:
+                vm_apps_map[app_vm] = []
+            vm_apps_map[app_vm].append(app_name)
 
     # Build inventory content
     inventory_lines = []
@@ -930,12 +942,16 @@ def generate_ansible_inventory(
         for vm in sorted(vm_groups[role], key=lambda x: x["name"]):
             # Get services for this VM role
             services = vm_services_map.get(role, [])
+            # Get apps for this VM role
+            apps = vm_apps_map.get(role, [])
+            
             # Convert to JSON and properly quote for INI format
             # INI parser needs quotes around JSON arrays
             services_json = json.dumps(services).replace('"', '\\"')
+            apps_json = json.dumps(apps).replace('"', '\\"')
 
             inventory_lines.append(
-                f'{vm["name"]} ansible_host={vm["host"]} ansible_user={vm["user"]} vm_role={role} vm_services="{services_json}"'
+                f'{vm["name"]} ansible_host={vm["host"]} ansible_user={vm["user"]} vm_role={role} vm_services="{services_json}" vm_apps="{apps_json}"'
             )
         inventory_lines.append("")  # Empty line between groups
 
