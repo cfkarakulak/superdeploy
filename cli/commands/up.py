@@ -595,6 +595,9 @@ def _deploy_project(
         else:
             console.print("  [dim]✓ Configuration • Environment loaded[/dim]")
 
+    # Auto-update secrets.yml with VM internal IPs (for multi-VM architecture)
+    _update_secrets_with_vm_ips(project_root, project, env, logger)
+
     # Ansible - Smart skip logic
     if not skip_ansible:
         # Smart skip: if no ansible changes, skip it
@@ -1143,3 +1146,63 @@ def _validate_secrets(project_root, project_name, logger):
         )
 
     return errors
+
+
+def _update_secrets_with_vm_ips(project_root, project, env, logger):
+    """
+    Auto-update secrets.yml with VM internal IPs for multi-VM architecture
+    
+    This ensures services like postgres/rabbitmq on core VM can be reached
+    from apps on app VM using internal IPs instead of hostnames.
+    """
+    from cli.secret_manager import SecretManager
+    from cli.state_manager import StateManager
+    
+    secret_mgr = SecretManager(project_root, project)
+    secrets_data = secret_mgr.load_secrets()
+    
+    if not secrets_data or "secrets" not in secrets_data:
+        return  # No secrets to update
+    
+    shared_secrets = secrets_data.get("secrets", {}).get("shared", {})
+    if not shared_secrets:
+        return  # No shared secrets
+    
+    # Get core VM internal IP from env or state
+    core_internal_ip = env.get("CORE_0_INTERNAL_IP")
+    
+    if not core_internal_ip:
+        # Try to load from state
+        state_mgr = StateManager(project_root, project)
+        state = state_mgr.load_state()
+        core_vm = state.get("vms", {}).get("core", {})
+        core_internal_ip = core_vm.get("internal_ip")
+    
+    if not core_internal_ip:
+        return  # No core VM found
+    
+    # Update service hosts with internal IP
+    updated = False
+    service_hosts = {
+        "POSTGRES_HOST": ("postgres", "PostgreSQL"),
+        "RABBITMQ_HOST": ("rabbitmq", "RabbitMQ"),
+        "MONGODB_HOST": ("mongodb", "MongoDB"),
+        "REDIS_HOST": ("redis", "Redis"),
+        "ELASTICSEARCH_HOST": ("elasticsearch", "Elasticsearch"),
+    }
+    
+    for host_key, (default_name, service_name) in service_hosts.items():
+        if host_key in shared_secrets:
+            current_value = shared_secrets[host_key]
+            # If it's still the default hostname, replace with internal IP
+            if current_value == default_name:
+                shared_secrets[host_key] = core_internal_ip
+                updated = True
+                logger.log(f"  [dim]✓ Updated {service_name} host: {default_name} → {core_internal_ip}[/dim]")
+    
+    if updated:
+        # Save updated secrets
+        secrets_data["secrets"]["shared"] = shared_secrets
+        secret_mgr.save_secrets(secrets_data)
+        logger.log(f"  [dim]✓ secrets.yml updated with VM internal IPs[/dim]")
+

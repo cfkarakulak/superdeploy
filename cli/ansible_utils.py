@@ -132,7 +132,7 @@ def build_ansible_command(
 
     # Add --ask-become-pass if needed (for first-time setup before passwordless sudo is configured)
     become_pass_str = "--ask-become-pass" if ask_become_pass else ""
-    
+
     # Add --flush-cache if force flag is set (forces re-run of all tasks)
     force_str = "--flush-cache" if force else ""
 

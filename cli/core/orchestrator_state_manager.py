@@ -40,7 +40,9 @@ class OrchestratorStateManager:
         lines.append("# " + "=" * 77)
         lines.append("# Orchestrator - Deployment State")
         lines.append("# " + "=" * 77)
-        lines.append("# This file tracks the current state of orchestrator infrastructure")
+        lines.append(
+            "# This file tracks the current state of orchestrator infrastructure"
+        )
         lines.append("# WARNING: Do not manually edit this file")
         lines.append("# " + "=" * 77)
         lines.append("")
@@ -91,9 +93,7 @@ class OrchestratorStateManager:
             lines.append("# Applied Configuration")
             lines.append("# " + "=" * 77)
             lines.append("config:")
-            lines.append(
-                self._format_dict_section(state["config"], indent=1)
-            )
+            lines.append(self._format_dict_section(state["config"], indent=1))
             lines.append("")
 
         # Last applied section
@@ -114,7 +114,7 @@ class OrchestratorStateManager:
         """Recursively format dict to YAML string"""
         lines = []
         prefix = "  " * indent
-        
+
         for key, value in data.items():
             if isinstance(value, dict):
                 lines.append(f"{prefix}{key}:")
@@ -135,7 +135,7 @@ class OrchestratorStateManager:
                 lines.append(f"{prefix}{key}: {str(value).lower()}")
             else:
                 lines.append(f"{prefix}{key}: {value}")
-        
+
         return "\n".join(lines)
 
     def _calculate_config_hash(self) -> str:
