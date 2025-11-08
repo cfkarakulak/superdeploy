@@ -922,7 +922,87 @@ def _deploy_project(
     logger.success("Infrastructure Deployed!")
     logger.log("━" * 60)
 
+    # Always display deployment summary (even in non-verbose mode)
     if not verbose:
+        # Display deployment summary like orchestrator:up does
+        console.print("\n" + "=" * 80)
+        console.print(f"[bold cyan]🚀 {project.upper()} DEPLOYED SUCCESSFULLY[/bold cyan]")
+        console.print("=" * 80)
+        
+        # VMs
+        if vm_ips:
+            console.print(f"\n[bold cyan]📍 Virtual Machines:[/bold cyan]")
+            for vm_name, ip in sorted(vm_ips.items()):
+                console.print(f"   • [cyan]{vm_name}:[/cyan] {ip}")
+        
+        # Orchestrator (if available)
+        if orchestrator_ip:
+            console.print(f"\n[bold cyan]🎯 Orchestrator:[/bold cyan]")
+            console.print(f"   IP: {orchestrator_ip}")
+            try:
+                from cli.core.orchestrator_loader import OrchestratorLoader
+                project_root = get_project_root()
+                orch_loader = OrchestratorLoader(project_root / "shared")
+                orch_config = orch_loader.load()
+                orch_secrets = orch_config.get_secrets()
+                grafana_pass = orch_secrets.get("GRAFANA_ADMIN_PASSWORD", "")
+                
+                console.print(f"   📊 Grafana: http://{orchestrator_ip}:3000")
+                if grafana_pass:
+                    console.print("      Username: [bold]admin[/bold]")
+                    console.print(f"      Password: [bold]{grafana_pass}[/bold]")
+                console.print(f"   📈 Prometheus: http://{orchestrator_ip}:9090")
+            except Exception:
+                pass
+        
+        # Credentials
+        console.print(f"\n[bold cyan]🔐 Access Credentials:[/bold cyan]")
+        
+        # PostgreSQL
+        if postgres_pass:
+            console.print("\n[cyan]🐘 PostgreSQL:[/cyan]")
+            console.print(f"   Host: [bold]{postgres_host}[/bold]")
+            console.print(f"   Database: [bold]{postgres_db}[/bold]")
+            console.print(f"   Username: [bold]{postgres_user}[/bold]")
+            console.print(f"   Password: [bold]{postgres_pass}[/bold]")
+        
+        # RabbitMQ
+        if rabbitmq_pass:
+            console.print("\n[cyan]🐰 RabbitMQ:[/cyan]")
+            console.print(f"   Host: [bold]{rabbitmq_host}[/bold]")
+            console.print(f"   Username: [bold]{rabbitmq_user}[/bold]")
+            console.print(f"   Password: [bold]{rabbitmq_pass}[/bold]")
+            if core_vm_ip:
+                console.print(f"   Management UI: http://{core_vm_ip}:15672")
+        
+        # Redis (if exists)
+        if redis_pass:
+            console.print("\n[cyan]📦 Redis:[/cyan]")
+            console.print(f"   Host: [bold]{redis_host}[/bold]")
+            console.print(f"   Password: [bold]{redis_pass}[/bold]")
+        
+        # Applications
+        if apps:
+            console.print(f"\n[bold cyan]🌐 Applications:[/bold cyan]")
+            for app_name, app_config in apps.items():
+                domain = app_config.get("domain", "")
+                port = app_config.get("port")
+                vm_role = app_config.get("vm", "")
+                
+                # Find VM IP for this app
+                vm_ip = None
+                for vm_name, ip in vm_ips.items():
+                    if vm_role in vm_name:
+                        vm_ip = ip
+                        break
+                
+                if vm_ip:
+                    if domain:
+                        console.print(f"   • [cyan]{app_name}:[/cyan] https://{domain}")
+                    else:
+                        console.print(f"   • [cyan]{app_name}:[/cyan] http://{vm_ip}:{port}")
+        
+        console.print("\n" + "=" * 80)
         console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
         console.print(
             f"[dim]Ansible detailed log:[/dim] {logger.log_path.parent / f'{logger.log_path.stem}_ansible.log'}\n"
