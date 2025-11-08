@@ -122,9 +122,12 @@ def generate(project, app):
         console.print(f"  Secrets: {secret_count}")
 
         # 4. Generate GitHub workflow
+        # Build the secret variable line dynamically (can't use Jinja2 inside raw block)
+        secret_var_line = f"              SECRET_VALUE='${{{{ secrets.{app_name.upper()}_ENV_JSON }}}}'"
+        
         github_workflow_template = _get_github_workflow_template(app_type)
         github_workflow = Template(github_workflow_template).render(
-            project=project, app=app_name, vm_role=vm_role, app_upper=app_name.upper()
+            project=project, app=app_name, vm_role=vm_role, secret_var_line=secret_var_line
         )
         github_dir = app_path / ".github" / "workflows"
         github_dir.mkdir(parents=True, exist_ok=True)
@@ -245,19 +248,19 @@ jobs:
           ENV_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}/data/$APP_NAME"
           
           echo "📝 Creating .env from ${APP_NAME^^}_ENV_JSON..."
-          
+{% endraw %}          
           # GitHub Actions cannot dynamically access secrets
           # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
           case "$APP_NAME" in
             {{ app }})
-              SECRET_VALUE='${{ secrets.{{ app_upper }}_ENV_JSON }}'
+{{ secret_var_line }}
               ;;
             *)
               echo "❌ App '$APP_NAME' not configured in workflow"
               exit 1
               ;;
           esac
-          
+{% raw %}          
           # Convert JSON to .env format
           echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
           
@@ -371,19 +374,19 @@ jobs:
           ENV_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}/data/$APP_NAME"
           
           echo "📝 Creating .env from ${APP_NAME^^}_ENV_JSON..."
-          
+{% endraw %}          
           # GitHub Actions cannot dynamically access secrets
           # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
           case "$APP_NAME" in
             {{ app }})
-              SECRET_VALUE='${{ secrets.{{ app_upper }}_ENV_JSON }}'
+{{ secret_var_line }}
               ;;
             *)
               echo "❌ App '$APP_NAME' not configured in workflow"
               exit 1
               ;;
           esac
-          
+{% raw %}          
           # Convert JSON to .env format
           echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
           
