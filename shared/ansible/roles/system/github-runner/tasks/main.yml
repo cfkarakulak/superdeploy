@@ -99,7 +99,7 @@
 
 - name: Get GitHub runner registration token from API
   uri:
-    url: "https://api.github.com/orgs/{{ github_org | default('cheapaio') }}/actions/runners/registration-token"
+    url: "https://api.github.com/orgs/{{ github_org }}/actions/runners/registration-token"
     method: POST
     headers:
       Authorization: "Bearer {{ project_secrets.shared.GITHUB_TOKEN }}"
@@ -109,6 +109,14 @@
     validate_certs: yes
   register: github_runner_token_response
   when: not runner_config_check.stat.exists
+  failed_when:
+    - github_runner_token_response.failed is defined
+    - github_runner_token_response.failed
+  vars:
+    error_msg: |
+      Failed to get GitHub runner token.
+      Ensure github.organization is set in project.yml
+      Ensure GITHUB_TOKEN is set in secrets.yml with org:admin scope
 
 - name: Extract runner token
   set_fact:
@@ -119,7 +127,7 @@
 - name: Configure GitHub runner
   command: >
     ./config.sh
-    --url https://github.com/{{ github_org | default('cheapaio') }}
+    --url https://github.com/{{ github_org }}
     --token {{ github_runner_token }}
     --labels self-hosted,superdeploy,{{ runner_project_name }},{{ vm_role }}
     --name {{ inventory_hostname_short | default(inventory_hostname) }}
@@ -131,6 +139,12 @@
   become_user: "{{ superdeploy_user }}"
   when: not runner_config_check.stat.exists
   register: runner_register_result
+  failed_when:
+    - runner_register_result.rc != 0
+  vars:
+    error_msg: |
+      Failed to configure GitHub runner.
+      Ensure github.organization is set correctly in project.yml
 
 - name: Display runner registration result
   debug:

@@ -9,7 +9,9 @@ superdeploy_group: "superdeploy"
 github_runner_version: "2.311.0"
 
 # Default GitHub organization
-github_org: "cheapaio"
+# NO DEFAULT - must be configured in project.yml
+# This ensures framework is project-agnostic
+github_org: ""
 
 # Runner work directory
 runner_work_dir: "_work"

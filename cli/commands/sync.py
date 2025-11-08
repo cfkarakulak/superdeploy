@@ -140,7 +140,17 @@ def sync(project):
         return
 
     all_secrets = secret_mgr.load_secrets()
-    github_org = config.get("github", {}).get("organization", f"{project}io")
+    
+    # Get GitHub organization from config (NO DEFAULT - must be configured)
+    github_org = config.get("github", {}).get("organization")
+    if not github_org:
+        console.print("[red]❌ GitHub organization not configured![/red]")
+        console.print("")
+        console.print("Add to project.yml:")
+        console.print("[dim]github:")
+        console.print("  organization: your-github-org[/dim]")
+        console.print("")
+        return
 
     # Check gh CLI
     try:
