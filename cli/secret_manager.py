@@ -106,6 +106,7 @@ class SecretManager:
         Merges:
         - secrets.shared (all apps)
         - secrets.{app_name} (app-specific)
+        - env_aliases.{app_name} (variable name mappings)
 
         Returns:
             Dict of environment variables for the app
@@ -114,6 +115,7 @@ class SecretManager:
 
         # Get structure
         secrets_section = all_secrets.get("secrets", {})
+        env_aliases_section = all_secrets.get("env_aliases", {})
 
         # Merge shared + app-specific
         merged = {}
@@ -127,5 +129,19 @@ class SecretManager:
         app_specific = secrets_section.get(app_name, {})
         if app_specific:
             merged.update(app_specific)
+
+        # 3. Add env_aliases for this app (maps variable names)
+        # Example: DB_HOST: POSTGRES_HOST → DB_HOST=postgres
+        app_aliases = env_aliases_section.get(app_name, {})
+        if app_aliases:
+            for alias_key, alias_value in app_aliases.items():
+                # If alias_value is a reference to another variable (uppercase with underscore)
+                if isinstance(alias_value, str) and alias_value.isupper() and '_' in alias_value:
+                    # Look up the actual value from merged secrets
+                    if alias_value in merged:
+                        merged[alias_key] = merged[alias_value]
+                else:
+                    # It's a static value
+                    merged[alias_key] = alias_value
 
         return merged
