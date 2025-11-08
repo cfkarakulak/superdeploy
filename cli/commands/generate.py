@@ -242,10 +242,9 @@ jobs:
       - name: Create .env from merged secrets
         run: |
           APP_NAME="${{ needs.build.outputs.app }}"
-          SECRET_NAME="${APP_NAME^^}_ENV_JSON"
           ENV_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}/data/$APP_NAME"
           
-          echo "📝 Creating .env from $SECRET_NAME..."
+          echo "📝 Creating .env from ${APP_NAME^^}_ENV_JSON..."
           
           # GitHub Actions cannot dynamically access secrets
           # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
@@ -369,10 +368,9 @@ jobs:
       - name: Create .env from merged secrets
         run: |
           APP_NAME="${{ needs.build.outputs.app }}"
-          SECRET_NAME="${APP_NAME^^}_ENV_JSON"
           ENV_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}/data/$APP_NAME"
           
-          echo "📝 Creating .env from $SECRET_NAME..."
+          echo "📝 Creating .env from ${APP_NAME^^}_ENV_JSON..."
           
           # GitHub Actions cannot dynamically access secrets
           # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
