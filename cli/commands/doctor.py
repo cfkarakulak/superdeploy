@@ -87,7 +87,7 @@ class DoctorCommand(BaseCommand):
             self.table.add_row(
                 "⏳ Projects",
                 "[yellow]None found[/yellow]",
-                "Run: superdeploy init -p myproject",
+                "Run: superdeploy myproject:init",
             )
             return []
 

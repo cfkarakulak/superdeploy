@@ -19,7 +19,7 @@ def deploy(project, app, message, verbose):
     2. Guide you through GitHub Actions deployment
 
     Example:
-        superdeploy deploy -p myproject -a api
+        superdeploy myproject:deploy -a api
     """
 
     console.print("\n[bold cyan]📦 Deployment Guide[/bold cyan]\n")

@@ -32,9 +32,9 @@ def domain_add(project: str, app_name: str, domain: str):
         superdeploy domain:add grafana grafana.cheapa.io
         superdeploy domain:add prometheus prometheus.cheapa.io
 
-        # Project apps (explicit -p required)
-        superdeploy domain:add -p cheapa api api.cheapa.io
-        superdeploy domain:add -p cheapa dashboard dashboard.cheapa.io
+        # Project apps (namespace syntax)
+        superdeploy cheapa:domain:add api api.cheapa.io
+        superdeploy cheapa:domain:add dashboard dashboard.cheapa.io
     """
     try:
         # Auto-detect orchestrator services by keyword

@@ -21,7 +21,7 @@ def update_firewall(project):
 
     Example:
         # After changing port in config.yml:
-        superdeploy update-firewall -p cheapa
+        superdeploy cheapa:update-firewall
     """
     show_header(
         title="Update Firewall Rules",

@@ -200,5 +200,5 @@ def backups_create(project, output):
     console.print("\n[color(248)]Backup complete.[/color(248)]")
     console.print(f"\n[white]Backup location:[/white] {output}/{backup_name}")
     console.print(
-        f"[white]Restore with:[/white] superdeploy restore -p {project} --from {backup_name}"
+        f"[white]Restore with:[/white] superdeploy :restore{project} --from {backup_name}"
     )

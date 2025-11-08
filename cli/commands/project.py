@@ -47,7 +47,7 @@ def projects_deploy(project, services):
         console.print(
             f"[red]❌ Project secrets not found: {project_path / 'secrets.yml'}[/red]"
         )
-        console.print(f"[dim]Run: superdeploy init -p {project}[/dim]")
+        console.print(f"[dim]Run: superdeploy :init{project}[/dim]")
         return
 
     # Extract all secrets (shared + app-specific)

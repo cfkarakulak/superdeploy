@@ -66,7 +66,7 @@ class RestartCommand(ProjectCommand):
                 self.console.print("\n[color(248)]Application restarted.[/color(248)]")
                 self.console.print("\n[dim]Monitor logs:[/dim]")
                 self.console.print(
-                    f"  [cyan]superdeploy logs -p {self.project_name} -a {self.app_name} -f[/cyan]"
+                    f"  [cyan]superdeploy :logs{self.project_name} -a {self.app_name} -f[/cyan]"
                 )
                 self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
@@ -84,7 +84,7 @@ def restart(project, app, verbose):
 
     \b
     Example:
-      superdeploy restart -p cheapa -a api
+      superdeploy cheapa:restart -a api
     """
     cmd = RestartCommand(project, app, verbose=verbose)
     cmd.run()

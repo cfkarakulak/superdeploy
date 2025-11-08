@@ -191,10 +191,10 @@ def tunnel(project, service, all_services, list_services, verbose):
 
     \b
     Examples:
-      superdeploy tunnel -p cheapa postgres
-      superdeploy tunnel -p cheapa rabbitmq
-      superdeploy tunnel -p cheapa --all
-      superdeploy tunnel -p cheapa --list
+      superdeploy cheapa:tunnel postgres
+      superdeploy cheapa:tunnel rabbitmq
+      superdeploy cheapa:tunnel --all
+      superdeploy cheapa:tunnel --list
     """
     cmd = TunnelCommand(project, service, all_services, list_services, verbose)
     cmd.run()

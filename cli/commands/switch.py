@@ -25,10 +25,10 @@ def releases_rollback(project, app, version, force):
 
     \b
     Examples:
-      superdeploy releases:rollback -p cheapa -a api                           # Interactive: show list and select
-      superdeploy releases:rollback -p cheapa -a api -v 2                      # Switch to release #2
-      superdeploy releases:rollback -p cheapa -a api -v 20251030_143312_3a4a89d  # Switch to specific release
-      superdeploy releases:rollback -p cheapa -a api -v previous               # Switch to previous release
+      superdeploy releases:rollback cheapa: -a api                           # Interactive: show list and select
+      superdeploy releases:rollback cheapa: -a api -v 2                      # Switch to release #2
+      superdeploy releases:rollback cheapa: -a api -v 20251030_143312_3a4a89d  # Switch to specific release
+      superdeploy releases:rollback cheapa: -a api -v previous               # Switch to previous release
 
     \b
     Features:

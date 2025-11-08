@@ -43,7 +43,7 @@ class DownCommand(ProjectCommand):
 
         self.console.print()
 
-        # Load config for GCP details
+        # Load config for GCP details (optional - use defaults if not found)
         from cli.core.config_loader import ConfigLoader
 
         projects_dir = self.project_root / "projects"
@@ -53,8 +53,12 @@ class DownCommand(ProjectCommand):
             project_config = config_loader.load_project(self.project_name)
             gcp_config = project_config.config.get("gcp", {})
             region = gcp_config.get("region", "us-central1")
+            logger.log("[dim]✓ Config loaded[/dim]")
         except:
+            # Config not found - use defaults for cleanup
+            # This is OK for down command since we're destroying everything anyway
             region = "us-central1"
+            logger.log("[dim]No config found, using defaults for cleanup[/dim]")
 
         # Always 3 steps: GCP Cleanup, Terraform State, Local Files
         total_steps = 3

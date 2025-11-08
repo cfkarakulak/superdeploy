@@ -69,7 +69,7 @@ def generate(project, app):
     # Check if secrets.yml exists
     if not secret_mgr.secrets_file.exists():
         console.print("\n[red]❌ No secrets.yml found![/red]")
-        console.print("[yellow]Run first:[/yellow] superdeploy init -p " + project)
+        console.print("[yellow]Run first:[/yellow] superdeploy :init" + project)
         console.print("[dim]Or create manually with structure:[/dim]")
         console.print("[dim]secrets:[/dim]")
         console.print("[dim]  shared: {}[/dim]")

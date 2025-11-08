@@ -17,7 +17,7 @@ def promote(project, app, from_branch, to_branch):
     
     \b
     Example:
-      superdeploy promote -p cheapa -a api
+      superdeploy cheapa:promote -a api
       # Merges staging → production and auto-deploys
     """
     show_header(

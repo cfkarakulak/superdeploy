@@ -1050,7 +1050,7 @@ def _validate_secrets(project_root, project_name, logger):
     # Check if secrets file exists
     if not secret_mgr.secrets_file.exists():
         errors.append("secrets.yml not found")
-        errors.append(f"Run: superdeploy init -p {project_name}")
+        errors.append(f"Run: superdeploy :init{project_name}")
         return errors
 
     # Load secrets

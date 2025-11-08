@@ -45,7 +45,7 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
       superdeploy config:set API_KEY=xyz -p myproject --deploy
 
       # Update for specific app only
-      superdeploy config:set STRIPE_API_KEY=sk_live_xyz -p myproject -a api --deploy
+      superdeploy config:set STRIPE_API_KEY=sk_live_xyz myproject: -a api --deploy
     """
     from pathlib import Path
     from cli.utils import get_project_root, validate_project
@@ -187,7 +187,7 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
         if deployed_count > 0:
             logger.step("[4/4] Deployment In Progress")
             logger.log("✓ Deployment triggered via git push")
-            logger.log(f"Watch logs: superdeploy logs -p {project} --follow")
+            logger.log(f"Watch logs: superdeploy :logs{project} --follow")
 
     else:
         logger.step("[3/4] Skipping Deployment")
@@ -203,7 +203,7 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
 
     if deploy:
         console.print(
-            f"[dim]💡 Tip: Check deployment status with 'superdeploy status -p {project}'[/dim]"
+            f"[dim]💡 Tip: Check deployment status with 'superdeploy :status{project}'[/dim]"
         )
     else:
         console.print(
@@ -445,7 +445,7 @@ def config_unset(key, project, deploy, no_sync):
 
     if deploy:
         console.print(
-            f"[dim]💡 Tip: Check status with 'superdeploy status -p {project}'[/dim]"
+            f"[dim]💡 Tip: Check status with 'superdeploy :status{project}'[/dim]"
         )
     else:
         console.print("[dim]💡 Tip: Run with --deploy to trigger deployment[/dim]")
@@ -689,10 +689,10 @@ def config_show(project, mask):
 
         # Tunnel commands
         main_table.add_row(
-            "  RabbitMQ Tunnel", f"superdeploy tunnel -p {project} rabbitmq"
+            "  RabbitMQ Tunnel", f"superdeploy :tunnel{project} rabbitmq"
         )
         main_table.add_row(
-            "  Postgres Tunnel", f"superdeploy tunnel -p {project} postgres"
+            "  Postgres Tunnel", f"superdeploy :tunnel{project} postgres"
         )
 
     # Print the complete table

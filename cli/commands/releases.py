@@ -18,8 +18,8 @@ def releases_list(project, app, limit):
 
     \b
     Examples:
-      superdeploy releases:list -p cheapa -a api          # Show all releases
-      superdeploy releases:list -p cheapa -a api -n 3     # Show last 3
+      superdeploy releases:list cheapa: -a api          # Show all releases
+      superdeploy releases:list cheapa: -a api -n 3     # Show last 3
 
     \b
     Shows:
@@ -165,11 +165,11 @@ def releases_list(project, app, limit):
         # Show switch hints
         console.print("\n[bold]Quick Commands:[/bold]")
         console.print(
-            f"  Switch to any version: [cyan]superdeploy switch -p {project} -a {app}[/cyan]"
+            f"  Switch to any version: [cyan]superdeploy :switch{project} -a {app}[/cyan]"
         )
         if len(releases_list) > 1:
             console.print(
-                f"  Switch to specific: [cyan]superdeploy switch -p {project} -a {app} -v 2[/cyan]"
+                f"  Switch to specific: [cyan]superdeploy :switch{project} -a {app} -v 2[/cyan]"
             )
         console.print(
             "\n[dim]💡 System keeps last 5 releases for instant switching[/dim]"
