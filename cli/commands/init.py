@@ -298,7 +298,7 @@ def init(project):
     yml_lines.append("    # Database Configuration (Auto-generated)")
     yml_lines.append("    # " + "-" * 73)
     yml_lines.append(
-        f"    POSTGRES_HOST: {passwords_config['secrets']['shared']['POSTGRES_HOST']}"
+        "    POSTGRES_HOST: ''    # Auto-filled with VM internal IP after 'superdeploy project:up'"
     )
     yml_lines.append(
         f"    POSTGRES_PORT: '{passwords_config['secrets']['shared']['POSTGRES_PORT']}'"
@@ -317,7 +317,7 @@ def init(project):
     yml_lines.append("    # Message Queue Configuration (Auto-generated)")
     yml_lines.append("    # " + "-" * 73)
     yml_lines.append(
-        f"    RABBITMQ_HOST: {passwords_config['secrets']['shared']['RABBITMQ_HOST']}"
+        "    RABBITMQ_HOST: ''    # Auto-filled with VM internal IP after 'superdeploy project:up'"
     )
     yml_lines.append(
         f"    RABBITMQ_PORT: '{passwords_config['secrets']['shared']['RABBITMQ_PORT']}'"
