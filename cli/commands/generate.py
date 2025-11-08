@@ -280,7 +280,8 @@ jobs:
         run: |
           cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}/compose
           
-          if ! docker compose config 2>/dev/null | grep -q "^  ${{ needs.build.outputs.app }}:"; then
+          # Check if this specific service exists in docker-compose.yml (without running full config validation)
+          if ! grep -q "^  ${{ needs.build.outputs.app }}:" docker-compose.yml; then
             echo "⏭️  Skipping: App not configured on this VM"
             exit 0
           fi
@@ -406,7 +407,8 @@ jobs:
         run: |
           cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}/compose
           
-          if ! docker compose config 2>/dev/null | grep -q "^  ${{ needs.build.outputs.app }}:"; then
+          # Check if this specific service exists in docker-compose.yml (without running full config validation)
+          if ! grep -q "^  ${{ needs.build.outputs.app }}:" docker-compose.yml; then
             echo "⏭️  Skipping: App not configured on this VM"
             exit 0
           fi
