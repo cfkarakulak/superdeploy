@@ -23,73 +23,39 @@
       
       echo "Starting cleanup for ${PROJECT_NAME}-${ADDON_NAME}..."
       
-      # Phase 1: Stop via Docker Compose (graceful shutdown)
+      # Phase 1: Stop via Docker Compose (graceful shutdown with remove)
       echo "Phase 1: Stopping containers via Docker Compose..."
-      docker compose --project-name "${PROJECT_NAME}-${ADDON_NAME}" down --remove-orphans --timeout 30 2>&1 || true
+      docker compose --project-name "${PROJECT_NAME}-${ADDON_NAME}" down --remove-orphans --volumes --timeout 30 2>&1 || true
       
       # Phase 2: Wait for Docker daemon to sync
       echo "Phase 2: Waiting for Docker daemon to sync..."
-      sleep 3
+      sleep 2
       
-      # Phase 3: Aggressive cleanup with verification loop
-      echo "Phase 3: Verifying all containers are removed..."
-      for attempt in 1 2 3 4 5; do
-        # Get ALL matching containers (running, stopped, exited)
-        CONTAINER_IDS=$(docker ps -aq --filter "name=${PROJECT_NAME}-${ADDON_NAME}" 2>/dev/null || true)
-        
-        if [ -z "$CONTAINER_IDS" ]; then
-          echo "✓ All containers removed successfully (attempt $attempt)"
-          break
-        fi
-        
-        echo "Attempt $attempt: Found remaining containers: $CONTAINER_IDS"
-        
-        # Force kill then remove
-        for cid in $CONTAINER_IDS; do
-          echo "  - Killing container: $cid"
-          docker kill "$cid" 2>&1 || true
-          sleep 1
-          echo "  - Removing container: $cid"
-          docker rm -f "$cid" 2>&1 || true
-        done
-        
-        # Verify removal
+      # Phase 3: Force remove any remaining containers by project prefix
+      echo "Phase 3: Force removing any remaining containers..."
+      # Docker Compose creates containers like: PROJECT_NAME-SERVICE_NAME-INSTANCE
+      # For "cheapa-postgres" project, containers are named: cheapa-postgres-postgres-1, cheapa-postgres-*
+      REMAINING_CONTAINERS=$(docker ps -aq --filter "name=${PROJECT_NAME}-${ADDON_NAME}-" 2>/dev/null || true)
+      
+      if [ -n "$REMAINING_CONTAINERS" ]; then
+        echo "Found remaining containers, removing..."
+        echo "$REMAINING_CONTAINERS" | xargs -r docker rm -f 2>&1 || true
         sleep 2
-        REMAINING=$(docker ps -aq --filter "name=${PROJECT_NAME}-${ADDON_NAME}" 2>/dev/null | wc -l)
-        
-        if [ "$REMAINING" -eq 0 ]; then
-          echo "✓ Cleanup successful after $attempt attempt(s)"
-          break
-        fi
-        
-        if [ $attempt -eq 5 ]; then
-          echo "⚠ ERROR: Failed to remove all containers after 5 attempts"
-          docker ps -a --filter "name=${PROJECT_NAME}-${ADDON_NAME}"
-          exit 1
-        fi
-        
-        echo "  Waiting before retry..."
-        sleep 3
-      done
-      
-      # Phase 4: Final sync and prune
-      echo "Phase 4: Final cleanup..."
-      docker container prune -f >/dev/null 2>&1 || true
-      sleep 3
-      
-      # Final verification
-      FINAL_CHECK=$(docker ps -aq --filter "name=${PROJECT_NAME}-${ADDON_NAME}" 2>/dev/null || true)
-      if [ -n "$FINAL_CHECK" ]; then
-        echo "⚠ ERROR: Containers still exist after cleanup!"
-        docker ps -a --filter "name=${PROJECT_NAME}-${ADDON_NAME}"
-        exit 1
       fi
       
-      echo "✓ Cleanup completed successfully - ready for deployment"
+      # Phase 4: Final verification
+      echo "Phase 4: Final verification..."
+      FINAL_CHECK=$(docker ps -aq --filter "name=${PROJECT_NAME}-${ADDON_NAME}-" 2>/dev/null || true)
       
-      # Critical: Wait for Docker daemon to fully update its metadata
-      echo "Waiting for Docker daemon to sync metadata..."
-      sleep 5
+      if [ -n "$FINAL_CHECK" ]; then
+        echo "⚠ WARNING: Some containers still exist:"
+        docker ps -a --filter "name=${PROJECT_NAME}-${ADDON_NAME}-"
+        echo "Attempting final force removal..."
+        echo "$FINAL_CHECK" | xargs -r docker rm -f 2>&1 || true
+        sleep 2
+      fi
+      
+      echo "✓ Cleanup completed - ready for deployment"
     executable: /bin/bash
   environment:
     PROJECT_NAME: "{{ project_name }}"
@@ -98,7 +64,6 @@
   become: yes
   register: rabbitmq_cleanup_result
   changed_when: false
-
 - name: Start {{ addon_name }} services (with explicit project name)
   community.docker.docker_compose_v2:
     project_name: "{{ project_name }}-{{ addon_name }}"
