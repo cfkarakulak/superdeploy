@@ -124,7 +124,7 @@ def generate(project, app):
         # 4. Generate GitHub workflow
         github_workflow_template = _get_github_workflow_template(app_type)
         github_workflow = Template(github_workflow_template).render(
-            project=project, app=app_name, vm_role=vm_role
+            project=project, app=app_name, vm_role=vm_role, app_upper=app_name.upper()
         )
         github_dir = app_path / ".github" / "workflows"
         github_dir.mkdir(parents=True, exist_ok=True)
@@ -250,7 +250,7 @@ jobs:
           # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
           case "$APP_NAME" in
             {{ app }})
-              SECRET_VALUE='{% endraw %}${{ secrets.{{ app|upper }}_ENV_JSON }}{% raw %}'
+              SECRET_VALUE='${{ secrets.{{ app_upper }}_ENV_JSON }}'
               ;;
             *)
               echo "❌ App '$APP_NAME' not configured in workflow"
@@ -376,7 +376,7 @@ jobs:
           # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
           case "$APP_NAME" in
             {{ app }})
-              SECRET_VALUE='{% endraw %}${{ secrets.{{ app|upper }}_ENV_JSON }}{% raw %}'
+              SECRET_VALUE='${{ secrets.{{ app_upper }}_ENV_JSON }}'
               ;;
             *)
               echo "❌ App '$APP_NAME' not configured in workflow"
