@@ -15,13 +15,6 @@
     - /opt/superdeploy/projects
     - /opt/github-runner
 
-# NOTE: Node.js is NOT installed on VMs
-# Reasoning:
-#   - Next.js builds happen in GitHub Actions (ubuntu-latest)
-#   - Production containers already have Node.js
-#   - GitHub Runner is a Go binary (doesn't need Node.js)
-#   - Reduces VM dependencies and attack surface
-
 - name: Determine project name
   set_fact:
     runner_project_name: "{{ project_name | default(group_names | reject('in', ['all', 'ungrouped', 'orchestrator', 'core']) | first | default('unknown')) }}"

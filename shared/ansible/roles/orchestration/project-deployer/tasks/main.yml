@@ -78,10 +78,6 @@
   debug:
     msg: "Project directory structure created at {{ project_base_path }}"
 
-# NOTE: secrets.yml is NOT copied to VMs anymore
-# Secrets are managed via GitHub Secrets and injected during deployment
-# This eliminates the risk of secrets being exposed on VMs
-
 # Generate docker-compose.yml for apps
 - name: Generate docker-compose.yml for applications
   template:
@@ -93,15 +89,6 @@
   vars:
     apps: "{{ apps_for_this_vm }}"
   when: apps_for_this_vm | length > 0
-
-# NOTE: .env files are now created by GitHub Actions during deployment
-# This ensures they always contain the latest merged values from:
-#   1. App's local .env (base configuration)
-#   2. secrets.yml (deployment-specific overrides)
-# The merged JSON is stored in GitHub Secrets and injected at deploy time.
-
-# This role prepares the infrastructure (VMs, directories, secrets, docker-compose)
-# Apps will be deployed when code is pushed to their respective repositories
 
 # Setup monitoring integration
 - name: Setup monitoring integration
