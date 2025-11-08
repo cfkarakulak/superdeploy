@@ -292,9 +292,7 @@ def domain_add(project: str, app_name: str, domain: str):
         result = subprocess.run(
             [
                 "superdeploy",
-                "up",
-                "-p",
-                project,
+                f"{project}:up",
                 "--skip-terraform",
                 "--addon",
                 "caddy",

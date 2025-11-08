@@ -280,20 +280,18 @@ def orchestrator_down(yes, preserve_ip, verbose):
 
     orchestrator_loader = OrchestratorLoader(shared_dir)
 
+    # Try to load config, but don't fail if it doesn't exist (for cleanup)
     try:
         orch_config = orchestrator_loader.load()
-    except FileNotFoundError as e:
-        logger.log_error(str(e))
-        raise SystemExit(1)
-
-    import subprocess
-    from cli.terraform_utils import (
-        workspace_exists,
-    )
-
-    gcp_config = orch_config.config.get("gcp", {})
-    zone = gcp_config.get("zone", "us-central1-a")
-    region = gcp_config.get("region", "us-central1")
+        gcp_config = orch_config.config.get("gcp", {})
+        zone = gcp_config.get("zone", "us-central1-a")
+        region = gcp_config.get("region", "us-central1")
+    except FileNotFoundError:
+        # Config doesn't exist - use defaults for cleanup
+        # This is OK for down command since we're destroying everything anyway
+        logger.log("[dim]No config found, using defaults for cleanup[/dim]")
+        zone = "us-central1-a"
+        region = "us-central1"
 
     # Always do manual cleanup FIRST to ensure GCP resources are gone
     current_step = 1
