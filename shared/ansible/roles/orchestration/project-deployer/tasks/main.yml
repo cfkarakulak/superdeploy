@@ -43,7 +43,7 @@
     mode: '0755'
   loop:
     - "{{ project_base_path }}"
-    - "{{ project_base_path }}/apps"
+    - "{{ project_base_path }}/compose"
     - "{{ project_base_path }}/data"
     - "{{ project_base_path }}/logs"
     - "{{ project_base_path }}/backups"
@@ -55,7 +55,7 @@
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
     mode: '0755'
-  loop: "{{ [project_base_path + '/apps', project_base_path + '/data'] | product(apps | dict2items) | list }}"
+  loop: "{{ [project_base_path + '/data', project_base_path + '/logs'] | product(apps | dict2items) | list }}"
   when: apps | length > 0
 
 - name: Display directory structure created
@@ -76,17 +76,17 @@
 - name: Generate docker-compose.yml for applications
   template:
     src: "docker-compose.apps.yml.j2"
-    dest: "{{ project_base_path }}/apps/docker-compose.yml"
+    dest: "{{ project_base_path }}/compose/docker-compose.yml"
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
     mode: '0644'
   when: apps | length > 0
 
-# Generate .env files for each app from secrets.yml
+# Generate .env files for each app from secrets.yml (placed in data/ directory)
 - name: Generate .env files for applications
   template:
     src: "app.env.j2"
-    dest: "{{ project_base_path }}/apps/{{ item.key }}/.env"
+    dest: "{{ project_base_path }}/data/{{ item.key }}/.env"
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
     mode: '0600'

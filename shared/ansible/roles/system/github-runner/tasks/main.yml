@@ -54,12 +54,20 @@
   set_fact:
     vm_role: "{{ hostvars[inventory_hostname].vm_role }}"
 
-- name: Create project identifier file
+- name: Create project identifier file (legacy location)
   copy:
     content: "{{ runner_project_name }}"
     dest: /var/lib/superdeploy/project_identifier
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_user }}"
+    mode: '0644'
+
+- name: Create project identifier file (for deployment workflows)
+  copy:
+    content: "{{ runner_project_name }}"
+    dest: /opt/superdeploy/.project
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
 
 - name: Check if GitHub runner is already installed
