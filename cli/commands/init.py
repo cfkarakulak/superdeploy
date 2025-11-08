@@ -362,13 +362,22 @@ def init(project):
     yml_lines.append("    SMTP_FROM: ''        # From email address")
     yml_lines.append("")
     yml_lines.append("    # " + "-" * 73)
-    yml_lines.append("    # Optional: GitHub Access")
+    yml_lines.append("    # GitHub Integration (REQUIRED)")
     yml_lines.append("    # " + "-" * 73)
-    yml_lines.append("    # Only needed for private repositories")
+    yml_lines.append(
+        "    # GitHub Personal Access Token for CI/CD and runner management"
+    )
     yml_lines.append("    # Get token from: https://github.com/settings/tokens")
     yml_lines.append(
-        "    # GITHUB_TOKEN: ''   # GitHub Personal Access Token (uncomment if needed)"
+        "    # Required scopes: repo, workflow, admin:org (manage_runners)"
     )
+    yml_lines.append(
+        "    GITHUB_TOKEN: ''           # GitHub Personal Access Token (REQUIRED)"
+    )
+    yml_lines.append("    #   This token is used to:")
+    yml_lines.append("    #   - Push code to private repositories")
+    yml_lines.append("    #   - Trigger GitHub Actions workflows")
+    yml_lines.append("    #   - Auto-generate runner registration tokens via API")
     yml_lines.append("")
 
     # App-Specific Secrets Section
@@ -427,7 +436,7 @@ def init(project):
     console.print(f"[dim]✓ Created: {secrets_yml.relative_to(project_root)}[/dim]")
     console.print("[dim]  Generated secure passwords for PostgreSQL and RabbitMQ[/dim]")
     console.print(
-        "[yellow]  ⚠ Fill in Docker and SMTP credentials before deploying![/yellow]"
+        "[yellow]  ⚠ Fill in Docker, GitHub, and SMTP credentials before deploying![/yellow]"
     )
 
     # Summary
@@ -437,6 +446,9 @@ def init(project):
     )
     console.print(
         "     [yellow]→ Add DOCKER_USERNAME, DOCKER_TOKEN (required)[/yellow]"
+    )
+    console.print(
+        "     [yellow]→ Add GITHUB_TOKEN (required - with admin:org scope)[/yellow]"
     )
     console.print(
         "     [yellow]→ Add SMTP credentials (optional, for email notifications)[/yellow]"

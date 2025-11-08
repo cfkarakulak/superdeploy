@@ -1,0 +1,168 @@
+---
+# GitHub Actions Runner Setup
+# This role installs self-hosted GitHub runner on project VMs
+# Note: Orchestrator is excluded in site.yml (hosts: all:!orchestrator)
+
+- name: Create deployment directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0755'
+  loop:
+    - /opt/apps
+    - /opt/superdeploy/projects
+    - /opt/github-runner
+
+- name: Check if Node.js is installed
+  command: node --version
+  register: node_check
+  failed_when: false
+  changed_when: false
+
+- name: Install Node.js (if not present)
+  block:
+    - name: Download Node.js setup script
+      get_url:
+        url: https://deb.nodesource.com/setup_20.x
+        dest: /tmp/nodesource_setup.sh
+        mode: '0755'
+      when: node_check.rc != 0
+
+    - name: Run Node.js setup script
+      command: bash /tmp/nodesource_setup.sh
+      when: node_check.rc != 0
+
+    - name: Install Node.js package
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+      when: node_check.rc != 0
+      retries: 5
+      delay: 10
+      register: nodejs_install
+      until: nodejs_install is succeeded
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: Determine project name
+  set_fact:
+    runner_project_name: "{{ project_name | default(group_names | reject('in', ['all', 'ungrouped', 'orchestrator', 'core']) | first | default('unknown')) }}"
+
+- name: Get VM role from inventory
+  set_fact:
+    vm_role: "{{ hostvars[inventory_hostname].vm_role }}"
+
+- name: Create project identifier file
+  copy:
+    content: "{{ runner_project_name }}"
+    dest: /opt/superdeploy/.project
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_user }}"
+    mode: '0644'
+
+- name: Check if GitHub runner is already installed
+  stat:
+    path: /opt/github-runner/config.sh
+  register: runner_check
+
+- name: Download GitHub Actions runner
+  get_url:
+    url: "https://github.com/actions/runner/releases/download/v2.311.0/actions-runner-linux-x64-2.311.0.tar.gz"
+    dest: /tmp/github-runner.tar.gz
+    mode: '0644'
+  when: not runner_check.stat.exists
+
+- name: Extract GitHub runner
+  unarchive:
+    src: /tmp/github-runner.tar.gz
+    dest: /opt/github-runner
+    remote_src: yes
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+  become: yes
+  when: not runner_check.stat.exists
+
+- name: Check if runner is already configured
+  stat:
+    path: /opt/github-runner/.runner
+  register: runner_config_check
+
+- name: Get GitHub runner registration token from API
+  uri:
+    url: "https://api.github.com/orgs/{{ github_org | default('cheapaio') }}/actions/runners/registration-token"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ project_secrets.shared.GITHUB_TOKEN }}"
+      Accept: "application/vnd.github+json"
+      X-GitHub-Api-Version: "2022-11-28"
+    status_code: 201
+    validate_certs: yes
+  register: github_runner_token_response
+  when: not runner_config_check.stat.exists
+
+- name: Extract runner token
+  set_fact:
+    github_runner_token: "{{ github_runner_token_response.json.token }}"
+  when: not runner_config_check.stat.exists
+  no_log: true
+
+- name: Configure GitHub runner
+  command: >
+    ./config.sh
+    --url https://github.com/{{ github_org | default('cheapaio') }}
+    --token {{ github_runner_token }}
+    --labels self-hosted,superdeploy,{{ runner_project_name }},{{ vm_role }}
+    --name {{ inventory_hostname_short | default(inventory_hostname) }}
+    --work _work
+    --replace
+    --unattended
+  args:
+    chdir: /opt/github-runner
+  become_user: "{{ superdeploy_user }}"
+  when: not runner_config_check.stat.exists
+  register: runner_register_result
+
+- name: Display runner registration result
+  debug:
+    msg: 
+      - "{{ 'Runner registered successfully!' if (runner_register_result is defined and runner_register_result.changed) else 'Runner already registered' }}"
+      - "Runner Name: {{ inventory_hostname_short | default(inventory_hostname) }}"
+      - "Runner Labels:"
+      - "  - self-hosted"
+      - "  - superdeploy"
+      - "  - {{ runner_project_name }}"
+      - "  - {{ vm_role }}"
+      - "Project: {{ runner_project_name }}"
+      - "VM Role: {{ vm_role }}"
+      - ""
+      - "✅ Workflows should use: runs-on: [self-hosted, superdeploy, {{ runner_project_name }}, {{ vm_role }}]"
+
+- name: Create runner systemd service file
+  template:
+    src: github-runner.service.j2
+    dest: /etc/systemd/system/github-runner.service
+    mode: '0644'
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+
+- name: Enable and start runner service
+  systemd:
+    name: github-runner
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: runner_config_check.stat.exists or runner_register_result is changed
+
+- name: Wait for runner service to initialize
+  shell: sleep 3
+  changed_when: false
+  when: runner_config_check.stat.exists or runner_register_result is changed
+
+- name: Display runner health status
+  debug:
+    msg: "✅ GitHub runner is ready on {{ inventory_hostname_short | default(inventory_hostname) }}"
+

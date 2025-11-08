@@ -1,142 +1,44 @@
-"""SuperDeploy CLI - Deploy command (Refactored)"""
+"""Deploy command - Simplified for GitHub Actions deployment"""
 
 import click
-import subprocess
-from pathlib import Path
-from cli.base import ProjectCommand
+from rich.console import Console
+
+console = Console()
 
 
-class DeployCommand(ProjectCommand):
-    """Deploy application via git push to Forgejo."""
-
-    def __init__(
-        self,
-        project_name: str,
-        app_name: str,
-        message: str = None,
-        verbose: bool = False,
-    ):
-        super().__init__(project_name, verbose=verbose)
-        self.app_name = app_name
-        self.message = message
-
-    def execute(self) -> None:
-        """Execute deploy command."""
-        self.show_header(
-            title="Deploy Application",
-            project=self.project_name,
-            app=self.app_name,
-            details={"Message": self.message} if self.message else None,
-        )
-
-        # Initialize logger
-        logger = self.init_logger(self.project_name, f"deploy-{self.app_name}")
-
-        logger.step("[1/2] Preparing Deployment")
-
-        # Get app config
-        try:
-            app_config = self.get_app_config(self.app_name)
-            app_path = Path(app_config["path"]).expanduser()
-
-            if not app_path.exists():
-                self.exit_with_error(f"App directory not found: {app_path}")
-
-            self.console.print(f"  ✓ Located {self.app_name} at {app_path}")
-
-        except KeyError:
-            self.exit_with_error(f"App '{self.app_name}' not found in project config")
-
-        # Check for changes and commit
-        try:
-            self._commit_changes(app_path, logger)
-        except subprocess.CalledProcessError as e:
-            self.handle_error(e, "Git operations failed")
-            raise SystemExit(1)
-
-        logger.step("[2/2] Deploying to Production")
-
-        # Push to production
-        try:
-            result = subprocess.run(
-                ["git", "push", "origin", "production"],
-                cwd=app_path,
-                capture_output=True,
-                text=True,
-            )
-
-            if result.returncode == 0:
-                self.console.print("  ✓ Pushed to production")
-
-                if not self.verbose:
-                    self.console.print(
-                        "\n[color(248)]Deployment triggered.[/color(248)]"
-                    )
-                    self.console.print("\n[dim]Monitor logs:[/dim]")
-                    self.console.print(
-                        f"  [cyan]superdeploy logs -p {self.project_name} -a {self.app_name} -f[/cyan]"
-                    )
-                    self.console.print(
-                        f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n"
-                    )
-            else:
-                logger.log_error("Push failed", context=result.stderr)
-                raise SystemExit(1)
-
-        except subprocess.CalledProcessError as e:
-            self.handle_error(e, "Git push failed")
-            raise SystemExit(1)
-
-    def _commit_changes(self, app_path: Path, logger) -> None:
-        """Commit changes if any exist."""
-        # Check if there are changes
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=app_path,
-            capture_output=True,
-            text=True,
-        )
-
-        has_changes = bool(result.stdout.strip())
-
-        if has_changes:
-            # Add all changes
-            subprocess.run(["git", "add", "-A"], cwd=app_path, check=True)
-
-            # Commit
-            commit_msg = self.message or f"Deploy {self.app_name}"
-            subprocess.run(
-                ["git", "commit", "-m", commit_msg],
-                cwd=app_path,
-                check=True,
-                capture_output=True,
-            )
-            self.console.print("  ✓ Changes committed")
-        else:
-            self.console.print("  ✓ No changes to commit")
-
-
-@click.command()
-@click.option("--project", "-p", required=True, help="Project name")
-@click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
-@click.option("--message", "-m", help="Commit message (optional)")
-@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
+@click.command(name="deploy")
+@click.option("-p", "--project", required=True, help="Project name")
+@click.option("-a", "--app", required=True, help="App name")
+@click.option("-m", "--message", default="Deploy", help="Commit message")
+@click.option("--verbose", "-v", is_flag=True, help="Verbose output")
 def deploy(project, app, message, verbose):
     """
-    Deploy an application (direct push to Forgejo)
+    Deploy an application (via GitHub Actions)
 
     This command will:
-    1. Commit any changes in app-repos/<app>
-    2. Push to Forgejo (triggers deployment)
-    3. Show deployment logs
+    1. Show deployment instructions
+    2. Guide you through GitHub Actions deployment
 
-    \b
-    Quick Deploy:
-      superdeploy deploy -p <project> -a <app>
-
-    \b
-    With custom message:
-      superdeploy deploy -p <project> -a <app> -m "Fix bug"
+    Example:
+        superdeploy deploy -p myproject -a api
     """
-    cmd = DeployCommand(project, app, message=message, verbose=verbose)
-    cmd.run()
+
+    console.print("\n[bold cyan]📦 Deployment Guide[/bold cyan]\n")
+    console.print(f"Project: [cyan]{project}[/cyan]")
+    console.print(f"App: [cyan]{app}[/cyan]\n")
+
+    console.print("[bold]To deploy your application:[/bold]\n")
+    console.print("1. Commit your changes:")
+    console.print(f"   [dim]cd ~/code/{project}/{app}[/dim]")
+    console.print("   [dim]git add .[/dim]")
+    console.print(f'   [dim]git commit -m "{message}"[/dim]\n')
+
+    console.print("2. Push to production branch:")
+    console.print("   [dim]git push origin production[/dim]\n")
+
+    console.print("3. Monitor deployment:")
+    console.print(f"   [dim]https://github.com/yourorg/{app}/actions[/dim]\n")
+
+    console.print(
+        "[green]✅ GitHub Actions will automatically deploy your app![/green]"
+    )

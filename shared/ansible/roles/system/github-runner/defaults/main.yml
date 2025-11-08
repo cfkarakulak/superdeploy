@@ -1,0 +1,16 @@
+---
+# GitHub Runner Role Defaults
+
+# User and group for runner
+superdeploy_user: "superdeploy"
+superdeploy_group: "superdeploy"
+
+# GitHub runner version
+github_runner_version: "2.311.0"
+
+# Default GitHub organization
+github_org: "cheapaio"
+
+# Runner work directory
+runner_work_dir: "_work"
+

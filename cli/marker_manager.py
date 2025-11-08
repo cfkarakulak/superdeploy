@@ -21,7 +21,7 @@ class MarkerManager:
             app_path: Path to application directory
             project: Project name
             app_name: Application name
-            vm_role: VM role (e.g., 'app', 'core') for Forgejo runner routing
+            vm_role: VM role (e.g., 'app', 'core') for GitHub runner routing
         """
         marker_file = app_path / ".superdeploy"
 

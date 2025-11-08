@@ -45,9 +45,7 @@ network:
   docker_subnet: 172.20.0.0/24
 
 # =============================================================================
-# Forgejo Configuration (Git Server + CI/CD)
 # =============================================================================
-forgejo:
   version: 13.0.1
   port: 3001
   ssh_port: 2222
@@ -55,8 +53,6 @@ forgejo:
   admin_email: cradexco@gmail.com
   org: cradexco
   repo: superdeploy
-  db_name: forgejo
-  db_user: forgejo
   domain: ''
 
 # =============================================================================

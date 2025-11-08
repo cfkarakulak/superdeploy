@@ -7,7 +7,7 @@ from typing import Dict, Any
 
 
 class OrchestratorSecretManager:
-    """Manages orchestrator secrets (Forgejo, Grafana passwords)"""
+    """Manages orchestrator secrets (Grafana passwords)"""
 
     def __init__(self, shared_dir: Path):
         self.shared_dir = Path(shared_dir)
@@ -41,10 +41,6 @@ class OrchestratorSecretManager:
 
         # Generate new secrets
         secrets = {
-            "FORGEJO_ADMIN_PASSWORD": py_secrets.token_urlsafe(32),
-            "FORGEJO_DB_PASSWORD": py_secrets.token_urlsafe(32),
-            "FORGEJO_SECRET_KEY": py_secrets.token_urlsafe(48),
-            "FORGEJO_INTERNAL_TOKEN": py_secrets.token_urlsafe(79),
             "GRAFANA_ADMIN_PASSWORD": py_secrets.token_urlsafe(32),
         }
 

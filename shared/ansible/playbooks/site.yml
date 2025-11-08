@@ -16,7 +16,7 @@
 #   --tags docker           : Install and configure Docker
 #   --tags security         : Configure firewall and security hardening
 #   --tags monitoring-agent : Install system monitoring agents
-#   --tags addons           : Deploy infrastructure addons (Forgejo, databases, etc)
+#   --tags addons           : Deploy infrastructure addons (databases, etc)
 #   --tags project          : Deploy project applications
 #   No tags                 : Full deployment
 
@@ -60,12 +60,12 @@
     - monitoring-agent
     - foundation
 
-- name: Setup Forgejo Runner on project VMs
+- name: Setup GitHub Runner on project VMs
   hosts: all:!orchestrator
   become: yes
   serial: 1  # Run one host at a time to avoid duplicate registrations
   roles:
-    - role: system/forgejo-runner
+    - role: system/github-runner
       when: "'services' not in (vm_services | default([]))"
       # Only install runner on VMs that don't have backing services
       # App VMs need runners, Core VMs (postgres, rabbitmq, etc.) don't
@@ -111,8 +111,8 @@
     - role: orchestration/addon-deployer
       vars:
         vm_role: orchestrator
-        # Orchestrator always deploys: forgejo, postgres, prometheus, grafana
-        enabled_addons: ['forgejo', 'postgres', 'prometheus', 'grafana']
+        # Orchestrator always deploys: postgres, prometheus, grafana
+        enabled_addons: ['postgres', 'prometheus', 'grafana']
   tags:
     - addons
     - infrastructure

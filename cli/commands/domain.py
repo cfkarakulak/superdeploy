@@ -24,14 +24,13 @@ def domain_add(project: str, app_name: str, domain: str):
     """
     Add a domain to an application or orchestrator service.
 
-    Orchestrator services (grafana, prometheus, forgejo) are auto-detected.
+    Orchestrator services (grafana, prometheus) are auto-detected.
     Project apps require -p flag.
 
     Examples:
         # Orchestrator services (keyword-based, no -p needed)
         superdeploy domain:add grafana grafana.cheapa.io
         superdeploy domain:add prometheus prometheus.cheapa.io
-        superdeploy domain:add forgejo forgejo.cheapa.io
 
         # Project apps (explicit -p required)
         superdeploy domain:add -p cheapa api api.cheapa.io
@@ -39,7 +38,7 @@ def domain_add(project: str, app_name: str, domain: str):
     """
     try:
         # Auto-detect orchestrator services by keyword
-        ORCHESTRATOR_SERVICES = ["grafana", "prometheus", "forgejo"]
+        ORCHESTRATOR_SERVICES = ["grafana", "prometheus"]
         is_orchestrator = app_name in ORCHESTRATOR_SERVICES
 
         # Validate inputs
@@ -434,7 +433,7 @@ def domain_list(project: str):
                     "[bold yellow]Orchestrator[/bold yellow]", "", "", "", ""
                 )
 
-                services = ["grafana", "prometheus", "forgejo"]
+                services = ["grafana", "prometheus"]
                 for service in services:
                     service_config = config.get(service, {})
                     domain = service_config.get("domain", "") or "-"
@@ -520,7 +519,7 @@ def domain_remove(project: str, app_name: str):
     """
     Remove a domain from an application or orchestrator service.
 
-    Orchestrator services (grafana, prometheus, forgejo) are auto-detected.
+    Orchestrator services (grafana, prometheus) are auto-detected.
     Project apps require -p flag.
 
     Examples:
@@ -529,7 +528,7 @@ def domain_remove(project: str, app_name: str):
     """
     try:
         # Auto-detect orchestrator services by keyword
-        ORCHESTRATOR_SERVICES = ["grafana", "prometheus", "forgejo"]
+        ORCHESTRATOR_SERVICES = ["grafana", "prometheus"]
         is_orchestrator = app_name in ORCHESTRATOR_SERVICES
 
         # Validate inputs

@@ -69,7 +69,7 @@ class OrchestratorStateManager:
                 {
                     "machine_type": vm_config.get("machine_type"),
                     "disk_size": vm_config.get("disk_size"),
-                    "services": ["forgejo", "monitoring"],
+                    "services": ["monitoring"],
                 }
             )
 
@@ -79,7 +79,6 @@ class OrchestratorStateManager:
                 "orchestrator_ip": ip,
                 "vm": vm_data,
                 "addons": {
-                    "forgejo": {"status": "installed"},
                     "monitoring": {"status": "installed"},
                 },
             }

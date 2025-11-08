@@ -195,7 +195,7 @@ def _create_project_deploy_playbook(ansible_dir):
 
     - name: Display deployment status
       debug:
-        msg: "Project '{{ project_name }}' files deployed. Use Forgejo workflow to start services."
+        msg: "Project '{{ project_name }}' files deployed. Push to GitHub to trigger deployment."
 """
 
     playbook_path.write_text(playbook_content)

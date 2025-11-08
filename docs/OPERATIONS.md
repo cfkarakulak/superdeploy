@@ -1,758 +1,523 @@
-# Günlük Operasyonlar
+# SuperDeploy Operations Guide
 
-Bu doküman, sistemi kurduktan sonra **günlük kullanımda** ihtiyaç duyacağın tüm komutları ve senaryoları içerir.
+Operations rehberi - production sistemini yönetmek için daily kullanım kılavuzu.
 
 ---
 
-## 🎯 Hızlı Referans
+## 🚀 Deployment Operations
+
+### New App Deployment
 
 ```bash
-# Orchestrator durumu
-superdeploy orchestrator:status
+# 1. project.yml'e app ekle
+# 2. secrets.yml'e app secrets ekle
+# 3. Workflow generate et
+superdeploy myproject:generate --app newapp
 
-# Orchestrator'a SSH
-superdeploy orchestrator:ssh
+# 4. Secrets sync et
+superdeploy myproject:sync
 
-# Sistem durumu (tüm VM'ler ve servisler)
-superdeploy status -p myproject
+# 5. App repo'ya commit et
+cd ~/code/myorg/newapp
+git add .superdeploy .github/workflows/deploy.yml
+git commit -m "Add SuperDeploy"
+git push origin main
 
-# Yeni deployment (otomatik)
+# 6. Production'a deploy et
+git checkout -b production
 git push origin production
-
-# Logs (real-time)
-superdeploy logs -p myproject -a api --follow
-
-# Secrets yönetimi (GitHub + Forgejo sync)
-superdeploy sync -p myproject
-
-# Selective addon deployment (sadece belirli addon)
-superdeploy myproject:up --addon postgres
-
-# IP korumalı deployment
-superdeploy myproject:up --preserve-ip
-
-# Infrastructure silme
-superdeploy myproject:down
 ```
 
----
-
-## 📊 Sistem Durumu Kontrolü
-
-### Orchestrator Durumu
+### Update Existing App
 
 ```bash
-superdeploy orchestrator:status
+# Sadece code değişikliği - otomatik deploy
+cd ~/code/myorg/api
+git add .
+git commit -m "Update feature"
+git push origin production  # ← GitHub Actions otomatik deploy eder
 ```
 
-**Çıktı:**
-```
-✅ Orchestrator is deployed
-  IP: 34.72.179.175
-  URL: http://34.72.179.175:3001
-  Forgejo: https://forgejo.yourdomain.com
-  Grafana: https://grafana.yourdomain.com
-  Prometheus: https://prometheus.yourdomain.com
-```
-
-### Proje Durumu
+### Rollback
 
 ```bash
-superdeploy status -p myproject
-```
-
-**Çıktı:**
-```
-╭─────────────────────────────────────╮
-│ 🚀 SuperDeploy Status               │
-╰─────────────────────────────────────╯
-
-Infrastructure Status:
-  ✅ GCP Project: my-gcp-project
-  ✅ Core VM: myproject-core-0 (RUNNING) - 10.1.0.2
-  ✅ App VM: myproject-app-0 (RUNNING) - 10.1.0.3
-
-Services (Core VM):
-  ✅ PostgreSQL: healthy (5432)
-  ✅ RabbitMQ: healthy (5672)
-
-Application Services (App VM):
-  ✅ API: healthy (8000) - v45
-  ✅ Dashboard: healthy (3000) - v23
-  ✅ Services: healthy (8001) - v12
+# GitHub Actions UI'da previous successful run'ı re-run et
+# Veya Git üzerinden:
+cd ~/code/myorg/api
+git revert HEAD
+git push origin production
 ```
 
 ---
 
-## 🚀 Deployment Senaryoları
+## 🔧 Infrastructure Operations
 
-### Senaryo 1: Normal Feature Deployment
+### Scale Up VM
 
 ```bash
-# 1. Feature branch'inde çalış
-git checkout -b feature/new-endpoint
-# kod yaz...
-git commit -m "feat: add new endpoint"
+# project.yml'de machine_type değiştir
+vms:
+  app:
+    machine_type: e2-standard-2  # e2-medium'dan upgrade
 
-# 2. PR aç, merge et (GitHub)
-
-# 3. Production'a deploy
-git checkout production
-git pull origin production
-git merge main
-git push origin production
-
-# 4. Kontrol et
-superdeploy status -a api
+# Apply changes
+superdeploy myproject:up
+# Terraform existing VM'i upgrade eder
 ```
 
-### Senaryo 2: Hotfix (Acil Düzeltme)
+### Add New VM
 
 ```bash
-# 1. Hotfix branch oluştur
-git checkout production
-git checkout -b hotfix/critical-bug
+# project.yml'e yeni VM ekle
+vms:
+  worker:
+    machine_type: e2-medium
+    disk_size: 20
+    services: []
 
-# 2. Düzeltmeyi yap
-git commit -m "fix: critical security issue"
-
-# 3. Direkt production'a push
-git checkout production
-git merge hotfix/critical-bug
-git push origin production
-
-# 4. Deployment izle
-superdeploy logs -p myproject -a api --follow
+# Deploy
+export GITHUB_RUNNER_TOKEN="xxx"
+superdeploy myproject:up
 ```
 
-### Senaryo 3: Rollback (Geri Alma)
+### Add Infrastructure Service
 
 ```bash
-# 1. Hangi versiyonlar var?
-superdeploy releases -p myproject -a api
+# project.yml'de service ekle
+vms:
+  core:
+    services:
+      - postgres
+      - rabbitmq
+      - redis  # ← yeni
+
+# Deploy
+superdeploy myproject:up
+# Sadece yeni addon deploy edilir
+```
+
+---
+
+## 🔐 Secret Management
+
+### View Secrets
+
+```bash
+# Local secrets
+cat projects/myproject/secrets.yml
+
+# GitHub repository secrets (web UI)
+# https://github.com/myorg/api/settings/secrets/actions
+
+# GitHub environment secrets (web UI)
+# https://github.com/myorg/api/settings/environments
+```
+
+### Update Secrets
+
+```bash
+# 1. secrets.yml'i güncelle
+vim projects/myproject/secrets.yml
+
+# 2. GitHub'a sync et
+superdeploy myproject:sync
+
+# 3. App'i re-deploy et (secrets ortam değişkenlerinde)
+cd ~/code/myorg/api
+git commit --allow-empty -m "Reload secrets"
+git push origin production
+```
+
+### Add New Secret
+
+```bash
+# secrets.yml'e ekle
+secrets:
+  api:
+    NEW_SECRET: value
+
+# Sync et
+superdeploy myproject:sync
+
+# App code'unda kullan
+# Python: os.getenv('NEW_SECRET')
+# Node.js: process.env.NEW_SECRET
+```
+
+---
+
+## 📊 Monitoring & Debugging
+
+### Check System Status
+
+```bash
+# VM ve service durumunu göster
+superdeploy myproject:status
 
 # Çıktı:
-# v45  2025-10-21 17:30  abc123  CURRENT
-# v44  2025-10-21 15:20  def456  SUCCESS
-# v43  2025-10-21 12:10  ghi789  SUCCESS
-
-# 2. Bir önceki versiyona dön
-superdeploy rollback -a api v44
-
-# 3. Kontrol et
-superdeploy status -a api
+# ✅ myproject-app-0 (RUNNING)
+#    External IP: 34.123.45.67
+#    Services: api, storefront
+# ✅ myproject-core-0 (RUNNING)
+#    External IP: 34.123.45.68
+#    Services: postgres, rabbitmq
 ```
 
----
-
-## 🔍 Logs ve Debugging
-
-### Real-time Logs
+### SSH to VM
 
 ```bash
-# Son 100 satır
-superdeploy logs -p myproject -a api --tail 100
+# project.yml'den IP al veya:
+superdeploy myproject:status
 
-# Real-time takip
-superdeploy logs -p myproject -a api --follow
-
-# Belirli bir zaman aralığı
-superdeploy logs -p myproject -a api --since "30m"
-
-# Error logları filtrele
-superdeploy logs -p myproject -a api --tail 500 | grep ERROR
+# SSH
+ssh superdeploy@34.123.45.67
 ```
 
-### Database Logs
+### Check Docker Containers
 
 ```bash
-# PostgreSQL logs
-superdeploy logs -p myproject -s postgres --tail 100
+# SSH to VM
+ssh superdeploy@<VM_IP>
 
-# RabbitMQ logs
-superdeploy logs -p myproject -s rabbitmq --tail 100
-
-# Orchestrator Forgejo logs
-superdeploy orchestrator logs -s forgejo --tail 100
-
-# Prometheus logs
-superdeploy orchestrator logs -s prometheus --tail 100
-
-# Grafana logs
-superdeploy orchestrator logs -s grafana --tail 100
-```
-
-### VM'ye SSH ile Bağlanma
-
-```bash
-# Orchestrator VM'ye bağlan
-superdeploy orchestrator ssh
-
-# Proje VM'ye bağlan (otomatik)
-superdeploy ssh -p myproject
-
-# Manuel (belirli VM)
-ssh -i ~/.ssh/superdeploy_deploy superdeploy@WEB_VM_IP
-ssh -i ~/.ssh/superdeploy_deploy superdeploy@API_VM_IP
-
-# Container'lara bak
+# List containers
 docker ps
 
-# API container'ına gir
-docker exec -it myproject-api bash
+# Check logs
+docker logs myproject_api --tail 100 -f
 
-# Logs
-docker logs myproject-api --tail 100
+# Check specific app
+cd /opt/superdeploy/projects/myproject/compose
+docker compose logs api -f
+```
+
+### Check GitHub Runner
+
+```bash
+# SSH to VM
+ssh superdeploy@<VM_IP>
+
+# Runner status
+sudo systemctl status github-runner
+
+# Runner logs
+sudo journalctl -u github-runner -f
+
+# Check registration
+cat /opt/superdeploy/.project
+# Output: myproject
+```
+
+### Check Deployment Logs
+
+```bash
+# GitHub Actions UI:
+# https://github.com/myorg/api/actions
+
+# Veya gh CLI ile:
+gh run list -R myorg/api --limit 10
+gh run view <run-id> -R myorg/api --log
 ```
 
 ---
 
-## 🔐 Secrets ve Environment Variables Yönetimi (Heroku-like! 🚀)
+## 🔄 Maintenance Operations
 
-### Environment Variable Stratejisi
-
-SuperDeploy, local development ve production ortamlarını ayırmak için iki farklı dosya kullanır:
-
-- **`.env`** - Local development (SuperDeploy ASLA değiştirmez)
-- **`.env.superdeploy`** - Production (SuperDeploy otomatik oluşturur)
-
-### ⚡ Hızlı Yöntem: config:set Komutu (Heroku-like!)
-
-**EN KOLAY VE HIZLI YÖNTEM!** Tek komutla env güncelle + sync + deploy:
+### Update Infrastructure Packages
 
 ```bash
-# Env variable güncelle
-superdeploy config:set API_KEY=xyz123 -p myproject
+# SSH to VM
+ssh superdeploy@<VM_IP>
 
-# Env güncelle + OTOMATIK DEPLOY! 🚀
-superdeploy config:set DB_HOST=10.0.0.5 -p myproject --deploy
+# Update system
+sudo apt update && sudo apt upgrade -y
 
-# Tek bir app için deploy
-superdeploy config:set STRIPE_API_KEY=sk_live_xyz -p myproject -a api --deploy
+# Restart if needed
+sudo reboot
 
-# Env değişkeni sil
-superdeploy config:unset OLD_API_KEY -p myproject --deploy
+# GitHub runner otomatik başlar (systemd service)
 ```
 
-**Bu komut şunları yapar:**
-1. ✅ `secrets.yml` dosyasını günceller
-2. ✅ GitHub ve Forgejo'ya sync eder
-3. ✅ `--deploy` flag varsa otomatik git push yapar
-4. ✅ Deployment'ı tetikler
-
-**Artık manuel işlem yok! Heroku gibi tek komut!** 🎉
-
-### 📋 Config Yönetimi Komutları
+### Restart Container
 
 ```bash
-# Tüm config'leri listele
-superdeploy config:list -p myproject
+# SSH to VM
+ssh superdeploy@<VM_IP>
 
-# Sadece POSTGRES değişkenlerini göster
-superdeploy config:list -p myproject --filter POSTGRES
-
-# Tek bir değişkeni oku
-superdeploy config:get POSTGRES_PASSWORD -p myproject
-
-# Detaylı config görüntüle (servis gruplarıyla)
-superdeploy config:show -p myproject
-superdeploy config:show -p myproject --mask  # Şifreleri maskele
-```
-
-### Sync Komutu Nasıl Çalışır? (Advanced)
-
-**Not:** Artık `config:set --deploy` kullanabilirsin, ama manuel control istiyorsan:
-
-```bash
-# Temel kullanım
-superdeploy sync -p myproject
-
-# Uygulama-specific .env dosyalarını dahil et
-superdeploy sync -p myproject -e ../app-repos/api/.env
-
-# Birden fazla .env dosyası
-superdeploy sync -p myproject -e ../app-repos/api/.env -e ../app-repos/dashboard/.env
-
-# Sadece Forgejo'yu atla
-superdeploy sync -p myproject --skip-forgejo
-
-# Sadece GitHub'ı atla
-superdeploy sync -p myproject --skip-github
-```
-
-**Sync komutu ne yapar?**
-
-1. **Kaynaklardan toplar:**
-   - `superdeploy/.env` (infrastructure secrets)
-   - `projects/[project]/secrets.yml` (otomatik şifreler)
-   - `--env-file` ile belirtilen dosyalar
-
-2. **Merge eder (öncelik sırası):**
-   - En yüksek: `--env-file` dosyaları
-   - Orta: `secrets.yml`
-   - En düşük: `superdeploy/.env`
-
-3. **Dağıtır:**
-   - GitHub Repository Secrets
-   - GitHub Environment Secrets
-   - Forgejo Repository Secrets
-
-### 🎯 Gerçek Dünya Senaryoları
-
-#### Senaryo 1: PostgreSQL Şifresini Değiştir (Heroku Yöntemi)
-
-```bash
-# Tek komut! 🚀
-superdeploy config:set POSTGRES_PASSWORD=yeni_sifre -p myproject --deploy
-
-# Deployment loglarını izle
-superdeploy logs -p myproject --follow
-```
-
-**Bu kadar!** Heroku gibi basit!
-
-#### Senaryo 2: Yeni API Key Ekle (Heroku Yöntemi)
-
-```bash
-# Stripe API key ekle + deploy
-superdeploy config:set STRIPE_API_KEY=sk_live_xyz -p myproject --deploy
-
-# Sadece api servisi için deploy
-superdeploy config:set STRIPE_API_KEY=sk_live_xyz -p myproject -a api --deploy
-```
-
-#### Senaryo 3: Eski Secret'ı Sil (Heroku Yöntemi)
-
-```bash
-# Eski API key'i sil + deploy
-superdeploy config:unset OLD_API_KEY -p myproject --deploy
-```
-
-#### Senaryo 4: Manuel Kontrol İstiyorsan (Eski Yöntem)
-
-```bash
-# 1. Manuel edit
-nano projects/myproject/secrets.yml
-
-# 2. Sync (deployment tetikleme)
-superdeploy sync -p myproject
-
-# 3. Manuel deployment
-cd app-repos/api
-git commit --allow-empty -m "config: update secrets"
-git push origin production
-```
-
-### Production Secret'larını Güncelleme (Eski Yöntem)
-
-**Artık `config:set --deploy` kullan, ama manuel istiyorsan:**
-
-```bash
-# 1. Sadece production şifresini güncelle
-nano projects/myproject/secrets.yml
-# POSTGRES_PASSWORD: yeni_sifre
-
-# 2. GitHub ve Forgejo'ya sync et
-superdeploy sync -p myproject
-
-# 3. PostgreSQL container'ını restart et
-ssh superdeploy@CORE_IP
+# Restart specific app
 cd /opt/superdeploy/projects/myproject/compose
-docker compose -f docker-compose.core.yml restart postgres
+docker compose restart api
 
-# 4. Uygulamaları restart et
-superdeploy restart -p myproject --all
-
-# NOT: Local .env dosyan hiç değişmedi!
+# Or recreate
+docker compose up -d --force-recreate api
 ```
 
-### Secrets'ları Görüntüleme
+### Clean Docker Resources
 
 ```bash
-# Maskelenmiş halde (güvenli)
-superdeploy env show
+# SSH to VM
+ssh superdeploy@<VM_IP>
 
-# Çıktı:
-# POSTGRES_PASSWORD=***************
-# API_SECRET_KEY=***************
-```
+# Remove unused images
+docker image prune -af
 
-### Environment Variable Dosyaları Nerede?
-
-```
-superdeploy/
-├── .env                              # Infrastructure secrets
-└── projects/myproject/
-    ├── secrets.yml                # Otomatik oluşturulan şifreler
-    └── secrets.env                   # (Opsiyonel) Custom secrets
-
-app-repos/
-├── api/
-│   ├── .env                         # Local development
-│   └── .env.superdeploy             # Production overrides
-├── dashboard/
-│   ├── .env
-│   └── .env.superdeploy
-```
-
-### Hangi Dosyayı Ne Zaman Düzenlemeli?
-
-| Senaryo | Düzenlenecek Dosya | Komut |
-|---------|-------------------|-------|
-| Local development | `app-repos/[app]/.env` | Manuel edit |
-| Production secret | `projects/[project]/secrets.yml` | `superdeploy sync` |
-| Infrastructure | `superdeploy/.env` | `superdeploy sync` |
-| Yeni secret | Her ikisi de | `superdeploy sync -e` |
-
----
-
-## 🗄️ Database İşlemleri
-
-### Database Migration
-
-```bash
-# Otomatik (deployment sırasında)
-# .github/workflows/deploy.yml içinde migrate: "true"
-
-# Manuel
-ssh superdeploy@34.42.105.169
-cd /opt/superdeploy/projects/myproject/compose
-docker compose run --rm api alembic upgrade head
-```
-
-### Database Backup
-
-```bash
-# PostgreSQL dump al
-ssh superdeploy@34.42.105.169
-docker exec myproject-postgres pg_dump -U superdeploy superdeploy_db > backup_$(date +%Y%m%d).sql
-
-# Local'e indir
-scp -i ~/.ssh/superdeploy_deploy superdeploy@34.42.105.169:backup_*.sql ./
-```
-
-### Database Restore
-
-```bash
-# Backup dosyasını VM'ye yükle
-scp -i ~/.ssh/superdeploy_deploy backup_20251021.sql superdeploy@34.42.105.169:~/
-
-# Restore et
-ssh superdeploy@34.42.105.169
-cat backup_20251021.sql | docker exec -i myproject-postgres psql -U superdeploy superdeploy_db
-```
-
----
-
-## 📦 Container Yönetimi
-
-### Container'ları Restart Etme
-
-```bash
-# Tek bir service
-superdeploy restart -p myproject -a api
-
-# Tüm app services
-superdeploy restart -p myproject --all
-
-# Core services
-ssh superdeploy@34.42.105.169
-cd /opt/superdeploy/projects/myproject/compose
-docker compose -f docker-compose.core.yml restart postgres
-```
-
-### Container Scaling
-
-```bash
-# Birden fazla worker instance
-ssh superdeploy@34.42.105.169
-cd /opt/superdeploy/projects/myproject/compose
-docker compose -f docker-compose.apps.yml up -d --scale services=3
-```
-
-### Container Temizliği
-
-```bash
-# Kullanılmayan image'ları temizle
-ssh superdeploy@34.42.105.169
-docker image prune -a -f
-
-# Kullanılmayan volume'ları temizle (DİKKATLİ!)
+# Remove unused volumes
 docker volume prune -f
+
+# Remove unused networks
+docker network prune -f
+```
+
+### Backup Database
+
+```bash
+# SSH to core VM
+ssh superdeploy@<CORE_VM_IP>
+
+# Postgres backup
+docker exec myproject_postgres pg_dump -U postgres mydb > backup.sql
+
+# Copy to local
+scp superdeploy@<CORE_VM_IP>:~/backup.sql ./backup.sql
+```
+
+### Restore Database
+
+```bash
+# Copy backup to VM
+scp backup.sql superdeploy@<CORE_VM_IP>:~/
+
+# SSH to VM
+ssh superdeploy@<CORE_VM_IP>
+
+# Restore
+docker exec -i myproject_postgres psql -U postgres mydb < backup.sql
 ```
 
 ---
 
-## 🌐 IP Değişimi Senaryosu
+## 🌐 DNS & Domain Operations
 
-### VM restart edildi ve IP değişti, ne yapmalı?
-
-**Not:** IP preservation aktif olduğu için VM restart'ta IP korunur. Ancak VM silinip yeniden oluşturulursa:
+### Setup Custom Domain
 
 ```bash
-# 1. superdeploy up komutu otomatik günceller
+# 1. Get VM IPs
+superdeploy myproject:status
+
+# 2. Add DNS A records:
+# api.myproject.com → <APP_VM_IP>
+# storefront.myproject.com → <APP_VM_IP>
+
+# 3. Wait for DNS propagation (5-30 min)
+dig api.myproject.com
+
+# 4. Update secrets.yml with domain
+secrets:
+  storefront:
+    NEXT_PUBLIC_API_URL: https://api.myproject.com
+
+# 5. Sync and redeploy
+superdeploy myproject:sync
+```
+
+### Setup SSL with Caddy
+
+```bash
+# 1. project.yml'e caddy ekle
+vms:
+  app:
+    services:
+      - caddy
+
+# 2. Deploy
 superdeploy myproject:up
 
-# 2. Yeni IP'yi kontrol et
-superdeploy status -p myproject
-
-# 3. GitHub secrets güncellenmiş mi kontrol et
-gh secret list --repo myprojectio/api | grep FORGEJO_BASE_URL
-
-# 4. Test deployment
-cd app-repos/api
-git commit --allow-empty -m "test: verify new IP"
-git push origin production
+# Caddy otomatik Let's Encrypt SSL alır
+# https://api.myproject.com otomatik çalışır
 ```
 
-### Orchestrator IP Değişimi
+---
 
-Orchestrator IP değişirse tüm projeler etkilenir:
+## 🚨 Disaster Recovery
+
+### Full Infrastructure Restore
 
 ```bash
-# 1. Orchestrator'ı yeniden deploy et
-superdeploy orchestrator up
+# 1. superdeploy repo'yu clone et
+git clone https://github.com/cfkarakulak/superdeploy.git
 
-# 2. Tüm projelerin project.yml'ini güncelle
-# orchestrator.host: "YENİ_IP"
+# 2. GCP credentials setup
+export GOOGLE_APPLICATION_CREDENTIALS=~/superdeploy-key.json
 
-# 3. Her projeyi yeniden deploy et
+# 3. GitHub runner token al
+export GITHUB_RUNNER_TOKEN="xxx"
+
+# 4. Full deploy
 superdeploy myproject:up
 
-# 4. Runner'ları yeniden register et
-superdeploy myproject:up --tags runner
+# 5. Secrets sync
+superdeploy myproject:sync
+
+# 6. Database restore (if needed)
+# ... backup restore steps ...
+```
+
+### Destroy Everything
+
+```bash
+# ⚠️ DESTRUCTIVE - Will delete all VMs and data!
+superdeploy myproject:down
+
+# Confirmation required
+# Enter: yes
 ```
 
 ---
 
-## 🔧 Sync Sorunları ve Çözümleri
+## 📈 Scaling Operations
 
-### "gh CLI not found" Hatası
+### Horizontal Scaling (Multiple Instances)
 
-```bash
-# Çözüm: gh CLI'yi kur
-brew install gh
+```yaml
+# project.yml - Multiple app VMs
+vms:
+  app-1:
+    machine_type: e2-medium
+    services: []
+  app-2:
+    machine_type: e2-medium
+    services: []
 
-# GitHub'a login ol
-gh auth login
+# Load balancer gerekir (Caddy veya GCP Load Balancer)
 ```
 
-### "Failed to fetch AGE public key" Hatası
+### Vertical Scaling
 
-```bash
-# Çözüm 1: up komutunu tekrar çalıştır
-superdeploy myproject:up
-
-# Çözüm 2: Manuel kontrol et (project VM'de)
-ssh superdeploy@PROJECT_VM_IP
-cat /opt/forgejo-runner/.age/key.txt
-
-# Çözüm 3: Orchestrator'da kontrol et
-superdeploy orchestrator ssh
-cat /opt/forgejo-runner/.age/key.txt
-```
-
-### "PAT creation failed" Hatası
-
-```bash
-# Çözüm 1: Orchestrator Forgejo'nun çalıştığını kontrol et
-curl http://ORCHESTRATOR_IP:3001/api/healthz
-
-# Çözüm 2: Admin şifresini kontrol et
-cat projects/orchestrator/secrets.yml | grep FORGEJO_ADMIN_PASSWORD
-
-# Çözüm 3: Orchestrator durumunu kontrol et
-superdeploy orchestrator status
-```
-
-### Sync Sonrası Secret'lar Yüklenmiyor
-
-```bash
-# Sebep: Container'lar restart edilmemiş
-
-# Çözüm: Tüm uygulamaları restart et
-superdeploy restart -p myproject --all
+```yaml
+# project.yml - Bigger machines
+vms:
+  app:
+    machine_type: e2-standard-4  # More CPU/RAM
+    disk_size: 50  # More disk
 ```
 
 ---
 
-## 🆘 Acil Durum Senaryoları
+## 🧪 Testing Operations
 
-### Tüm Servisler Çöktü
+### Test Runner Connection
 
 ```bash
-# 1. Orchestrator'ı kontrol et
-superdeploy orchestrator status
-superdeploy orchestrator ssh
+# GitHub'da manuel workflow trigger et
+# https://github.com/myorg/api/actions
 
-# 2. Orchestrator container'ları kontrol et
-docker ps -a
-docker compose -f /var/lib/superdeploy/orchestrator/compose/docker-compose.yml up -d
-
-# 3. Proje VM'ye bağlan
-ssh superdeploy@PROJECT_VM_IP
-
-# 4. Container durumunu kontrol et
-docker ps -a
-
-# 5. Services'i başlat
-cd /opt/superdeploy/projects/myproject/compose
-docker compose -f docker-compose.core.yml up -d
-docker compose -f docker-compose.apps.yml up -d
-
-# 6. Logs kontrol et
-docker logs myproject-postgres --tail 100
-docker logs myproject-api --tail 100
+# "Run workflow" → "production" branch
+# Deployment başlamalı ve succeed etmeli
 ```
 
-### PostgreSQL Şifresi Unutuldu
+### Test Secret Access
 
 ```bash
-# 1. .env dosyasından kontrol et
-cat superdeploy/.env | grep POSTGRES_PASSWORD
-
-# 2. Veya superdeploy CLI ile
-superdeploy env show
+# App container içinde
+ssh superdeploy@<VM_IP>
+docker exec -it myproject_api env | grep DATABASE_URL
 ```
 
-### Disk Doldu
+### Test Health Checks
 
 ```bash
-# 1. Disk kullanımını kontrol et
-ssh superdeploy@34.42.105.169
-df -h
+# Health endpoint test et
+curl http://<VM_IP>:8000/health
 
-# 2. Docker temizliği
-docker system prune -a --volumes -f
-
-# 3. Log rotation
-sudo journalctl --vacuum-time=7d
+# Expected: 200 OK
 ```
 
 ---
 
-## 📊 Monitoring
+## 📝 Best Practices
 
-### Manuel Health Check
+### Regular Operations
+
+1. **Weekly:** Check GitHub Actions runs - başarısız deploymentları investigate et
+2. **Weekly:** Check disk usage: `df -h`
+3. **Monthly:** Update system packages
+4. **Monthly:** Review and rotate secrets
+5. **Quarterly:** Review and optimize VM sizes
+
+### Security
+
+1. **Secrets:** Asla Git'e commit etme
+2. **SSH Keys:** Passphrase kullan (production için)
+3. **Tokens:** 90 günde bir rotate et
+4. **Firewall:** Sadece gerekli portları aç
+5. **Updates:** Security patch'leri hemen uygula
+
+### Cost Optimization
+
+1. **VM Sizes:** Oversized VM'leri downsize et
+2. **Disk:** Unused disk'leri sil
+3. **Images:** Old Docker images'ı temizle
+4. **Resources:** Unused services'leri kaldır
+5. **Scheduling:** Dev environment'ları gece kapat
+
+---
+
+## 🆘 Common Issues
+
+### "Runner not found"
 
 ```bash
-# Orchestrator Services
-curl http://ORCHESTRATOR_IP:3001/api/healthz  # Forgejo
-curl http://ORCHESTRATOR_IP:9090/-/healthy    # Prometheus
-curl http://ORCHESTRATOR_IP:3000/api/health   # Grafana
+# GitHub runner offline - restart et
+ssh superdeploy@<VM_IP>
+sudo systemctl restart github-runner
+```
 
-# API
-curl http://API_VM_IP:8000/health
+### "Docker image pull failed"
 
-# PostgreSQL
-ssh superdeploy@WEB_VM_IP
-docker exec myproject-postgres pg_isready -U superdeploy
+```bash
+# Docker Hub credentials yanlış
+# secrets.yml'i kontrol et
+# Tekrar sync et
+superdeploy myproject:sync
+```
 
-# RabbitMQ
-docker exec myproject-rabbitmq rabbitmq-diagnostics ping
+### "Container unhealthy"
 
-# Redis
-docker exec myproject-redis redis-cli ping
+```bash
+# Container logs kontrol et
+docker logs myproject_api --tail 100
+
+# Restart container
+docker compose restart api
+```
+
+### "Wrong project" error in deployment
+
+```bash
+# .project file yanlış
+ssh superdeploy@<VM_IP>
+cat /opt/superdeploy/.project  # Doğru project name'i göstermeli
+
+# Fix:
+echo "myproject" | sudo tee /opt/superdeploy/.project
 ```
 
 ---
 
-## 🔧 Maintenance
+## 📞 Support
 
-### Sistem Güncelleme
-
-```bash
-# Orchestrator VM güncelle
-superdeploy orchestrator ssh
-sudo apt update && sudo apt upgrade -y
-
-# Proje VM'leri güncelle
-ssh superdeploy@PROJECT_VM_IP
-sudo apt update && sudo apt upgrade -y
-
-# Docker güncelle
-sudo apt install docker-ce docker-ce-cli containerd.io -y
-
-# Caddy güncelle (orchestrator'da)
-superdeploy orchestrator up --addon caddy
-```
-
----
-
-## 🗑️ Silme İşlemleri
-
-### Tüm Infrastructure'ı Sil
+### Get Help
 
 ```bash
-# Proje infrastructure'ını sil
-superdeploy destroy -p myproject
-# Confirm? (y/n): y
+# Detailed status
+superdeploy myproject:status --verbose
 
-# Bu komut:
-# - GCP VM'leri siler
-# - Terraform state temizler
-# - .env'deki IP'leri temizler
+# Validate configuration
+superdeploy myproject:config validate
 
-# Orchestrator'ı sil (DİKKATLİ! Tüm projeleri etkiler)
-superdeploy orchestrator destroy
-# Confirm? (y/n): y
+# Check logs
+tail -f projects/myproject/logs/*.log
 ```
 
-### Sadece Bir Service'i Kaldır
+### Report Issues
 
-```bash
-ssh superdeploy@34.42.105.169
-cd /opt/superdeploy/projects/myproject/compose
-docker compose -f docker-compose.apps.yml stop services
-docker compose -f docker-compose.apps.yml rm -f services
-```
-
----
-
-## 🎯 Yeni Özellikler
-
-### Selective Addon Deployment
-
-Sadece belirli bir addon'ı deploy et:
-
-```bash
-# Sadece postgres'i deploy et
-superdeploy myproject:up --addon postgres
-
-# Sadece caddy'yi güncelle (orchestrator'da)
-superdeploy orchestrator up --addon caddy
-
-# Sadece monitoring'i güncelle
-superdeploy orchestrator up --addon monitoring
-```
-
-### Monitoring Erişimi
-
-```bash
-# Grafana (subdomain ile)
-https://grafana.yourdomain.com
-
-# Prometheus (subdomain ile)
-https://prometheus.yourdomain.com
-
-# Forgejo (subdomain ile)
-https://forgejo.yourdomain.com
-
-# Direkt IP ile
-http://ORCHESTRATOR_IP:3000  # Grafana
-http://ORCHESTRATOR_IP:9090  # Prometheus
-http://ORCHESTRATOR_IP:3001  # Forgejo
-```
-
-## 📚 Daha Fazla Bilgi
-
-- **ARCHITECTURE.md:** Genel mimari ve kavramlar
-- **SETUP.md:** İlk kurulum
-- **FLOW.md:** İş akışı ve parametre akışı
-- **ORCHESTRATOR_SETUP.md:** Orchestrator kurulum rehberi
-- **RUNNER_ARCHITECTURE.md:** Runner mimarisi
-
----
-
-**Yardıma mı ihtiyacın var?** 
-- GitHub Issues: https://github.com/cfkarakulak/superdeploy/issues
+GitHub Issues: https://github.com/cfkarakulak/superdeploy/issues

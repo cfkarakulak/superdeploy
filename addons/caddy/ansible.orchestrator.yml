@@ -23,7 +23,6 @@
   vars:
     GRAFANA_DOMAIN: "{{ env_vars.GRAFANA_DOMAIN | default('') }}"
     PROMETHEUS_DOMAIN: "{{ env_vars.PROMETHEUS_DOMAIN | default('') }}"
-    FORGEJO_DOMAIN: "{{ env_vars.FORGEJO_DOMAIN | default('') }}"
     CADDY_EMAIL: "{{ env_vars.CADDY_EMAIL | default('admin@example.com') }}"
 
 - name: Generate docker-compose.yml for orchestrator Caddy

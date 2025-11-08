@@ -102,7 +102,6 @@ projects/*/.env.generated
 
 # Generated workflow files (contains addon-specific secrets)
 projects/*/.github/workflows/deploy.yml
-projects/*/.forgejo/workflows/deploy.yml
 
 # Generated Ansible playbooks (contains addon tasks)
 projects/*/ansible/playbook.yml

@@ -2,7 +2,7 @@
 # =============================================================================
 # SuperDeploy Remote Deployment Script
 # =============================================================================
-# Fetched and executed by GitHub/Forgejo workflows
+# Fetched and executed by GitHub workflows
 # This script builds, pushes, and deploys Docker containers
 # =============================================================================
 
@@ -34,19 +34,19 @@ echo ""
 # Validate required secrets
 if [ -z "$ORCHESTRATOR_IP" ]; then
     echo "❌ ORCHESTRATOR_IP not set!"
-    echo "Set this in GitHub/Forgejo secrets."
+    echo "Set this in GitHub secrets."
     exit 1
 fi
 
 if [ -z "$DOCKER_USERNAME" ]; then
     echo "❌ DOCKER_USERNAME not set!"
-    echo "Set this in GitHub/Forgejo secrets."
+    echo "Set this in GitHub secrets."
     exit 1
 fi
 
 if [ -z "$DOCKER_TOKEN" ]; then
     echo "❌ DOCKER_TOKEN not set!"
-    echo "Set this in GitHub/Forgejo secrets."
+    echo "Set this in GitHub secrets."
     exit 1
 fi
 

@@ -51,22 +51,6 @@
     proto: tcp
     comment: 'HTTPS'
 
-- name: Allow Forgejo port on orchestrator VM
-  ufw:
-    rule: allow
-    port: "3001"
-    proto: tcp
-    comment: "Forgejo web interface (orchestrator)"
-  when: "'orchestrator' in group_names"
-
-- name: Allow Forgejo SSH port on orchestrator VM
-  ufw:
-    rule: allow
-    port: "2222"
-    proto: tcp
-    comment: "Forgejo SSH (orchestrator)"
-  when: "'orchestrator' in group_names"
-
 - name: Collect application ports from project configuration
   set_fact:
     app_ports: >-

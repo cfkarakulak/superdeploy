@@ -245,7 +245,7 @@ def plan(project, json_output, detailed):
         impact_items.append("• Configure services (Ansible)")
 
     if changes["needs_sync"]:
-        impact_items.append("• Sync secrets to GitHub/Forgejo")
+        impact_items.append("• Sync secrets to GitHub")
 
     if not impact_items:
         impact_items.append("• No infrastructure changes needed")

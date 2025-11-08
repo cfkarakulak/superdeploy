@@ -22,11 +22,79 @@ class SecretManager:
             return yaml.safe_load(f) or {}
 
     def save_secrets(self, secrets: Dict[str, Any]):
-        """Save secrets to secrets.yml"""
+        """Save secrets to secrets.yml with proper formatting"""
         self.secrets_file.parent.mkdir(parents=True, exist_ok=True)
 
+        # Build formatted YAML manually for better readability
+        lines = []
+
+        # Header
+        lines.append("# " + "=" * 77)
+        lines.append(f"# {self.project_name.upper()} - Secrets Configuration")
+        lines.append("# " + "=" * 77)
+        lines.append("# WARNING: This file contains sensitive information")
+        lines.append("# Keep this file secure and never commit to version control")
+        lines.append("# " + "=" * 77)
+        lines.append("")
+
+        # Secrets section
+        lines.append("# " + "=" * 77)
+        lines.append("# Application Secrets")
+        lines.append("# " + "=" * 77)
+        lines.append("secrets:")
+
+        secrets_data = secrets.get("secrets", {})
+
+        # Shared secrets
+        if "shared" in secrets_data:
+            lines.append("")
+            lines.append("  # Shared secrets (available to all applications)")
+            lines.append("  shared:")
+            shared = secrets_data["shared"]
+            if shared:
+                for key, value in shared.items():
+                    lines.append(f"    {key}: {value}")
+            else:
+                lines.append("    {}")
+
+        # App-specific secrets
+        for app_name in secrets_data:
+            if app_name != "shared":
+                lines.append("")
+                lines.append(f"  # App-specific secrets for {app_name}")
+                lines.append(f"  {app_name}:")
+                app_secrets = secrets_data[app_name]
+                if app_secrets:
+                    for key, value in app_secrets.items():
+                        lines.append(f"    {key}: {value}")
+                # Empty app secrets - just show comment, no explicit {}
+
+        # Environment aliases section
+        if "env_aliases" in secrets:
+            lines.append("")
+            lines.append("# " + "=" * 77)
+            lines.append("# Environment Variable Aliases")
+            lines.append("# " + "=" * 77)
+            lines.append("# Map addon env vars to app-specific names")
+            lines.append("# Example: POSTGRES_HOST -> DB_HOST")
+            lines.append("# " + "=" * 77)
+            lines.append("env_aliases:")
+
+            env_aliases = secrets["env_aliases"]
+            for app_name in env_aliases:
+                lines.append("")
+                lines.append(f"  {app_name}:")
+                aliases = env_aliases[app_name]
+                if aliases:
+                    for alias_key, alias_value in aliases.items():
+                        lines.append(f"    {alias_key}: {alias_value}")
+                # Empty aliases - just show comment, no explicit {}
+
+        lines.append("")
+
+        # Write formatted content
         with open(self.secrets_file, "w") as f:
-            yaml.dump(secrets, f, default_flow_style=False, sort_keys=False)
+            f.write("\n".join(lines))
 
         # Set restrictive permissions
         self.secrets_file.chmod(0o600)

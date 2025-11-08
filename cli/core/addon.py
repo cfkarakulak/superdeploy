@@ -66,7 +66,7 @@ class Addon:
                     # Try from_project path if specified
                     from_project = var_config.get("from_project", "")
                     if from_project:
-                        # Parse path like "infrastructure.forgejo.port"
+                        # Parse path like "addons.postgres.port"
                         parts = from_project.split(".")
                         config_value = project_config
                         for part in parts:

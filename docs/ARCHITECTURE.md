@@ -2,17 +2,18 @@
 
 ## Genel Bakış
 
-SuperDeploy, kendi altyapınızda **Heroku benzeri deployment deneyimi** sunan **self-hosted PaaS platformudur**. Tüm servislerin yeniden kullanılabilir template'ler olarak tanımlandığı ve proje-spesifik instance'lar olarak deploy edildiği **dinamik, addon-tabanlı mimari** kullanır.
+SuperDeploy, kendi altyapınızda **Heroku benzeri deployment deneyimi** sunan **self-hosted PaaS platformudur**. GitHub Actions ile direkt entegre çalışan, **self-hosted runner'lar** ve **addon-tabanlı mimari** kullanır.
 
 ## Temel Prensipler
 
-1. **Orchestrator Pattern**: Merkezi Forgejo ve monitoring ile tek seferlik kurulum
-2. **Addon-Tabanlı Mimari**: Tüm servisler (veritabanları, kuyruklar, proxy'ler) addon olarak tanımlanır
-3. **Dinamik Konfigürasyon**: Hardcoded servis isimleri veya mantık yok - her şey `project.yml` ile yönetilir
-4. **Proje İzolasyonu**: Her proje kendi izole kaynaklarına ve network'üne sahiptir
-5. **Template → Instance Pattern**: Addon'lar template'dir, deployment'lar instance'dır
-6. **VM-Specific Service Filtering**: Her VM sadece ihtiyacı olan addon'ları çalıştırır
-7. **IP Preservation**: VM restart'ta statik IP adresleri korunur
+1. **GitHub-First Architecture**: Merkezi CI/CD için GitHub Actions
+2. **Self-Hosted Runners**: Project VMs'de direkt deployment için GitHub runners
+3. **Addon-Tabanlı Mimari**: Tüm servisler (veritabanları, kuyruklar, proxy'ler) addon olarak tanımlanır
+4. **Dinamik Konfigürasyon**: Hardcoded servis isimleri veya mantık yok - her şey `project.yml` ile yönetilir
+5. **Proje İzolasyonu**: Her proje kendi izole kaynaklarına ve network'üne sahiptir
+6. **Template → Instance Pattern**: Addon'lar template'dir, deployment'lar instance'dır
+7. **Label-Based Routing**: Runner labels ile guaranteed project-specific routing
+8. **IP Preservation**: VM restart'ta statik IP adresleri korunur
 
 ---
 
@@ -28,11 +29,11 @@ cli/
 ├── commands/                  # Komut implementasyonları
 │   ├── init.py               # Proje başlatma
 │   ├── up.py                 # Altyapı deployment
-│   ├── orchestrator.py       # Orchestrator VM yönetimi
-│   ├── sync.py               # Secret senkronizasyonu
+│   ├── sync.py               # Secret senkronizasyonu (GitHub)
+│   ├── generate.py           # GitHub workflow generation
 │   ├── deploy.py             # Uygulama deployment
 │   ├── status.py             # Sistem durumu
-│   └── ...                   # Diğer operasyonel komutlar
+│   └── down.py               # Infrastructure teardown
 └── core/                      # Temel fonksiyonellik
     ├── addon.py              # Addon veri modeli
     ├── addon_loader.py       # Dinamik addon keşfi
@@ -45,7 +46,6 @@ cli/
 - Kurulum için interaktif wizard'lar
 - Kapsamlı hata yönetimi
 - Mümkün olduğunda paralel operasyonlar
-- Orchestrator ve proje VM'leri için ayrı komutlar
 
 ### 2. Addon Sistemi (`addons/`)
 
@@ -60,24 +60,9 @@ addons/
 │   └── ansible.yml           # Deployment görevleri
 ├── redis/                     # Redis addon
 ├── rabbitmq/                  # RabbitMQ addon
-├── forgejo/                   # Git server + CI/CD (orchestrator'da)
 ├── caddy/                     # Reverse proxy + SSL
-└── monitoring/                # Prometheus + Grafana (orchestrator'da)
+└── monitoring/                # Prometheus + Grafana (optional)
 ```
-
-**Orchestrator-Specific Addon'lar (Tek Seferlik Kurulum):**
-- **forgejo**: Tüm projeler için merkezi Git server ve CI/CD
-  - PostgreSQL database ile çalışır
-  - Admin user ve organization otomatik oluşturulur
-  - Orchestrator runner ile workflow routing sağlar
-- **monitoring**: Tüm projeler için merkezi monitoring (Prometheus + Grafana)
-  - Tüm projeleri otomatik keşfeder
-  - Pre-configured dashboard'lar
-  - Alert yönetimi
-- **caddy**: Subdomain-based routing ve otomatik SSL sertifikaları
-  - Let's Encrypt entegrasyonu
-  - Otomatik HTTPS redirect
-  - forgejo.domain.com, grafana.domain.com, prometheus.domain.com
 
 **Addon Yapısı:**
 
@@ -116,11 +101,8 @@ Her projenin kendi izole konfigürasyonu ve kaynakları vardır:
 projects/
 └── myproject/
     ├── project.yml           # Proje konfigürasyonu
-    ├── .env                  # Environment variable'lar
-    ├── secrets.yml        # Otomatik oluşturulan secret'lar
-    └── compose/              # Render edilmiş Docker Compose dosyaları
-        ├── docker-compose.core.yml    # Altyapı servisleri
-        └── docker-compose.apps.yml    # Uygulama container'ları
+    ├── secrets.yml           # Encrypted secrets
+    └── state.yml             # Deployment state
 ```
 
 **project.yml Yapısı:**
@@ -137,45 +119,31 @@ cloud:
 
 # VM konfigürasyonu
 vms:
-  web:
-    count: 1
-    machine_type: e2-small
+  app:
+    machine_type: e2-medium
+    disk_size: 30
+    services: []
+  
+  core:
+    machine_type: e2-medium
     disk_size: 20
     services:
       - postgres
-      - redis
-  api:
-    count: 1
-    machine_type: e2-small
-    disk_size: 20
-    services: []
+      - rabbitmq
 
-# Addon konfigürasyonu
-addons:
-  postgres:
-    version: "15-alpine"
-    user: "myproject_user"
-    database: "myproject_db"
-  redis:
-    version: "7-alpine"
-
-# Orchestrator referansı (Forgejo merkezi)
-orchestrator:
-  host: "34.72.179.175"
-  port: 3001
-  org: "myorg"
-  repo: "superdeploy"
+# GitHub configuration
+github:
+  organization: myorg
 
 # Uygulama servisleri
 apps:
   api:
-    path: "../app-repos/api"
-    port: 8000
-    vm: "api"
-  dashboard:
-    path: "../app-repos/dashboard"
-    port: 3000
-    vm: "web"
+    path: "~/code/myorg/api"
+    vm: app
+  
+  storefront:
+    path: "~/code/myorg/storefront"
+    vm: app
 
 # Network konfigürasyonu
 network:
@@ -196,13 +164,14 @@ shared/
 │   └── variables.tf          # Input variable'ları
 └── ansible/                   # Konfigürasyon yönetimi
     ├── playbooks/
-    │   └── site.yml          # Ana orkestrasyon playbook
+    │   └── project.yml        # Ana orkestrasyon playbook
     └── roles/
-        ├── system/           # Foundation katmanı
-        │   ├── base/         # OS paketleri, kullanıcılar, swap
-        │   ├── docker/       # Docker kurulumu
-        │   └── security/     # Firewall, SSH hardening
-        └── orchestration/    # Deployment katmanı
+        ├── system/            # Foundation katmanı
+        │   ├── base/          # OS paketleri, kullanıcılar, swap
+        │   ├── docker/        # Docker kurulumu
+        │   ├── github-runner/ # GitHub self-hosted runner
+        │   └── security/      # Firewall, SSH hardening
+        └── orchestration/     # Deployment katmanı
             ├── addon-deployer/      # Generic addon deployment
             └── project-deployer/    # Proje deployment
 ```
@@ -211,21 +180,55 @@ shared/
 
 ## Deployment Mimarisi
 
-### Orchestrator Pattern
+### GitHub-Only Architecture
 
-SuperDeploy, **merkezi orchestrator VM** ve **proje-specific VM'ler** kullanan hibrit bir mimari kullanır:
+SuperDeploy, **GitHub Actions** ve **self-hosted runners** kullanan basit ve güçlü bir mimari kullanır:
 
 ```
-Orchestrator VM (Global)
-├── Forgejo (tüm projeler için)
-├── Monitoring (Prometheus + Grafana)
-└── Caddy (reverse proxy + SSL)
-
-Project VMs (Proje-specific)
-├── Infrastructure services (postgres, redis, rabbitmq)
-├── Application containers
-└── Forgejo runners (deployment için)
+App Repo (GitHub)
+    ↓
+GitHub Actions (Build)
+    ├── Docker build & push
+    └── Outputs: project, app, vm_role
+    ↓
+GitHub Self-Hosted Runner (Project VM)
+    ├── Label matching: [self-hosted, superdeploy, {project}, {vm_role}]
+    ├── Validate runner project
+    ├── Pull Docker image
+    ├── docker compose up -d
+    └── Health check
+    ↓
+Running Container
 ```
+
+### Runner Label Strategy
+
+Her runner **unique label combination** alır:
+
+```bash
+# Project: cheapa
+cheapa-app-0:  [self-hosted, superdeploy, cheapa, app]
+cheapa-core-0: [self-hosted, superdeploy, cheapa, core]
+
+# Project: blogapp
+blogapp-app-0:  [self-hosted, superdeploy, blogapp, app]
+blogapp-core-0: [self-hosted, superdeploy, blogapp, core]
+```
+
+**Workflow Routing:**
+
+```yaml
+# In app repo: .github/workflows/deploy.yml
+jobs:
+  deploy:
+    runs-on: 
+      - self-hosted  # Self-hosted runner
+      - superdeploy  # SuperDeploy runner
+      - cheapa       # Project name
+      - app          # VM role
+```
+
+GitHub **otomatik olarak** TÜM label'ları eşleşen runner'a job'ı yönlendirir. ✅ **Guaranteed routing!**
 
 ### Template → Instance Pattern
 
@@ -256,7 +259,7 @@ services:
       - {{ project_name }}-network
 ```
 
-Render Edilmiş Instance (`projects/myproject/compose/docker-compose.core.yml`):
+Render Edilmiş Instance:
 ```yaml
 services:
   myproject-postgres:
@@ -274,26 +277,18 @@ services:
 Her proje tam izolasyon için kendi Docker network'üne sahiptir:
 
 ```
-Orchestrator VM:
-├── orchestrator-network
-│   ├── orchestrator-forgejo
-│   ├── orchestrator-postgres (forgejo için)
-│   ├── orchestrator-prometheus
-│   ├── orchestrator-grafana
-│   └── orchestrator-caddy
-
 Project VM (myproject):
 ├── myproject-network (172.30.0.0/24)
 │   ├── myproject-postgres
 │   ├── myproject-redis
 │   ├── myproject-api
-│   └── myproject-dashboard
+│   └── myproject-storefront
 
-Project VM (otherapp):
-└── otherapp-network (172.31.0.0/24)
-    ├── otherapp-postgres
-    ├── otherapp-redis
-    └── otherapp-api
+Project VM (blogapp):
+└── blogapp-network (172.31.0.0/24)
+    ├── blogapp-postgres
+    ├── blogapp-redis
+    └── blogapp-api
 ```
 
 **Avantajlar:**
@@ -301,7 +296,6 @@ Project VM (otherapp):
 - Port çakışması yok
 - Bağımsız ölçeklendirme
 - Ayrı secret yönetimi
-- Merkezi Forgejo ve monitoring
 
 ---
 
@@ -321,257 +315,129 @@ Konfigürasyonu valide et
 Proje yapısını oluştur
 ```
 
-**Ne olur:**
-- İnteraktif wizard proje gereksinimlerini toplar
-- Tüm konfigürasyonla `project.yml` oluşturur
-- Tüm servisler için kriptografik olarak güvenli şifreler oluşturur
-- Konfigürasyonu mevcut addon'lara karşı valide eder
-- Proje dizin yapısını oluşturur
-
-### 2. Orchestrator Deployment (`superdeploy orchestrator up`)
+### 2. Deployment File Generation (`superdeploy myproject:generate`)
 
 ```
-Terraform Fazı:
-    Orchestrator VM oluştur
-    
-Ansible Fazı:
-    ├── Forgejo + PostgreSQL deploy et
-    ├── Monitoring (Prometheus + Grafana) deploy et
-    ├── Caddy reverse proxy deploy et
-    └── Orchestrator runner kur
-```
-
-### 3. Proje Deployment (`superdeploy up`)
-
-```
-Terraform Fazı:
-    project.yml → tfvars → GCP API → VM'ler + Network
-    
-Ansible Fazı:
-    project.yml + secrets.yml
-        ↓
-    VM-specific addon'ları filtrele
-        ↓
-    Template'leri render et (compose.yml.j2, env.yml)
-        ↓
-    Container'ları deploy et
-        ↓
-    Proje-specific runner'ları kur
-        ↓
-    Health check'ler
-        ↓
-    Çalışan altyapı
-```
-
-**Terraform Fazı:**
-1. `project.yml`'den VM konfigürasyonunu oku
-2. Terraform variable'larını oluştur
-3. Cloud provider'da VM'leri provision et
-4. Network'ü yapılandır (VPC, subnet'ler, firewall)
-5. VM IP'lerini proje `.env`'ine yaz
-6. IP preservation desteği (VM restart'ta IP korunur)
-
-**Ansible Fazı:**
-1. **Foundation Layer (system roles):**
-   - Sistem paketlerini kur (curl, wget, git, vb.)
-   - Docker ve Docker Compose kur
-   - Güvenliği yapılandır (firewall, SSH hardening, fail2ban)
-   - Swap alanı yapılandır
-
-2. **Orchestration Layer (addon deployment):**
-   - Addon template'lerini dinamik yükle
-   - **VM-specific service filtering**: Her VM sadece `services` listesindeki addon'ları çalıştırır
-   - Template'leri proje-spesifik değerlerle render et (Jinja2)
-   - Docker Compose dosyalarını oluştur
-   - Container'ları başlat ve health check'leri çalıştır
-
-3. **Runner Layer:**
-   - Proje-specific Forgejo runner'ları kur
-   - Orchestrator Forgejo'ya register et
-   - Label stratejisi: `[self-hosted, {project}, {vm_role}, linux, docker]`
-
-4. **Verification:**
-   - Tüm container'ların sağlıklı olduğunu doğrula
-   - Servis erişilebilirliğini test et
-
-### 4. Secret Senkronizasyonu (`superdeploy sync`)
-
-```
-Kaynak Dosyalar:
-├── superdeploy/.env (altyapı secret'ları)
-├── projects/myproject/secrets.yml (oluşturulan secret'lar)
-└── app-repos/api/.env (uygulama secret'ları)
+App Detection (Python, Next.js, etc.)
     ↓
-Öncelikle merge et
+Create .superdeploy marker (project, app, vm_role)
     ↓
-Dağıt:
-├── GitHub Repository Secrets (build-time)
-├── GitHub Environment Secrets (runtime)
-└── Forgejo Repository Secrets (deployment)
+Generate GitHub workflow
+    ├── Build job (GitHub-hosted runner)
+    └── Deploy job (Self-hosted runner)
+    ↓
+Files created in app repos
 ```
 
-**Secret Önceliği (yüksekten düşüğe):**
-1. Kullanıcı tarafından sağlanan `.env` dosyaları (`--env-file`)
-2. Proje-spesifik secret'lar (`secrets.yml`)
-3. Altyapı secret'ları (`superdeploy/.env`)
+### 3. Infrastructure Deployment (`superdeploy myproject:up`)
 
-### 5. Uygulama Deployment (git push)
+```
+Terraform Phase:
+    ├── Create VMs with static IPs
+    ├── Configure networking
+    └── Output: IPs → state.yml
+    
+Ansible Phase:
+    ├── Install base system (Docker, Node.js)
+    ├── Setup GitHub runner with labels
+    ├── Create .project file (runner validation)
+    ├── Deploy infrastructure addons
+    └── Health checks
+```
+
+**GitHub Runner Setup:**
+1. Download GitHub Actions runner binary
+2. Configure with token: `GITHUB_RUNNER_TOKEN`
+3. Register with labels: `[self-hosted, superdeploy, {project}, {vm_role}]`
+4. Create systemd service
+5. Start runner daemon
+
+### 4. Secret Sync (`superdeploy myproject:sync`)
+
+```
+secrets.yml
+    ↓
+GitHub CLI (gh)
+    ├── Repository secrets (Docker credentials)
+    └── Environment secrets (app configuration)
+    ↓
+Available in GitHub Actions workflows
+```
+
+### 5. Application Deployment (`git push production`)
 
 ```
 Developer Push
     ↓
-GitHub Actions
-    ├── Docker image build et
-    ├── Registry'ye push et
-    ├── Environment'ı şifrele (.env + .env.superdeploy)
-    └── Forgejo workflow'unu tetikle (orchestrator'da)
+GitHub Actions Workflow
+    ├── Build Job (ubuntu-latest):
+    │   ├── Read .superdeploy marker
+    │   ├── Build Docker image
+    │   ├── Push to registry
+    │   └── Output: project, app, vm_role
+    │
+    └── Deploy Job (self-hosted runner):
+        ├── Validate runner project (.project file)
+        ├── Check if app exists on this VM
+        ├── Pull Docker image
+        ├── docker compose up -d {app}
+        ├── Health check
+        └── Cleanup old images
     ↓
-Orchestrator Forgejo
-    ├── Workflow'u proje-specific runner'a yönlendir
-    └── runs-on: [self-hosted, {project}, {vm_role}]
-    ↓
-Project VM Runner
-    ├── Environment'ı decrypt et
-    ├── Docker image'ı pull et
-    ├── Eski container'ı durdur
-    ├── Yeni container'ı başlat
-    └── Health check
-    ↓
-Production Container Çalışıyor
+Production Container Running
 ```
 
----
+**Runner Validation:**
 
-## Addon Sistemi Detaylı
-
-### Addon Keşfi
-
-`AddonLoader` sınıfı addon'ları dinamik olarak keşfeder ve yükler:
-
-```python
-# Tüm mevcut addon'ları keşfet
-available_addons = addon_loader.discover_available_addons()
-# Döner: ['postgres', 'redis', 'rabbitmq', 'forgejo', ...]
-
-# Belirli bir addon'ı yükle
-addon = addon_loader.load_addon('postgres')
-
-# Bir proje için tüm addon'ları yükle
-addons = addon_loader.load_addons_for_project(project_config)
+```bash
+# Inside deploy job
+RUNNER_PROJECT=$(cat /opt/superdeploy/.project)
+if [ "$RUNNER_PROJECT" != "cheapa" ]; then
+  echo "Wrong project!"
+  exit 1
+fi
 ```
-
-**Kod tabanında hiçbir yerde hardcoded addon isimleri yok!**
-
-### Addon Rendering
-
-Template'ler proje-spesifik context ile render edilir:
-
-```python
-# project.yml ve secrets.yml'den context
-context = {
-    'project_name': 'myproject',
-    'postgres_version': '15-alpine',
-    'postgres_user': 'myproject_user',
-    'postgres_password': 'secure_generated_password',
-    'postgres_database': 'myproject_db'
-}
-
-# Compose template'ini render et
-rendered_compose = addon.render_compose(context)
-
-# Sonuç: Deploy edilmeye hazır Docker Compose servis tanımı
-```
-
-### Bağımlılık Çözümlemesi
-
-Addon'lar bağımlılıkları ve çakışmaları tanımlayabilir:
-
-```yaml
-# addon.yml
-requires:
-  - postgres  # Bu addon PostgreSQL'e ihtiyaç duyar
-
-conflicts:
-  - mysql     # MySQL ile birlikte çalışamaz
-```
-
-`AddonLoader` otomatik olarak bağımlılıkları çözer ve döngüsel bağımlılıkları tespit eder.
-
-### Health Check'ler
-
-Her addon kendi health check stratejisini tanımlar:
-
-```yaml
-# addon.yml
-healthcheck:
-  command: "pg_isready -U ${POSTGRES_USER}"
-  interval: 10s
-  timeout: 5s
-  retries: 5
-  start_period: 30s
-```
-
-Deployment sistemi devam etmeden önce health check'lerin geçmesini bekler.
 
 ---
 
 ## Konfigürasyon Yönetimi
 
-### Environment Variable Stratejisi
+### Secret Hierarchy
 
-SuperDeploy environment variable'lar için **iki dosya yaklaşımı** kullanır:
-
-**1. `.env` (Yerel Geliştirme)**
-- Developer'lar tarafından yönetilir
-- Yerel geliştirme değerlerini içerir
-- **SuperDeploy tarafından asla değiştirilmez**
-- Git'e commit edilmez
-
-**2. `.env.superdeploy` (Production Override'ları)**
-- SuperDeploy tarafından otomatik oluşturulur
-- Production altyapı bağlantılarını içerir
-- Deployment sırasında `.env` değerlerini override eder
-- Git'e commit edilmez
-
-**Merge Stratejisi:**
-```bash
-# Deployment sırasında (GitHub Actions)
-.env (temel değerler)
-    +
-.env.superdeploy (override'lar)
-    =
-Container için final environment
+```yaml
+# secrets.yml
+secrets:
+  shared:                     # Shared across all apps
+    DOCKER_ORG: myorg
+    DOCKER_USERNAME: user
+    DOCKER_TOKEN: xxx
+    POSTGRES_PASSWORD: xxx
+  
+  api:                        # App-specific secrets
+    DATABASE_URL: postgres://...
+    REDIS_URL: redis://...
+  
+  storefront:
+    NEXT_PUBLIC_API_URL: https://api.com
 ```
 
-### Secret Yönetimi
+**Merge Strategy:**
+- `shared` secrets → merged with app-specific
+- App secrets override shared secrets
 
-**Secret Oluşturma:**
+### Secret Distribution
+
 ```bash
-# Init sırasında otomatik
-superdeploy init -p myproject
-# Oluşturur: projects/myproject/secrets.yml
-
-# İçerir:
-POSTGRES_PASSWORD: <32-karakter güvenli rastgele>
-REDIS_PASSWORD: <32-karakter güvenli rastgele>
-RABBITMQ_PASSWORD: <32-karakter güvenli rastgele>
+superdeploy myproject:sync
 ```
 
-**Secret Dağıtımı:**
-```bash
-# GitHub ve Forgejo'ya sync et
-superdeploy sync -p myproject
+**Creates:**
+1. **Repository Secrets** (build-time):
+   - `DOCKER_ORG`, `DOCKER_USERNAME`, `DOCKER_TOKEN`
 
-# Dağıtır:
-# - GitHub Repository Secrets (build-time)
-# - GitHub Environment Secrets (runtime)
-# - Forgejo Repository Secrets (deployment)
-```
-
-**Secret Şifreleme:**
-- Secret'lar transfer sırasında AGE ile şifrelenir
-- Sadece Forgejo runner decrypt edebilir (private key'e sahip)
-- Secret'lar Forgejo'da asla plaintext olarak saklanmaz
+2. **Environment Secrets** (runtime):
+   - All app-specific secrets
+   - Available as `${{ secrets.KEY }}` in workflows
 
 ---
 
@@ -580,100 +446,43 @@ superdeploy sync -p myproject
 ### Yeni Proje Ekleme
 
 ```bash
-# Yeni proje başlat
+# 1. Init project
 superdeploy init -p newproject
 
-# Altyapıyı deploy et
-superdeploy newproject:up
+# 2. Generate workflows
+superdeploy newproject:generate
 
-# Secret'ları sync et
-superdeploy sync -p newproject
+# 3. Get GitHub runner token
+# https://github.com/myorg/settings/actions/runners/new
+
+# 4. Deploy infrastructure
+GITHUB_RUNNER_TOKEN=xxx superdeploy newproject:up
+
+# 5. Sync secrets
+superdeploy newproject:sync
+
+# 6. Push to production
+cd ~/code/myorg/api
+git push origin production
 ```
-
-**Otomatik Kaynak Tahsisi:**
-- Benzersiz Docker network subnet
-- Benzersiz port atamaları
-- İzole container'lar
-- Ayrı secret'lar
 
 ### Kaynak İzolasyonu
 
 Her proje tamamen izoledir:
 
 ```
-Proje A:
+Project A:
 ├── Network: 172.30.0.0/24
-├── Container'lar: projecta-postgres, projecta-redis, projecta-api
-├── Secret'lar: Ayrı GitHub/Forgejo secret'ları
-└── Forgejo: Ayrı organizasyon
+├── Containers: projecta-*
+├── Secrets: Separate GitHub secrets
+└── Runners: projecta-app-0, projecta-core-0
 
-Proje B:
+Project B:
 ├── Network: 172.31.0.0/24
-├── Container'lar: projectb-postgres, projectb-redis, projectb-api
-├── Secret'lar: Ayrı GitHub/Forgejo secret'ları
-└── Forgejo: Ayrı organizasyon
+├── Containers: projectb-*
+├── Secrets: Separate GitHub secrets
+└── Runners: projectb-app-0, projectb-core-0
 ```
-
----
-
-## Monitoring ve Gözlemlenebilirlik
-
-### Merkezi Monitoring (Orchestrator)
-
-SuperDeploy, orchestrator VM'de çalışan **Prometheus** ve **Grafana** ile merkezi monitoring sağlar:
-
-**Prometheus:**
-- Tüm projeleri otomatik keşfeder
-- Her proje için ayrı scrape job'ları
-- Node exporter metrikleri (CPU, RAM, disk)
-- Container metrikleri
-
-**Grafana:**
-- Pre-configured dashboard'lar
-- Proje bazlı filtreleme
-- Alert yönetimi
-- Caddy üzerinden subdomain erişimi (grafana.yourdomain.com)
-
-**Caddy Reverse Proxy:**
-- Subdomain-based routing
-- Otomatik SSL sertifikaları (Let's Encrypt)
-- Forgejo, Grafana, Prometheus için ayrı subdomain'ler
-
-### Health Check Sistemi
-
-SuperDeploy kapsamlı health check'ler uygular:
-
-**Health Check Metodları:**
-1. HTTP endpoint check'leri (web servisleri için)
-2. Komut-tabanlı check'ler (veritabanları, kuyruklar için)
-3. Container status check'leri (fallback)
-
-**Health Check Konfigürasyonu:**
-```yaml
-# addon.yml
-healthcheck:
-  command: "redis-cli ping"
-  interval: 10s
-  timeout: 5s
-  retries: 5
-  start_period: 10s
-```
-
-**Hata Raporlama:**
-Health check'ler başarısız olduğunda detaylı diagnostik sağlanır:
-- Exit code ve output
-- Container status ve log'ları
-- Çalışan process'ler
-- Troubleshooting adımları
-- Resume komutları
-
-### Deployment Doğrulama
-
-Deployment sonrası sistem şunları doğrular:
-- Tüm container'lar çalışıyor
-- Health check'ler geçiyor
-- Servisler erişilebilir
-- Log'lar hata göstermiyor
 
 ---
 
@@ -681,200 +490,156 @@ Deployment sonrası sistem şunları doğrular:
 
 ### Çok Katmanlı Güvenlik
 
-**1. Secret Şifreleme:**
-- Secret transferi için AGE şifreleme
-- Public key şifreleme (sadece runner decrypt edebilir)
-- Secret'lar Forgejo'da asla plaintext değil
+**1. Secret Encryption:**
+- GitHub encrypted storage
+- Secrets never in Git
+- Environment-based access control
 
 **2. Network İzolasyonu:**
-- Proje başına Docker network'leri
-- VM'lerde firewall kuralları
-- Projeler arası iletişim yok
+- Project-specific Docker networks
+- VM firewall rules
+- No inter-project communication
 
 **3. Erişim Kontrolü:**
-- VM erişimi için SSH key-tabanlı
-- API erişimi için GitHub PAT
-- Deployment için Forgejo PAT
-- Proje başına ayrı credential'lar
+- SSH key-based VM access
+- GitHub PAT for API access
+- Project-specific runner tokens
+- Label-based runner isolation
 
-**4. Secret Yönetimi:**
-- Secret'lar GitHub/Forgejo şifreli depolamada
-- Asla Git'e commit edilmez
-- Otomatik rotasyon desteği
-- Audit logging
+**4. Runner Security:**
+- `.project` file validation
+- Project-specific labels
+- Guaranteed routing
+- No cross-project access
 
 ---
 
 ## Bu Mimarinin Avantajları
 
+### ✅ Basitlik
+
+- GitHub Actions - bilinen workflow
+- Self-hosted runners - direkt deployment
+- No intermediate CI/CD layer
+- Standard Docker Compose
+
+### ✅ Guaranteed Routing
+
+- Label-based matching
+- GitHub native routing
+- Double validation (.project file)
+- Zero chance of cross-project deployment
+
 ### ✅ Tam Esneklik
 
-- Kod değişikliği olmadan yeni addon'lar ekle
-- `project.yml` üzerinden herhangi bir servisi yapılandır
-- Herhangi bir cloud provider'ı destekle (GCP, AWS, Azure)
-- İstediğin kadar proje deploy et
+- Yeni addon'lar ekle
+- project.yml ile yapılandır
+- İstediğin kadar proje
+- Cloud-agnostic
 
-### ✅ Sıfır Hardcoding
+### ✅ Developer Experience
 
-- Kodda servis isimleri yok
-- Kodda port numaraları yok
-- Kodda IP adresleri yok
-- Her şey konfigürasyonla yönetiliyor
-
-### ✅ Yeniden Kullanılabilirlik
-
-- Addon'lar bir kez tanımlanır, her yerde kullanılır
-- Template'ler projeler arasında paylaşılır
-- Tutarlı deployment pattern'leri
-- Bakımı ve güncellemeyi kolay
+- Heroku-like simplicity
+- Single CLI for all operations
+- Automated secret management
+- Rich terminal UI
 
 ### ✅ İzolasyon
 
-- Tam proje izolasyonu
-- Network seviyesinde ayrım
-- Bağımsız ölçeklendirme
-- Ayrı secret yönetimi
-
-### ✅ Developer Deneyimi
-
-- Heroku benzeri basitlik
-- Tüm operasyonlar için tek CLI
-- Otomatik secret yönetimi
-- Zengin terminal UI
+- Project-level isolation
+- Network separation
+- Independent scaling
+- Separate secrets
 
 ---
 
 ## Teknik Kararlar
 
-### Neden Addon-Tabanlı Mimari?
+### Neden GitHub-Only?
 
-**Problem:** Geleneksel PaaS platformları servis entegrasyonlarını hardcode eder, bu da onları esnek olmaktan çıkarır.
+**Problem:** İki CI/CD layer karmaşıklık ve maintenance yükü oluşturur.
 
-**Çözüm:** Servisleri metadata ile addon olarak tanımla, dinamik keşif ve deployment'a izin ver.
-
-**Avantajlar:**
-- Kod değişikliği olmadan yeni servisler ekle
-- Tutarlı deployment pattern'leri
-- Test etmesi ve valide etmesi kolay
-- Topluluk addon'lar katkıda bulunabilir
-
-### Neden Template → Instance Pattern?
-
-**Problem:** Her proje için konfigürasyonu kopyalamak hata yapmaya açık ve bakımı zor.
-
-**Çözüm:** Servisleri template olarak tanımla, her proje için spesifik değerlerle render et.
+**Çözüm:** GitHub Actions + self-hosted runners ile direkt deployment.
 
 **Avantajlar:**
-- DRY prensibi (Don't Repeat Yourself)
-- Tutarlı servis tanımları
-- Tüm projeleri güncellemeyi kolay
-- Açık sorumluluk ayrımı
+- Tek ekosistem
+- Bilinen GitHub UI
+- Native runner routing
+- Basit maintenance
+- Cost reduction
 
-### Neden İki .env Dosyası?
+### Neden Self-Hosted Runners?
 
-**Problem:** Yerel geliştirme ve production değerlerini karıştırmak kafa karışıklığına ve güvenlik risklerine yol açar.
+**Problem:** Deployment VM'lere güvenli erişim gerektiriyor.
 
-**Çözüm:** Yerel (`.env`) ve production (`.env.superdeploy`) için ayrı dosyalar, açık merge stratejisi ile.
-
-**Avantajlar:**
-- Yerel environment asla etkilenmez
-- Production secret'ları asla yerel dosyalarda değil
-- Açık override mekanizması
-- Developer özgürlüğü
-
-### Neden AGE Şifreleme?
-
-**Problem:** Secret'ları GitHub'dan Forgejo'ya güvenli transfer etmek.
-
-**Çözüm:** AGE public key ile şifrele, runner'da private key ile decrypt et.
+**Çözüm:** GitHub self-hosted runner'ları VM'lerde çalıştır.
 
 **Avantajlar:**
-- Basit ve güvenli
-- Paylaşılan secret yok
-- Audit trail
-- Endüstri standardı
+- Direkt VM erişimi
+- Docker socket access
+- Local file system
+- No SSH needed
+- GitHub native security
+
+### Neden Label-Based Routing?
+
+**Problem:** Birden fazla proje aynı GitHub organization'da - runner seçimi nasıl garantilenir?
+
+**Çözüm:** Her runner unique label combination alır, GitHub otomatik match yapar.
+
+**Avantajlar:**
+- Guaranteed routing
+- GitHub native feature
+- Zero configuration
+- Scalable
+- Secure
 
 ---
 
 ## Son Güncellemeler
 
-### Yeni Özellikler (2025)
+### GitHub Migration (2025)
 
-1. **Orchestrator Mimarisi:** 
-   - Tek seferlik merkezi Forgejo ve monitoring kurulumu
-   - Tüm projeler aynı Forgejo instance'ını kullanır
-   - Workflow routing ile proje-specific runner'lara yönlendirme
+1. **Intermediate CI/CD Layer Removed:** 
+   - Direct GitHub Actions → VM deployment
+   - Simpler architecture
 
-2. **Caddy Reverse Proxy:** 
-   - Subdomain-based routing (forgejo.domain.com, grafana.domain.com)
-   - Otomatik SSL sertifikaları (Let's Encrypt)
-   - HTTPS redirect
+2. **Self-Hosted Runners:** 
+   - GitHub runners on project VMs
+   - Label-based routing
+   - `.project` file validation
 
-3. **Merkezi Monitoring:** 
-   - Prometheus tüm projeleri otomatik keşfeder
-   - Grafana pre-configured dashboard'ları
-   - Alert yönetimi
+3. **Workflow Generation:** 
+   - `superdeploy generate` creates GitHub workflows
+   - Type-aware (Python, Next.js)
+   - Two jobs: build + deploy
 
-4. **VM-Specific Service Filtering:** 
-   - Her VM sadece `services` listesindeki addon'ları çalıştırır
-   - Kaynak optimizasyonu ve performans iyileştirmesi
-   - Örnek: core VM postgres+rabbitmq, app VM sadece uygulamalar
+4. **Secret Management:** 
+   - GitHub-only secret storage
+   - `gh` CLI integration
+   - Repository + environment secrets
 
-5. **IP Preservation:** 
-   - `preserve_ip: true` ile VM restart'ta IP korunur
-   - Terraform tfvars'da existing IP kontrolü
-   - DNS değişikliği gerektirmez
+5. **VM-Specific Service Filtering:** 
+   - Unchanged - still addon-based
+   - Each VM runs only assigned services
+   - Resource optimization
 
-6. **Selective Addon Deployment:** 
-   - `--addon` flag ile sadece belirli addon'lar deploy edilir
-   - Hızlı güncelleme ve test
-   - Örnek: `superdeploy myproject:up --addon postgres`
-
-7. **GitHub Actions → Forgejo Integration:** 
-   - Düzeltilmiş API endpoint'leri (`/api/v1/repos/.../actions/workflows/.../dispatches`)
-   - Workflow dispatch parametreleri
-   - AGE encryption ile güvenli secret transfer
-
-8. **Otomatik Subnet Allocation:**
-   - SubnetAllocator sınıfı ile otomatik VPC ve Docker subnet tahsisi
-   - Çakışma önleme
-   - subnet_allocations.json ile state yönetimi
-
-9. **Dynamic Addon Discovery:**
-   - AddonLoader ile dinamik addon keşfi
-   - Kod tabanında hardcoded addon isimleri yok
-   - Addon bağımlılık çözümlemesi
-
-10. **Environment Aliases:**
-    - App'ler için soyutlama katmanı
-    - `DB_HOST: POSTGRES_HOST` gibi mapping'ler
-    - Veritabanı değiştirme kolaylığı
+---
 
 ## Gelecek Geliştirmeler
 
 ### Planlanan Özellikler
 
 1. **Çoklu Cloud Desteği:** AWS, Azure, DigitalOcean
-2. **Otomatik Ölçeklendirme:** Metrik'lere dayalı otomatik container ölçeklendirme
-3. **Blue-Green Deployment'lar:** Sıfır downtime deployment'lar
-4. **Backup Otomasyonu:** Zamanlanmış veritabanı backup'ları
-5. **Maliyet Optimizasyonu:** Kaynak kullanımı monitoring ve öneriler
-6. **Addon Marketplace:** Topluluk katkılı addon'lar
-7. **Web UI:** Tarayıcı-tabanlı yönetim arayüzü
-8. **Çoklu Bölge:** Birden fazla bölgeye deployment
-
-### Genişletilebilirlik Noktaları
-
-Mimari genişletilebilirlik için tasarlandı:
-
-- **Özel Addon'lar:** Kendi servis tanımlarını ekle
-- **Özel Komutlar:** CLI'yi yeni komutlarla genişlet
-- **Özel Validator'lar:** Validasyon kuralları ekle
-- **Özel Health Check'ler:** Servise-özel check'ler tanımla
-- **Özel Deployment Stratejileri:** Yeni deployment pattern'leri uygula
+2. **Blue-Green Deployments:** Zero-downtime deployments
+3. **Auto-scaling:** Metric-based container scaling
+4. **Backup Automation:** Scheduled database backups
+5. **Cost Optimization:** Resource usage monitoring
+6. **Addon Marketplace:** Community-contributed addons
+7. **Web UI:** Browser-based management interface
 
 ---
 
 ## Sonuç
 
-SuperDeploy'un mimarisi self-hosted PaaS için **esnek, ölçeklenebilir ve bakımı kolay** bir platform sağlar. Addon-tabanlı sistem hardcoding'i ortadan kaldırır, template pattern tutarlılığı sağlar ve izolasyon modeli güvenlik sunar. Bu mimari, ekiplerin kendi altyapılarında Heroku benzeri basitlikle production uygulamaları deploy etmelerini sağlar.
+SuperDeploy'un mimarisi self-hosted PaaS için **basit, güvenli ve ölçeklenebilir** bir platform sağlar. GitHub-first architecture karmaşıklığı azaltır, label-based routing garantili deployment sağlar, ve addon sistemi esneklik sunar. Bu mimari, ekiplerin kendi altyapılarında Heroku benzeri basitlikle production uygulamaları deploy etmelerini sağlar.

@@ -132,7 +132,6 @@
     env_vars: "{{ addon_env_vars }}"
   when: 
     - addon_ansible_file.stat.exists
-    - (addon_name != 'forgejo') or ('orchestrator' in group_names)
 
 - name: Verify addon health check
   include_tasks: verify-health.yml

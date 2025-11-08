@@ -24,7 +24,7 @@ class StateManager:
             return yaml.safe_load(f) or {}
 
     def save_state(self, state: Dict[str, Any]):
-        """Save state to file"""
+        """Save state to file with proper formatting"""
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Add timestamp
@@ -33,8 +33,108 @@ class StateManager:
             "config_hash": self._calculate_config_hash(),
         }
 
+        # Build formatted YAML manually for better readability
+        lines = []
+
+        # Header
+        lines.append("# " + "=" * 77)
+        lines.append(f"# {self.project_name.upper()} - Deployment State")
+        lines.append("# " + "=" * 77)
+        lines.append("# This file tracks the current state of deployed infrastructure")
+        lines.append("# WARNING: Do not manually edit this file")
+        lines.append("# " + "=" * 77)
+        lines.append("")
+
+        # VMs section
+        if "vms" in state and state["vms"]:
+            lines.append("# " + "=" * 77)
+            lines.append("# Virtual Machines")
+            lines.append("# " + "=" * 77)
+            lines.append("vms:")
+
+            for vm_name, vm_data in state["vms"].items():
+                lines.append("")
+                lines.append(f"  {vm_name}:")
+                for key, value in vm_data.items():
+                    if isinstance(value, list):
+                        if value:
+                            lines.append(f"    {key}:")
+                            for item in value:
+                                lines.append(f"      - {item}")
+                        else:
+                            lines.append(f"    {key}: []")
+                    else:
+                        lines.append(f"    {key}: {value}")
+
+        # Addons section
+        if "addons" in state and state["addons"]:
+            lines.append("")
+            lines.append("# " + "=" * 77)
+            lines.append("# Installed Addons")
+            lines.append("# " + "=" * 77)
+            lines.append("addons:")
+
+            for addon_name, addon_data in state["addons"].items():
+                lines.append("")
+                lines.append(f"  {addon_name}:")
+                for key, value in addon_data.items():
+                    lines.append(f"    {key}: {value}")
+
+        # Apps section
+        if "apps" in state and state["apps"]:
+            lines.append("")
+            lines.append("# " + "=" * 77)
+            lines.append("# Deployed Applications")
+            lines.append("# " + "=" * 77)
+            lines.append("apps:")
+
+            for app_name, app_data in state["apps"].items():
+                lines.append("")
+                lines.append(f"  {app_name}:")
+                for key, value in app_data.items():
+                    if isinstance(value, bool):
+                        lines.append(f"    {key}: {str(value).lower()}")
+                    else:
+                        lines.append(f"    {key}: {value}")
+
+        # Deployment section
+        if "deployment" in state and state["deployment"]:
+            lines.append("")
+            lines.append("# " + "=" * 77)
+            lines.append("# Deployment Status")
+            lines.append("# " + "=" * 77)
+            lines.append("deployment:")
+            for key, value in state["deployment"].items():
+                if isinstance(value, bool):
+                    lines.append(f"  {key}: {str(value).lower()}")
+                else:
+                    lines.append(f"  {key}: {value}")
+
+        # Last applied section
+        if "last_applied" in state:
+            lines.append("")
+            lines.append("# " + "=" * 77)
+            lines.append("# Last Deployment Metadata")
+            lines.append("# " + "=" * 77)
+            lines.append("last_applied:")
+            for key, value in state["last_applied"].items():
+                lines.append(f"  {key}: {value}")
+
+        # Secrets sync status
+        if "secrets" in state and state["secrets"]:
+            lines.append("")
+            lines.append("# " + "=" * 77)
+            lines.append("# Secrets Synchronization Status")
+            lines.append("# " + "=" * 77)
+            lines.append("secrets:")
+            for key, value in state["secrets"].items():
+                lines.append(f"  {key}: {value}")
+
+        lines.append("")
+
+        # Write formatted content
         with open(self.state_file, "w") as f:
-            yaml.dump(state, f, default_flow_style=False, sort_keys=False)
+            f.write("\n".join(lines))
 
     def _calculate_config_hash(self) -> str:
         """Calculate hash of project.yml for change detection"""
@@ -109,8 +209,16 @@ class StateManager:
             # Foundation not complete = needs Ansible for base system + docker
             changes["needs_ansible"] = True
 
-        # Check VMs
+        # Check if any VM is only provisioned (not fully configured)
         state_vms = state.get("vms", {})
+        for vm_name, vm_data in state_vms.items():
+            if vm_data.get("status") == "provisioned":
+                # VM is provisioned but not configured - need Ansible
+                changes["needs_ansible"] = True
+                changes["has_changes"] = True
+                break
+
+        # Check VMs
         config_vms = config.get("vms", {})
 
         for vm_name, vm_config in config_vms.items():
@@ -326,6 +434,25 @@ class StateManager:
 
         state["deployment"]["foundation_complete"] = True
         state["deployment"]["foundation_completed_at"] = datetime.now().isoformat()
+
+        self.save_state(state)
+
+    def mark_deployment_complete(self):
+        """Mark full deployment as complete (after Ansible succeeds)"""
+        state = self.load_state()
+
+        # Update all VMs status to 'running'
+        if "vms" in state:
+            for vm_name in state["vms"]:
+                state["vms"][vm_name]["status"] = "running"
+                state["vms"][vm_name]["configured_at"] = datetime.now().isoformat()
+
+        # Mark deployment as complete
+        if "deployment" not in state:
+            state["deployment"] = {}
+
+        state["deployment"]["complete"] = True
+        state["deployment"]["completed_at"] = datetime.now().isoformat()
 
         self.save_state(state)
 

@@ -45,7 +45,7 @@ def up(
     - Generate workflows if needed
     - Provision VMs with Terraform
     - Configure services with Ansible
-    - Sync secrets to GitHub/Forgejo
+    - Sync secrets to GitHub
 
     Smart & idempotent - runs only what's needed.
     """
@@ -161,6 +161,18 @@ def up(
                 # Show detected changes
                 logger.log("🔍 Detecting changes...")
                 logger.log("")
+
+                # Check if any VMs need configuration
+                state = state_mgr.load_state()
+                vms_needing_config = []
+                for vm_name, vm_data in state.get("vms", {}).items():
+                    if vm_data.get("status") == "provisioned":
+                        vms_needing_config.append(vm_name)
+
+                if vms_needing_config:
+                    logger.log(
+                        f"  [yellow]⚙ VMs need configuration:[/yellow] {', '.join(vms_needing_config)}"
+                    )
 
                 if changes["vms"]["added"]:
                     logger.log(
@@ -578,7 +590,6 @@ def _deploy_project(
             from cli.ansible_utils import build_ansible_command
 
             ansible_vars = project_config_obj.to_ansible_vars()
-            ansible_vars["forgejo_base_url"] = f"http://{orchestrator_ip}:3001"
             ansible_vars["orchestrator_ip"] = orchestrator_ip
 
             # Load and pass secrets.yml to Ansible
@@ -648,7 +659,7 @@ def _deploy_project(
 
             logger.success("Services configured successfully")
 
-            # Update state: Foundation complete + addons deployed (partial state for resume)
+            # Update state: Mark deployment complete (VMs running, Ansible succeeded)
             from cli.state_manager import StateManager
 
             state_mgr = StateManager(project_root, project)
@@ -665,6 +676,9 @@ def _deploy_project(
                 for addon_name in deployed_addons:
                     state_mgr.mark_addon_deployed(addon_name)
 
+            # Mark overall deployment as complete (VMs status: running)
+            state_mgr.mark_deployment_complete()
+
     else:
         logger.step("Skipping Ansible (--skip-ansible)")
 
@@ -672,9 +686,9 @@ def _deploy_project(
     if not skip_sync or not skip_git_push:
         logger.step("[4/4] Code Deployment")
 
-    # Sync secrets to Forgejo
+    # Sync secrets to GitHub
     if not skip_sync and not skip_ansible:
-        logger.log("Syncing secrets to Forgejo...")
+        logger.log("Syncing secrets to GitHub...")
         try:
             from cli.commands.sync import sync
 
@@ -682,10 +696,10 @@ def _deploy_project(
             from click.testing import CliRunner
 
             runner = CliRunner()
-            result = runner.invoke(sync, ["-p", project, "--skip-github", "--verbose"])
+            result = runner.invoke(sync, ["-p", project, "--verbose"])
 
             if result.exit_code == 0:
-                logger.log("✓ Secrets synced to Forgejo")
+                logger.log("✓ Secrets synced to GitHub")
             else:
                 # Strip ANSI codes for clean error display
                 import re
@@ -698,7 +712,7 @@ def _deploy_project(
 
     # Git push
     if not skip_git_push:
-        logger.log("✓ Code deployment complete (git push via Forgejo Actions)")
+        logger.log("✓ Code deployment complete (git push to GitHub)")
         logger.log("  Tip: Push to 'production' branch to trigger deployment")
 
     # env already loaded at the beginning from secrets.yml
@@ -709,9 +723,8 @@ def _deploy_project(
         logger.log("")
         logger.log("🎯 Orchestrator")
         logger.log(f"  IP: {orchestrator_ip}")
-        logger.log(f"  Forgejo: http://{orchestrator_ip}:3001")
 
-        # Get Forgejo credentials from orchestrator secrets
+        # Get credentials from orchestrator secrets
         try:
             from cli.core.orchestrator_loader import OrchestratorLoader
 
@@ -720,15 +733,7 @@ def _deploy_project(
             orch_config = orch_loader.load()
             orch_secrets = orch_config.get_secrets()
 
-            forgejo_admin = orch_config.config.get("forgejo", {}).get(
-                "admin_user", "admin"
-            )
-            forgejo_pass = orch_secrets.get("FORGEJO_ADMIN_PASSWORD", "")
             grafana_pass = orch_secrets.get("GRAFANA_ADMIN_PASSWORD", "")
-
-            if forgejo_pass:
-                logger.log(f"    Username: {forgejo_admin}")
-                logger.log(f"    Password: {forgejo_pass}")
 
             logger.log(f"  Grafana: http://{orchestrator_ip}:3000")
             if grafana_pass:

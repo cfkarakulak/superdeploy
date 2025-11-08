@@ -6,13 +6,12 @@ Bu döküman, **hiçbir şey yokken başlayıp**, **tam çalışan bir productio
 
 ## 🎯 Kurulum Sonunda Ne Olacak?
 
-✅ Orchestrator VM çalışacak (Forgejo + Monitoring + Caddy)  
-✅ Proje VM'leri çalışacak  
-✅ GitHub'a her push otomatik deploy olacak  
-✅ Subdomain'ler ile SSL'li erişim (forgejo.domain.com, grafana.domain.com)  
+✅ Proje VM'leri çalışacak (apps + infrastructure)  
+✅ GitHub Actions ile otomatik deployment  
+✅ Self-hosted GitHub runners her VM'de  
 ✅ `superdeploy` CLI ile sistemi yönetebileceksin  
 
-**Süre:** ~20 dakika
+**Süre:** ~15 dakika
 
 ---
 
@@ -33,14 +32,15 @@ ansible --version
 # Google Cloud SDK
 gcloud --version
 
-# GitHub CLI
+# GitHub CLI (authenticated!)
 gh --version
+gh auth status
 ```
 
 ### Hesaplar
 
 - ✅ **GCP Account** (Billing aktif)
-- ✅ **GitHub Account**
+- ✅ **GitHub Account** (authenticated with `gh`)
 - ✅ **Docker Hub Account** (ücretsiz)
 
 ---
@@ -98,506 +98,357 @@ cat ~/.ssh/superdeploy_deploy.pub
 
 ---
 
-## 🐳 Adım 3: Docker Hub Token Al
+## 📦 Adım 3: SuperDeploy CLI Kur
 
 ```bash
-# Docker Hub → Account Settings → Security → New Access Token
-# Token adı: "superdeploy"
-# Access: Read, Write, Delete
-
-# Token'ı kopyala: dckr_pat_XXXXX...
-```
-
----
-
-## 📝 Adım 4: .env Dosyasını Hazırla
-
-```bash
-cd superdeploy
-cp ENV.example .env
-nano .env
-```
-
-### Doldurulması Gerekenler
-
-```bash
-# GCP
-GCP_PROJECT=your-gcp-project-id
-GCP_REGION=us-central1
-GCP_ZONE=us-central1-a
-
-# SSH
-SSH_KEY_PATH=~/.ssh/superdeploy_deploy
-SSH_PUBLIC_KEY_PATH=~/.ssh/superdeploy_deploy.pub
-
-# Docker Hub
-DOCKER_USERNAME=your-dockerhub-username
-DOCKER_TOKEN=dckr_pat_XXXXX...
-
-# GitHub
-GITHUB_ORG=your-github-org
-GITHUB_TOKEN=ghp_XXXXX...
-
-# Forgejo
-FORGEJO_ORG=your-org-name
-FORGEJO_ADMIN_PASSWORD=$(openssl rand -base64 24)
-```
-
----
-
-## 🚀 Adım 5: SuperDeploy CLI Kur
-
-```bash
+# Repo'yu clone et
+git clone https://github.com/cfkarakulak/superdeploy.git
 cd superdeploy
 
 # Virtual environment oluştur
 python3 -m venv venv
 source venv/bin/activate
 
-# Bağımlılıkları yükle
+# Kurulum yap
 pip install -e .
 
-# CLI test et
+# Test et
 superdeploy --version
 ```
 
 ---
 
-## 🏗️ Adım 6: Orchestrator Kurulumu
+## 🎯 Adım 4: İlk Projeyi Oluştur
 
-### 6.1. Orchestrator Projesi Oluştur
+### 4.1. Proje Dizinini Oluştur
 
 ```bash
-superdeploy init -p orchestrator
+cd superdeploy
+mkdir -p projects/myproject
 ```
 
-### 6.2. Orchestrator project.yml Düzenle
+### 4.2. project.yml Oluştur
 
 ```yaml
-project: orchestrator
-description: Global Forgejo orchestrator for all projects
+# projects/myproject/project.yml
 
+project: myproject
+description: "My production project"
+region: us-central1
+
+# GitHub configuration
+github:
+  organization: myorg  # GitHub organization or username
+
+# Cloud provider
 cloud:
   gcp:
-    project_id: "your-gcp-project"
+    project_id: "your-gcp-project-id"
     region: "us-central1"
     zone: "us-central1-a"
 
+# Virtual machines
 vms:
-  orchestrator:
-    count: 1
+  core:
     machine_type: e2-medium
-    disk_size: 50
-    preserve_ip: true
+    disk_size: 20
     services:
-      - forgejo
-      - monitoring
-      - caddy
-
-addons:
-  forgejo:
-    version: "1.21.0"
-    port: 3001
-    ssh_port: 2222
-    admin_user: "admin"
-    admin_email: "admin@yourdomain.com"
-    org: "myorg"
-    repo: "superdeploy"
+      - postgres
+      - rabbitmq
   
-  monitoring:
-    prometheus_port: 9090
-    grafana_port: 3000
+  app:
+    machine_type: e2-medium
+    disk_size: 30
+    services: []  # No infrastructure services, only apps
+
+# Applications
+apps:
+  api:
+    path: "~/code/myorg/api"
+    vm: app
   
-  caddy:
-    domain: "yourdomain.com"
-    email: "admin@yourdomain.com"
-    subdomains:
-      forgejo: "forgejo"
-      grafana: "grafana"
-      prometheus: "prometheus"
+  storefront:
+    path: "~/code/myorg/storefront"
+    vm: app
 
-apps: {}
+# Network configuration
+network:
+  docker_subnet: "172.30.0.0/24"
 ```
 
-### 6.3. Orchestrator'ı Deploy Et
-
-```bash
-superdeploy orchestrator up
-```
-
-**Bu komut ne yapar?**
-- Orchestrator VM oluşturur
-- Forgejo + PostgreSQL kurar
-- Prometheus + Grafana kurar
-- Caddy reverse proxy kurar (SSL sertifikaları ile)
-- Orchestrator runner kurar
-
-**Süre:** ~8 dakika
-
-### 6.4. Orchestrator IP'sini Not Al
-
-```bash
-cat projects/orchestrator/.env | grep ORCHESTRATOR_EXTERNAL_IP
-# Örnek: 34.72.179.175
-```
-
-### 6.5. DNS Kayıtlarını Ekle
-
-Orchestrator IP'si için A kayıtları ekle:
-
-```
-forgejo.yourdomain.com    A    34.72.179.175
-grafana.yourdomain.com    A    34.72.179.175
-prometheus.yourdomain.com A    34.72.179.175
-```
-
-**Not:** DNS propagation ~5-10 dakika sürebilir.
-
----
-
-## 🚀 Adım 7: Proje Oluştur
-
-```bash
-superdeploy init -p myproject
-```
-
-### Init Komutu Ne Yapar?
-
-**1. Proje Yapısı Oluşturulur:**
-```bash
-projects/myproject/
-├── project.yml              # Proje konfigürasyonu
-├── secrets.yml           # Otomatik oluşturulan güvenli şifreler
-└── compose/                 # Docker Compose dosyaları
-```
-
-**2. Güvenli Şifreler Oluşturulur:**
-- Her servis için benzersiz, 32 karakterlik güvenli şifreler
-- Kriptografik olarak güvenli rastgele üretim
-
-**3. Proje Konfigürasyonu (project.yml):**
-- VM konfigürasyonu
-- Addon tanımları (Forgejo, PostgreSQL, Redis, RabbitMQ)
-- Uygulama servisleri
-- Network ayarları
-
-### Interactive Sorular
-
-```
-Add services for this project:
-  Services: api,dashboard
-
-VM configuration:
-  VM roles: web,api
-
-Services per VM:
-  web VM services: postgres,redis
-  api VM services: (none)
-
-Orchestrator IP:
-  Orchestrator IP: 34.72.179.175
-
-Network subnet:
-  Use auto-assigned subnet? [Y/n]: Y
-
-GitHub organization:
-  GitHub org name: myprojectio
-
-Generate secure passwords? [Y/n]: Y
-```
-
-### Sonuç
-
-✅ `projects/myproject/` klasörü oluşturuldu  
-✅ `project.yml` konfigürasyon dosyası hazırlandı  
-✅ Güvenli şifreler oluşturuldu (`secrets.yml`)  
-✅ Sistem deployment için hazır
-
----
-
-## 🚀 Adım 8: Infrastructure'ı Deploy Et
-
-```bash
-superdeploy myproject:up
-```
-
-### Bu Komut Ne Yapar?
-
-```
-[1/8] ⚙️  Terraform init & apply (VM'leri oluşturur)
-[2/8] 📝 IP adreslerini .env'e yazar
-[3/8] 🔧 Ansible inventory hazırlar
-[4/8] 🧹 SSH known_hosts temizler
-[5/8] 🚀 Ansible playbook çalıştırır
-      ├── VM-specific addon filtering
-      ├── Container deployment
-      └── Forgejo runner kurulumu (orchestrator'a register)
-[6/8] 🔐 Orchestrator Forgejo PAT oluşturur
-[7/8] 🔄 GitHub secrets'ları sync eder
-[8/8] ✅ Tamamlandı!
-```
-
-**Süre:** ~8 dakika
-
----
-
-## 🔄 Adım 9: Secrets'ları Senkronize Et
-
-```bash
-superdeploy sync -p myproject
-```
-
-### Sync Komutu Ne Yapar?
-
-**Kaynak Dosyalar:**
-1. Kullanıcı .env dosyaları (--env-file ile belirtilen)
-2. Proje secrets (`projects/myproject/secrets.yml`)
-3. Infrastructure secrets (`superdeploy/.env`)
-
-**Hedef Konumlar:**
-- **GitHub Repository Secrets:** Infrastructure secrets
-- **GitHub Environment Secrets:** Runtime secrets
-- **Forgejo Repository Secrets:** Deployment secrets
-
-### Örnek Kullanım
-
-```bash
-# Tüm secrets'ları sync et
-superdeploy sync -p myproject
-
-# Belirli bir .env dosyası ile
-superdeploy sync -p myproject --env-file app-repos/api/.env
-```
-
----
-
-## 📝 .env.superdeploy Dosyaları Hakkında
-
-SuperDeploy, uygulama repository'lerinde **iki ayrı .env dosyası** kullanır:
-
-### 1. .env (Yerel Geliştirme)
-- Developer'ın yerel ortamı için
-- **SuperDeploy tarafından ASLA değiştirilmez**
-- Git'e commit edilmez
-
-### 2. .env.superdeploy (Production Override)
-- SuperDeploy tarafından otomatik oluşturulur
-- Production deployment için gerekli değerleri içerir
-- **Manuel olarak düzenlenmemelidir**
-
-### Deployment Sırasında Ne Olur?
-
-1. Her iki dosya da okunur
-2. Değerler birleştirilir
-3. **.env.superdeploy değerleri önceliklidir**
-4. Birleştirilmiş değerler şifrelenir
-5. Forgejo runner şifreyi çözer
-
-### Örnek İçerik
-
-**.env (Yerel):**
-```bash
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=dev_user
-```
-
-**.env.superdeploy (Production):**
-```bash
-POSTGRES_HOST=postgres
-POSTGRES_PORT=5432
-POSTGRES_USER=myproject_user
-POSTGRES_PASSWORD=<güvenli-şifre>
-```
-
----
-
-## 🔐 Otomatik Oluşturulan Şifreler
-
-`superdeploy init` komutu tüm servisler için **güvenli, rastgele şifreler** oluşturur.
-
-### Şifrelerin Saklandığı Yer
-
-```bash
-projects/myproject/secrets.yml
-```
-
-### Örnek İçerik
+### 4.3. secrets.yml Oluştur
 
 ```yaml
-passwords:
-  POSTGRES_PASSWORD: "xK9mP2nQ7vL4wR8sT3yU6zB1cD5eF0gH"
-  RABBITMQ_PASSWORD: "aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1uV"
-  REDIS_PASSWORD: "wX2yZ3aB4cD5eF6gH7iJ8kL9mN0oP1qR"
-  FORGEJO_ADMIN_PASSWORD: "oP2qR3sT4uV5wX6yZ7aB8cD9eF0gH1iJ"
-```
+# projects/myproject/secrets.yml
 
-### Şifre Özellikleri
-
-- **Uzunluk:** 32 karakter
-- **Karakter Seti:** Büyük/küçük harf, rakam
-- **Güvenlik:** Kriptografik olarak güvenli
-- **Benzersizlik:** Her servis için farklı
-
-### Şifreler Nereye Dağıtılır?
-
-1. **GitHub Repository Secrets**
-2. **GitHub Environment Secrets**
-3. **Orchestrator Forgejo Repository Secrets**
-4. **.env.superdeploy dosyaları**
-
-### Şifreleri Manuel Değiştirme
-
-```bash
-# 1. secrets.yml dosyasını düzenle
-nano projects/myproject/secrets.yml
-
-# 2. Secrets'ları yeniden sync et
-superdeploy sync -p myproject
-
-# 3. Servisleri yeniden başlat
-superdeploy restart -p myproject
+secrets:
+  shared:
+    # Docker Hub credentials
+    DOCKER_REGISTRY: docker.io
+    DOCKER_ORG: myorg
+    DOCKER_USERNAME: myusername
+    DOCKER_TOKEN: dckr_pat_xxx  # Docker Hub access token
+    
+    # Infrastructure passwords (auto-generated ile de değiştirebilirsin)
+    POSTGRES_PASSWORD: secure_password_here
+    RABBITMQ_PASSWORD: secure_password_here
+    
+    # GCP
+    GCP_PROJECT_ID: your-gcp-project-id
+    GCP_REGION: us-central1
+    
+    # SSH
+    SSH_KEY_PATH: ~/.ssh/superdeploy_deploy
+    SSH_USER: superdeploy
+  
+  api:
+    # API-specific secrets
+    DATABASE_URL: postgres://user:pass@core-internal-ip:5432/mydb
+    REDIS_URL: redis://core-internal-ip:6379
+    SECRET_KEY: your-secret-key
+  
+  storefront:
+    # Storefront-specific secrets
+    NEXT_PUBLIC_API_URL: https://api.myproject.com
 ```
 
 ---
 
-## ✅ Adım 10: İlk Deployment'ı Test Et
+## 🚀 Adım 5: GitHub Runner Token Al
+
+GitHub self-hosted runner token gerekli:
 
 ```bash
-cd ../app-repos/api
+# Organization-level token (önerilen):
+# https://github.com/organizations/myorg/settings/actions/runners/new
 
-# Küçük bir değişiklik yap
-echo "# Test deployment" >> README.md
+# Veya repository-level token:
+# https://github.com/myorg/myrepo/settings/actions/runners/new
 
-# Production'a push et
-git add README.md
-git commit -m "test: first deployment"
+# Token'ı kopyala (48 saat geçerli)
+# Örnek: A1B2C3D4E5F6G7H8I9J0...
+```
+
+---
+
+## 🏗️ Adım 6: Infrastructure Deploy Et
+
+```bash
+# Environment variable olarak token'ı set et
+export GITHUB_RUNNER_TOKEN="A1B2C3D4E5F6G7H8I9J0..."
+
+# Deploy başlat
+superdeploy myproject:up
+
+# Ne olacak:
+# ✓ Terraform: GCP'de VM'ler oluşturulacak
+# ✓ Ansible: Docker, Node.js kurulacak
+# ✓ GitHub runner kurulacak (labels: [self-hosted, superdeploy, myproject, app/core])
+# ✓ Infrastructure addons deploy edilecek (postgres, rabbitmq)
+# ✓ .project file oluşturulacak (runner validation için)
+
+# Süre: ~10 dakika
+```
+
+---
+
+## 🔐 Adım 7: Secrets'ları GitHub'a Sync Et
+
+```bash
+# GitHub'a secrets'ları gönder
+superdeploy myproject:sync
+
+# Ne olacak:
+# ✓ Repository secrets set edilecek (Docker credentials)
+# ✓ Environment secrets set edilecek (app configuration)
+# ✓ Her app için production environment oluşturulacak
+```
+
+---
+
+## 📝 Adım 8: App Repo'larını Hazırla
+
+### 8.1. Deployment Workflow'ları Generate Et
+
+```bash
+# Tüm app'ler için workflow'ları oluştur
+superdeploy myproject:generate
+
+# Ne olacak:
+# ✓ Her app repo'sunda .superdeploy marker file oluşturulacak
+# ✓ Her app repo'sunda .github/workflows/deploy.yml oluşturulacak
+# ✓ App type'a göre (Python, Next.js) optimize edilmiş workflow
+```
+
+### 8.2. App Repo'larına Commit Et
+
+```bash
+# API repo
+cd ~/code/myorg/api
+git add .superdeploy .github/workflows/deploy.yml
+git commit -m "Add SuperDeploy deployment"
+git push origin main
+
+# Storefront repo
+cd ~/code/myorg/storefront
+git add .superdeploy .github/workflows/deploy.yml
+git commit -m "Add SuperDeploy deployment"
+git push origin main
+```
+
+---
+
+## 🎉 Adım 9: İlk Deployment!
+
+```bash
+# Production branch'e push et
+cd ~/code/myorg/api
+git checkout -b production
 git push origin production
-```
 
-### Beklenen Sonuç
+# GitHub Actions başlayacak:
+# 1. Build job: Docker image build + push
+# 2. Deploy job: Self-hosted runner'da deployment
 
-1. **GitHub Actions:** Build başlayacak (~2-3 dakika)
-   - Docker image build edilir
-   - Registry'ye push edilir
-   - Environment AGE ile şifrelenir
-   
-2. **Orchestrator Forgejo:** Workflow dispatch
-   - GitHub Actions'dan trigger alır
-   - Workflow'u project-specific runner'a yönlendirir
-   
-3. **Project VM Runner:** Deployment
-   - Environment'ı decrypt eder
-   - Docker image'ı pull eder
-   - Container'ı deploy eder
-   - Health check yapar (~1 dakika)
-
-4. **Sonuç:** Container çalışır durumda
-
-### Kontrol Et
-
-```bash
-# Status kontrol
-superdeploy status -p myproject
-
-# Logs kontrol (real-time)
-superdeploy logs -p myproject -a api --follow
-
-# Container kontrol (SSH ile)
-superdeploy ssh -p myproject
-docker ps
+# GitHub'da izle:
+# https://github.com/myorg/api/actions
 ```
 
 ---
 
-## 🎉 Kurulum Tamamlandı!
+## ✅ Doğrulama
 
-Artık sistemi kullanmaya hazırsın.
-
-### Ne Yaptık?
-
-✅ **Orchestrator Kurulumu** (Tek seferlik)
-- Merkezi Forgejo (tüm projeler için)
-- Merkezi Monitoring (Prometheus + Grafana)
-- Caddy reverse proxy (SSL + subdomain routing)
-
-✅ **Proje Kurulumu**
-- Project VM'ler (core + app)
-- Infrastructure addon'ları (postgres, rabbitmq)
-- Project-specific Forgejo runner'lar
-- Otomatik deployment pipeline
-
-### Şimdi Ne Yapabilirsin?
-
-**Günlük Kullanım:**
-```bash
-# Kod değişikliği yap
-git add .
-git commit -m "feat: new feature"
-git push origin production  # Otomatik deploy!
-
-# Logs izle
-superdeploy logs -p myproject -a api --follow
-
-# Status kontrol
-superdeploy status -p myproject
-```
-
-**Monitoring:**
-- Grafana: `https://grafana.yourdomain.com` (veya `http://ORCHESTRATOR_IP:3000`)
-- Prometheus: `https://prometheus.yourdomain.com` (veya `http://ORCHESTRATOR_IP:9090`)
-- Forgejo: `https://forgejo.yourdomain.com` (veya `http://ORCHESTRATOR_IP:3001`)
-
-**Operations:**
-- `OPERATIONS.md` - Günlük operasyonlar ve sorun giderme
-- `ARCHITECTURE.md` - Sistem mimarisi
-- `FLOW.md` - İş akışları
-
----
-
-## 🔍 Kurulum Sonrası Kontroller
+### Infrastructure'ı Kontrol Et
 
 ```bash
 # VM'lerin durumunu kontrol et
-gcloud compute instances list
+superdeploy myproject:status
 
-# Orchestrator durumunu kontrol et
-superdeploy orchestrator status
+# VM'lere SSH ile bağlan
+ssh superdeploy@<VM_EXTERNAL_IP>
 
-# Proje durumunu kontrol et
-superdeploy status -p myproject
+# Docker container'ları kontrol et
+docker ps
 
-# Forgejo'ya web browser'dan bağlan (subdomain ile)
-# https://forgejo.yourdomain.com
+# GitHub runner durumunu kontrol et
+sudo systemctl status github-runner
+```
 
-# Grafana'ya bağlan
-# https://grafana.yourdomain.com
+### GitHub Runner'ları Kontrol Et
 
-# GitHub secrets kontrol et
-gh secret list --repo myprojectio/api
+GitHub Settings → Actions → Runners'da runner'ları göreceksin:
 
-# Runner'ları kontrol et (Forgejo UI'da)
-# https://forgejo.yourdomain.com/admin/actions/runners
+```
+✅ myproject-app-0 (Idle)
+   Labels: self-hosted, superdeploy, myproject, app
+
+✅ myproject-core-0 (Idle)
+   Labels: self-hosted, superdeploy, myproject, core
+```
+
+### Deployment'ı Test Et
+
+```bash
+# API'ye request at
+curl http://<APP_VM_EXTERNAL_IP>:8000/health
+
+# Veya domain üzerinden (eğer DNS set ettiysen)
+curl https://api.myproject.com/health
 ```
 
 ---
 
-## 🆘 Sorun Giderme
+## 🔧 Troubleshooting
 
-### "Terraform apply failed"
-- GCP API'leri aktif mi kontrol et
-- Service account rollerini kontrol et
-- Billing aktif mi kontrol et
+### Runner Kayıt Olmuyor
 
-### "SSH connection failed"
-- `~/.ssh/known_hosts` dosyasını temizle
-- SSH key path'i doğru mu kontrol et
+```bash
+# Token expired olabilir (48 saat geçerli)
+# Yeni token al ve tekrar dene:
+export GITHUB_RUNNER_TOKEN="new-token"
+superdeploy myproject:up
+```
 
-### "Forgejo PAT creation failed"
-- Orchestrator VM çalışıyor mu kontrol et
-- Orchestrator Forgejo container ayakta mı kontrol et
-- `superdeploy orchestrator status` ile kontrol et
+### Deployment Başarısız
+
+```bash
+# VM'ye SSH ile bağlan
+ssh superdeploy@<VM_IP>
+
+# Runner logs'u kontrol et
+sudo journalctl -u github-runner -f
+
+# Docker logs'u kontrol et
+cd /opt/superdeploy/projects/myproject/compose
+docker compose logs -f
+```
+
+### Secret'lar Görünmüyor
+
+```bash
+# GitHub CLI authenticated mi kontrol et
+gh auth status
+
+# Tekrar sync dene
+superdeploy myproject:sync
+```
 
 ---
 
-**Sonraki adım:** `OPERATIONS.md` - Günlük operasyonlar
+## 📚 Sonraki Adımlar
+
+### DNS Konfigürasyonu
+
+```bash
+# VM IP'lerini al
+superdeploy myproject:status
+
+# DNS record'larını ekle:
+# api.myproject.com → <APP_VM_IP>
+# storefront.myproject.com → <APP_VM_IP>
+```
+
+### SSL Sertifikaları
+
+Caddy addon ekleyerek otomatik SSL:
+
+```yaml
+# project.yml
+vms:
+  app:
+    services:
+      - caddy  # Otomatik Let's Encrypt SSL
+```
+
+### Monitoring Ekle
+
+```yaml
+# project.yml
+vms:
+  monitoring:
+    machine_type: e2-small
+    disk_size: 20
+    services:
+      - prometheus
+      - grafana
+```
+
+---
+
+## 🎊 Tebrikler!
+
+Artık tam çalışan bir production deployment sisteminiz var!
+
+**Ne kazandınız:**
+- ✅ GitHub Actions ile otomatik deployment
+- ✅ Self-hosted runner'lar ile direkt VM deployment
+- ✅ Label-based routing ile guaranteed project isolation
+- ✅ Secret management
+- ✅ Infrastructure as Code
+- ✅ Zero-downtime deployments
+
+**Şimdi ne yapabilirsiniz:**
+- `git push` ile deploy edin
+- Yeni app'ler ekleyin
+- Yeni projeler oluşturun
+- Infrastructure'ı ölçeklendirin

@@ -114,9 +114,6 @@ class ValidationEngine:
         """
         Validate infrastructure configuration.
 
-        Note: Forgejo is now managed globally in shared/orchestrator.yml,
-        so it's no longer required in project configs.
-
         Args:
             project_config: Project configuration dictionary
 
@@ -135,70 +132,6 @@ class ValidationEngine:
                 )
             )
             return errors
-
-        # Forgejo is optional now (managed globally)
-        # If present, validate it
-        if addons and "forgejo" in addons:
-            forgejo_config = addons.get("forgejo", {})
-
-            if not isinstance(forgejo_config, dict):
-                errors.append(
-                    ValidationError(
-                        error_type="invalid_config",
-                        message="'addons.forgejo' must be a dictionary",
-                    )
-                )
-                return errors
-
-            # Validate required Forgejo fields (if Forgejo is defined)
-            required_fields = ["port", "ssh_port", "admin_user", "org", "repo"]
-            for field in required_fields:
-                if field not in forgejo_config:
-                    errors.append(
-                        ValidationError(
-                            error_type="missing_forgejo_field",
-                            message=f"'addons.forgejo.{field}' is required when Forgejo is defined",
-                        )
-                    )
-
-            # Validate port numbers
-            for port_field in ["port", "ssh_port"]:
-                if port_field in forgejo_config:
-                    port_value = forgejo_config[port_field]
-                    try:
-                        port_int = int(port_value)
-                        if port_int < 1 or port_int > 65535:
-                            errors.append(
-                                ValidationError(
-                                    error_type="invalid_port",
-                                    message=(
-                                        f"'addons.forgejo.{port_field}' must be "
-                                        f"between 1 and 65535, got {port_int}"
-                                    ),
-                                )
-                            )
-                    except (ValueError, TypeError):
-                        errors.append(
-                            ValidationError(
-                                error_type="invalid_port",
-                                message=(
-                                    f"'addons.forgejo.{port_field}' must be a valid "
-                                    f"port number, got '{port_value}'"
-                                ),
-                            )
-                        )
-
-            # Validate string fields are not empty
-            for string_field in ["admin_user", "org", "repo"]:
-                if string_field in forgejo_config:
-                    value = forgejo_config[string_field]
-                    if not value or not str(value).strip():
-                        errors.append(
-                            ValidationError(
-                                error_type="invalid_forgejo_field",
-                                message=f"'addons.forgejo.{string_field}' cannot be empty",
-                            )
-                        )
 
         return errors
 
@@ -825,29 +758,6 @@ class ValidationEngine:
             Dictionary mapping port numbers to app/service names
         """
         ports = {}
-
-        # Get Forgejo ports from addons config
-        addons = project_config.get("addons", {})
-        if isinstance(addons, dict):
-            forgejo_config = addons.get("forgejo", {})
-            if isinstance(forgejo_config, dict):
-                # Forgejo web port
-                forgejo_port = forgejo_config.get("port")
-                if forgejo_port:
-                    try:
-                        port_int = int(forgejo_port)
-                        ports[port_int] = "forgejo (web)"
-                    except (ValueError, TypeError):
-                        pass
-
-                # Forgejo SSH port
-                forgejo_ssh_port = forgejo_config.get("ssh_port")
-                if forgejo_ssh_port:
-                    try:
-                        port_int = int(forgejo_ssh_port)
-                        ports[port_int] = "forgejo (ssh)"
-                    except (ValueError, TypeError):
-                        pass
 
         # Get addon ports from addons
         addons_config = project_config.get("addons", {})

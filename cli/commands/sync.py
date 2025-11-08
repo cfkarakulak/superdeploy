@@ -1,975 +1,202 @@
-import os
-
-"""SuperDeploy CLI - Sync command (AGE key + GitHub secrets automation)"""
+"""SuperDeploy CLI - Sync command (GitHub secrets automation)"""
 
 import click
 import subprocess
 from rich.console import Console
 from cli.ui_components import show_header
-from cli.utils import ssh_command, get_project_root
-from cli.core.env_manager import EnvManager
+from cli.utils import get_project_root
 
 console = Console()
 
 
-def build_service_patterns_from_addons(project, env):
-    """
-    Build service patterns dynamically from addon metadata.
-
-    Args:
-        project (str): Project name
-        env (dict): Environment variables
-
-    Returns:
-        dict: Dictionary mapping addon names to their environment variable structure
-    """
-    from cli.core.addon_loader import AddonLoader
-
-    try:
-        project_root = get_project_root()
-        addons_dir = project_root / "addons"
-        addon_loader = AddonLoader(addons_dir)
-
-        # Load project config to get enabled addons
-        from cli.core.config_loader import ConfigLoader
-
-        projects_dir = project_root / "projects"
-        config_loader = ConfigLoader(projects_dir)
-        project_config = config_loader.load_project(project)
-
-        # Load addons
-        addons = addon_loader.load_addons_for_project(project_config.raw_config)
-
-        # Build patterns from addon env.yml
-        patterns = {}
-        for addon_name, addon in addons.items():
-            addon_structure = addon.get_env_var_structure()
-            if addon_structure:
-                patterns[addon_name] = addon_structure
-
-        return patterns
-    except Exception as e:
-        # Fallback to empty dict if addon loading fails
-        console.print(f"[dim]Could not load addon patterns: {e}[/dim]")
-        return {}
-
-
-def get_age_public_key(env, runner_vm_ip):
-    """Fetch AGE public key from runner VM - FAILS if not found!"""
-    # Read entire key file, then parse locally
-    key_file = ssh_command(
-        host=runner_vm_ip,
-        user=env.get("SSH_USER", "superdeploy"),
-        key_path=os.path.expanduser(env["SSH_KEY_PATH"]),
-        cmd="cat /opt/forgejo-runner/.age/key.txt",
-        silent_on_error=False,  # Print error and exit if fails!
-    )
-
-    # Extract public key line (format: "# public key: age1...")
-    for line in key_file.split("\n"):
-        if "public key:" in line:
-            return line.split("public key:")[-1].strip()
-
-    # If we got here, key file exists but no public key found
-    console.print("[red]❌ AGE key file found but no public key line![/red]")
-    raise SystemExit(1)
-
-
-def create_forgejo_pat(env, forgejo_host):
-    """Create Forgejo Personal Access Token"""
-    console.print("[dim]Creating Forgejo PAT...[/dim]")
-
-    import requests
-    import time
-
-    # Get Forgejo port from orchestrator config
-    from cli.core.orchestrator_loader import OrchestratorLoader
-
-    project_root = get_project_root()
-    orch_loader = OrchestratorLoader(project_root / "shared")
-    orch_config = orch_loader.load()
-    forgejo_config = orch_config.get_forgejo_config()
-    forgejo_port = forgejo_config.get("port")
-    if not forgejo_port:
-        console.print("[red]❌ forgejo.port not found in orchestrator config![/red]")
-        return None
-
-    forgejo_url = f"http://{forgejo_host}:{forgejo_port}"
-    token_name = f"github-actions-{int(time.time())}"
-
-    try:
-        response = requests.post(
-            f"{forgejo_url}/api/v1/users/{env['FORGEJO_ADMIN_USER']}/tokens",
-            auth=(env["FORGEJO_ADMIN_USER"], env["FORGEJO_ADMIN_PASSWORD"]),
-            json={
-                "name": token_name,
-                "scopes": [
-                    "write:activitypub",
-                    "write:admin",
-                    "write:issue",
-                    "write:misc",
-                    "write:notification",
-                    "write:organization",
-                    "write:package",
-                    "write:repository",
-                    "write:user",
-                ],
-            },
-        )
-
-        if response.status_code == 201:
-            pat = response.json()["sha1"]
-            console.print("[green]✅ Forgejo PAT created[/green]")
-            return pat
-        else:
-            console.print(f"[yellow]⚠️  PAT creation failed: {response.text}[/yellow]")
-            return None
-    except Exception as e:
-        console.print(f"[yellow]⚠️  PAT creation failed: {e}[/yellow]")
-        return None
-
-
-def clear_github_repo_secrets(repo):
-    """Clear all GitHub repository secrets using gh CLI"""
-    console.print(f"[dim]Clearing repository secrets for {repo}...[/dim]")
-
-    # List all secrets
-    try:
-        result = subprocess.run(
-            ["gh", "secret", "list", "-R", repo, "--json", "name"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        import json
-
-        secrets = json.loads(result.stdout)
-
-        if not secrets:
-            console.print("  [dim]No secrets to clear[/dim]")
-            return
-
-        delete_count = 0
-        fail_count = 0
-
-        for secret in secrets:
-            secret_name = secret.get("name")
-            try:
-                subprocess.run(
-                    ["gh", "secret", "delete", secret_name, "-R", repo],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-                console.print(f"  [red]✗[/red] {secret_name} (deleted)")
-                delete_count += 1
-            except subprocess.CalledProcessError:
-                console.print(f"  [yellow]⚠[/yellow] {secret_name} (failed to delete)")
-                fail_count += 1
-
-        console.print(f"[dim]  → {delete_count} deleted, {fail_count} failed[/dim]")
-
-    except subprocess.CalledProcessError as e:
-        console.print(f"  [yellow]⚠[/yellow] Could not list secrets: {e}")
-    except Exception as e:
-        console.print(f"  [yellow]⚠[/yellow] Error: {str(e)}")
-
-
-def set_github_repo_secrets(repo, secrets):
+def set_github_repo_secrets(repo, secrets_dict, console):
     """Set GitHub repository secrets using gh CLI"""
-    console.print(f"[dim]Setting repository secrets for {repo}...[/dim]")
-
     success_count = 0
     fail_count = 0
 
-    for key, value in secrets.items():
-        # Skip empty values
-        if not value or value == "":
-            console.print(
-                f"  [color(208)]⊘[/color(208)] [dim]{key} (empty, skipped)[/dim]"
-            )
-            continue
-
+    for key, value in secrets_dict.items():
         try:
             result = subprocess.run(
-                ["gh", "secret", "set", key, "-b", value, "-R", repo],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            console.print(f"  [green]✓[/green] {key}")
-            success_count += 1
-        except subprocess.CalledProcessError as e:
-            error_msg = (
-                e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
-            )
-            console.print(f"  [red]✗[/red] {key}: {error_msg}")
-            fail_count += 1
-        except Exception as e:
-            console.print(f"  [red]✗[/red] {key}: {str(e)}")
-            fail_count += 1
-
-    console.print(f"[dim]  → {success_count} success, {fail_count} failed[/dim]")
-
-
-def create_github_environment(repo, env_name):
-    """Create GitHub environment if it doesn't exist"""
-    try:
-        # Check if environment exists
-        result = subprocess.run(
-            ["gh", "api", f"repos/{repo}/environments/{env_name}"],
-            capture_output=True,
-            check=False,
-        )
-
-        if result.returncode != 0:
-            # Create environment (minimal, free plan compatible)
-            subprocess.run(
-                [
-                    "gh",
-                    "api",
-                    f"repos/{repo}/environments/{env_name}",
-                    "-X",
-                    "PUT",
-                ],
-                check=True,
-                capture_output=True,
-            )
-            console.print(f"  [green]✓[/green] Created environment: {env_name}")
-        else:
-            console.print(f"  [dim]Environment '{env_name}' already exists[/dim]")
-
-        return True
-    except subprocess.CalledProcessError as e:
-        console.print(
-            f"  [red]✗[/red] Failed to create environment: {e.stderr.decode()}"
-        )
-        return False
-
-
-def set_github_env_secrets(repo, env_name, secrets):
-    """Set GitHub environment secrets using gh CLI"""
-    console.print(f"[dim]Setting environment secrets for {repo} ({env_name})...[/dim]")
-
-    success_count = 0
-    fail_count = 0
-
-    for key, value in secrets.items():
-        # Skip empty values (GitHub doesn't accept empty secrets)
-        if not value or value == "":
-            console.print(
-                f"  [color(208)]⊘[/color(208)] [dim]{key} (empty, skipped)[/dim]"
-            )
-            continue
-
-        console.print(f"  [dim]→ Setting {key}...[/dim]", end="")
-        try:
-            result = subprocess.run(
-                ["gh", "secret", "set", key, "-b", value, "-e", env_name, "-R", repo],
+                ["gh", "secret", "set", key, "-b", str(value), "-R", repo],
                 check=True,
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
-            console.print(f"\r  [green]✓[/green] {key}                    ")
+            console.print(f"  [green]✓[/green] {key}")
             success_count += 1
         except subprocess.TimeoutExpired:
-            console.print(f"\r  [red]✗[/red] {key}: timeout (30s)")
+            console.print(f"  [red]✗[/red] {key}: timeout (30s)")
             fail_count += 1
         except subprocess.CalledProcessError as e:
             error_msg = (
                 e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
             )
-            console.print(f"\r  [red]✗[/red] {key}: {error_msg[:50]}")
+            error_msg = error_msg.strip().replace("\n", " ")[:60]
+            console.print(f"  [red]✗[/red] {key}: {error_msg}")
             fail_count += 1
         except Exception as e:
-            console.print(f"\r  [red]✗[/red] {key}: {str(e)[:50]}")
+            error_msg = str(e).strip().replace("\n", " ")[:60]
+            console.print(f"  [red]✗[/red] {key}: {error_msg}")
             fail_count += 1
 
-    console.print(f"[dim]  → {success_count} success, {fail_count} failed[/dim]")
+    return success_count, fail_count
 
 
-def sync_forgejo_secrets(
-    env,
-    forgejo_pat,
-    forgejo_host,
-    project_env=None,
-    age_secret_key=None,
-    project_name=None,
-):
-    """Sync all secrets to Forgejo repository"""
-    import requests
-
-    # Get Forgejo port from orchestrator config
-    from cli.core.orchestrator_loader import OrchestratorLoader
-
-    project_root = get_project_root()
-    orch_loader = OrchestratorLoader(project_root / "shared")
-    orch_config = orch_loader.load()
-    forgejo_config = orch_config.get_forgejo_config()
-    forgejo_port = forgejo_config.get("port")
-    if not forgejo_port:
-        console.print("[red]❌ forgejo.port not found in orchestrator config![/red]")
-        raise SystemExit(1)
-
-    forgejo_url = f"http://{forgejo_host}:{forgejo_port}"
-    org = env.get("FORGEJO_ORG")
-    if not org:
-        console.print("[red]❌ FORGEJO_ORG not found in environment![/red]")
-        raise SystemExit(1)
-
-    repo = env.get("REPO_SUPERDEPLOY")
-    if not repo:
-        console.print("[red]❌ REPO_SUPERDEPLOY not found in environment![/red]")
-        raise SystemExit(1)
-
-    # Test connection first
-    try:
-        test_response = requests.get(
-            f"{forgejo_url}/api/v1/user",
-            headers={"Authorization": f"token {forgejo_pat}"},
-            timeout=5,
-        )
-        if test_response.status_code == 401:
-            console.print("[red]✗[/red] Forgejo PAT is invalid or expired (HTTP 401)")
-            console.print(f"[dim]Response: {test_response.text}[/dim]")
-            console.print(
-                f"[yellow]Run 'superdeploy {env.get('PROJECT', 'PROJECT')}:sync' to regenerate PAT[/yellow]"
-            )
-            return
-        elif test_response.status_code != 200:
-            console.print(
-                f"[yellow]⚠️  Forgejo API returned HTTP {test_response.status_code}[/yellow]"
-            )
-            console.print(f"[dim]Response: {test_response.text}[/dim]")
-            return
-    except Exception as e:
-        console.print(f"[yellow]⚠️  Forgejo not accessible: {e}[/yellow]")
-        return
-
-    # Merge project-specific secrets if provided
-    merged_env = {**env}
-    if project_env:
-        merged_env.update(project_env)
-
-    # Build secrets dynamically from config.yml (NO HARDCODING!)
-    secrets = {
-        # Infrastructure (generic, no app-specific logic)
-        "FORGEJO_HOST": forgejo_host,
-        "FORGEJO_PAT": forgejo_pat,  # Add PAT so Forgejo can use it
-        "DOCKER_REGISTRY": "docker.io",  # Always docker.io
-        "DOCKER_ORG": env["DOCKER_ORG"],
-        "DOCKER_USERNAME": env.get("DOCKER_USERNAME", ""),
-        "DOCKER_TOKEN": env.get("DOCKER_TOKEN", ""),
-        # Notifications
-        "ALERT_EMAIL": env.get("ALERT_EMAIL", ""),  # Optional
-        "FORGEJO_ORG": env["FORGEJO_ORG"],
-        "REPO_SUPERDEPLOY": env["REPO_SUPERDEPLOY"],
-    }
-
-    # Add AGE secret key if provided
-    if age_secret_key:
-        secrets["AGE_SECRET_KEY"] = age_secret_key
-
-    # Add core service secrets dynamically from addon metadata
-    if not project_name:
-        # Fallback: try to get from repo name
-        project_name = repo.split("/")[-1] if "/" in repo else repo
-    core_service_patterns = build_service_patterns_from_addons(project_name, merged_env)
-
-    for service, fields in core_service_patterns.items():
-        for field_key, env_key in fields.items():
-            if env_key in merged_env:
-                secrets[env_key] = merged_env[env_key]
-
-    # NOTE: DB_* aliases are NOT synced to Forgejo repository secrets
-    # They are app-specific and synced to GitHub environment secrets instead
-    # Forgejo repository only gets addon-specific secrets (POSTGRES_*, RABBITMQ_*, etc.)
-    # This ensures proper separation: addons provide raw vars, apps define aliases
-
-    # Add service-specific secrets dynamically (no hardcoding!)
-    for key, value in merged_env.items():
-        if key.endswith("_SECRET_KEY"):
-            secrets[key] = value
-
+def set_github_env_secrets(repo, env_name, secrets_dict, console):
+    """Set GitHub environment secrets using gh CLI"""
     success_count = 0
     fail_count = 0
-    skip_count = 0
 
-    for key, value in secrets.items():
-        # Skip empty values (Forgejo returns 422 for empty secrets)
-        if not value or value == "":
-            console.print(
-                f"  [color(208)]⊘[/color(208)] [dim]{key} (empty, skipped)[/dim]"
-            )
-            skip_count += 1
+    for key, value in secrets_dict.items():
+        if not value or str(value).strip() == "":
             continue
 
         try:
-            response = requests.put(
-                f"{forgejo_url}/api/v1/repos/{org}/{repo}/actions/secrets/{key}",
-                headers={
-                    "Authorization": f"token {forgejo_pat}",
-                    "Content-Type": "application/json",
-                },
-                json={"data": value},
-                timeout=3,  # Fast timeout - Forgejo should respond quickly
+            result = subprocess.run(
+                [
+                    "gh",
+                    "secret",
+                    "set",
+                    key,
+                    "-b",
+                    str(value),
+                    "-e",
+                    env_name,
+                    "-R",
+                    repo,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
-            if response.status_code in [200, 201, 204]:
-                console.print(f"  [green]✓[/green] {key}")
-                success_count += 1
-            else:
-                console.print(f"  [yellow]⚠[/yellow] {key}: {response.status_code}")
-                fail_count += 1
+            console.print(f"  [green]✓[/green] {key}")
+            success_count += 1
+        except subprocess.TimeoutExpired:
+            console.print(f"  [red]✗[/red] {key}: timeout (30s)")
+            fail_count += 1
+        except subprocess.CalledProcessError as e:
+            error_msg = (
+                e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            )
+            error_msg = error_msg.strip().replace("\n", " ")[:60]
+            console.print(f"  [red]✗[/red] {key}: {error_msg}")
+            fail_count += 1
         except Exception as e:
-            console.print(f"  [red]✗[/red] {key}: {str(e)[:50]}")
+            error_msg = str(e).strip().replace("\n", " ")[:60]
+            console.print(f"  [red]✗[/red] {key}: {error_msg}")
             fail_count += 1
 
-    console.print(
-        f"\n[green]✅ Forgejo secrets synced: {success_count} success, {fail_count} failed, {skip_count} skipped[/green]"
-    )
+    return success_count, fail_count
 
 
-@click.command()
+@click.command(name="sync")
 @click.option("--project", "-p", required=True, help="Project name")
-@click.option("--skip-forgejo", is_flag=True, help="Skip Forgejo PAT creation")
-@click.option("--skip-github", is_flag=True, help="Skip GitHub secrets sync")
-@click.option("--clear", is_flag=True, help="Clear all existing secrets before syncing")
-@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def sync(project, skip_forgejo, skip_github, clear, verbose):
+def sync(project):
     """
-    Sync ALL secrets to GitHub/Forgejo
+    Sync ALL secrets to GitHub
 
-    This command will:
-    - Load secrets from secrets.yml (shared + app-specific)
-    - Fetch AGE public key from runner VM
-    - Create Forgejo PAT (if needed)
-    - Push ALL secrets to GitHub repos (using gh CLI)
+    - Repository secrets (Docker, GitHub runner token, etc.)
+    - Environment secrets (per-app configuration)
 
-    \b
-    Example:
-      superdeploy myproject:sync
-
-    \b
     Requirements:
     - gh CLI installed and authenticated
-    - SSH access to VMs
+    - secrets.yml file in project directory
+
+    Example:
+        superdeploy cheapa:sync
     """
-    from cli.utils import validate_project, get_project_path
-    from cli.logger import DeployLogger
+    show_header(
+        title="Sync Secrets to GitHub",
+        project=project,
+        subtitle="Automated secret management",
+        console=console,
+    )
 
-    # Validate project first
-    validate_project(project)
-    project_path = get_project_path(project)
-
-    if not verbose:
-        show_header(
-            title="Secret Sync",
-            subtitle="Automating GitHub secrets configuration",
-            project=project,
-            console=console,
-        )
-
-    # Initialize logger
-    logger = DeployLogger(project, "sync", verbose=verbose)
-
-    # Early validation: Check required files exist
-    logger.step("Syncing Secrets to Forgejo")
-    logger.log("Checking required files...")
-    project_root = get_project_root()
-
-    # Load project config and secrets from secrets.yml
+    from cli.core.config_loader import ConfigLoader
     from cli.secret_manager import SecretManager
-    from cli.core.config_loader import ConfigLoader
-
-    project_config_file = project_root / "projects" / project / "project.yml"
-    if not project_config_file.exists():
-        logger.log_error(f"Project config not found: {project_config_file}")
-        raise SystemExit(1)
-
-    # Load secrets
-    secret_mgr = SecretManager(project_root, project)
-    secrets_data = secret_mgr.load_secrets()
-
-    logger.log("✓ Secrets loaded from secrets.yml")
-
-    required_files = {
-        "shared/orchestrator/config.yml": project_root
-        / "shared"
-        / "orchestrator"
-        / "config.yml",
-        "shared/orchestrator/secrets.yml": project_root
-        / "shared"
-        / "orchestrator"
-        / "secrets.yml",
-    }
-
-    missing_files = []
-    for file_desc, file_path in required_files.items():
-        if not file_path.exists():
-            missing_files.append(file_desc)
-
-    if missing_files:
-        logger.log_error(
-            "Missing required files",
-            context="Run '[red]superdeploy orchestrator up[/red]' to create them",
-        )
-        raise SystemExit(1)
-
-    logger.log("✓ Required files found")
-
-    # Load environment from project.yml + secrets.yml
-    logger.log("Loading environment...")
-    config_loader = ConfigLoader(project_root / "projects")
-    project_config_obj = config_loader.load_project(project)
-
-    # Build env dict from project.yml + secrets.yml
-    env = {
-        "GCP_PROJECT_ID": project_config_obj.raw_config["cloud"]["gcp"]["project_id"],
-        "GCP_REGION": project_config_obj.raw_config["cloud"]["gcp"]["region"],
-        "SSH_KEY_PATH": project_config_obj.raw_config["cloud"]["ssh"]["key_path"],
-        "SSH_USER": project_config_obj.raw_config["cloud"]["ssh"]["user"],
-        "DOCKER_ORG": project_config_obj.raw_config["docker"]["organization"],
-    }
-
-    # Add all secrets from secrets.yml
-    if secrets_data.get("secrets", {}).get("shared"):
-        env.update(secrets_data["secrets"]["shared"])
-
-    # Add app-specific secrets from secrets.yml
-    project_secrets = {}
-    for app_name, app_secrets in secrets_data.get("secrets", {}).items():
-        if app_name != "shared" and isinstance(app_secrets, dict):
-            project_secrets.update(app_secrets)
-
-    logger.log("✓ Secrets loaded from secrets.yml")
-
-    # Merge all: infra env → shared secrets → app secrets
-    env.update(project_secrets)
-    logger.success("Environment variables loaded")
-
-    # Auto-generate missing required secrets based on project name
-    logger.step("Validating secrets")
-    project_name = project
-    if "POSTGRES_USER" not in env or not env["POSTGRES_USER"]:
-        env["POSTGRES_USER"] = f"{project_name}_user"
-        logger.log(f"Auto-generated POSTGRES_USER: {env['POSTGRES_USER']}")
-    if "POSTGRES_DB" not in env or not env["POSTGRES_DB"]:
-        env["POSTGRES_DB"] = f"{project_name}_db"
-        logger.log(f"Auto-generated POSTGRES_DB: {env['POSTGRES_DB']}")
-    if "RABBITMQ_USER" not in env or not env["RABBITMQ_USER"]:
-        env["RABBITMQ_USER"] = f"{project_name}_user"
-        logger.log(f"Auto-generated RABBITMQ_USER: {env['RABBITMQ_USER']}")
-
-    # Find which VM runs Forgejo by checking project config
-    logger.step("Loading project configuration")
-    from cli.core.config_loader import ConfigLoader
 
     project_root = get_project_root()
     projects_dir = project_root / "projects"
+
+    # Load config
     config_loader = ConfigLoader(projects_dir)
-
     try:
-        project_config_obj = config_loader.load_project(project)
-        logger.success("Project configuration loaded")
-    except FileNotFoundError:
-        logger.log_error("Project config not found")
-        raise SystemExit(1)
-
-    # Get Forgejo from orchestrator (not from project VMs)
-    logger.step("Loading orchestrator configuration")
-    from cli.core.orchestrator_loader import OrchestratorLoader
-
-    orchestrator_loader = OrchestratorLoader(project_root / "shared")
-    try:
-        orch_config = orchestrator_loader.load()
-        forgejo_host = orch_config.get_ip()
-
-        if not forgejo_host:
-            logger.log_error(
-                "Orchestrator not deployed",
-                context="Run '[red]superdeploy orchestrator up[/red]' first",
-            )
-            raise SystemExit(1)
-
-        logger.log(f"Using Forgejo from orchestrator: {forgejo_host}")
-
-        # Load orchestrator config
-        forgejo_config = orch_config.get_forgejo_config()
-
-        # Merge orchestrator values into env
-        env["FORGEJO_HOST"] = forgejo_host
-        env["FORGEJO_ORG"] = forgejo_config.get("org")
-        if not env["FORGEJO_ORG"]:
-            logger.log_error("forgejo.org not found in orchestrator config")
-            raise SystemExit(1)
-
-        env["REPO_SUPERDEPLOY"] = forgejo_config.get("repo")
-        if not env["REPO_SUPERDEPLOY"]:
-            logger.log_error("forgejo.repo not found in orchestrator config")
-            raise SystemExit(1)
-
-        logger.success("Orchestrator configuration loaded")
-
-        # Validate Docker credentials
-        # DOCKER_ORG comes from project.yml, credentials come from secrets.yml
-        logger.step("Validating Docker credentials")
-        if not env.get("DOCKER_ORG"):
-            logger.log_error(
-                f"docker.organization not found in projects/{project}/project.yml",
-                context="Edit project.yml and fill in Docker organization",
-            )
-            raise SystemExit(1)
-        else:
-            logger.log(f"Docker organization: {env['DOCKER_ORG']}")
-
-        if not env.get("DOCKER_USERNAME"):
-            logger.log_error(
-                f"DOCKER_USERNAME not found in projects/{project}/secrets.yml",
-                context="Edit secrets.yml and fill in Docker credentials",
-            )
-            raise SystemExit(1)
-
-        if not env.get("DOCKER_TOKEN"):
-            logger.log_error(
-                f"DOCKER_TOKEN not found in projects/{project}/secrets.yml",
-                context="Edit secrets.yml and fill in Docker credentials",
-            )
-            raise SystemExit(1)
-
-        logger.success("Docker credentials validated")
-
-    except FileNotFoundError:
-        logger.log_error(
-            "Orchestrator config not found",
-            context="Run 'superdeploy orchestrator up' first",
-        )
-        raise SystemExit(1)
-
-    # SSH_KEY_PATH is now in env from project.yml, no need to validate separately
-    # All required vars are now loaded from project.yml and secrets.yml
-
-    # Check if gh CLI is available
-    logger.step("Checking GitHub CLI")
-    try:
-        subprocess.run(["gh", "--version"], capture_output=True, check=True)
-        logger.success("GitHub CLI available")
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        logger.warning("GitHub CLI (gh) not installed - skipping GitHub secrets sync")
-        logger.log("Install: brew install gh")
-        skip_github = True
-
-    # Load project config (already loaded above, reuse it)
-    project_config = project_config_obj.raw_config
-
-    # GitHub repos from project config
-    # Build repos dict from apps config: {app_name: "org/app_name"}
-    github_org = project_config.get("github", {}).get("organization", f"{project}io")
-    apps = project_config.get("apps", {})
-    repos = {app_name: f"{github_org}/{app_name}" for app_name in apps.keys()}
-
-    # Get Forgejo port from orchestrator (needed for GitHub sync too)
-    forgejo_port = orch_config.get_forgejo_config().get("port")
-    if not forgejo_port:
-        console.print("[red]❌ forgejo.port not found in orchestrator config![/red]")
-        raise SystemExit(1)
-
-    # Validate all required values BEFORE starting
-    logger.step("Final configuration validation")
-    validation_errors = []
-
-    required_env_vars = {
-        "FORGEJO_ORG": env.get("FORGEJO_ORG"),
-        "REPO_SUPERDEPLOY": env.get("REPO_SUPERDEPLOY"),
-        "DOCKER_REGISTRY": "docker.io",  # Always docker.io
-        "DOCKER_ORG": env.get("DOCKER_ORG"),
-        "DOCKER_USERNAME": env.get("DOCKER_USERNAME"),
-        "DOCKER_TOKEN": env.get("DOCKER_TOKEN"),
-        "SSH_KEY_PATH": env.get("SSH_KEY_PATH"),
-    }
-
-    for var_name, var_value in required_env_vars.items():
-        if not var_value:
-            validation_errors.append(f"{var_name} is missing or empty")
-            logger.log(f"✗ {var_name}")
-        else:
-            logger.log(f"✓ {var_name}")
-
-    if validation_errors:
-        logger.log_error(
-            "Configuration validation failed", context="\n".join(validation_errors)
-        )
-        raise SystemExit(1)
-
-    logger.success("Configuration valid")
-
-    # Step 1: Fetch AGE public key from RUNNER VM (not orchestrator!)
-    # Runners are on project VMs, NOT on orchestrator
-    logger.step("Fetching AGE public key from runner VM")
-
-    # Load VM IPs from state.yml (saved during 'superdeploy up')
-    from cli.state_manager import StateManager
-
-    state_mgr = StateManager(project_root, project)
-    state = state_mgr.load_state()
-
-    vms = state.get("vms", {})
-    if not vms:
-        logger.log_error(
-            "No VMs found in state",
-            context=f"Run '[red]superdeploy {project}:up[/red]' to deploy VMs first",
-        )
-        raise SystemExit(1)
-
-    # Load ALL VM IPs into env (for GitHub secrets sync)
-    logger.log("Loading VM IPs from state...")
-    runner_vm_ip = None
-    runner_vm_name = None
-
-    for vm_name, vm_data in vms.items():
-        external_ip = vm_data.get("external_ip")
-        internal_ip = vm_data.get("internal_ip")
-
-        if external_ip:
-            # Add to env (format: CORE_0_EXTERNAL_IP, APP_0_EXTERNAL_IP, etc.)
-            env_key = f"{vm_name.upper()}_0_EXTERNAL_IP"
-            env[env_key] = external_ip
-            logger.log(f"  {env_key}: {external_ip}")
-
-            # Use first VM as runner
-            if not runner_vm_ip:
-                runner_vm_ip = external_ip
-                runner_vm_name = f"{project}-{vm_name}-0"
-
-        if internal_ip:
-            env_key = f"{vm_name.upper()}_0_INTERNAL_IP"
-            env[env_key] = internal_ip
-            logger.log(f"  {env_key}: {internal_ip}")
-
-    if not runner_vm_ip:
-        logger.log_error(
-            "No VM with external IP found in state",
-            context=f"Run '[red]superdeploy {project}:up[/red]' to deploy VMs",
-        )
-        raise SystemExit(1)
-
-    logger.log(f"Using runner VM: {runner_vm_name} ({runner_vm_ip})")
-
-    age_public_key = get_age_public_key(env, runner_vm_ip)
-
-    if not age_public_key:
-        logger.log_error(
-            "AGE public key not found on runner VM",
-            context=f"Runner setup failed. SSH to check: ssh superdeploy@{runner_vm_ip} 'ls -la /opt/forgejo-runner/.age/'",
-        )
-        raise SystemExit(1)
-
-    logger.success(f"AGE Public Key: {age_public_key[:30]}...")
-
-    # Step 2: Load Forgejo PAT from orchestrator
-    logger.step("Loading Forgejo PAT")
-
-    # Load PAT from shared/orchestrator/secrets.yml
-    from cli.core.orchestrator_loader import OrchestratorLoader
-
-    project_root = get_project_root()
-
-    try:
-        orch_loader = OrchestratorLoader(project_root / "shared")
-        orch_config = orch_loader.load()
-        orch_secrets = orch_config.get_secrets()
-    except FileNotFoundError:
-        logger.log_error(
-            "Orchestrator config not found",
-            context="Run 'superdeploy orchestrator up' first",
-        )
-        raise SystemExit(1)
-
-    forgejo_pat = orch_secrets.get("FORGEJO_PAT")
-
-    if not forgejo_pat:
-        logger.log_error(
-            "FORGEJO_PAT not found in orchestrator secrets",
-            context="Run '[red]superdeploy orchestrator up[/red]' to generate PAT",
-        )
-        raise SystemExit(1)
-
-    # Test PAT validity
-    pat_valid = False
-    if not skip_forgejo:
-        try:
-            import requests
-
-            test_response = requests.get(
-                f"http://{forgejo_host}:3001/api/v1/user",
-                headers={"Authorization": f"token {forgejo_pat}"},
-                timeout=5,
-            )
-            pat_valid = test_response.status_code == 200
-            if pat_valid:
-                logger.success("Forgejo PAT loaded from orchestrator")
-            else:
-                logger.warning(f"PAT invalid (HTTP {test_response.status_code})")
-                logger.log("Regenerating Forgejo PAT...")
-
-                # Create new PAT - merge config and secrets
-                forgejo_env = {
-                    "FORGEJO_ADMIN_USER": orch_config.config.get("forgejo", {}).get(
-                        "admin_user", "admin"
-                    ),
-                    "FORGEJO_ADMIN_PASSWORD": orch_secrets.get(
-                        "FORGEJO_ADMIN_PASSWORD", ""
-                    ),
-                }
-                new_pat = create_forgejo_pat("orchestrator", forgejo_env)
-                if new_pat:
-                    forgejo_pat = new_pat
-                    logger.success("New Forgejo PAT created")
-
-                    # Update orchestrator secrets.yml file
-                    orch_config.secret_manager.add_secret("FORGEJO_PAT", new_pat)
-
-                    logger.success("Updated orchestrator secrets with new PAT")
-                else:
-                    logger.log_error(
-                        "Failed to create new PAT",
-                        context="Check Forgejo admin credentials",
-                    )
-                    raise SystemExit(1)
-        except Exception as e:
-            logger.warning(f"Could not validate PAT: {e}")
-
-    # Update env dict so it's used in GitHub secrets sync
-    env["FORGEJO_PAT"] = forgejo_pat
-
-    # Step 2.5: Get AGE secret key (optional - only if public key exists)
-    # Fetch AGE secret key from the SAME runner VM where public key was found
-    age_secret_key = None
-    if age_public_key:
-        logger.step("Fetching AGE secret key")
-        try:
-            age_key_file = ssh_command(
-                host=runner_vm_ip,  # Use runner VM, NOT orchestrator!
-                user=env.get("SSH_USER", "superdeploy"),
-                key_path=os.path.expanduser(env["SSH_KEY_PATH"]),
-                cmd="cat /opt/forgejo-runner/.age/key.txt",
-            )
-            # Extract secret key line (format: "AGE-SECRET-KEY-...")
-            for line in age_key_file.split("\n"):
-                if line.startswith("AGE-SECRET-KEY-"):
-                    age_secret_key = line.strip()
-                    break
-            if age_secret_key:
-                logger.success("AGE secret key fetched from runner VM")
-            else:
-                logger.log_error("AGE secret key not found in key file")
-                raise SystemExit(1)
-        except Exception as e:
-            logger.log_error(f"Could not fetch AGE secret key: {e}")
-            raise SystemExit(1)
-    else:
-        logger.log_error("Cannot fetch AGE secret key - public key not available")
-        raise SystemExit(1)
-
-    # Step 2.6: Sync secrets to Forgejo repository
-    if forgejo_pat:
-        logger.step("Syncing secrets to Forgejo repository")
-        sync_forgejo_secrets(
-            env, forgejo_pat, forgejo_host, project_secrets, age_secret_key, project
-        )
-
-    if skip_github:
-        logger.warning("Skipping GitHub secrets sync")
+        project_config = config_loader.load_project(project)
+    except FileNotFoundError as e:
+        console.print(f"[red]❌ {e}[/red]")
+        return
+    except ValueError as e:
+        console.print(f"[red]❌ Invalid configuration: {e}[/red]")
         return
 
-    # Step 3: Sync to GitHub
-    logger.step("Syncing secrets to GitHub repositories")
+    config = project_config.raw_config
 
-    for app_name, repo in repos.items():
-        logger.log(f"Syncing {app_name} ({repo})")
+    # Load secrets
+    secret_mgr = SecretManager(project_root, project)
+    if not secret_mgr.secrets_file.exists():
+        console.print("[red]❌ No secrets.yml found![/red]")
+        return
 
-        # Clear existing secrets if --clear flag is set
-        if clear:
-            logger.log(f"Clearing existing secrets for {repo}")
-            clear_github_repo_secrets(repo)
+    all_secrets = secret_mgr.load_secrets()
+    github_org = config.get("github", {}).get("organization", f"{project}io")
 
-        # Repository secrets (infrastructure/build related)
+    # Check gh CLI
+    try:
+        subprocess.run(["gh", "--version"], check=True, capture_output=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        console.print("[red]❌ gh CLI not found![/red]")
+        console.print("Install: https://cli.github.com/")
+        return
+
+    console.print("\n[bold cyan]📦 Repository Secrets[/bold cyan]")
+    console.print("[dim]These secrets are shared across all apps in the repo[/dim]\n")
+
+    # Process each app
+    for app_name, app_config in config.get("apps", {}).items():
+        repo = f"{github_org}/{app_name}"
+        console.print(f"[cyan]{repo}:[/cyan]")
+
+        # Repository-level secrets (Docker, orchestrator, etc.)
         repo_secrets = {
-            "AGE_PUBLIC_KEY": age_public_key,
-            "ORCHESTRATOR_IP": forgejo_host,  # Orchestrator VM IP (for API calls)
-            "FORGEJO_BASE_URL": f"http://{forgejo_host}:{forgejo_port}",
-            "FORGEJO_ORG": env["FORGEJO_ORG"],
-            "FORGEJO_REPO": env["REPO_SUPERDEPLOY"],  # Use REPO_SUPERDEPLOY from env
-            "FORGEJO_PAT": forgejo_pat,
-            "PROJECT_NAME": project,  # ✅ Generic project name
-            "DOCKER_REGISTRY": "docker.io",
-            "DOCKER_ORG": env["DOCKER_ORG"],
-            "DOCKER_USERNAME": env["DOCKER_USERNAME"],
-            "DOCKER_TOKEN": env["DOCKER_TOKEN"],
+            "DOCKER_REGISTRY": all_secrets.get("shared", {}).get(
+                "DOCKER_REGISTRY", "docker.io"
+            ),
+            "DOCKER_ORG": all_secrets.get("shared", {}).get("DOCKER_ORG"),
+            "DOCKER_USERNAME": all_secrets.get("shared", {}).get("DOCKER_USERNAME"),
+            "DOCKER_TOKEN": all_secrets.get("shared", {}).get("DOCKER_TOKEN"),
         }
 
-        set_github_repo_secrets(repo, repo_secrets)
+        # Remove None values
+        repo_secrets = {k: v for k, v in repo_secrets.items() if v is not None}
 
-        # Environment-specific secrets (production & staging)
-        for env_name in ["production", "staging"]:
-            logger.log(f"Configuring {env_name} environment")
+        success, fail = set_github_repo_secrets(repo, repo_secrets, console)
+        console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
 
-            # Create environment
-            if not create_github_environment(repo, env_name):
-                logger.warning(f"Skipping {env_name} secrets")
-                continue
+        # Environment secrets (production)
+        env_name = "production"
+        console.print(f"[cyan]Environment '{env_name}':[/cyan]")
 
-            # Environment secrets - merge infrastructure + project secrets
-            merged_env = {**env, **project_secrets}
+        # Get app-specific secrets
+        app_secrets = secret_mgr.get_app_secrets(app_name)
 
-            # Base secrets (common for all services) - FULLY DYNAMIC!
-            env_secrets = {
-                "LOG_LEVEL": "DEBUG" if env_name == "staging" else "INFO",
-                "SMTP_USERNAME": env.get("SMTP_USERNAME", ""),
-                "SMTP_PASSWORD": env.get("SMTP_PASSWORD", ""),
-                # Add FORGEJO_PAT to environment secrets (needed for deployment trigger)
-                "FORGEJO_PAT": forgejo_pat,
-                "FORGEJO_BASE_URL": f"http://{forgejo_host}:{forgejo_port}",
-                "FORGEJO_ORG": env["FORGEJO_ORG"],
-            }
-
-            # Add core service secrets dynamically from addon metadata
-            core_service_patterns = build_service_patterns_from_addons(
-                project, merged_env
+        # Create environment if needed
+        try:
+            subprocess.run(
+                ["gh", "api", f"repos/{repo}/environments/{env_name}", "-X", "PUT"],
+                check=True,
+                capture_output=True,
             )
+        except subprocess.CalledProcessError:
+            pass  # Environment might already exist
 
-            for service, fields in core_service_patterns.items():
-                for field_key, env_key in fields.items():
-                    if env_key in merged_env:
-                        env_secrets[env_key] = merged_env[env_key]
+        success, fail = set_github_env_secrets(repo, env_name, app_secrets, console)
+        console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
 
-            # Resolve env_aliases from project config (NO HARDCODING!)
-            # This replaces hardcoded DB_* mapping with config-driven approach
-            # Each app defines its own aliases in project.yml
-            env_manager = EnvManager(project_config_obj.raw_config)
-            app_env_with_aliases = env_manager.resolve_aliases(app_name, merged_env)
-            env_secrets.update(app_env_with_aliases)
-
-            # Add service-specific secrets (generic pattern, no hardcoding!)
-            service_upper = app_name.upper()
-            service_secret_key = f"{service_upper}_SECRET_KEY"
-            if service_secret_key in merged_env:
-                env_secrets[service_secret_key] = merged_env[service_secret_key]
-
-            set_github_env_secrets(repo, env_name, env_secrets)
-
-    logger.success("All secrets synced successfully")
-
-    # Mark secrets as synced in state (updates secrets hash)
-    from cli.state_manager import StateManager
-
-    state_mgr = StateManager(project_root, project)
-    state_mgr.mark_synced()
-
-    if not verbose:
-        console.print("\n[color(248)]Sync complete.[/color(248)]")
-        console.print("\n[white]Next steps:[/white]")
-        console.print("  1. Push to GitHub: [cyan]git push origin production[/cyan]")
-        console.print("  2. Deployment will auto-trigger!")
-        console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
+    console.print("\n[green]✅ Sync complete![/green]")
+    console.print("\n[bold]📝 Next steps:[/bold]")
+    console.print("\n1. Get GitHub runner token:")
+    console.print(f"   https://github.com/{github_org}/settings/actions/runners/new")
+    console.print("\n2. Deploy with token:")
+    console.print(f"   [red]GITHUB_RUNNER_TOKEN=<token> superdeploy {project}:up[/red]")

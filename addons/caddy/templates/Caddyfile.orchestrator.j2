@@ -98,26 +98,3 @@
     }
 }
 {% endif %}
-
-# =============================================================================
-# Forgejo - Git Server (if needed via domain)
-# =============================================================================
-{% if FORGEJO_DOMAIN %}
-{{ FORGEJO_DOMAIN }} {
-    reverse_proxy orchestrator-forgejo:3000 {
-        health_uri /api/healthz
-        health_interval 30s
-        health_timeout 10s
-        
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-    }
-    
-    log {
-        output file /var/log/caddy/forgejo-access.log
-        format json
-    }
-}
-{% endif %}

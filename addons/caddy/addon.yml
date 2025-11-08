@@ -41,12 +41,6 @@ env_vars:
     default: ""
     required: false
     secret: false
-    
-  - name: FORGEJO_DOMAIN
-    description: Domain for Forgejo (orchestrator only)
-    default: ""
-    required: false
-    secret: false
 
 # Docker compose configuration
 compose:

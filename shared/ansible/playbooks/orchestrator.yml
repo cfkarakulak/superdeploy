@@ -8,8 +8,6 @@
 #   - Base system setup
 #   - Docker
 #   - Monitoring agent
-#   - Forgejo (Git server)
-#   - PostgreSQL (for Forgejo)
 #   - Prometheus (metrics)
 #   - Grafana (dashboards)
 
@@ -49,7 +47,7 @@
 
 # NOTE: Orchestrator does NOT need a runner!
 # Runners are installed on project VMs (api, web, worker) for deployments.
-# Orchestrator only hosts Forgejo (Git server) and workflows.
+# Orchestrator only hosts monitoring (Prometheus + Grafana).
 
 # ============================================================================
 # PHASE 2: Addon Deployment
@@ -91,7 +89,7 @@
         fail_msg: |
           [ORCHESTRATOR] ERROR: enabled_addons not defined!
             - This must be passed from CLI via --extra-vars
-            - Expected format: enabled_addons=['forgejo', 'monitoring']
+            - Expected format: enabled_addons=['monitoring']
             - Fix: Check orchestrator.py build_ansible_command() call
         quiet: false
   roles:

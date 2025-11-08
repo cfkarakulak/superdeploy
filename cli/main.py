@@ -204,7 +204,7 @@ def cli(ctx: click.Context) -> None:
 
     \b
     Quick Start:
-      [red]superdeploy orchestrator:up[/red]  # Deploy Forgejo (once)
+      [red]superdeploy orchestrator:up[/red]  # Deploy monitoring (once)
       superdeploy init -p myapp     # Create project
       [red]superdeploy myapp:up[/red]         # Deploy project
       superdeploy myapp:sync        # Sync secrets

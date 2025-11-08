@@ -83,10 +83,6 @@ class OrchestratorConfig:
         """Get VM configuration for orchestrator"""
         return self.config.get("vm", {})
 
-    def get_forgejo_config(self) -> Dict[str, Any]:
-        """Get Forgejo configuration"""
-        return self.config.get("forgejo", {})
-
     def get_network_config(self) -> Dict[str, Any]:
         """Get network configuration"""
         return self.config.get("network", {})
@@ -137,11 +133,10 @@ class OrchestratorConfig:
                     "index": 0,
                     "machine_type": vm_config.get("machine_type", "e2-medium"),
                     "disk_size": vm_config.get("disk_size", 50),
-                    "tags": ["main", "orchestrator", "forgejo", "ssh"],
+                    "tags": ["main", "orchestrator", "monitoring", "ssh"],
                     "labels": {
                         "role": "orchestrator",
                         "shared": "true",
-                        "has_forgejo": "true",
                     },
                 }
             },
@@ -169,16 +164,13 @@ class OrchestratorConfig:
         Returns:
             Dictionary suitable for Ansible extra vars
         """
-        forgejo_config = self.get_forgejo_config()
-
         # Monitoring is always enabled
         grafana_config = self.config.get("grafana", {})
         prometheus_config = self.config.get("prometheus", {})
         caddy_config = self.config.get("caddy", {})
 
-        enabled_addons = ["forgejo", "monitoring"]
+        enabled_addons = ["monitoring"]
         addon_configs = {
-            "forgejo": forgejo_config,
             "monitoring": {"grafana": grafana_config, "prometheus": prometheus_config},
         }
 
@@ -201,10 +193,8 @@ class OrchestratorConfig:
                     "ssl_email": project_config.get("ssl_email", ""),
                 },
                 "network": network_config,  # Add network config for subnet allocation
-                "addons": {"forgejo": forgejo_config},
                 "grafana": grafana_config,
                 "prometheus": prometheus_config,
-                "forgejo": forgejo_config,  # Add forgejo at root level for env.yml path resolution
             },
             "enabled_addons": enabled_addons,
             "addon_configs": addon_configs,

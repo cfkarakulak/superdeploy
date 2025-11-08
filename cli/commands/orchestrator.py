@@ -7,7 +7,7 @@ from rich.console import Console
 from cli.ui_components import show_header
 from rich.prompt import Prompt
 from cli.utils import get_project_root
-from cli.logger import DeployLogger, run_with_progress
+from cli.logger import DeployLogger
 
 console = Console()
 
@@ -19,7 +19,7 @@ def orchestrator_init():
 
     show_header(
         title="Orchestrator Setup",
-        subtitle="Global orchestrator (Forgejo + Monitoring)",
+        subtitle="Global monitoring (Prometheus + Grafana)",
         show_logo=True,
         console=console,
     )
@@ -38,6 +38,7 @@ def orchestrator_init():
             end="",
         )
         answer = input().strip().lower()
+        console.print()  # Add newline after input
         if answer not in ["y", "yes"]:
             console.print("[dim]Cancelled[/dim]")
             return
@@ -51,12 +52,6 @@ def orchestrator_init():
     # SSL Configuration
     console.print("\n[white]SSL Configuration[/white]")
     ssl_email = Prompt.ask("Email for Let's Encrypt", default="")
-
-    # Forgejo Configuration
-    console.print("\n[white]Forgejo Configuration[/white]")
-    admin_user = Prompt.ask("Admin Username", default="admin")
-    admin_email = Prompt.ask("Admin Email", default="")
-    org = Prompt.ask("Organization Name", default="")
 
     # Allocate Docker subnet for orchestrator
     console.print("\n[dim]Allocating network subnet...[/dim]")
@@ -100,18 +95,6 @@ def orchestrator_init():
             "vpc_name": "superdeploy-network",
             "subnet_cidr": "10.128.0.0/20",
             "docker_subnet": docker_subnet,
-        },
-        "forgejo": {
-            "version": "13.0.1",
-            "port": 3001,
-            "ssh_port": 2222,
-            "admin_user": admin_user,
-            "admin_email": admin_email,
-            "org": org,
-            "repo": "superdeploy",
-            "db_name": "forgejo",
-            "db_user": "forgejo",
-            "domain": "",
         },
         "grafana": {
             "domain": "",
@@ -193,17 +176,6 @@ def orchestrator_init():
     yml_lines.append(
         yaml.dump(
             {"network": orchestrator_config["network"]},
-            default_flow_style=False,
-            sort_keys=False,
-        ).strip()
-    )
-    yml_lines.append("")
-    yml_lines.append("# " + "=" * 77)
-    yml_lines.append("# Forgejo Configuration (Git Server + CI/CD)")
-    yml_lines.append("# " + "=" * 77)
-    yml_lines.append(
-        yaml.dump(
-            {"forgejo": orchestrator_config["forgejo"]},
             default_flow_style=False,
             sort_keys=False,
         ).strip()
@@ -294,14 +266,13 @@ def orchestrator_down(yes, preserve_ip, verbose):
             end="",
         )
         answer = input().strip().lower()
+        console.print()  # Add newline after input
         confirmed = answer in ["y", "yes"]
 
         if not confirmed:
             console.print("[yellow]❌ Destruction cancelled[/yellow]")
             logger.log("User cancelled destruction")
             return
-
-    logger.step("[1/3] Preparing Destruction")
 
     shared_dir = project_root / "shared"
 
@@ -315,26 +286,144 @@ def orchestrator_down(yes, preserve_ip, verbose):
         logger.log_error(str(e))
         raise SystemExit(1)
 
-    console.print("  [dim]✓ Configuration loaded[/dim]")
-
     import subprocess
     from cli.terraform_utils import (
         workspace_exists,
-        terraform_init,
-        select_workspace,
     )
 
+    gcp_config = orch_config.config.get("gcp", {})
+    zone = gcp_config.get("zone", "us-central1-a")
+    region = gcp_config.get("region", "us-central1")
+
+    # Always do manual cleanup FIRST to ensure GCP resources are gone
+    current_step = 1
+    total_steps = 3
+
+    logger.step(f"[{current_step}/{total_steps}] GCP Resource Cleanup")
+    console.print("  [dim]✓ Configuration loaded[/dim]")
+
+    vms_deleted = 0
+    ips_deleted = 0
+    firewalls_deleted = 0
+    subnets_deleted = 0
+    networks_deleted = 0
+
+    # Delete VM instances first
+    result = subprocess.run(
+        "gcloud compute instances list --filter='name:orchestrator-*' --format='value(name,zone)' 2>/dev/null",
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0 and result.stdout.strip():
+        lines = result.stdout.strip().split("\n")
+        for line in lines:
+            if line.strip():
+                parts = line.split()
+                if len(parts) >= 2:
+                    vm_name, vm_zone = parts[0], parts[1]
+                    result = subprocess.run(
+                        f"gcloud compute instances delete {vm_name} --zone={vm_zone} --quiet",
+                        shell=True,
+                        capture_output=True,
+                    )
+                    if result.returncode == 0:
+                        vms_deleted += 1
+
+    # Delete External IP (unless --preserve-ip flag is set)
+    if not preserve_ip:
+        result = subprocess.run(
+            "gcloud compute addresses list --filter='name:orchestrator-*' --format='value(name,region)' 2>/dev/null",
+            shell=True,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split("\n")
+            for line in lines:
+                if line.strip():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        ip_name, ip_region = parts[0], parts[1]
+                        result = subprocess.run(
+                            f"gcloud compute addresses delete {ip_name} --region={ip_region} --quiet",
+                            shell=True,
+                            capture_output=True,
+                        )
+                        if result.returncode == 0:
+                            ips_deleted += 1
+
+    # Delete Firewall Rules
+    result = subprocess.run(
+        "gcloud compute firewall-rules list --filter='network:superdeploy-network' --format='value(name)' 2>/dev/null",
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0 and result.stdout.strip():
+        firewall_rules = result.stdout.strip().split("\n")
+        for rule in firewall_rules:
+            rule = rule.strip()
+            if rule:
+                result = subprocess.run(
+                    f"gcloud compute firewall-rules delete {rule} --quiet",
+                    shell=True,
+                    capture_output=True,
+                )
+                if result.returncode == 0:
+                    firewalls_deleted += 1
+
+    # Delete Subnet
+    result = subprocess.run(
+        f"gcloud compute networks subnets delete superdeploy-network-subnet --region={region} --quiet 2>&1",
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 or "not found" in result.stderr.lower():
+        subnets_deleted += 1
+
+    # Delete Network
+    result = subprocess.run(
+        "gcloud compute networks delete superdeploy-network --quiet 2>&1",
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 or "not found" in result.stderr.lower():
+        networks_deleted += 1
+
+    # Show summary
+    resources = []
+    if vms_deleted > 0:
+        resources.append(f"{vms_deleted} VM(s)")
+    if firewalls_deleted > 0:
+        resources.append(f"{firewalls_deleted} firewall rule(s)")
+    if subnets_deleted > 0:
+        resources.append(f"{subnets_deleted} subnet(s)")
+    if networks_deleted > 0:
+        resources.append(f"{networks_deleted} network(s)")
+    if ips_deleted > 0:
+        resources.append(f"{ips_deleted} IP(s)")
+
+    if resources:
+        console.print(f"  [dim]✓ GCP resources cleaned: {', '.join(resources)}[/dim]")
+    else:
+        console.print("  [dim]✓ No GCP resources found[/dim]")
+
+    # Now try Terraform cleanup
     terraform_success = False
     terraform_dir = shared_dir / "terraform"
+    workspace_found = workspace_exists("orchestrator")
 
-    # Check workspace before init
-    if not workspace_exists("orchestrator"):
-        console.print("  [dim]✓ No workspace found (already destroyed)[/dim]")
-        terraform_success = True
-    else:
-        logger.step("[2/3] Terraform Destroy")
+    current_step += 1
+    logger.step(f"[{current_step}/{total_steps}] Terraform State Cleanup")
 
-        # Switch to default workspace before init to avoid prompts
+    if workspace_found:
+        # Switch to default workspace
         subprocess.run(
             "terraform workspace select default 2>/dev/null || true",
             shell=True,
@@ -342,161 +431,24 @@ def orchestrator_down(yes, preserve_ip, verbose):
             capture_output=True,
         )
 
-        terraform_init(quiet=True)
-        try:
-            select_workspace("orchestrator", create=False)
+        # Just remove the workspace directory directly since resources are already deleted from GCP
+        terraform_state_dir = terraform_dir / "terraform.tfstate.d" / "orchestrator"
+        if terraform_state_dir.exists():
+            import shutil
 
-            # Generate tfvars for destroy
-            gcp_config = orch_config.config.get("gcp", {})
-            ssh_config = orch_config.config.get("ssh", {})
-            gcp_project_id = gcp_config.get("project_id")
-            ssh_key_path = ssh_config.get(
-                "public_key_path", "~/.ssh/superdeploy_deploy.pub"
-            )
+            shutil.rmtree(terraform_state_dir)
+            console.print("  [dim]✓ Terraform workspace cleaned[/dim]")
+    else:
+        console.print("  [dim]✓ No Terraform workspace found[/dim]")
 
-            tfvars = orch_config.to_terraform_vars(gcp_project_id, ssh_key_path)
-            tfvars_file = shared_dir / "terraform" / "orchestrator.auto.tfvars.json"
-
-            import json
-
-            with open(tfvars_file, "w") as f:
-                json.dump(tfvars, f, indent=2)
-
-            # Run destroy
-            destroy_cmd = f"cd {terraform_dir} && terraform destroy -var-file={tfvars_file} -auto-approve -no-color"
-
-            returncode, stdout, stderr = run_with_progress(
-                logger,
-                destroy_cmd,
-                "Destroying infrastructure (this may take 2-3 minutes)",
-                cwd=project_root,
-            )
-
-            if returncode == 0:
-                console.print("  [dim]✓ All resources destroyed[/dim]")
-                terraform_success = True
-            else:
-                logger.warning("Terraform destroy failed, attempting manual cleanup")
-                console.print("  ⚠ Partial destruction")
-                terraform_success = False
-
-        except Exception as e:
-            logger.warning(f"Terraform error: {e}")
-            console.print("  ⚠ Partial destruction")
-            terraform_success = False
-
-    # Manual cleanup with gcloud (only if terraform failed)
-    if not terraform_success:
-        logger.step("[3/3] Manual Cleanup")
-
-        gcp_config = orch_config.config.get("gcp", {})
-        zone = gcp_config.get("zone", "us-central1-a")
-        region = gcp_config.get("region", "us-central1")
-
-        vms_deleted = 0
-        ips_deleted = 0
-
-        # Delete VM
-        result = subprocess.run(
-            f"gcloud compute instances delete orchestrator-main-0 --zone={zone} --quiet",
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0 or "not found" in result.stderr.lower():
-            vms_deleted += 1
-
-        # Delete External IP (unless --preserve-ip flag is set)
-        if not preserve_ip:
-            result = subprocess.run(
-                f"gcloud compute addresses delete orchestrator-main-0-ip --region={region} --quiet",
-                shell=True,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0 or "not found" in result.stderr.lower():
-                ips_deleted += 1
-
-        firewalls_deleted = 0
-        subnets_deleted = 0
-        networks_deleted = 0
-
-        # Delete Firewall Rules (all network rules)
-        result = subprocess.run(
-            "gcloud compute firewall-rules list --filter='network:superdeploy-network' --format='value(name)'",
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0 and result.stdout.strip():
-            firewall_rules = result.stdout.strip().split("\n")
-            for rule in firewall_rules:
-                rule = rule.strip()
-                if rule:
-                    result = subprocess.run(
-                        f"gcloud compute firewall-rules delete {rule} --quiet",
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                    )
-                    if result.returncode == 0:
-                        firewalls_deleted += 1
-
-        # Delete Subnet
-        result = subprocess.run(
-            f"gcloud compute networks subnets delete superdeploy-network-subnet --region={region} --quiet",
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0 or "not found" in result.stderr.lower():
-            subnets_deleted += 1
-
-        # Delete Network
-        result = subprocess.run(
-            "gcloud compute networks delete superdeploy-network --quiet",
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            networks_deleted += 1
-
-        # Show summary
-        resources = []
-        if vms_deleted > 0:
-            resources.append(f"{vms_deleted} VM(s)")
-        if firewalls_deleted > 0:
-            resources.append(f"{firewalls_deleted} firewall rule(s)")
-        if subnets_deleted > 0:
-            resources.append(f"{subnets_deleted} subnet(s)")
-        if networks_deleted > 0:
-            resources.append(f"{networks_deleted} network(s)")
-        if ips_deleted > 0:
-            resources.append(f"{ips_deleted} IP(s)")
-
-        if resources:
-            console.print(
-                f"  [dim]✓ GCP resources cleaned: {', '.join(resources)}[/dim]"
-            )
-        else:
-            console.print("  [dim]✓ No GCP resources found[/dim]")
-
-    # Clean Terraform state
-    terraform_state_dir = (
-        shared_dir / "terraform" / "terraform.tfstate.d" / "orchestrator"
-    )
-    if terraform_state_dir.exists():
-        import shutil
-
-        shutil.rmtree(terraform_state_dir)
+    # Final cleanup step
+    current_step += 1
+    logger.step(f"[{current_step}/{total_steps}] Local Files Cleanup")
 
     # Delete state.yml completely
     state_file = shared_dir / "orchestrator" / "state.yml"
     if state_file.exists():
         state_file.unlink()
-        console.print("  [dim]✓ State file deleted[/dim]")
 
     # Clean inventory
     inventory_file = shared_dir / "ansible" / "inventories" / "orchestrator.ini"
@@ -579,12 +531,12 @@ def orchestrator_status():
     help="Force deployment (ignore state, re-run everything)",
 )
 def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose, force):
-    """Deploy orchestrator VM with Forgejo (runs Terraform + Ansible by default)"""
+    """Deploy orchestrator VM with monitoring (runs Terraform + Ansible by default)"""
 
     if not verbose:
         show_header(
             title="Orchestrator Deployment",
-            subtitle="Deploying shared Forgejo instance + Monitoring for all projects",
+            subtitle="Deploying monitoring infrastructure (Prometheus + Grafana)",
             show_logo=True,
             console=console,
         )
@@ -658,8 +610,16 @@ def _deploy_orchestrator(
         # Simple state check for orchestrator (different from project state management)
         state = orch_config.state_manager.load_state()
         is_deployed = state.get("deployed", False)
+        vm_status = state.get("vm", {}).get("status", "")
 
-        if is_deployed:
+        # If VM is only provisioned (not fully configured), continue with Ansible
+        if vm_status == "provisioned":
+            logger.log("")
+            logger.log("VM is provisioned but not fully configured.")
+            logger.log("Continuing with Ansible configuration...")
+            logger.log("")
+            # Don't skip, continue to Ansible
+        elif is_deployed:
             # Compare config hash (same as project state manager)
             last_applied = state.get("last_applied", {})
             last_hash = last_applied.get("config_hash", "")
@@ -691,8 +651,6 @@ def _deploy_orchestrator(
                     skip_terraform = True  # Skip terraform
 
                 # Check addon configs
-                if orch_config.config.get("forgejo") != last_config.get("forgejo"):
-                    logger.log("  • Forgejo configuration changed")
                 if orch_config.config.get("grafana") != last_config.get("grafana"):
                     logger.log("  • Grafana configuration changed")
                 if orch_config.config.get("prometheus") != last_config.get(
@@ -854,11 +812,22 @@ def _deploy_orchestrator(
             logger.log(f"Available outputs: {outputs}")
             raise SystemExit(1)
 
-        # Save IP, VM details, and config to state
+        # Save only IP to state (VM provisioned, but not yet configured)
+        # Full deployment will be marked after Ansible completes successfully
+        state = orch_config.state_manager.load_state()
+        state["orchestrator_ip"] = orchestrator_ip
         vm_config_data = orch_config.get_vm_config()
-        orch_config.mark_deployed(
-            orchestrator_ip, vm_config=vm_config_data, config=orch_config.config
-        )
+        state["vm"] = {
+            "name": vm_config_data.get("name", "orchestrator-main-0"),
+            "external_ip": orchestrator_ip,
+            "deployed_at": vm_config_data.get("deployed_at"),
+            "status": "provisioned",  # Not 'running' yet - Ansible pending
+            "machine_type": vm_config_data.get("machine_type"),
+            "disk_size": vm_config_data.get("disk_size"),
+            "services": vm_config_data.get("services", []),
+        }
+        state["deployed"] = False  # Not fully deployed yet
+        orch_config.state_manager.save_state(state)
 
         # Wait for SSH
         ssh_key = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
@@ -952,12 +921,12 @@ ansible_python_interpreter=/usr/bin/python3
         logger.log(f"Deploying only addon(s): {', '.join(enabled_addons_list)}")
     elif tags:
         ansible_tags = tags
-        # For orchestrator, always deploy all addons unless specific ones requested
-        enabled_addons_list = ["forgejo", "monitoring"]
+        # For orchestrator, deploy monitoring addon
+        enabled_addons_list = ["monitoring"]
     else:
         ansible_tags = "foundation,addons"
-        # Deploy all orchestrator addons by default
-        enabled_addons_list = ["forgejo", "monitoring"]
+        # Deploy monitoring addon by default
+        enabled_addons_list = ["monitoring"]
 
     logger.log(f"Running ansible with tags: {ansible_tags}")
 
@@ -993,19 +962,20 @@ ansible_python_interpreter=/usr/bin/python3
 
     logger.success("Services configured successfully")
 
+    # Mark deployment as complete (Ansible succeeded)
+    orch_config.mark_deployed(
+        orchestrator_ip,
+        vm_config=orch_config.get_vm_config(),
+        config=orch_config.config,
+    )
+
     # Display info and credentials (always show, regardless of verbose mode)
     secrets = orch_config.get_secrets()
 
-    forgejo_admin = orch_config.config.get("forgejo", {}).get("admin_user", "admin")
-    forgejo_pass = secrets.get("FORGEJO_ADMIN_PASSWORD", "")
     grafana_pass = secrets.get("GRAFANA_ADMIN_PASSWORD", "")
 
     console.print(f"\n[cyan]📍 Orchestrator IP:[/cyan] {orchestrator_ip}")
     console.print("\n[bold cyan]🔐 Access Credentials:[/bold cyan]")
-    console.print("\n[cyan]🌐 Forgejo (Git Server):[/cyan]")
-    console.print(f"   URL: http://{orchestrator_ip}:3001")
-    console.print(f"   Username: [bold]{forgejo_admin}[/bold]")
-    console.print(f"   Password: [bold]{forgejo_pass}[/bold]")
     console.print("\n[cyan]📊 Grafana (Monitoring):[/cyan]")
     console.print(f"   URL: http://{orchestrator_ip}:3000")
     console.print("   Username: [bold]admin[/bold]")

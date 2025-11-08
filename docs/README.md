@@ -1,327 +1,258 @@
-# SuperDeploy Dokümantasyonu
+# SuperDeploy Documentation
 
-SuperDeploy, kendi altyapınızda Heroku benzeri deployment deneyimi sunan self-hosted PaaS platformudur.
-
-## 📚 Dokümantasyon İçeriği
-
-### 🏗️ [ARCHITECTURE.md](./ARCHITECTURE.md)
-Sistemin genel mimarisi, bileşenleri ve tasarım kararları:
-- Orchestrator pattern (merkezi Forgejo + monitoring)
-- Addon-tabanlı mimari
-- Template → Instance pattern
-- Network izolasyonu
-- Güvenlik mimarisi
-- VM-specific service filtering
-- IP preservation
-- Yeni özellikler (2025)
-
-### 🔄 [FLOW.md](./FLOW.md)
-İş akışları ve parametre akışları:
-- Orchestrator kurulum akışı
-- Proje başlatma akışı (init)
-- Altyapı sağlama akışı (up)
-- Secret senkronizasyon akışı (sync)
-- Deployment akışı (git push)
-- Parametre akış diyagramları
-
-### 🚀 [SETUP.md](./SETUP.md)
-İlk kurulum rehberi (sıfırdan başlangıç):
-- Ön gereksinimler
-- GCP projesi hazırlığı
-- SSH key oluşturma
-- Orchestrator kurulumu
-- Proje oluşturma
-- İlk deployment
-
-### 📊 [OPERATIONS.md](./OPERATIONS.md)
-Günlük operasyonlar ve bakım:
-- Sistem durumu kontrolü
-- Deployment senaryoları
-- Logs ve debugging
-- Secrets yönetimi
-- Database işlemleri
-- Container yönetimi
-- Monitoring erişimi
-- Sorun giderme
-
-### 🎯 [ORCHESTRATOR_SETUP.md](./ORCHESTRATOR_SETUP.md)
-Orchestrator VM kurulum ve yönetim rehberi:
-- Orchestrator konsepti
-- İlk kurulum (bir kere)
-- Çoklu proje yapılandırması
-- Workflow routing
-- Runner yönetimi
-- Troubleshooting
-
-### 🔐 [SECURITY.md](./SECURITY.md)
-Güvenlik mimarisi ve best practices:
-- Development vs Production
-- Secret yönetimi
-- Network izolasyonu
-- Erişim kontrolü
-- Production hardening
+Comprehensive documentation for SuperDeploy - GitHub Actions-first Infrastructure as Code platform.
 
 ---
 
-## 🚀 Hızlı Başlangıç
+## 📚 Documentation Index
 
-### 1. Orchestrator Kurulumu (Bir Kere)
+### Getting Started
+
+- **[Setup Guide](SETUP.md)** - First-time installation from scratch
+  - Prerequisites
+  - GCP setup
+  - GitHub runner configuration
+  - First deployment
+
+### Core Concepts
+
+- **[Architecture](ARCHITECTURE.md)** - System architecture and design decisions
+  - GitHub-first architecture
+  - Self-hosted runners
+  - Label-based routing
+  - Addon system
+  - Template → Instance pattern
+  - Security architecture
+
+### Daily Operations
+
+- **[Operations Guide](OPERATIONS.md)** - Day-to-day management
+  - Deployment operations
+  - Infrastructure scaling
+  - Secret management
+  - Monitoring & debugging
+  - Disaster recovery
+
+### Reference
+
+- **[Flow Diagram](FLOW.md)** - Visual deployment flow
+- **[Security](SECURITY.md)** - Security best practices
+
+---
+
+## 🎯 Quick Start
 
 ```bash
-# Orchestrator projesi oluştur
-superdeploy init -p orchestrator
+# 1. Install SuperDeploy
+git clone https://github.com/cfkarakulak/superdeploy.git
+cd superdeploy && pip install -e .
 
-# Orchestrator'ı deploy et
-superdeploy orchestrator up
-```
+# 2. Create project
+mkdir -p projects/myproject
+# ... configure project.yml and secrets.yml ...
 
-**Sonuç:**
-- ✅ Merkezi Forgejo (tüm projeler için)
-- ✅ Monitoring (Prometheus + Grafana)
-- ✅ Caddy reverse proxy (SSL sertifikaları ile)
+# 3. Get GitHub runner token
+# https://github.com/yourorg/settings/actions/runners/new
 
-### 2. Proje Kurulumu
+# 4. Deploy infrastructure
+GITHUB_RUNNER_TOKEN=xxx superdeploy myproject:up
 
-```bash
-# Yeni proje oluştur
-superdeploy init -p myproject
+# 5. Sync secrets
+superdeploy myproject:sync
 
-# Altyapıyı deploy et
-superdeploy myproject:up
+# 6. Generate workflows
+superdeploy myproject:generate
 
-# Secrets'ları sync et
-superdeploy sync -p myproject
-```
-
-### 3. Uygulama Deployment
-
-```bash
-# Kod değişikliği yap
-cd app-repos/api
-git add .
-git commit -m "feat: new feature"
-
-# Production'a push et
+# 7. Deploy apps
 git push origin production
 ```
 
-**Otomatik olur:**
-1. GitHub Actions build yapar
-2. Orchestrator Forgejo workflow'u alır
-3. Project VM runner deploy eder
-4. Container çalışır
+---
+
+## 🏗️ Architecture Overview
+
+```
+GitHub Repo → GitHub Actions (build) → Self-Hosted Runner (VM) → Docker Compose
+```
+
+**Key Components:**
+- **GitHub Actions**: CI/CD orchestration
+- **Self-Hosted Runners**: Project-specific runners on VMs
+- **Label-Based Routing**: Guaranteed project isolation
+- **Addon System**: Reusable service templates (postgres, redis, etc.)
+- **Terraform**: Infrastructure provisioning
+- **Ansible**: Configuration management
 
 ---
 
-## 🎯 Temel Konseptler
+## 🎓 Learning Path
 
-### Orchestrator Pattern
+### 1. New to SuperDeploy?
 
-SuperDeploy, merkezi orchestrator VM ve proje-specific VM'ler kullanan hibrit bir mimari kullanır:
+Start here:
+1. Read [Architecture](ARCHITECTURE.md) for concepts
+2. Follow [Setup Guide](SETUP.md) for installation
+3. Review [Operations Guide](OPERATIONS.md) for daily use
 
-```
-Orchestrator VM (Global - Tek Seferlik Kurulum)
-├── Forgejo (tüm projeler için merkezi Git server + CI/CD)
-├── Monitoring (Prometheus + Grafana - tüm projeler için)
-└── Caddy (reverse proxy + otomatik SSL sertifikaları)
+### 2. Experienced User?
 
-Project VMs (Her Proje İçin)
-├── Infrastructure services (postgres, redis, rabbitmq, vb.)
-├── Application containers (api, dashboard, services, vb.)
-└── Project-specific Forgejo runners (deployment için)
-```
+Quick reference:
+- [Operations Guide](OPERATIONS.md) - Common tasks
+- [Security](SECURITY.md) - Best practices
 
-**Avantajlar:**
-- Tek Forgejo instance'ı tüm projeler için
-- Merkezi monitoring ve metrics
-- Otomatik SSL sertifikaları
-- Her proje izole VM'lerde çalışır
-- IP preservation ile VM restart'ta IP korunur
+### 3. Contributing?
 
-### Addon-Tabanlı Mimari
-
-Tüm servisler (veritabanları, kuyruklar, proxy'ler) yeniden kullanılabilir addon'lar olarak tanımlanır:
-
-```
-addons/
-├── postgres/      # PostgreSQL veritabanı
-├── redis/         # Redis cache
-├── rabbitmq/      # RabbitMQ message queue
-├── forgejo/       # Git server + CI/CD (orchestrator'da)
-├── caddy/         # Reverse proxy + SSL
-├── monitoring/    # Prometheus + Grafana (orchestrator'da)
-├── mongodb/       # MongoDB NoSQL
-└── elasticsearch/ # Elasticsearch full-text search
-```
-
-Her addon şunları içerir:
-- **addon.yml**: Metadata (isim, versiyon, kategori, bağımlılıklar)
-- **env.yml**: Environment variable şeması (default'lar ve tipler)
-- **compose.yml.j2**: Docker Compose template (Jinja2)
-- **ansible.yml**: Deployment görevleri (kurulum, health check)
-
-**Kod tabanında hiçbir yerde hardcoded addon isimleri yok!** Tüm addon'lar dinamik olarak keşfedilir ve yüklenir.
-
-### Template → Instance Pattern
-
-Addon'lar yeniden kullanılabilir template'lerdir, her proje kendi instance'larını oluşturur:
-
-```
-TEMPLATE (addons/postgres/)
-    ↓ (project.yml konfigürasyonu ile)
-Jinja2 rendering + VM-specific filtering
-    ↓
-INSTANCE (myproject-postgres container)
-```
-
-**Örnek:**
-- Template: `addons/postgres/compose.yml.j2`
-- Config: `projects/myproject/project.yml`
-- Instance: `myproject-postgres` container (sadece belirtilen VM'lerde)
+Development docs:
+- Architecture deep-dive
+- Code structure
+- Testing guidelines
 
 ---
 
-## 🔐 Güvenlik
+## 💡 Core Concepts
 
-### Secret Yönetimi
+### GitHub-First Architecture
 
-- **Otomatik şifre oluşturma**: Kriptografik olarak güvenli
-- **AGE şifreleme**: Transit sırasında şifreleme
-- **Ayrı dosyalar**: `.env` (local) ve `.env.superdeploy` (production)
-- **GitHub/Forgejo secrets**: Otomatik senkronizasyon
+SuperDeploy uses **GitHub Actions + self-hosted runners** for deployment. No intermediate CI/CD layer.
 
-### Network İzolasyonu
+**Benefits:**
+- Single ecosystem
+- Native GitHub features
+- Simple maintenance
+- Cost effective
 
-- Proje başına Docker network'leri
-- VM'lerde firewall kuralları
-- Projeler arası iletişim yok
+### Label-Based Routing
 
-### Erişim Kontrolü
+Each runner gets unique labels:
 
-- SSH key-tabanlı VM erişimi
-- GitHub PAT ile API erişimi
-- Forgejo PAT ile deployment
-- Proje başına ayrı credential'lar
+```
+cheapa-app-0: [self-hosted, superdeploy, cheapa, app]
+blogapp-app-0: [self-hosted, superdeploy, blogapp, app]
+```
+
+Workflows specify ALL labels → GitHub routes to correct runner → **Guaranteed isolation**
+
+### Addon System
+
+Services are **templates** that become **instances**:
+
+```
+Template (addons/postgres/) → project.yml → Instance (myproject-postgres)
+```
+
+**Benefits:**
+- No hardcoded service names
+- Consistent deployments
+- Easy to maintain
+- Reusable across projects
 
 ---
 
-## 📊 Monitoring
+## 🔐 Security
 
-### Global Monitoring (Orchestrator)
+### Multi-Layer Security
 
-Grafana ve Prometheus orchestrator VM'de çalışır ve **tüm projeleri** izler:
+1. **Secrets**: GitHub encrypted storage, never in Git
+2. **Network**: Project-specific Docker networks, VM firewalls
+3. **Access**: SSH keys, GitHub PAT, runner labels
+4. **Isolation**: Label-based routing, `.project` file validation
 
-- **Prometheus**: Tüm projeleri otomatik keşfeder
-- **Grafana**: Pre-configured dashboard'lar
-- **Caddy**: Subdomain erişimi (grafana.yourdomain.com)
+See [Security Guide](SECURITY.md) for details.
 
-### Erişim
+---
+
+## 🚀 Commands Reference
+
+### Infrastructure
 
 ```bash
-# Subdomain ile (SSL)
-https://grafana.yourdomain.com
-https://prometheus.yourdomain.com
-
-# Direkt IP ile
-http://ORCHESTRATOR_IP:3000  # Grafana
-http://ORCHESTRATOR_IP:9090  # Prometheus
+superdeploy myproject:up              # Deploy infrastructure
+superdeploy myproject:down            # Destroy infrastructure
+superdeploy myproject:status          # Check status
 ```
 
----
-
-## 🛠️ Komutlar
-
-### Orchestrator Komutları
+### Deployment
 
 ```bash
-# Orchestrator kurulumu
-superdeploy orchestrator up
-
-# Orchestrator durumu
-superdeploy orchestrator status
-
-# Orchestrator SSH
-superdeploy orchestrator ssh
-
-# Orchestrator logs
-superdeploy orchestrator logs -s forgejo
-
-# Selective addon deployment
-superdeploy orchestrator up --addon caddy
+superdeploy myproject:generate        # Generate workflows
+superdeploy myproject:sync            # Sync secrets to GitHub
 ```
 
-### Proje Komutları
+### Configuration
 
 ```bash
-# Proje oluştur (interaktif wizard)
-superdeploy init -p myproject
-
-# Altyapı deploy et (Terraform + Ansible)
-superdeploy myproject:up
-
-# Secrets sync et (GitHub + Forgejo)
-superdeploy sync -p myproject
-
-# Durum kontrol et
-superdeploy status -p myproject
-
-# Logs (real-time)
-superdeploy logs -p myproject -a api --follow
-
-# SSH ile VM'ye bağlan
-superdeploy ssh -p myproject
-
-# Selective addon deployment (sadece belirli addon'lar)
-superdeploy myproject:up --addon postgres
-
-# IP adresi korumalı deployment
-superdeploy myproject:up --preserve-ip
-
-# Altyapıyı sil
-superdeploy myproject:down
+superdeploy myproject:config show     # Show configuration
+superdeploy myproject:config validate # Validate configuration
 ```
 
 ---
 
-## 🆕 Yeni Özellikler (2025)
+## 📊 Project Structure
 
-1. **Orchestrator Mimarisi**: Merkezi Forgejo ve monitoring (tek seferlik kurulum)
-2. **Caddy Reverse Proxy**: Subdomain-based routing + otomatik SSL (Let's Encrypt)
-3. **Merkezi Monitoring**: Prometheus + Grafana tüm projeler için
-4. **VM-Specific Service Filtering**: Her VM sadece ihtiyacı olan addon'ları çalıştırır
-5. **IP Preservation**: VM restart'ta statik IP adresleri korunur (`preserve_ip: true`)
-6. **Selective Addon Deployment**: `--addon` flag ile belirli addon'ları deploy et
-7. **GitHub Actions → Forgejo Integration**: Düzeltilmiş API endpoint'leri ve workflow dispatch
-8. **Otomatik Subnet Allocation**: Projeler için otomatik VPC ve Docker subnet tahsisi
-9. **Dynamic Addon Discovery**: Kod tabanında hardcoded addon isimleri yok
-10. **Environment Aliases**: App'ler için soyutlama katmanı (DB_HOST → POSTGRES_HOST)
-
----
-
-## 📖 Detaylı Dokümantasyon
-
-Her konuyla ilgili detaylı bilgi için ilgili dokümantasyon dosyasına bakın:
-
-- **Mimari anlayışı için**: [ARCHITECTURE.md](./ARCHITECTURE.md)
-- **İş akışlarını anlamak için**: [FLOW.md](./FLOW.md)
-- **İlk kurulum için**: [SETUP.md](./SETUP.md)
-- **Günlük kullanım için**: [OPERATIONS.md](./OPERATIONS.md)
-- **Orchestrator kurulumu için**: [ORCHESTRATOR_SETUP.md](./ORCHESTRATOR_SETUP.md)
-- **Runner mimarisi için**: [RUNNER_ARCHITECTURE.md](./RUNNER_ARCHITECTURE.md)
+```
+superdeploy/
+├── cli/                    # CLI commands
+│   ├── commands/          # Command implementations
+│   └── core/              # Core functionality
+├── addons/                 # Service templates
+│   ├── postgres/
+│   ├── redis/
+│   └── ...
+├── projects/               # Project configs
+│   └── myproject/
+│       ├── project.yml    # Infrastructure config
+│       └── secrets.yml    # Encrypted secrets
+├── shared/
+│   ├── terraform/         # Infrastructure provisioning
+│   └── ansible/           # Configuration management
+└── docs/                   # Documentation
+```
 
 ---
 
-## 🤝 Katkıda Bulunma
+## 🤝 Contributing
 
-SuperDeploy açık kaynak bir projedir. Katkılarınızı bekliyoruz!
+We welcome contributions!
+
+**Areas to contribute:**
+- New addon templates
+- Cloud provider support (AWS, Azure)
+- Documentation improvements
+- Bug fixes and features
 
 ---
 
-## 📝 Lisans
+## 📖 FAQ
 
-MIT License
+### Q: Do I need to know Terraform/Ansible?
+
+A: No! SuperDeploy abstracts the complexity. Just configure `project.yml`.
+
+### Q: Can I use AWS instead of GCP?
+
+A: Not yet, but it's planned. Contributions welcome!
+
+### Q: How much does it cost?
+
+A: Only cloud provider costs (GCP VMs). SuperDeploy is open source and free.
+
+### Q: Is it production-ready?
+
+A: Yes! Used in production for multiple projects.
+
+### Q: How do I scale horizontally?
+
+A: Add more VMs in `project.yml` and configure a load balancer.
 
 ---
 
-**Yardıma mı ihtiyacın var?**
-- GitHub Issues: https://github.com/cfkarakulak/superdeploy/issues
+## 📞 Support
+
+- **GitHub Issues**: https://github.com/cfkarakulak/superdeploy/issues
+- **Documentation**: https://github.com/cfkarakulak/superdeploy/tree/main/docs
+
+---
+
+## 📄 License
+
+MIT License - see LICENSE file for details.

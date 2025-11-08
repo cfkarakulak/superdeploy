@@ -13,7 +13,6 @@ base_directories:
   - /opt/superdeploy/data
   - /opt/backups
   - /opt/backups/postgres
-  - /opt/backups/forgejo
 
 # Swap configuration
 swap_size_mb: 2048
@@ -69,7 +68,6 @@ firewall_additional_ports: []
 # Example:
 # firewall_additional_ports:
 #   - 8000  # API
-#   - 3001  # Forgejo
 #   - 5432  # PostgreSQL
 
 # Fail2Ban configuration

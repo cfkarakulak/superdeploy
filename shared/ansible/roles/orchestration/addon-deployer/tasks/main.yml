@@ -62,7 +62,7 @@
       - "Project config size: {{ project_config | to_json | length }}"
     verbosity: 0
 
-- name: Sync project.yml to VM (for Forgejo workflows)
+- name: Write project config to file for debugging
   copy:
     content: "{{ project_config | to_nice_yaml }}"
     dest: "/opt/superdeploy/projects/{{ project_name }}/project.yml"

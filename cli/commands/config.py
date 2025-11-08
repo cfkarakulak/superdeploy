@@ -30,12 +30,12 @@ console = Console()
 @click.option(
     "--deploy", is_flag=True, help="Auto-deploy after setting config (Heroku-like!)"
 )
-@click.option("--no-sync", is_flag=True, help="Skip GitHub/Forgejo sync")
+@click.option("--no-sync", is_flag=True, help="Skip GitHub sync")
 def config_set(key_value, project, app, environment, deploy, no_sync):
     """
     Set configuration variable (Heroku-like!)
 
-    Updates secrets.yml, syncs to GitHub/Forgejo, and optionally triggers deployment.
+    Updates secrets.yml, syncs to GitHub, and optionally triggers deployment.
 
     \b
     Examples:
@@ -100,9 +100,9 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
     else:
         logger.log(f"✓ Added {key} (new variable)")
 
-    # Step 2: Sync to GitHub/Forgejo
+    # Step 2: Sync to GitHub
     if not no_sync:
-        logger.step("[2/4] Syncing to GitHub & Forgejo")
+        logger.step("[2/4] Syncing to GitHub")
         logger.log("Running sync command...")
 
         try:
@@ -113,7 +113,7 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
             result = runner.invoke(sync, ["-p", project], catch_exceptions=False)
 
             if result.exit_code == 0:
-                logger.log("✓ Synced to GitHub & Forgejo")
+                logger.log("✓ Synced to GitHub")
             else:
                 logger.warning("⚠ Sync had issues, check output above")
         except Exception as e:
@@ -237,6 +237,7 @@ def config_get(key, project):
 
     # Load from secrets.yml
     from cli.secret_manager import SecretManager
+
     secret_mgr = SecretManager(get_project_root(), project)
     secrets_data = secret_mgr.load_secrets()
     env_vars = secrets_data.get("secrets", {}).get("shared", {})
@@ -285,6 +286,7 @@ def config_list(project, filter):
 
     # Load from secrets.yml
     from cli.secret_manager import SecretManager
+
     secret_mgr = SecretManager(get_project_root(), project)
     secrets_data = secret_mgr.load_secrets()
     env_vars = secrets_data.get("secrets", {}).get("shared", {})
@@ -330,7 +332,7 @@ def config_list(project, filter):
 @click.argument("key")
 @click.option("-p", "--project", required=True, help="Project name")
 @click.option("--deploy", is_flag=True, help="Auto-deploy after unsetting config")
-@click.option("--no-sync", is_flag=True, help="Skip GitHub/Forgejo sync")
+@click.option("--no-sync", is_flag=True, help="Skip GitHub sync")
 def config_unset(key, project, deploy, no_sync):
     """
     Unset (delete) configuration variable (Heroku-like!)
@@ -381,9 +383,9 @@ def config_unset(key, project, deploy, no_sync):
 
     logger.log(f"✓ Removed {key} from secrets.yml")
 
-    # Step 2: Sync to GitHub/Forgejo (removes from there too)
+    # Step 2: Sync to GitHub (removes from there too)
     if not no_sync:
-        logger.step("[2/3] Syncing to GitHub & Forgejo")
+        logger.step("[2/3] Syncing to GitHub")
         logger.log("Re-syncing to update remote secrets...")
 
         try:
@@ -477,6 +479,7 @@ def config_show(project, mask):
     # Load project secrets from secrets.yml
     try:
         from cli.secret_manager import SecretManager
+
         secret_mgr = SecretManager(project_root, project)
         secrets_data = secret_mgr.load_secrets()
         env_vars = secrets_data.get("secrets", {}).get("shared", {})
@@ -517,7 +520,6 @@ def config_show(project, mask):
     # Group configurations by type
     config_groups = {
         "Caddy": [],
-        "Forgejo": [],
         "GitHub": [],
         "MongoDB": [],
         "Postgres": [],
@@ -546,8 +548,6 @@ def config_show(project, mask):
 
         if key.startswith("CADDY_"):
             config_groups["Caddy"].append((key, display_value))
-        elif key.startswith("FORGEJO_"):
-            config_groups["Forgejo"].append((key, display_value))
         elif key.startswith("GITHUB_"):
             config_groups["GitHub"].append((key, display_value))
         elif key.startswith("MONGODB_"):
@@ -615,17 +615,6 @@ def config_show(project, mask):
     if orchestrator_config:
         main_table.add_row("[bold yellow]Orchestrator[/bold yellow]", "")
 
-        # Forgejo info
-        if "forgejo" in orchestrator_config:
-            forgejo = orchestrator_config["forgejo"]
-            main_table.add_row("  FORGEJO_DOMAIN", forgejo.get("domain", "N/A"))
-            main_table.add_row("  FORGEJO_ADMIN_USER", forgejo.get("admin_user", "N/A"))
-            if "admin_password" in forgejo:
-                pwd = forgejo["admin_password"]
-                main_table.add_row(
-                    "  FORGEJO_ADMIN_PASSWORD", mask_value("PASSWORD", pwd)
-                )
-
         # VM info
         if "vm" in orchestrator_config:
             vm = orchestrator_config["vm"]
@@ -676,12 +665,6 @@ def config_show(project, mask):
             )
         else:
             main_table.add_row("  Postgres (tunnel)", "postgresql://localhost:5433/")
-
-    # Orchestrator URLs
-    if orchestrator_config and "forgejo" in orchestrator_config:
-        domain = orchestrator_config["forgejo"].get("domain")
-        if domain:
-            main_table.add_row("  Forgejo", f"https://{domain}")
 
     # Project domains
     if project_config and "apps" in project_config:

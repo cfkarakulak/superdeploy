@@ -9,7 +9,6 @@ services:
       CADDY_EMAIL: ${CADDY_EMAIL}
       GRAFANA_DOMAIN: ${GRAFANA_DOMAIN}
       PROMETHEUS_DOMAIN: ${PROMETHEUS_DOMAIN}
-      FORGEJO_DOMAIN: ${FORGEJO_DOMAIN:-}
     volumes:
       - caddy-data:/data
       - caddy-config:/config

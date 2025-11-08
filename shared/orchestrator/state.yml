@@ -1,18 +1,18 @@
-deployed: true
-orchestrator_ip: 35.184.122.251
+orchestrator_ip: 34.56.139.39
 vm:
   name: orchestrator-main-0
-  external_ip: 35.184.122.251
-  deployed_at: '2025-11-07T22:33:33.631330'
+  external_ip: 34.56.139.39
+  deployed_at: '2025-11-08T14:06:44.170222'
   status: running
   machine_type: e2-medium
   disk_size: 50
   services:
-  - forgejo
   - monitoring
+deployed: true
+last_applied:
+  timestamp: '2025-11-08T14:06:44.170315'
+  config_hash: ced7656b659e
 addons:
-  forgejo:
-    status: installed
   monitoring:
     status: installed
 config:
@@ -35,7 +35,6 @@ config:
     vpc_name: superdeploy-network
     subnet_cidr: 10.128.0.0/20
     docker_subnet: 172.20.0.0/24
-  forgejo:
     version: 13.0.1
     port: 3001
     ssh_port: 2222
@@ -43,8 +42,6 @@ config:
     admin_email: cradexco@gmail.com
     org: cradexco
     repo: superdeploy
-    db_name: forgejo
-    db_user: forgejo
     domain: ''
   grafana:
     domain: ''
@@ -62,6 +59,3 @@ config:
     http_port: 80
     https_port: 443
     admin_port: 2019
-last_applied:
-  timestamp: '2025-11-07T22:33:33.631441'
-  config_hash: 96bdcc18e5f7

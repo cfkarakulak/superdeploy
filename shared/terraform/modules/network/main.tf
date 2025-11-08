@@ -43,14 +43,14 @@ resource "google_compute_firewall" "allow_http_https" {
 
   allow {
     protocol = "tcp"
-    ports    = ["80", "443", "3001"]  # HTTP, HTTPS, Forgejo
+    ports    = ["80", "443"]  # HTTP, HTTPS
   }
 
   source_ranges = ["0.0.0.0/0"]
   # Apply to all VM roles (any can serve web traffic)
   target_tags   = var.vm_roles
 
-  description = "Allow HTTP/HTTPS and Forgejo (3001) from internet"
+  description = "Allow HTTP/HTTPS from internet"
 }
 
 # Firewall: Allow proxy ports - PUBLIC ACCESS (for testing)
