@@ -3,10 +3,10 @@
 import click
 import subprocess
 import time
-from cli.base import BaseCommand  # Changed from ProjectCommand
+from cli.base import ProjectCommand
 
 
-class DownCommand(BaseCommand):  # Changed from ProjectCommand
+class DownCommand(ProjectCommand):
     """Destroy project resources."""
 
     def __init__(
@@ -16,8 +16,7 @@ class DownCommand(BaseCommand):  # Changed from ProjectCommand
         keep_infra: bool = False,
         verbose: bool = False,
     ):
-        super().__init__(verbose=verbose)
-        self.project_name = project_name
+        super().__init__(project_name, verbose=verbose)
         self.yes = yes
         self.keep_infra = keep_infra
 
@@ -44,18 +43,13 @@ class DownCommand(BaseCommand):  # Changed from ProjectCommand
 
         self.console.print()
 
-        # Load config for GCP details (optional - use defaults if not found)
-        from cli.core.config_loader import ConfigLoader
-
-        projects_dir = self.project_root / "projects"
-        config_loader = ConfigLoader(projects_dir)
-
+        # Load config for GCP details (using ProjectCommand's config_service)
         try:
-            project_config = config_loader.load_project(self.project_name)
-            gcp_config = project_config.config.get("gcp", {})
+            project_config = self.config_service.get_raw_config(self.project_name)
+            gcp_config = project_config.get("cloud", {}).get("gcp", {})
             region = gcp_config.get("region", "us-central1")
             logger.log("[dim]✓ Config loaded[/dim]")
-        except:
+        except Exception:
             # Config not found - use defaults for cleanup
             # This is OK for down command since we're destroying everything anyway
             region = "us-central1"

@@ -2,305 +2,320 @@
 
 import click
 import subprocess
-from rich.console import Console
+from pathlib import Path
+from cli.base import ProjectCommand
 from cli.logger import DeployLogger, run_with_progress
-from cli.ui_components import show_header
-from cli.utils import get_project_root
-
-console = Console()
 
 
-@click.command()
-@click.option("--skip-terraform", is_flag=True, help="Skip Terraform provisioning")
-@click.option("--skip-ansible", is_flag=True, help="Skip Ansible configuration")
-@click.option("--skip-git-push", is_flag=True, help="Skip Git push")
-@click.option("--skip-sync", is_flag=True, help="Skip automatic GitHub secrets sync")
-@click.option("--skip", multiple=True, help="Skip specific addon(s) during deployment")
-@click.option("--addon", help="Deploy only specific addon(s), comma-separated")
-@click.option("--tags", help="Run only specific Ansible tags")
-@click.option("--preserve-ip", is_flag=True, help="Preserve existing static IPs")
-@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-@click.option("--force", is_flag=True, help="Force update (ignore state)")
-@click.option("--dry-run", is_flag=True, help="Show what would be done (like plan)")
-def up(
-    project,
-    skip_terraform,
-    skip_ansible,
-    skip_git_push,
-    skip_sync,
-    skip,
-    addon,
-    tags,
-    preserve_ip,
-    verbose,
-    force,
-    dry_run,
-):
-    """
-    Deploy infrastructure (like 'heroku create')
+class UpCommand(ProjectCommand):
+    """Deploy project infrastructure."""
 
-    This command will:
-    - Detect changes automatically
-    - Generate workflows if needed
-    - Provision VMs with Terraform
-    - Configure services with Ansible
-    - Sync secrets to GitHub
+    def __init__(
+        self,
+        project_name: str,
+        skip_terraform: bool = False,
+        skip_ansible: bool = False,
+        skip_sync: bool = False,
+        skip: tuple = (),
+        addon: str = None,
+        tags: str = None,
+        preserve_ip: bool = False,
+        verbose: bool = False,
+        force: bool = False,
+        dry_run: bool = False,
+    ):
+        super().__init__(project_name, verbose=verbose)
+        self.skip_terraform = skip_terraform
+        self.skip_ansible = skip_ansible
+        self.skip_sync = skip_sync
+        self.skip = skip
+        self.addon = addon
+        self.tags = tags
+        self.preserve_ip = preserve_ip
+        self.force = force
+        self.dry_run = dry_run
 
-    Smart & idempotent - runs only what's needed.
-    """
+    def execute(self) -> None:
+        """Execute up command."""
+        self._execute_deployment()
 
-    if not verbose:
-        show_header(
-            title="Infrastructure Deployment",
-            subtitle="Smart deployment with change detection",
-            project=project,
-            show_logo=True,
-            console=console,
-        )
+    def _execute_deployment(self) -> None:
+        """
+        Internal deployment logic.
 
-    from cli.utils import get_project_root
+        This function contains the core deployment workflow:
+        - Validate secrets
+        - Detect changes automatically
+        - Generate workflows if needed
+        - Provision VMs with Terraform
+        - Configure services with Ansible
+        - Sync secrets to GitHub
 
-    project_root = get_project_root()
+        Smart & idempotent - runs only what's needed.
+        """
+        if not self.verbose:
+            self.show_header(
+                title="Infrastructure Deployment",
+                subtitle="Smart deployment with change detection",
+            )
 
-    # Initialize logger
-    with DeployLogger(project, "up", verbose=verbose) as logger:
-        try:
-            # Validate secrets before deployment
-            validation_errors = _validate_secrets(project_root, project, logger)
-            if validation_errors:
-                console.print("")
-                console.print("[red]❌ Validation Failed[/red]")
-                console.print("")
-                console.print("Please fix the following issues:")
-                console.print("")
-                for error in validation_errors:
-                    console.print(f"  [red]•[/red] {error}")
-                console.print("")
-                console.print(
-                    "[dim]Edit secrets:[/dim] projects/{}/secrets.yml".format(project)
+        # Initialize logger
+        with DeployLogger(self.project_name, "up", verbose=self.verbose) as logger:
+            try:
+                # Validate secrets before deployment
+                validation_errors = _validate_secrets(
+                    self.project_root, self.config_service, self.project_name, logger
                 )
-                console.print("")
-                raise SystemExit(1)
-
-            # Force mode: Clear state to trigger full re-deployment
-            if force:
-                from cli.state_manager import StateManager
-
-                state_mgr = StateManager(project_root, project)
-                state_file = project_root / "projects" / project / "state.yml"
-                if state_file.exists():
-                    state_file.unlink()
-                    logger.log("🗑️  State cleared (force mode)")
-                    logger.log("")
-
-            # Change detection (smart deployment)
-            changes = None  # Initialize - will be set if change detection runs
-
-            if not force and not skip_terraform and not skip_ansible:
-                from cli.core.config_loader import ConfigLoader
-                from cli.state_manager import StateManager
-
-                projects_dir = project_root / "projects"
-                config_loader = ConfigLoader(projects_dir)
-
-                try:
-                    project_config = config_loader.load_project(project)
-                except FileNotFoundError:
-                    logger.log_error(f"Project not found: {project}")
-                    raise SystemExit(1)
-                except ValueError as e:
-                    logger.log_error(f"Invalid configuration: {e}")
+                if validation_errors:
+                    self.console.print("")
+                    self.console.print("[red]❌ Validation Failed[/red]")
+                    self.console.print("")
+                    self.console.print("Please fix the following issues:")
+                    self.console.print("")
+                    for error in validation_errors:
+                        self.console.print(f"  [red]•[/red] {error}")
+                    self.console.print("")
+                    self.console.print(
+                        "[dim]Edit secrets:[/dim] projects/{}/secrets.yml".format(
+                            self.project_name
+                        )
+                    )
+                    self.console.print("")
                     raise SystemExit(1)
 
-                # Detect changes
-                state_mgr = StateManager(project_root, project)
+                # Force mode: Clear state to trigger full re-deployment
+                if self.force:
+                    from cli.state_manager import StateManager
 
-                # Skip change detection if --force
-                if force:
-                    changes = {
-                        "has_changes": True,
-                        "needs_terraform": True,
-                        "needs_ansible": True,
-                        "needs_sync": True,
-                    }
-                    logger.log("🔄 Force mode: skipping change detection")
+                    state_mgr = StateManager(self.project_root, self.project_name)
+                    state_file = (
+                        self.project_root / "projects" / self.project_name / "state.yml"
+                    )
+                    if state_file.exists():
+                        state_file.unlink()
+                        logger.log("🗑️  State cleared (force mode)")
+                        logger.log("")
+
+                # Change detection (smart deployment)
+                changes = None  # Initialize - will be set if change detection runs
+
+                # Force mode or skip flags - no change detection
+                if self.force or self.skip_terraform or self.skip_ansible:
+                    # Force mode: Skip change detection, deploy everything
+                    if self.force:
+                        logger.log("🔄 Force mode: skipping change detection")
+                        logger.log("")
+                    # No change detection needed
+                    changes = None
                 else:
+                    # Normal mode: Detect changes
+                    from cli.state_manager import StateManager
+
+                    try:
+                        project_config = self.config_service.load_project_config(
+                            self.project_name
+                        )
+                    except FileNotFoundError:
+                        logger.log_error(f"Project not found: {self.project_name}")
+                        raise SystemExit(1)
+                    except ValueError as e:
+                        logger.log_error(f"Invalid configuration: {e}")
+                        raise SystemExit(1)
+
+                    # Detect changes
+                    state_mgr = StateManager(self.project_root, self.project_name)
                     changes, state = state_mgr.detect_changes(project_config)
 
-                # Dry-run mode
-                if dry_run:
-                    logger.log("🔍 Dry-run mode: showing what would be done")
-                    logger.log("")
+                    # Dry-run mode
+                    if self.dry_run:
+                        logger.log("🔍 Dry-run mode: showing what would be done")
+                        logger.log("")
 
+                        if not changes["has_changes"]:
+                            logger.success(
+                                "✅ No changes detected. Infrastructure is up to date."
+                            )
+                            return
+
+                        # Show changes (mini plan)
+                        if changes["vms"]["added"]:
+                            logger.log(
+                                f"VMs to create: {', '.join(changes['vms']['added'])}"
+                            )
+                        if changes["vms"]["modified"]:
+                            modified_vms = [
+                                v["name"] for v in changes["vms"]["modified"]
+                            ]
+                            logger.log(f"VMs to modify: {', '.join(modified_vms)}")
+                        if changes["addons"]["added"]:
+                            logger.log(
+                                f"Addons to install: {', '.join(changes['addons']['added'])}"
+                            )
+                        if changes["apps"]["added"]:
+                            logger.log(
+                                f"Apps to setup: {', '.join(changes['apps']['added'])}"
+                            )
+
+                        logger.log("")
+                        logger.log("Run without --dry-run to apply changes")
+                        return
+
+                    # No changes - skip deployment
                     if not changes["has_changes"]:
-                        logger.success(
-                            "✅ No changes detected. Infrastructure is up to date."
+                        logger.log("🔍 Detecting changes...")
+                        logger.log("")
+                        logger.success("✅ No changes detected.")
+                        logger.log("")
+                        logger.log("Infrastructure is up to date with config.yml")
+                        logger.log("")
+                        logger.log(
+                            f"To force update: superdeploy {self.project_name}:up --force"
                         )
                         return
 
-                    # Show changes (mini plan)
+                    # Show detected changes
+                    logger.log("🔍 Detecting changes...")
+                    logger.log("")
+
+                    # Check if any VMs need configuration
+                    state = state_mgr.load_state()
+                    vms_needing_config = []
+                    for vm_name, vm_data in state.get("vms", {}).items():
+                        if vm_data.get("status") == "provisioned":
+                            vms_needing_config.append(vm_name)
+
+                    if vms_needing_config:
+                        logger.log(
+                            f"  [yellow]⚙ VMs need configuration:[/yellow] {', '.join(vms_needing_config)}"
+                        )
+
                     if changes["vms"]["added"]:
                         logger.log(
-                            f"VMs to create: {', '.join(changes['vms']['added'])}"
+                            f"  [green]+ VMs to create:[/green] {', '.join(changes['vms']['added'])}"
                         )
                     if changes["vms"]["modified"]:
                         modified_vms = [v["name"] for v in changes["vms"]["modified"]]
-                        logger.log(f"VMs to modify: {', '.join(modified_vms)}")
+                        logger.log(
+                            f"  [yellow]~ VMs to modify:[/yellow] {', '.join(modified_vms)}"
+                        )
                     if changes["addons"]["added"]:
                         logger.log(
-                            f"Addons to install: {', '.join(changes['addons']['added'])}"
+                            f"  [green]+ Addons to install:[/green] {', '.join(changes['addons']['added'])}"
                         )
                     if changes["apps"]["added"]:
                         logger.log(
-                            f"Apps to setup: {', '.join(changes['apps']['added'])}"
+                            f"  [green]+ Apps to setup:[/green] {', '.join(changes['apps']['added'])}"
                         )
 
                     logger.log("")
-                    logger.log("Run without --dry-run to apply changes")
-                    return
-
-                # No changes - skip deployment
-                if not changes["has_changes"]:
-                    logger.log("🔍 Detecting changes...")
+                    logger.log("Proceeding with deployment...")
                     logger.log("")
-                    logger.success("✅ No changes detected.")
+
+                    # Override skip flags based on what's needed
+                    if not changes["needs_terraform"]:
+                        self.skip_terraform = True
+                        logger.log(
+                            "  [dim]⏭ Skipping Terraform (no infrastructure changes)[/dim]"
+                        )
+
+                    if not changes["needs_ansible"]:
+                        self.skip_ansible = True
+                        logger.log(
+                            "  [dim]⏭ Skipping Ansible (no service changes)[/dim]"
+                        )
+
+                    if not changes["needs_sync"]:
+                        self.skip_sync = True
+                        logger.log("  [dim]⏭ Skipping sync (no new secrets)[/dim]")
+
+                    # Auto-generate workflows if needed
+                    if changes["needs_generate"]:
+                        logger.log("  [cyan]→ Auto-generating workflows...[/cyan]")
+
+                        # Use subprocess to call generate with namespace syntax
+                        import sys
+
+                        generate_cmd = [
+                            sys.executable,
+                            "-m",
+                            "cli.main",
+                            f"{self.project_name}:generate",
+                        ]
+
+                        result = subprocess.run(
+                            generate_cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=120,
+                        )
+
+                        if result.returncode != 0:
+                            logger.log_error("Workflow generation failed")
+                            if result.stderr:
+                                for line in result.stderr.split("\n")[:5]:
+                                    if line.strip():
+                                        logger.warn(f"  {line}")
+                            raise SystemExit(1)
+
+                        logger.log("  [dim]✓ Workflows generated[/dim]")
+
                     logger.log("")
-                    logger.log("Infrastructure is up to date with config.yml")
+
+                self._deploy_project(
+                    logger,
+                    changes if not self.force else None,  # Pass changes for smart skip
+                )
+
+                # Update state after successful deployment (if not skipped)
+                if not self.force and not self.dry_run:
+                    from cli.state_manager import StateManager
+
+                    project_config = self.config_service.load_project_config(
+                        self.project_name
+                    )
+
+                    state_mgr = StateManager(self.project_root, self.project_name)
+                    state_mgr.update_from_config(project_config)
+
                     logger.log("")
-                    logger.log(f"To force update: superdeploy {project}:up --force")
-                    return
+                    logger.log("💾 State saved")
 
-                # Show detected changes
-                logger.log("🔍 Detecting changes...")
-                logger.log("")
+            except Exception as e:
+                logger.log_error(
+                    str(e), context=f"Project {self.project_name} deployment failed"
+                )
+                self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
+                raise SystemExit(1)
 
-                # Check if any VMs need configuration
-                state = state_mgr.load_state()
-                vms_needing_config = []
-                for vm_name, vm_data in state.get("vms", {}).items():
-                    if vm_data.get("status") == "provisioned":
-                        vms_needing_config.append(vm_name)
-
-                if vms_needing_config:
-                    logger.log(
-                        f"  [yellow]⚙ VMs need configuration:[/yellow] {', '.join(vms_needing_config)}"
-                    )
-
-                if changes["vms"]["added"]:
-                    logger.log(
-                        f"  [green]+ VMs to create:[/green] {', '.join(changes['vms']['added'])}"
-                    )
-                if changes["vms"]["modified"]:
-                    modified_vms = [v["name"] for v in changes["vms"]["modified"]]
-                    logger.log(
-                        f"  [yellow]~ VMs to modify:[/yellow] {', '.join(modified_vms)}"
-                    )
-                if changes["addons"]["added"]:
-                    logger.log(
-                        f"  [green]+ Addons to install:[/green] {', '.join(changes['addons']['added'])}"
-                    )
-                if changes["apps"]["added"]:
-                    logger.log(
-                        f"  [green]+ Apps to setup:[/green] {', '.join(changes['apps']['added'])}"
-                    )
-
-                logger.log("")
-                logger.log("Proceeding with deployment...")
-                logger.log("")
-
-                # Override skip flags based on what's needed
-                if not changes["needs_terraform"]:
-                    skip_terraform = True
-                    logger.log(
-                        "  [dim]⏭ Skipping Terraform (no infrastructure changes)[/dim]"
-                    )
-
-                if not changes["needs_ansible"]:
-                    skip_ansible = True
-                    logger.log("  [dim]⏭ Skipping Ansible (no service changes)[/dim]")
-
-                if not changes["needs_sync"]:
-                    skip_sync = True
-                    logger.log("  [dim]⏭ Skipping sync (no new secrets)[/dim]")
-
-                # Auto-generate workflows if needed
-                if changes["needs_generate"]:
-                    logger.log("  [cyan]→ Auto-generating workflows...[/cyan]")
-
-                    # Use subprocess to call generate with namespace syntax
-                    import sys
-
-                    generate_cmd = [
-                        sys.executable,
-                        "-m",
-                        "cli.main",
-                        f"{project}:generate",
-                    ]
-
-                    result = subprocess.run(
-                        generate_cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=120,
-                    )
-
-                    if result.returncode != 0:
-                        logger.log_error("Workflow generation failed")
-                        if result.stderr:
-                            for line in result.stderr.split("\n")[:5]:
-                                if line.strip():
-                                    logger.warn(f"  {line}")
-                        raise SystemExit(1)
-
-                    logger.log("  [dim]✓ Workflows generated[/dim]")
-
-                logger.log("")
-
-            _deploy_project(
-                logger,
-                project_root,
-                project,
-                skip_terraform,
-                skip_ansible,
-                skip_git_push,
-                skip_sync,
-                skip,
-                addon,
-                tags,
-                preserve_ip,
-                verbose,
-                force,  # Pass force flag
-                changes if not force else None,  # Pass changes for smart skip
-            )
-
-            # Update state after successful deployment (if not skipped)
-            if not force and not dry_run:
-                from cli.core.config_loader import ConfigLoader
-                from cli.state_manager import StateManager
-
-                projects_dir = project_root / "projects"
-                config_loader = ConfigLoader(projects_dir)
-                project_config = config_loader.load_project(project)
-
-                state_mgr = StateManager(project_root, project)
-                state_mgr.update_from_config(project_config)
-
-                logger.log("")
-                logger.log("💾 State saved")
-
-        except Exception as e:
-            logger.log_error(str(e), context=f"Project {project} deployment failed")
-            console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
-            raise SystemExit(1)
+    def _deploy_project(self, logger, changes=None):
+        """Deploy project infrastructure and services."""
+        _deploy_project_internal(
+            logger,
+            self.console,
+            self.project_root,
+            self.config_service,
+            self.project_name,
+            self.skip_terraform,
+            self.skip_ansible,
+            self.skip_sync,
+            self.skip,
+            self.addon,
+            self.tags,
+            self.preserve_ip,
+            self.verbose,
+            self.force,
+            changes,
+        )
 
 
-def _deploy_project(
+def _deploy_project_internal(
     logger,
+    console,
     project_root,
+    config_service,
     project,
     skip_terraform,
     skip_ansible,
-    skip_git_push,
     skip_sync,
     skip,
     addon,
@@ -315,17 +330,14 @@ def _deploy_project(
     logger.step("[1/4] Setup & Infrastructure")
 
     # Load project config
-    from cli.core.config_loader import ConfigLoader
     from cli.core.orchestrator_loader import OrchestratorLoader
 
-    projects_dir = project_root / "projects"
     shared_dir = project_root / "shared"
 
-    config_loader = ConfigLoader(projects_dir)
     orchestrator_loader = OrchestratorLoader(shared_dir)
 
     try:
-        project_config_obj = config_loader.load_project(project)
+        project_config_obj = config_service.load_project_config(project)
         console.print("  [dim]✓ Configuration loaded[/dim]")
     except FileNotFoundError as e:
         logger.log_error(str(e), context=f"Project '{project}' not found")
@@ -360,14 +372,11 @@ def _deploy_project(
     # Load project config and environment
     from cli.utils import validate_env_vars
     from cli.secret_manager import SecretManager
-    from cli.core.config_loader import ConfigLoader
 
-    project_root = get_project_root()
     project_dir = project_root / "projects" / project
 
-    # Load project config
-    config_loader = ConfigLoader(project_root / "projects")
-    project_config_obj = config_loader.load_project(project)
+    # Load project config (using config_service from parameter)
+    project_config_obj = config_service.load_project_config(project)
 
     # Load from secrets.yml instead of .env
     secret_mgr = SecretManager(project_root, project)
@@ -736,7 +745,7 @@ def _deploy_project(
         logger.step("Skipping Ansible (--skip-ansible)")
 
     # Phase 4: Code Deployment
-    if not skip_sync or not skip_git_push:
+    if not skip_sync:
         logger.step("[4/4] Code Deployment")
 
     # Sync secrets to GitHub
@@ -779,11 +788,6 @@ def _deploy_project(
             logger.log_error(f"Failed to sync secrets: {e}")
             logger.warning("Continuing deployment without secret sync")
 
-    # Git push
-    if not skip_git_push:
-        logger.log("✓ Code deployment complete (git push to GitHub)")
-        logger.log("  Tip: Push to 'production' branch to trigger deployment")
-
     # env already loaded at the beginning from secrets.yml
 
     # Orchestrator info
@@ -797,7 +801,7 @@ def _deploy_project(
         try:
             from cli.core.orchestrator_loader import OrchestratorLoader
 
-            project_root = get_project_root()
+            project_root = Path.cwd()
             orch_loader = OrchestratorLoader(project_root / "shared")
             orch_config = orch_loader.load()
             orch_secrets = orch_config.get_secrets()
@@ -935,7 +939,7 @@ def _deploy_project(
         if vm_ips:
             console.print("\n[bold cyan]📍 Virtual Machines:[/bold cyan]")
             for vm_name, ip in sorted(vm_ips.items()):
-                console.print(f"   • [cyan]{vm_name}:[/cyan] {ip}")
+                console.print(f"   • {vm_name}: {ip}")
 
         # Orchestrator (if available)
         if orchestrator_ip:
@@ -944,7 +948,7 @@ def _deploy_project(
             try:
                 from cli.core.orchestrator_loader import OrchestratorLoader
 
-                project_root = get_project_root()
+                project_root = Path.cwd()
                 orch_loader = OrchestratorLoader(project_root / "shared")
                 orch_config = orch_loader.load()
                 orch_secrets = orch_config.get_secrets()
@@ -1118,7 +1122,7 @@ def generate_ansible_inventory(
         f.write(inventory_content)
 
 
-def _validate_secrets(project_root, project_name, logger):
+def _validate_secrets(project_root, config_service, project_name, logger):
     """
     Validate project secrets before deployment.
 
@@ -1177,12 +1181,9 @@ def _validate_secrets(project_root, project_name, logger):
 
     # Addon-specific validation: Check required secrets for enabled addons
     try:
-        from cli.core.config_loader import ConfigLoader
         import yaml
 
-        projects_dir = project_root / "projects"
-        config_loader = ConfigLoader(projects_dir)
-        project_config = config_loader.load_project(project_name)
+        project_config = config_service.load_project_config(project_name)
 
         # Get enabled addons
         enabled_addons = project_config.raw_config.get("addons", {})
@@ -1292,3 +1293,45 @@ def _update_secrets_with_vm_ips(project_root, project, env, logger):
         secrets_data["secrets"]["shared"] = shared_secrets
         secret_mgr.save_secrets(secrets_data)
         logger.log("  [dim]✓ secrets.yml updated with VM internal IPs[/dim]")
+
+
+# Click command wrapper
+@click.command()
+@click.option("--skip-terraform", is_flag=True, help="Skip Terraform provisioning")
+@click.option("--skip-ansible", is_flag=True, help="Skip Ansible configuration")
+@click.option("--skip-sync", is_flag=True, help="Skip automatic GitHub secrets sync")
+@click.option("--skip", multiple=True, help="Skip specific addon(s) during deployment")
+@click.option("--addon", help="Deploy only specific addon(s), comma-separated")
+@click.option("--tags", help="Run only specific Ansible tags")
+@click.option("--preserve-ip", is_flag=True, help="Preserve existing static IPs")
+@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
+@click.option("--force", is_flag=True, help="Force update (ignore state)")
+@click.option("--dry-run", is_flag=True, help="Show what would be done (like plan)")
+def up(
+    project,
+    skip_terraform,
+    skip_ansible,
+    skip_sync,
+    skip,
+    addon,
+    tags,
+    preserve_ip,
+    verbose,
+    force,
+    dry_run,
+):
+    """Deploy infrastructure (like 'heroku create')"""
+    cmd = UpCommand(
+        project_name=project,
+        skip_terraform=skip_terraform,
+        skip_ansible=skip_ansible,
+        skip_sync=skip_sync,
+        skip=skip,
+        addon=addon,
+        tags=tags,
+        preserve_ip=preserve_ip,
+        verbose=verbose,
+        force=force,
+        dry_run=dry_run,
+    )
+    cmd.run()

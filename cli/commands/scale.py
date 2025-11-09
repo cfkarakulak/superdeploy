@@ -61,7 +61,7 @@ class ScaleCommand(ProjectCommand):
         try:
             import yaml
 
-            project_path = self.config_service.get_project_path(self.project_name)
+            project_path = self.project_root / "projects" / self.project_name
             project_yml = project_path / "config.yml"
 
             with open(project_yml, "r") as f:

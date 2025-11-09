@@ -26,14 +26,11 @@ class DeployCommand(ProjectCommand):
 
     def execute(self) -> None:
         """Execute deploy command."""
-        from cli.utils import get_project_root
-
+        
         try:
             # Get project root
-            project_root = get_project_root()
-
             # Load secrets
-            secret_mgr = SecretManager(project_root, self.project_name)
+            secret_mgr = SecretManager(self.project_root, self.project_name)
             secrets = secret_mgr.load_secrets()
 
             if not secrets or "secrets" not in secrets:
@@ -45,7 +42,7 @@ class DeployCommand(ProjectCommand):
             shared_secrets = secrets["secrets"].get("shared", {})
 
             # Find app in project config
-            config_file = project_root / "projects" / self.project_name / "config.yml"
+            config_file = self.project_root / "projects" / self.project_name / "config.yml"
             if not config_file.exists():
                 self.console.print(
                     f"[red]❌ Project config not found: {config_file}[/red]"

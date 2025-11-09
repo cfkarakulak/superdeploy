@@ -35,11 +35,9 @@ def read_env_file(env_path):
                         value = value[1:-1]
 
                     env_dict[key] = value
-    except Exception as e:
-        from rich.console import Console
-
-        console = Console()
-        console.print(f"[yellow]⚠️  Could not read .env file: {e}[/yellow]")
+    except Exception:
+        # Silently skip on error
+        pass
 
     return env_dict
 
@@ -266,13 +264,10 @@ class SyncCommand(ProjectCommand):
         )
 
         from cli.secret_manager import SecretManager
-        from cli.utils import get_project_root
-
-        project_root = get_project_root()
 
         # Load config
         try:
-            project_config = self.config_service.load_project(self.project_name)
+            project_config = self.config_service.load_project_config(self.project_name)
         except FileNotFoundError as e:
             self.console.print(f"[red]❌ {e}[/red]")
             return
@@ -283,7 +278,7 @@ class SyncCommand(ProjectCommand):
         config = project_config.raw_config
 
         # Load secrets
-        secret_mgr = SecretManager(project_root, self.project_name)
+        secret_mgr = SecretManager(self.project_root, self.project_name)
         if not secret_mgr.secrets_file.exists():
             self.console.print("[red]❌ No secrets.yml found![/red]")
             return

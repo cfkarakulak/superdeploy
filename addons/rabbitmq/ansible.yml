@@ -33,21 +33,43 @@
       
       # Phase 3: Force remove any remaining containers by exact name or prefix
       echo "Phase 3: Force removing any remaining containers..."
-      # Check both exact match (cheapa-ADDON) and prefix match (cheapa-ADDON-*)
-      EXACT_CONTAINER=$(docker ps -aq --filter "name=^${PROJECT_NAME}-${ADDON_NAME}\$" 2>/dev/null || true)
-      PREFIX_CONTAINERS=$(docker ps -aq --filter "name=${PROJECT_NAME}-${ADDON_NAME}-" 2>/dev/null || true)
+      # Get all container names matching our pattern and filter for exact/prefix match
+      ALL_NAMES=$(docker ps -a --filter "name=${PROJECT_NAME}-${ADDON_NAME}" --format '{{ '{{' }}.Names{{ '}}' }}' 2>/dev/null || true)
+      EXACT_CONTAINER=""
+      PREFIX_CONTAINERS=""
+      
+      for name in $ALL_NAMES; do
+        if [ "$name" = "${PROJECT_NAME}-${ADDON_NAME}" ]; then
+          # Exact match
+          EXACT_CONTAINER=$(docker ps -aq --filter "name=${name}" 2>/dev/null || true)
+        elif [[ "$name" == ${PROJECT_NAME}-${ADDON_NAME}-* ]]; then
+          # Prefix match (compose generated names)
+          PREFIX_CONTAINERS="$PREFIX_CONTAINERS $(docker ps -aq --filter "name=${name}" 2>/dev/null || true)"
+        fi
+      done
+      
       REMAINING_CONTAINERS=$(echo "$EXACT_CONTAINER $PREFIX_CONTAINERS" | tr -s ' ' | xargs)
       
       if [ -n "$REMAINING_CONTAINERS" ]; then
-        echo "Found remaining containers, removing..."
+        echo "Found remaining containers: $REMAINING_CONTAINERS"
         echo "$REMAINING_CONTAINERS" | xargs -r docker rm -f 2>&1 || true
         sleep 2
       fi
       
       # Phase 4: Final verification
       echo "Phase 4: Final verification..."
-      EXACT_CHECK=$(docker ps -aq --filter "name=^${PROJECT_NAME}-${ADDON_NAME}\$" 2>/dev/null || true)
-      PREFIX_CHECK=$(docker ps -aq --filter "name=${PROJECT_NAME}-${ADDON_NAME}-" 2>/dev/null || true)
+      ALL_NAMES_FINAL=$(docker ps -a --filter "name=${PROJECT_NAME}-${ADDON_NAME}" --format '{{ '{{' }}.Names{{ '}}' }}' 2>/dev/null || true)
+      EXACT_CHECK=""
+      PREFIX_CHECK=""
+      
+      for name in $ALL_NAMES_FINAL; do
+        if [ "$name" = "${PROJECT_NAME}-${ADDON_NAME}" ]; then
+          EXACT_CHECK=$(docker ps -aq --filter "name=${name}" 2>/dev/null || true)
+        elif [[ "$name" == ${PROJECT_NAME}-${ADDON_NAME}-* ]]; then
+          PREFIX_CHECK="$PREFIX_CHECK $(docker ps -aq --filter "name=${name}" 2>/dev/null || true)"
+        fi
+      done
+      
       FINAL_CHECK=$(echo "$EXACT_CHECK $PREFIX_CHECK" | tr -s ' ' | xargs)
       
       if [ -n "$FINAL_CHECK" ]; then

@@ -7,30 +7,28 @@ from rich.panel import Panel
 from cli.base import BaseCommand
 
 
-def get_addon_prefixes(project):
+def get_addon_prefixes(project, project_root):
     """
     Get environment variable prefixes from addon metadata.
 
     Args:
         project (str): Project name
+        project_root: Path to project root
 
     Returns:
         list: List of environment variable prefixes
     """
     from cli.core.addon_loader import AddonLoader
-    from cli.utils import get_project_root
 
     try:
-        project_root = get_project_root()
         addons_dir = project_root / "addons"
         addon_loader = AddonLoader(addons_dir)
 
         # Load project config to get enabled addons
-        from cli.core.config_loader import ConfigLoader
+        from cli.services.config_service import ConfigService
 
-        projects_dir = project_root / "projects"
-        config_loader = ConfigLoader(projects_dir)
-        project_config = config_loader.load_project(project)
+        config_service = ConfigService(project_root)
+        project_config = config_service.load_project_config(project)
 
         # Load addons
         addons = addon_loader.load_addons_for_project(project_config.raw_config)
@@ -45,12 +43,8 @@ def get_addon_prefixes(project):
 
         # Only addon prefixes - no hardcoded app-specific prefixes
         return list(prefixes)
-    except Exception as e:
+    except Exception:
         # Fallback to common addon prefixes if loading fails
-        from rich.console import Console
-
-        console = Console()
-        console.print(f"[dim]Could not load addon prefixes: {e}[/dim]")
         return ["POSTGRES", "RABBITMQ", "REDIS", "MONGODB", "ELASTICSEARCH"]
 
 
@@ -111,16 +105,14 @@ class EnvListCommand(BaseCommand):
         # Load from orchestrator secrets.yml (shared secrets)
         # This command is for global env, not project-specific
         from cli.secret_manager import SecretManager
-        from cli.utils import get_project_root
 
-        project_root = get_project_root()
         # Get first project or use default
-        projects_dir = project_root / "projects"
+        projects_dir = self.project_root / "projects"
         projects = [p.name for p in projects_dir.iterdir() if p.is_dir()]
         if not projects:
             self.console.print("[red]❌ No projects found[/red]")
             raise SystemExit(1)
-        secret_mgr = SecretManager(project_root, projects[0])
+        secret_mgr = SecretManager(self.project_root, projects[0])
         secrets_data = secret_mgr.load_secrets()
         env_vars = secrets_data.get("secrets", {}).get("shared", {})
 
@@ -190,7 +182,7 @@ class EnvListCommand(BaseCommand):
 
             # Filter by --app flag
             if self.app:
-                app_related = get_addon_prefixes(projects[0])
+                app_related = get_addon_prefixes(projects[0], self.project_root)
                 if not any(prefix in key for prefix in app_related):
                     continue
 
@@ -239,16 +231,14 @@ class EnvCheckCommand(BaseCommand):
 
         # Load from orchestrator secrets.yml (shared secrets)
         from cli.secret_manager import SecretManager
-        from cli.utils import get_project_root
 
-        project_root = get_project_root()
         # Get first project or use default
-        projects_dir = project_root / "projects"
+        projects_dir = self.project_root / "projects"
         projects = [p.name for p in projects_dir.iterdir() if p.is_dir()]
         if not projects:
             self.console.print("[red]❌ No projects found[/red]")
             raise SystemExit(1)
-        secret_mgr = SecretManager(project_root, projects[0])
+        secret_mgr = SecretManager(self.project_root, projects[0])
         secrets_data = secret_mgr.load_secrets()
         env_vars = secrets_data.get("secrets", {}).get("shared", {})
 

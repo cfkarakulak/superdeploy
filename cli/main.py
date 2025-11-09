@@ -74,7 +74,7 @@ from cli.commands import (
 )
 
 # NOTE: up, down, plan are imported dynamically in NamespacedGroup (not registered as standalone commands)
-from cli.commands.domain import domain_add, domain_list, domain_remove
+from cli.commands.domains import domains_add, domains_list, domains_remove
 from cli.commands.config import (
     config_set,
     config_get,
@@ -117,6 +117,27 @@ class NamespacedGroup(click.Group):
 
             # Dynamic namespace resolution for project commands
             namespace, sub_cmd = cmd_name.split(":", 1)
+
+            # Check if sub_cmd has another colon (e.g., "config:set", "domains:add")
+            # This handles: cheapa:config:set, cheapa:domains:add
+            if ":" in sub_cmd:
+                # Second-level namespace (e.g., config:set, domains:add)
+                # These are already registered commands, just inject project
+                base_command = super().get_command(ctx, sub_cmd)
+                if base_command:
+                    import functools
+
+                    wrapper = click.Command(
+                        name=cmd_name,
+                        callback=functools.partial(
+                            self._inject_project, base_command.callback, namespace
+                        ),
+                        params=base_command.params,
+                        help=base_command.help,
+                    )
+                    # Remove the --project/-p option if it exists
+                    wrapper.params = [p for p in wrapper.params if p.name != "project"]
+                    return wrapper
 
             # Get the base command (up, down, etc.)
             base_command = super().get_command(ctx, sub_cmd)
@@ -217,18 +238,16 @@ def cli(ctx: click.Context) -> None:
       superdeploy scale api=3     # Scale services
 
     \b
-    Namespaced Commands (required for project operations):
-      [cyan]superdeploy <project>:up[/cyan]       # Deploy infrastructure
-      [cyan]superdeploy <project>:down[/cyan]     # Destroy infrastructure
-      [cyan]superdeploy <project>:plan[/cyan]     # Show deployment changes
-      [cyan]superdeploy <project>:status[/cyan]   # Show deployment status
-      [cyan]superdeploy <project>:generate[/cyan] # Generate workflow files
-      [cyan]superdeploy <project>:sync[/cyan]     # Sync secrets to GitHub
-      [cyan]superdeploy <project>:validate[/cyan] # Validate configuration
-      [cyan]superdeploy <project>:scale[/cyan]    # Scale services
-      [cyan]superdeploy <project>:metrics[/cyan]  # View metrics
-      [cyan]superdeploy orchestrator:up[/cyan]    # Deploy orchestrator
-      [cyan]superdeploy orchestrator:down[/cyan]  # Destroy orchestrator
+    Namespaced Commands (project-specific operations):
+      [cyan]superdeploy <project>:up[/cyan]              # Deploy infrastructure
+      [cyan]superdeploy <project>:down[/cyan]            # Destroy infrastructure
+      [cyan]superdeploy <project>:plan[/cyan]            # Show deployment changes
+      [cyan]superdeploy <project>:config:set KEY=VAL[/cyan] # Set config variable
+      [cyan]superdeploy <project>:domains:add app.com[/cyan] # Add domain
+      [cyan]superdeploy <project>:sync[/cyan]            # Sync secrets to GitHub
+      [cyan]superdeploy <project>:scale web=3[/cyan]     # Scale services
+      [cyan]superdeploy orchestrator:up[/cyan]           # Deploy orchestrator
+      [cyan]superdeploy orchestrator:domains:add g.com[/cyan] # Add orchestrator domain
     """
     if ctx.invoked_subcommand is None:
         console.print(BANNER)
@@ -259,10 +278,10 @@ cli.add_command(releases_rollback)
 # Register project commands (Heroku-style with colons)
 cli.add_command(projects_deploy)
 cli.add_command(promote.promote)
-# Register domain commands (Heroku-style with colons)
-cli.add_command(domain_add)
-cli.add_command(domain_list)
-cli.add_command(domain_remove)
+# Register domains commands (Heroku-style with colons)
+cli.add_command(domains_add)
+cli.add_command(domains_list)
+cli.add_command(domains_remove)
 # Register backup commands (Heroku-style with colons)
 cli.add_command(backups_create)
 # NOTE: validate:project moved to <project>:validate (namespaced)

@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from cli.base import ProjectCommand
-from cli.utils import ssh_command, get_project_path
+from cli.utils import ssh_command
 
 
 class BackupsCreateCommand(ProjectCommand):
@@ -68,23 +68,23 @@ class BackupsCreateCommand(ProjectCommand):
             try:
                 # Get database credentials from secrets.yml
                 from cli.secret_manager import SecretManager
-                from cli.utils import get_project_root
 
-                project_root = get_project_root()
-                project_path = get_project_path(self.project_name)
+                project_path = self.project_root / "projects" / self.project_name
 
                 # Load secrets from secrets.yml
-                secret_mgr = SecretManager(project_root, self.project_name)
+                secret_mgr = SecretManager(self.project_root, self.project_name)
                 secrets_data = secret_mgr.load_secrets()
                 passwords = secrets_data.get("secrets", {}).get("shared", {})
 
                 # Dump database via SSH - dynamically find database addon
                 from cli.core.addon_loader import AddonLoader
 
-                project_config = self.config_service.load_project(self.project_name)
+                project_config = self.config_service.load_project_config(
+                    self.project_name
+                )
 
                 # Load addons to find database addon by category
-                addons_dir = project_root / "addons"
+                addons_dir = self.project_root / "addons"
                 addon_loader = AddonLoader(addons_dir)
                 loaded_addons = addon_loader.load_addons_for_project(
                     project_config.raw_config
@@ -139,7 +139,7 @@ class BackupsCreateCommand(ProjectCommand):
             task3 = progress.add_task("[cyan]Backing up configs...", total=1)
 
             try:
-                project_path = get_project_path(self.project_name)
+                project_path = self.project_root / "projects" / self.project_name
 
                 # Copy config files
                 shutil.copy(

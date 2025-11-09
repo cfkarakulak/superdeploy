@@ -529,8 +529,7 @@ def plan(project, detailed, json_output, verbose):
 
     if json_output:
         # TODO: Implement JSON output
-        console = Console()
-        console.print("[yellow]JSON output not yet implemented[/yellow]")
+        click.echo("JSON output not yet implemented", err=True)
         return
 
     cmd = PlanCommand(project, detailed=detailed, verbose=verbose)

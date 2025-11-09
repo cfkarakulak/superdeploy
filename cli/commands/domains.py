@@ -11,16 +11,18 @@ import subprocess
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
 from cli.ui_components import show_header
 
+# Global console for functional commands
 console = Console()
 
 
-@click.command(name="domain:add")
+@click.command(name="domains:add")
 @click.option("-p", "--project", help="Project name (required for app domains)")
 @click.argument("app_name")
 @click.argument("domain")
-def domain_add(project: str, app_name: str, domain: str):
+def domains_add(project: str, app_name: str, domain: str):
     """
     Add a domain to an application or orchestrator service.
 
@@ -28,13 +30,13 @@ def domain_add(project: str, app_name: str, domain: str):
     Project apps require -p flag.
 
     Examples:
-        # Orchestrator services (keyword-based, no -p needed)
-        superdeploy domain:add grafana grafana.cheapa.io
-        superdeploy domain:add prometheus prometheus.cheapa.io
+    # Orchestrator services (keyword-based)
+    superdeploy orchestrator:domains:add grafana grafana.cheapa.io
+    superdeploy orchestrator:domains:add prometheus prometheus.cheapa.io
 
-        # Project apps (namespace syntax)
-        superdeploy cheapa:domain:add api api.cheapa.io
-        superdeploy cheapa:domain:add dashboard dashboard.cheapa.io
+    # Project apps (namespace syntax - NEW!)
+    superdeploy cheapa:domains:add api api.cheapa.io
+    superdeploy cheapa:domains:add dashboard dashboard.cheapa.io
     """
     try:
         # Auto-detect orchestrator services by keyword
@@ -47,13 +49,15 @@ def domain_add(project: str, app_name: str, domain: str):
             console.print(
                 "[yellow]Tip: Don't use -p flag for orchestrator services[/yellow]"
             )
-            console.print(f"Usage: superdeploy domain:add {app_name} {domain}")
+            console.print(
+                f"Usage: superdeploy orchestrator:domains:add {app_name} {domain}"
+            )
             raise click.Abort()
 
         if not is_orchestrator and not project:
             console.print(f"[red]✗ '{app_name}' requires -p <project> flag[/red]")
             console.print(
-                f"Usage: superdeploy domain:add -p <project> {app_name} {domain}"
+                f"Usage: superdeploy <project>:domains:add {app_name} {domain}"
             )
             raise click.Abort()
 
@@ -81,7 +85,7 @@ def domain_add(project: str, app_name: str, domain: str):
                 console.print(
                     f"[red]✗ Orchestrator config not found at {config_file}[/red]"
                 )
-                console.print("Run 'superdeploy orchestrator init' first")
+                console.print("Run 'superdeploy orchestrator:init' first")
                 raise click.Abort()
 
             with open(config_file, "r") as f:
@@ -324,9 +328,9 @@ def domain_add(project: str, app_name: str, domain: str):
         raise
 
 
-@click.command(name="domain:list")
+@click.command(name="domains:list")
 @click.option("-p", "--project", help="Project name (show only this project)")
-def domain_list(project: str):
+def domains_list(project: str):
     """
     List all domains (orchestrator + all projects).
 
@@ -334,8 +338,8 @@ def domain_list(project: str):
     With -p flag: shows only that project's domains
 
     Examples:
-        superdeploy domain:list              # all domains
-        superdeploy domain:list -p cheapa    # only cheapa project
+        superdeploy domains:list                  # all domains
+        superdeploy cheapa:domains:list           # only cheapa project
     """
     # Show header
     if project:
@@ -510,10 +514,10 @@ def domain_list(project: str):
         raise
 
 
-@click.command(name="domain:remove")
+@click.command(name="domains:remove")
 @click.option("-p", "--project", help="Project name (required for app domains)")
 @click.argument("app_name")
-def domain_remove(project: str, app_name: str):
+def domains_remove(project: str, app_name: str):
     """
     Remove a domain from an application or orchestrator service.
 
@@ -521,8 +525,8 @@ def domain_remove(project: str, app_name: str):
     Project apps require -p flag.
 
     Examples:
-        superdeploy domain:remove grafana                # orchestrator
-        superdeploy domain:remove -p cheapa api          # project app
+        superdeploy orchestrator:domains:remove grafana   # orchestrator
+        superdeploy cheapa:domains:remove api            # project app
     """
     try:
         # Auto-detect orchestrator services by keyword
@@ -535,12 +539,12 @@ def domain_remove(project: str, app_name: str):
             console.print(
                 "[yellow]Tip: Don't use -p flag for orchestrator services[/yellow]"
             )
-            console.print(f"Usage: superdeploy domain:remove {app_name}")
+            console.print(f"Usage: superdeploy orchestrator:domains:remove {app_name}")
             raise click.Abort()
 
         if not is_orchestrator and not project:
             console.print(f"[red]✗ '{app_name}' requires -p <project> flag[/red]")
-            console.print(f"Usage: superdeploy domain:remove -p <project> {app_name}")
+            console.print(f"Usage: superdeploy <project>:domains:remove {app_name}")
             raise click.Abort()
 
         # Show header

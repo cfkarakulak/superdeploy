@@ -23,10 +23,8 @@ class ProjectsDeployCommand(ProjectCommand):
 
         # Load project secrets from secrets.yml
         from cli.secret_manager import SecretManager
-        from cli.utils import get_project_root, get_project_path
 
-        project_root = get_project_root()
-        project_path = get_project_path(self.project_name)
+        project_path = self.project_root / "projects" / self.project_name
 
         if not project_path.exists():
             self.console.print(
@@ -34,7 +32,7 @@ class ProjectsDeployCommand(ProjectCommand):
             )
             return
 
-        secret_mgr = SecretManager(project_root, self.project_name)
+        secret_mgr = SecretManager(self.project_root, self.project_name)
 
         try:
             secrets_data = secret_mgr.load_secrets()
@@ -56,7 +54,7 @@ class ProjectsDeployCommand(ProjectCommand):
                 project_secrets.update(app_secrets)
 
         # Run Ansible playbook for project deployment
-        ansible_dir = project_root / "shared" / "ansible"
+        ansible_dir = self.project_root / "shared" / "ansible"
         ansible_playbook = ansible_dir / "playbooks" / "project_deploy.yml"
 
         if not ansible_playbook.exists():
@@ -95,7 +93,7 @@ ansible-playbook -i inventories/dev.ini playbooks/project_deploy.yml \\
                 title=f"Deploying {self.project_name}",
                 verbose=self.verbose,
             )
-            returncode = runner.run(ansible_cmd, cwd=project_root)
+            returncode = runner.run(ansible_cmd, cwd=self.project_root)
 
             if returncode != 0:
                 logger.log_error("Deployment failed", context="Check logs for details")

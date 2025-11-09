@@ -26,7 +26,7 @@ class UpdateFirewallCommand(ProjectCommand):
 
         # Load config
         try:
-            project_config = self.config_service.load_project(self.project_name)
+            project_config = self.config_service.load_project_config(self.project_name)
             self.console.print(
                 f"[dim]✓ Loaded config: projects/{self.project_name}/config.yml[/dim]"
             )

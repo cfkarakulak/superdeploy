@@ -1,0 +1,196 @@
+name: Deploy to {{ project }}
+
+on:
+  push:
+    branches: [production, staging]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+{% raw %}      project: ${{ steps.config.outputs.project }}
+      app: ${{ steps.config.outputs.app }}
+      vm_role: ${{ steps.config.outputs.vm_role }}
+{% endraw %}    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Read app configuration
+        id: config
+        run: |
+          PROJECT=$(grep "^project:" .superdeploy | cut -d: -f2 | xargs)
+          APP=$(grep "^app:" .superdeploy | cut -d: -f2 | xargs)
+          VM_ROLE=$(grep "^vm:" .superdeploy | cut -d: -f2 | xargs)
+{% raw %}          echo "project=$PROJECT" >> $GITHUB_OUTPUT
+          echo "app=$APP" >> $GITHUB_OUTPUT
+          echo "vm_role=$VM_ROLE" >> $GITHUB_OUTPUT
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest
+            ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache,mode=max
+
+  deploy:
+    needs: build
+    environment: ${{ github.ref_name }}
+    runs-on: 
+      - self-hosted
+      - superdeploy
+      - ${{ needs.build.outputs.project }}
+      - ${{ needs.build.outputs.vm_role }}
+    
+    steps:
+      - name: Validate runner
+        run: |
+          echo "🔍 Validating deployment environment..."
+          
+          if [ ! -f /opt/superdeploy/.project ]; then
+            echo "❌ ERROR: /opt/superdeploy/.project not found!"
+            exit 1
+          fi
+          
+          RUNNER_PROJECT=$(cat /opt/superdeploy/.project)
+          if [ "$RUNNER_PROJECT" != "${{ needs.build.outputs.project }}" ]; then
+            echo "❌ ERROR: Wrong project! Expected ${{ needs.build.outputs.project }}, got $RUNNER_PROJECT"
+            exit 1
+          fi
+          
+          echo "✅ Correct VM for project: $RUNNER_PROJECT"
+      
+      - name: Create .env from merged secrets
+        run: |
+          APP_NAME="${{ needs.build.outputs.app }}"
+          ENV_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}/data/$APP_NAME"
+          
+          echo "📝 Creating .env from ${APP_NAME^^}_ENV_JSON..."
+{% endraw %}          
+          # GitHub Actions cannot dynamically access secrets
+          # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
+          case "$APP_NAME" in
+            {{ app }})
+{{ secret_var_line }}
+              ;;
+            *)
+              echo "❌ App '$APP_NAME' not configured in workflow"
+              exit 1
+              ;;
+          esac
+{% raw %}          
+          # Convert JSON to .env format
+          echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
+          
+          # Write to VM directory
+          sudo mkdir -p "$ENV_DIR"
+          sudo cp /tmp/final.env "$ENV_DIR/.env"
+          sudo chown superdeploy:superdeploy "$ENV_DIR/.env"
+          sudo chmod 600 "$ENV_DIR/.env"
+          
+          echo "✅ Environment file created at $ENV_DIR/.env"
+          echo "📊 Total variables: $(wc -l < "$ENV_DIR/.env")"
+      
+      - name: Deploy application
+        run: |
+          cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}/compose
+          
+          # Check if this specific service exists in docker-compose.yml (without running full config validation)
+          if ! grep -q "^  ${{ needs.build.outputs.app }}:" docker-compose.yml; then
+            echo "⏭️  Skipping: App not configured on this VM"
+            exit 0
+          fi
+          
+          # Create empty .env files for other apps to prevent docker-compose errors
+          for app_dir in ../data/*/; do
+            if [ -d "$app_dir" ]; then
+              app_name=$(basename "$app_dir")
+              env_file="../data/$app_name/.env"
+              if [ ! -f "$env_file" ]; then
+                echo "# Placeholder .env for $app_name" > "$env_file"
+                echo "📝 Created placeholder .env for $app_name"
+              fi
+            fi
+          done
+          
+          echo "🚀 Deploying ${{ needs.build.outputs.app }}..."
+          
+          docker compose pull ${{ needs.build.outputs.app }}
+          docker compose up -d ${{ needs.build.outputs.app }}
+          
+          sleep 5
+          
+          CONTAINER_NAME="${{ needs.build.outputs.project }}_${{ needs.build.outputs.app }}"
+          STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
+          
+          if [ "$STATUS" = "running" ]; then
+            echo "✅ Deployment successful!"
+            docker image prune -f
+          else
+            echo "❌ Container failed to start"
+            docker logs $CONTAINER_NAME --tail 50
+            exit 1
+          fi
+      
+      - name: Run deployment hooks
+        run: |
+          cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}
+          
+          if [ ! -f config.yml ]; then
+            echo "⏭️  No config.yml found, skipping hooks"
+            exit 0
+          fi
+          
+          APP_NAME="${{ needs.build.outputs.app }}"
+          
+          cat > /tmp/read_hooks.py <<'PYEOF'
+          import yaml
+          import sys
+          import os
+          
+          try:
+              with open('config.yml') as f:
+                  config = yaml.safe_load(f)
+              app_name = os.environ.get('APP_NAME', '')
+              hooks = config.get('apps', {}).get(app_name, {}).get('hooks', {})
+              after_deploy = hooks.get('after_deploy', [])
+              if after_deploy:
+                  for cmd in after_deploy:
+                      print(cmd)
+          except Exception:
+              sys.exit(0)
+          PYEOF
+          
+          HOOKS=$(APP_NAME="$APP_NAME" python3 /tmp/read_hooks.py)
+          
+          if [ -z "$HOOKS" ]; then
+            echo "⏭️  No post-deployment hooks configured for ${{ needs.build.outputs.app }}"
+            exit 0
+          fi
+          
+          echo "🔧 Running post-deployment hooks for ${{ needs.build.outputs.app }}..."
+          cd compose
+          
+          echo "$HOOKS" | while IFS= read -r cmd; do
+            if [ -n "$cmd" ]; then
+              echo "▶ Running: $cmd"
+              docker compose exec -T ${{ needs.build.outputs.app }} $cmd || echo "⚠️  Hook failed: $cmd"
+            fi
+          done
+          
+          echo "✅ Post-deployment hooks completed"
+{% endraw %}
+
