@@ -296,6 +296,18 @@ jobs:
             exit 0
           fi
           
+          # Create empty .env files for other apps to prevent docker-compose errors
+          for app_dir in ../data/*/; do
+            if [ -d "$app_dir" ]; then
+              app_name=$(basename "$app_dir")
+              env_file="../data/$app_name/.env"
+              if [ ! -f "$env_file" ]; then
+                echo "# Placeholder .env for $app_name" > "$env_file"
+                echo "📝 Created placeholder .env for $app_name"
+              fi
+            fi
+          done
+          
           echo "🚀 Deploying ${{ needs.build.outputs.app }}..."
           
           docker compose pull ${{ needs.build.outputs.app }}
@@ -480,6 +492,18 @@ jobs:
             echo "⏭️  Skipping: App not configured on this VM"
             exit 0
           fi
+          
+          # Create empty .env files for other apps to prevent docker-compose errors
+          for app_dir in ../data/*/; do
+            if [ -d "$app_dir" ]; then
+              app_name=$(basename "$app_dir")
+              env_file="../data/$app_name/.env"
+              if [ ! -f "$env_file" ]; then
+                echo "# Placeholder .env for $app_name" > "$env_file"
+                echo "📝 Created placeholder .env for $app_name"
+              fi
+            fi
+          done
           
           echo "🚀 Deploying ${{ needs.build.outputs.app }}..."
           
