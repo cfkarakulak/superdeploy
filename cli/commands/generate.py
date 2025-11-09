@@ -208,16 +208,25 @@ jobs:
           echo "app=$APP" >> $GITHUB_OUTPUT
           echo "vm_role=$VM_ROLE" >> $GITHUB_OUTPUT
       
-      - name: Build Docker image
-        run: |
-          docker build -t ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest .
-          docker tag ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       
-      - name: Push to Docker Hub
-        run: |
-          echo "${{ secrets.DOCKER_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-          docker push ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest
-          docker push ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest
+            ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache,mode=max
 
   deploy:
     needs: build
@@ -335,16 +344,25 @@ jobs:
           echo "app=$APP" >> $GITHUB_OUTPUT
           echo "vm_role=$VM_ROLE" >> $GITHUB_OUTPUT
       
-      - name: Build Docker image
-        run: |
-          docker build -t ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest .
-          docker tag ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       
-      - name: Push to Docker Hub
-        run: |
-          echo "${{ secrets.DOCKER_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-          docker push ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest
-          docker push ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest
+            ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache,mode=max
 
   deploy:
     needs: build
