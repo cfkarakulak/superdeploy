@@ -61,14 +61,17 @@ apps:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/api
     vm: app
     port: 8000
+    domain: api.cheapa.io
   storefront:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/storefront
     vm: app
     port: 3000
+    domain: cheapa.io
   services:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/services
     vm: app
     port: 8001
+    domain: services.cheapa.io
 
 # =============================================================================
 # Docker Configuration
