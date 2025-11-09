@@ -325,24 +325,23 @@ jobs:
           
           APP_NAME="${{ needs.build.outputs.app }}"
           
-          # Read hooks from config.yml using Python
-          cat > /tmp/read_hooks.py << 'EOF'
-import yaml
-import sys
-import os
-
-try:
-    with open('config.yml') as f:
-        config = yaml.safe_load(f)
-    app_name = os.environ.get('APP_NAME', '')
-    hooks = config.get('apps', {}).get(app_name, {}).get('hooks', {})
-    after_deploy = hooks.get('after_deploy', [])
-    if after_deploy:
-        for cmd in after_deploy:
-            print(cmd)
-except Exception:
-    sys.exit(0)
-EOF
+          cat > /tmp/read_hooks.py <<'PYEOF'
+          import yaml
+          import sys
+          import os
+          
+          try:
+              with open('config.yml') as f:
+                  config = yaml.safe_load(f)
+              app_name = os.environ.get('APP_NAME', '')
+              hooks = config.get('apps', {}).get(app_name, {}).get('hooks', {})
+              after_deploy = hooks.get('after_deploy', [])
+              if after_deploy:
+                  for cmd in after_deploy:
+                      print(cmd)
+          except Exception:
+              sys.exit(0)
+          PYEOF
           
           HOOKS=$(APP_NAME="$APP_NAME" python3 /tmp/read_hooks.py)
           
@@ -510,24 +509,23 @@ jobs:
           
           APP_NAME="${{ needs.build.outputs.app }}"
           
-          # Read hooks from config.yml using Python
-          cat > /tmp/read_hooks.py << 'EOF'
-import yaml
-import sys
-import os
-
-try:
-    with open('config.yml') as f:
-        config = yaml.safe_load(f)
-    app_name = os.environ.get('APP_NAME', '')
-    hooks = config.get('apps', {}).get(app_name, {}).get('hooks', {})
-    after_deploy = hooks.get('after_deploy', [])
-    if after_deploy:
-        for cmd in after_deploy:
-            print(cmd)
-except Exception:
-    sys.exit(0)
-EOF
+          cat > /tmp/read_hooks.py <<'PYEOF'
+          import yaml
+          import sys
+          import os
+          
+          try:
+              with open('config.yml') as f:
+                  config = yaml.safe_load(f)
+              app_name = os.environ.get('APP_NAME', '')
+              hooks = config.get('apps', {}).get(app_name, {}).get('hooks', {})
+              after_deploy = hooks.get('after_deploy', [])
+              if after_deploy:
+                  for cmd in after_deploy:
+                      print(cmd)
+          except Exception:
+              sys.exit(0)
+          PYEOF
           
           HOOKS=$(APP_NAME="$APP_NAME" python3 /tmp/read_hooks.py)
           
