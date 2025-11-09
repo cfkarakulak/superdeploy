@@ -333,6 +333,7 @@ def sync(project, clear, environment):
                 console.print("  [dim]No existing secrets found[/dim]\n")
 
         # Repository-level secrets (Docker, orchestrator, etc.)
+        # These are needed by build job which doesn't have environment context
         repo_secrets = {
             "DOCKER_REGISTRY": all_secrets.get("shared", {}).get(
                 "DOCKER_REGISTRY", "docker.io"
