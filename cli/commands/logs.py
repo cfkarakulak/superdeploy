@@ -27,12 +27,15 @@ class LogsCommand(ProjectCommand):
         lines: int = 100,
         verbose: bool = False,
         filter_level: str = None,
+        grep_pattern: str = None,
     ):
         super().__init__(project_name, verbose=verbose)
         self.app_name = app_name
         self.follow = follow
         self.lines = lines
         self.filter_level = filter_level
+        self.grep_pattern = grep_pattern
+        self.line_count = 0
 
     def parse_log_line(self, line: str) -> dict:
         """Parse log line and extract components."""
@@ -68,12 +71,43 @@ class LogsCommand(ProjectCommand):
             now = datetime.now().strftime('%H:%M:%S')
             return f"\033[2m{now}\033[0m {message}"
 
+    def matches_filters(self, parsed: dict, line: str) -> bool:
+        """Check if line matches all filters."""
+        # Filter by level if specified
+        if self.filter_level and parsed['level'] != self.filter_level.upper():
+            return False
+        
+        # Filter by grep pattern if specified
+        if self.grep_pattern:
+            try:
+                if not re.search(self.grep_pattern, line, re.IGNORECASE):
+                    return False
+            except re.error:
+                # Invalid regex, treat as literal string
+                if self.grep_pattern.lower() not in line.lower():
+                    return False
+        
+        return True
+
     def execute(self) -> None:
         """Execute logs command."""
         # Show minimal header for logs (Heroku-style)
+        filters = []
+        if self.filter_level:
+            filters.append(f"level={self.filter_level}")
+        if self.grep_pattern:
+            filters.append(f"grep='{self.grep_pattern}'")
+        
+        filter_str = f" | {', '.join(filters)}" if filters else ""
+        
         self.console.print()
         self.console.print(f"[bold cyan]📋 {self.project_name}/{self.app_name}[/bold cyan]", end="")
-        self.console.print(f" [dim]({self.lines} lines" + (" | following" if self.follow else "") + ")[/dim]")
+        
+        if self.follow:
+            self.console.print(f" [dim](streaming{filter_str})[/dim]")
+        else:
+            self.console.print(f" [dim]({self.lines} lines{filter_str})[/dim]")
+        
         self.console.print()
 
         # Require deployment
@@ -94,38 +128,43 @@ class LogsCommand(ProjectCommand):
         container_name = f"{self.project_name}_{self.app_name}"
 
         try:
-            # Stream logs
+            # Show helpful message for follow mode
             if self.follow:
-                self.console.print("[dim]→ Press Ctrl+C to stop[/dim]\n")
+                self.console.print("[dim]→ Streaming logs... Press Ctrl+C to stop[/dim]\n")
 
             process = ssh_service.docker_logs(
                 vm_ip, container_name, follow=self.follow, tail=self.lines
             )
 
-            # Stream and colorize output
+            # Stream and filter output
             if process.stdout:
                 for line in process.stdout:
                     if not line.strip():
                         continue
                     
-                    # Parse and colorize
+                    # Parse log line
                     parsed = self.parse_log_line(line)
                     
-                    # Filter by level if specified
-                    if self.filter_level and parsed['level'] != self.filter_level.upper():
+                    # Apply filters
+                    if not self.matches_filters(parsed, line):
                         continue
                     
+                    # Colorize and print
                     colored_line = self.colorize_log(parsed)
-                    # Use print instead of console.print to avoid double-rendering
                     print(colored_line)
+                    self.line_count += 1
 
             process.wait()
 
+            # Show summary only if not following
             if not self.follow:
-                self.console.print(f"\n[dim]✓ Log streaming complete[/dim]")
+                if self.line_count == 0:
+                    self.console.print(f"\n[dim]No logs found matching filters[/dim]")
+                else:
+                    self.console.print(f"\n[dim]✓ Displayed {self.line_count} log line(s)[/dim]")
 
         except KeyboardInterrupt:
-            self.console.print(f"\n[dim]✓ Stopped by user[/dim]")
+            self.console.print(f"\n[dim]✓ Stopped (displayed {self.line_count} lines)[/dim]")
             if process:
                 process.terminate()
         except Exception as e:
@@ -135,27 +174,43 @@ class LogsCommand(ProjectCommand):
 
 @click.command()
 @click.option("-a", "--app", required=True, help="App name (api, storefront, services)")
-@click.option("-f", "--follow", is_flag=True, help="Follow logs in real-time (like tail -f)")
+@click.option("-f", "--follow", is_flag=True, help="Stream logs in real-time (like tail -f)")
 @click.option("-n", "--lines", default=100, help="Number of recent lines to show")
 @click.option("--level", help="Filter by log level (ERROR, WARNING, INFO, DEBUG)")
+@click.option("--grep", "grep_pattern", help="Filter logs by pattern (supports regex)")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def logs(project, app, follow, lines, level, verbose):
+def logs(project, app, follow, lines, level, grep_pattern, verbose):
     """
     View application logs with beautiful formatting (Heroku-style)
     
     Features:
-    - Color-coded log levels (ERROR=red, WARNING=yellow, INFO=blue, etc.)
-    - Automatic timestamp detection and formatting
-    - HTTP request highlighting
-    - Real-time streaming with -f flag
+    - Real-time streaming with -f flag (continuously tails logs)
     - Filter by log level with --level flag
+    - Search logs with --grep flag (supports regex)
+    - Clean, colorful output
+    - Shows line count summary
 
     Examples:
-        superdeploy cheapa:logs -a api              # Last 100 lines
-        superdeploy cheapa:logs -a api -f           # Follow logs in real-time
-        superdeploy cheapa:logs -a api -n 500       # Last 500 lines
-        superdeploy cheapa:logs -a api --level ERROR # Only show errors
-        superdeploy cheapa:logs -a storefront -f    # Follow storefront logs
+        # Last 100 lines
+        superdeploy cheapa:logs -a api
+        
+        # Stream logs in real-time (like Heroku)
+        superdeploy cheapa:logs -a api -f
+        
+        # Last 500 lines
+        superdeploy cheapa:logs -a api -n 500
+        
+        # Only show errors
+        superdeploy cheapa:logs -a api --level ERROR
+        
+        # Search for specific pattern
+        superdeploy cheapa:logs -a api --grep "database"
+        
+        # Combine filters (follow + grep)
+        superdeploy cheapa:logs -a api -f --grep "GET.*200"
+        
+        # Follow + filter by level
+        superdeploy cheapa:logs -a storefront -f --level ERROR
     """
     cmd = LogsCommand(
         project, 
@@ -163,6 +218,7 @@ def logs(project, app, follow, lines, level, verbose):
         follow=follow, 
         lines=lines, 
         verbose=verbose,
-        filter_level=level
+        filter_level=level,
+        grep_pattern=grep_pattern,
     )
     cmd.run()
