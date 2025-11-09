@@ -80,7 +80,7 @@
 
 - name: Copy config.yml to VM for deployment hooks
   copy:
-    src: "{{ playbook_dir }}/../projects/{{ project_name }}/config.yml"
+    src: "{{ playbook_dir }}/../../projects/{{ project_name }}/config.yml"
     dest: "{{ project_base_path }}/config.yml"
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
