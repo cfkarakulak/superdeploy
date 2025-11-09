@@ -11,12 +11,12 @@ class LogsCommand(ProjectCommand):
 
     # Color schemes for different log levels
     LOG_COLORS = {
-        'ERROR': 'red',
-        'CRITICAL': 'bold red',
-        'WARNING': 'yellow',
-        'INFO': 'blue',
-        'DEBUG': 'cyan',
-        'SUCCESS': 'green',
+        "ERROR": "red",
+        "CRITICAL": "bold red",
+        "WARNING": "yellow",
+        "INFO": "blue",
+        "DEBUG": "cyan",
+        "SUCCESS": "green",
     }
 
     def __init__(
@@ -41,42 +41,42 @@ class LogsCommand(ProjectCommand):
         """Parse log line and extract components."""
         # Try to detect log level
         level = None
-        for lvl in ['ERROR', 'CRITICAL', 'WARNING', 'INFO', 'DEBUG']:
+        for lvl in ["ERROR", "CRITICAL", "WARNING", "INFO", "DEBUG"]:
             if lvl in line.upper():
                 level = lvl
                 break
-        
+
         # Try to extract timestamp (common formats)
         timestamp = None
         # ISO format: 2024-11-09T12:34:56
-        iso_match = re.search(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}', line)
+        iso_match = re.search(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}", line)
         if iso_match:
             timestamp = iso_match.group(0)
-        
+
         return {
-            'level': level,
-            'timestamp': timestamp,
-            'message': line.strip(),
+            "level": level,
+            "timestamp": timestamp,
+            "message": line.strip(),
         }
 
     def colorize_log(self, parsed: dict) -> str:
         """Format log line simply - original logs already have colors."""
-        timestamp = parsed['timestamp']
-        message = parsed['message']
-        
+        timestamp = parsed["timestamp"]
+        message = parsed["message"]
+
         # Just add our timestamp if one doesn't exist
         if timestamp:
             return message  # Log already has timestamp
         else:
-            now = datetime.now().strftime('%H:%M:%S')
+            now = datetime.now().strftime("%H:%M:%S")
             return f"\033[2m{now}\033[0m {message}"
 
     def matches_filters(self, parsed: dict, line: str) -> bool:
         """Check if line matches all filters."""
         # Filter by level if specified
-        if self.filter_level and parsed['level'] != self.filter_level.upper():
+        if self.filter_level and parsed["level"] != self.filter_level.upper():
             return False
-        
+
         # Filter by grep pattern if specified
         if self.grep_pattern:
             try:
@@ -86,7 +86,7 @@ class LogsCommand(ProjectCommand):
                 # Invalid regex, treat as literal string
                 if self.grep_pattern.lower() not in line.lower():
                     return False
-        
+
         return True
 
     def execute(self) -> None:
@@ -97,17 +97,19 @@ class LogsCommand(ProjectCommand):
             filters.append(f"level={self.filter_level}")
         if self.grep_pattern:
             filters.append(f"grep='{self.grep_pattern}'")
-        
+
         filter_str = f" | {', '.join(filters)}" if filters else ""
-        
+
         self.console.print()
-        self.console.print(f"[bold cyan]📋 {self.project_name}/{self.app_name}[/bold cyan]", end="")
-        
+        self.console.print(
+            f"[bold cyan]📋 {self.project_name}/{self.app_name}[/bold cyan]", end=""
+        )
+
         if self.follow:
             self.console.print(f" [dim](streaming{filter_str})[/dim]")
         else:
             self.console.print(f" [dim]({self.lines} lines{filter_str})[/dim]")
-        
+
         self.console.print()
 
         # Require deployment
@@ -130,7 +132,9 @@ class LogsCommand(ProjectCommand):
         try:
             # Show helpful message for follow mode
             if self.follow:
-                self.console.print("[dim]→ Streaming logs... Press Ctrl+C to stop[/dim]\n")
+                self.console.print(
+                    "[dim]→ Streaming logs... Press Ctrl+C to stop[/dim]\n"
+                )
 
             process = ssh_service.docker_logs(
                 vm_ip, container_name, follow=self.follow, tail=self.lines
@@ -141,14 +145,14 @@ class LogsCommand(ProjectCommand):
                 for line in process.stdout:
                     if not line.strip():
                         continue
-                    
+
                     # Parse log line
                     parsed = self.parse_log_line(line)
-                    
+
                     # Apply filters
                     if not self.matches_filters(parsed, line):
                         continue
-                    
+
                     # Colorize and print
                     colored_line = self.colorize_log(parsed)
                     print(colored_line)
@@ -159,12 +163,16 @@ class LogsCommand(ProjectCommand):
             # Show summary only if not following
             if not self.follow:
                 if self.line_count == 0:
-                    self.console.print(f"\n[dim]No logs found matching filters[/dim]")
+                    self.console.print("\n[dim]No logs found matching filters[/dim]")
                 else:
-                    self.console.print(f"\n[dim]✓ Displayed {self.line_count} log line(s)[/dim]")
+                    self.console.print(
+                        f"\n[dim]✓ Displayed {self.line_count} log line(s)[/dim]"
+                    )
 
         except KeyboardInterrupt:
-            self.console.print(f"\n[dim]✓ Stopped (displayed {self.line_count} lines)[/dim]")
+            self.console.print(
+                f"\n[dim]✓ Stopped (displayed {self.line_count} lines)[/dim]"
+            )
             if process:
                 process.terminate()
         except Exception as e:
@@ -174,7 +182,9 @@ class LogsCommand(ProjectCommand):
 
 @click.command()
 @click.option("-a", "--app", required=True, help="App name (api, storefront, services)")
-@click.option("-f", "--follow", is_flag=True, help="Stream logs in real-time (like tail -f)")
+@click.option(
+    "-f", "--follow", is_flag=True, help="Stream logs in real-time (like tail -f)"
+)
 @click.option("-n", "--lines", default=100, help="Number of recent lines to show")
 @click.option("--level", help="Filter by log level (ERROR, WARNING, INFO, DEBUG)")
 @click.option("--grep", "grep_pattern", help="Filter logs by pattern (supports regex)")
@@ -182,7 +192,7 @@ class LogsCommand(ProjectCommand):
 def logs(project, app, follow, lines, level, grep_pattern, verbose):
     """
     View application logs with beautiful formatting (Heroku-style)
-    
+
     Features:
     - Real-time streaming with -f flag (continuously tails logs)
     - Filter by log level with --level flag
@@ -193,30 +203,30 @@ def logs(project, app, follow, lines, level, grep_pattern, verbose):
     Examples:
         # Last 100 lines
         superdeploy cheapa:logs -a api
-        
+
         # Stream logs in real-time (like Heroku)
         superdeploy cheapa:logs -a api -f
-        
+
         # Last 500 lines
         superdeploy cheapa:logs -a api -n 500
-        
+
         # Only show errors
         superdeploy cheapa:logs -a api --level ERROR
-        
+
         # Search for specific pattern
         superdeploy cheapa:logs -a api --grep "database"
-        
+
         # Combine filters (follow + grep)
         superdeploy cheapa:logs -a api -f --grep "GET.*200"
-        
+
         # Follow + filter by level
         superdeploy cheapa:logs -a storefront -f --level ERROR
     """
     cmd = LogsCommand(
-        project, 
-        app, 
-        follow=follow, 
-        lines=lines, 
+        project,
+        app,
+        follow=follow,
+        lines=lines,
         verbose=verbose,
         filter_level=level,
         grep_pattern=grep_pattern,
