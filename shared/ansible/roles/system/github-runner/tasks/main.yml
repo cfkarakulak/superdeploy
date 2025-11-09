@@ -3,6 +3,13 @@
 # This role installs self-hosted GitHub runner on project VMs
 # Note: Orchestrator is excluded in site.yml (hosts: all:!orchestrator)
 
+- name: Install Python packages required for deployment hooks
+  pip:
+    name:
+      - pyyaml
+    state: present
+    executable: pip3
+
 - name: Create deployment directories
   file:
     path: "{{ item }}"
