@@ -77,27 +77,45 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
     logger.step("[1/4] Updating Local Config")
     logger.log(f"File: {secrets_file}")
 
-    # Load existing passwords
+    # Load existing secrets with proper structure
     if secrets_file.exists():
         with open(secrets_file) as f:
-            passwords = yaml.safe_load(f) or {}
+            secrets_data = yaml.safe_load(f) or {}
     else:
-        passwords = {}
+        secrets_data = {}
+
+    # Ensure proper structure
+    if "secrets" not in secrets_data:
+        secrets_data["secrets"] = {}
+    if "shared" not in secrets_data["secrets"]:
+        secrets_data["secrets"]["shared"] = {}
+
+    # Determine target location: app-specific or shared
+    if app:
+        # App-specific secret
+        if app not in secrets_data["secrets"]:
+            secrets_data["secrets"][app] = {}
+        target_dict = secrets_data["secrets"][app]
+        location = f"secrets.{app}"
+    else:
+        # Shared secret (all apps)
+        target_dict = secrets_data["secrets"]["shared"]
+        location = "secrets.shared"
 
     # Store old value for logging
-    old_value = passwords.get(key)
+    old_value = target_dict.get(key)
 
     # Update value
-    passwords[key] = value
+    target_dict[key] = value
 
-    # Write back
+    # Write back with proper formatting
     with open(secrets_file, "w") as f:
-        yaml.dump(passwords, f, default_flow_style=False, sort_keys=True)
+        yaml.dump(secrets_data, f, default_flow_style=False, sort_keys=False)
 
     if old_value:
-        logger.log(f"✓ Updated {key} (previous value overwritten)")
+        logger.log(f"✓ Updated {key} in {location} (previous value overwritten)")
     else:
-        logger.log(f"✓ Added {key} (new variable)")
+        logger.log(f"✓ Added {key} to {location}")
 
     # Step 2: Sync to GitHub
     if not no_sync:
@@ -105,16 +123,34 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
         logger.log("Running sync command...")
 
         try:
-            from cli.commands.sync import sync
-            from click.testing import CliRunner
+            # Use subprocess to call sync command
+            # This is more reliable than CliRunner for namespace commands
+            import sys
 
-            runner = CliRunner()
-            result = runner.invoke(sync, ["-p", project], catch_exceptions=False)
+            sync_cmd = [
+                sys.executable,
+                "-m",
+                "cli.main",
+                f"{project}:sync",
+            ]
 
-            if result.exit_code == 0:
+            result = subprocess.run(
+                sync_cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+
+            if result.returncode == 0:
                 logger.log("✓ Synced to GitHub")
             else:
-                logger.warning("⚠ Sync had issues, check output above")
+                logger.warning("⚠ Sync had issues")
+                if result.stderr:
+                    for line in result.stderr.split("\n")[:3]:
+                        if line.strip():
+                            logger.warning(f"  {line}")
+        except subprocess.TimeoutExpired:
+            logger.warning("⚠ Sync timed out")
         except Exception as e:
             logger.log_error(f"Sync failed: {e}")
             logger.warning("Continuing without sync...")
@@ -327,9 +363,14 @@ def config_list(project, filter):
 
 @click.command(name="config:unset")
 @click.argument("key")
+@click.option(
+    "-a",
+    "--app",
+    help="App name (api, storefront, services). If not specified, removes from shared",
+)
 @click.option("--deploy", is_flag=True, help="Auto-deploy after unsetting config")
 @click.option("--no-sync", is_flag=True, help="Skip GitHub sync")
-def config_unset(key, project, deploy, no_sync):
+def config_unset(key, project, app, deploy, no_sync):
     """
     Unset (delete) configuration variable (Heroku-like!)
 
@@ -382,19 +423,38 @@ def config_unset(key, project, deploy, no_sync):
     # Step 2: Sync to GitHub (removes from there too)
     if not no_sync:
         logger.step("[2/3] Syncing to GitHub")
-        logger.log("Re-syncing to update remote secrets...")
+        logger.log("Clearing and re-syncing to remove deleted secret...")
 
         try:
-            from cli.commands.sync import sync
-            from click.testing import CliRunner
+            # Use subprocess to call sync with --clear flag
+            # This ensures the deleted secret is removed from GitHub
+            import sys
 
-            runner = CliRunner()
-            result = runner.invoke(sync, ["-p", project], catch_exceptions=False)
+            sync_cmd = [
+                sys.executable,
+                "-m",
+                "cli.main",
+                f"{project}:sync",
+                "--clear",  # Clear all secrets then re-sync
+            ]
 
-            if result.exit_code == 0:
-                logger.log("✓ Remote secrets updated")
+            result = subprocess.run(
+                sync_cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+
+            if result.returncode == 0:
+                logger.log("✓ Remote secrets updated (secret removed)")
             else:
                 logger.warning("⚠ Sync had issues")
+                if result.stderr:
+                    for line in result.stderr.split("\n")[:3]:
+                        if line.strip():
+                            logger.warning(f"  {line}")
+        except subprocess.TimeoutExpired:
+            logger.warning("⚠ Sync timed out")
         except Exception as e:
             logger.log_error(f"Sync failed: {e}")
     else:

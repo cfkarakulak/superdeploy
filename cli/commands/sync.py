@@ -14,34 +14,34 @@ console = Console()
 def read_env_file(env_path):
     """Read .env file and return as dictionary"""
     env_dict = {}
-    
+
     if not env_path.exists():
         return env_dict
-    
+
     try:
-        with open(env_path, 'r') as f:
+        with open(env_path, "r") as f:
             for line in f:
                 line = line.strip()
                 # Skip empty lines and comments
-                if not line or line.startswith('#'):
+                if not line or line.startswith("#"):
                     continue
-                
+
                 # Parse KEY=VALUE
-                if '=' in line:
-                    key, value = line.split('=', 1)
+                if "=" in line:
+                    key, value = line.split("=", 1)
                     key = key.strip()
                     value = value.strip()
-                    
+
                     # Remove quotes if present
                     if value.startswith('"') and value.endswith('"'):
                         value = value[1:-1]
                     elif value.startswith("'") and value.endswith("'"):
                         value = value[1:-1]
-                    
+
                     env_dict[key] = value
     except Exception as e:
         console.print(f"[yellow]⚠️  Could not read .env file: {e}[/yellow]")
-    
+
     return env_dict
 
 
@@ -52,7 +52,7 @@ def set_github_repo_secrets(repo, secrets_dict, console):
 
     for key, value in secrets_dict.items():
         try:
-            result = subprocess.run(
+            subprocess.run(
                 ["gh", "secret", "set", key, "-b", str(value), "-R", repo],
                 check=True,
                 capture_output=True,
@@ -89,7 +89,7 @@ def set_github_env_secrets(repo, env_name, secrets_dict, console):
             continue
 
         try:
-            result = subprocess.run(
+            subprocess.run(
                 [
                     "gh",
                     "secret",
@@ -127,8 +127,105 @@ def set_github_env_secrets(repo, env_name, secrets_dict, console):
     return success_count, fail_count
 
 
+def list_github_repo_secrets(repo, console):
+    """List all GitHub repository secrets using gh CLI"""
+    try:
+        result = subprocess.run(
+            ["gh", "secret", "list", "-R", repo, "--json", "name"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        secrets = json.loads(result.stdout)
+        return [secret["name"] for secret in secrets]
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Could not list secrets: {e}[/yellow]")
+        return []
+
+
+def remove_github_repo_secrets(repo, secret_names, console):
+    """Remove GitHub repository secrets using gh CLI"""
+    success_count = 0
+    fail_count = 0
+
+    for secret_name in secret_names:
+        try:
+            subprocess.run(
+                ["gh", "secret", "remove", secret_name, "-R", repo],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            console.print(f"  [red]✗[/red] {secret_name} [dim](removed)[/dim]")
+            success_count += 1
+        except subprocess.CalledProcessError as e:
+            error_msg = (
+                e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            )
+            error_msg = error_msg.strip().replace("\n", " ")[:60]
+            console.print(f"  [yellow]⚠️[/yellow] {secret_name}: {error_msg}")
+            fail_count += 1
+        except Exception as e:
+            error_msg = str(e).strip().replace("\n", " ")[:60]
+            console.print(f"  [yellow]⚠️[/yellow] {secret_name}: {error_msg}")
+            fail_count += 1
+
+    return success_count, fail_count
+
+
+def list_github_env_secrets(repo, env_name, console):
+    """List all GitHub environment secrets using gh CLI"""
+    try:
+        result = subprocess.run(
+            ["gh", "secret", "list", "-e", env_name, "-R", repo, "--json", "name"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        secrets = json.loads(result.stdout)
+        return [secret["name"] for secret in secrets]
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Could not list environment secrets: {e}[/yellow]")
+        return []
+
+
+def remove_github_env_secrets(repo, env_name, secret_names, console):
+    """Remove GitHub environment secrets using gh CLI"""
+    success_count = 0
+    fail_count = 0
+
+    for secret_name in secret_names:
+        try:
+            subprocess.run(
+                ["gh", "secret", "remove", secret_name, "-e", env_name, "-R", repo],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            console.print(f"  [red]✗[/red] {secret_name} [dim](removed)[/dim]")
+            success_count += 1
+        except subprocess.CalledProcessError as e:
+            error_msg = (
+                e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            )
+            error_msg = error_msg.strip().replace("\n", " ")[:60]
+            console.print(f"  [yellow]⚠️[/yellow] {secret_name}: {error_msg}")
+            fail_count += 1
+        except Exception as e:
+            error_msg = str(e).strip().replace("\n", " ")[:60]
+            console.print(f"  [yellow]⚠️[/yellow] {secret_name}: {error_msg}")
+            fail_count += 1
+
+    return success_count, fail_count
+
+
 @click.command(name="sync")
-def sync(project):
+@click.option("--clear", is_flag=True, help="Clear all existing secrets before syncing")
+def sync(project, clear):
     """
     Sync ALL secrets to GitHub
 
@@ -139,8 +236,12 @@ def sync(project):
     - gh CLI installed and authenticated
     - secrets.yml file in project directory
 
-    Example:
+    Options:
+    - --clear: Remove all existing secrets before syncing new ones
+
+    Examples:
         superdeploy cheapa:sync
+        superdeploy cheapa:sync --clear
     """
     show_header(
         title="Sync Secrets to GitHub",
@@ -203,6 +304,21 @@ def sync(project):
         repo = f"{github_org}/{app_name}"
         console.print(f"[cyan]{repo}:[/cyan]")
 
+        # Clear existing secrets if --clear flag is provided
+        if clear:
+            console.print("  [yellow]🧹 Clearing existing secrets...[/yellow]")
+            existing_secrets = list_github_repo_secrets(repo, console)
+            if existing_secrets:
+                console.print(
+                    f"  [dim]Found {len(existing_secrets)} secrets to remove[/dim]"
+                )
+                success, fail = remove_github_repo_secrets(
+                    repo, existing_secrets, console
+                )
+                console.print(f"  [dim]→ {success} removed, {fail} failed[/dim]\n")
+            else:
+                console.print("  [dim]No existing secrets found[/dim]\n")
+
         # Repository-level secrets (Docker, orchestrator, etc.)
         repo_secrets = {
             "DOCKER_REGISTRY": all_secrets.get("shared", {}).get(
@@ -221,12 +337,29 @@ def sync(project):
 
         # Environment secrets (production)
         env_name = "production"
-        console.print(f"[cyan]Environment '{env_name}' (merged .env + secrets.yml):[/cyan]")
+        console.print(
+            f"[cyan]Environment '{env_name}' (merged .env + secrets.yml):[/cyan]"
+        )
+
+        # Clear existing environment secrets if --clear flag is provided
+        if clear:
+            console.print("  [yellow]🧹 Clearing environment secrets...[/yellow]")
+            existing_env_secrets = list_github_env_secrets(repo, env_name, console)
+            if existing_env_secrets:
+                console.print(
+                    f"  [dim]Found {len(existing_env_secrets)} environment secrets to remove[/dim]"
+                )
+                success, fail = remove_github_env_secrets(
+                    repo, env_name, existing_env_secrets, console
+                )
+                console.print(f"  [dim]→ {success} removed, {fail} failed[/dim]\n")
+            else:
+                console.print("  [dim]No existing environment secrets found[/dim]\n")
 
         # Read app's local .env file
         app_path = Path(app_config["path"]).expanduser().resolve()
         env_file_path = app_path / ".env"
-        
+
         local_env = {}
         if env_file_path.exists():
             local_env = read_env_file(env_file_path)
@@ -236,7 +369,9 @@ def sync(project):
 
         # Get app-specific secrets from secrets.yml
         app_secrets = secret_mgr.get_app_secrets(app_name)
-        console.print(f"  [dim]🔐 Read {len(app_secrets)} secrets from secrets.yml[/dim]")
+        console.print(
+            f"  [dim]🔐 Read {len(app_secrets)} secrets from secrets.yml[/dim]"
+        )
 
         # MERGE: local .env as base, secrets.yml overrides
         merged_env = {**local_env, **app_secrets}
@@ -245,19 +380,24 @@ def sync(project):
         # Create JSON secret with merged environment
         env_json_secret_name = f"{app_name.upper()}_ENV_JSON"
         env_json_value = json.dumps(merged_env)
-        
-        # Add JSON secret to repo secrets
-        repo_secrets_with_json = {
-            **repo_secrets,
-            env_json_secret_name: env_json_value
-        }
-        
-        console.print(f"  [green]✓[/green] {env_json_secret_name} [dim](JSON with {len(merged_env)} vars)[/dim]")
+
+        console.print(
+            f"  [green]✓[/green] {env_json_secret_name} [dim](JSON with {len(merged_env)} vars)[/dim]"
+        )
 
         # Set the JSON secret
         try:
             subprocess.run(
-                ["gh", "secret", "set", env_json_secret_name, "-b", env_json_value, "-R", repo],
+                [
+                    "gh",
+                    "secret",
+                    "set",
+                    env_json_secret_name,
+                    "-b",
+                    env_json_value,
+                    "-R",
+                    repo,
+                ],
                 check=True,
                 capture_output=True,
                 text=True,
