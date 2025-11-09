@@ -3,110 +3,119 @@ Project deployment commands
 """
 
 from pathlib import Path
-from rich.console import Console
-from cli.ui_components import show_header
+from cli.base import ProjectCommand
 import click
 
-console = Console()
 
+class ProjectsDeployCommand(ProjectCommand):
+    """Deploy project-specific services to VM."""
 
-@click.command(name="projects:deploy")
-@click.option(
-    "--services",
-    "-s",
-    default="all",
-    help="Services to deploy (comma-separated or 'all')",
-)
-def projects_deploy(project, services):
-    """Deploy project-specific services to VM"""
+    def __init__(
+        self, project_name: str, services: str = "all", verbose: bool = False
+    ):
+        super().__init__(project_name, verbose=verbose)
+        self.services = services
 
-    show_header(
-        title="Deploy Project",
-        project=project,
-        details={"Services": services},
-        console=console,
-    )
-
-    project_root = Path(__file__).parents[2]
-    project_path = project_root / "projects" / project
-
-    if not project_path.exists():
-        console.print(f"[red]❌ Project '{project}' not found at {project_path}[/red]")
-        return
-
-    # Load project secrets from secrets.yml
-    from cli.secret_manager import SecretManager
-    from cli.utils import get_project_root
-
-    project_root = get_project_root()
-    secret_mgr = SecretManager(project_root, project)
-
-    try:
-        secrets_data = secret_mgr.load_secrets()
-    except FileNotFoundError:
-        console.print(
-            f"[red]❌ Project secrets not found: {project_path / 'secrets.yml'}[/red]"
+    def execute(self) -> None:
+        """Execute projects:deploy command."""
+        self.show_header(
+            title="Deploy Project",
+            project=self.project_name,
+            details={"Services": self.services},
         )
-        console.print(f"[dim]Run: superdeploy :init{project}[/dim]")
-        return
 
-    # Extract all secrets (shared + app-specific)
-    project_secrets = {}
-    if secrets_data.get("secrets", {}).get("shared"):
-        project_secrets.update(secrets_data["secrets"]["shared"])
+        # Load project secrets from secrets.yml
+        from cli.secret_manager import SecretManager
+        from cli.utils import get_project_root, get_project_path
 
-    # Add app-specific secrets
-    for app_name, app_secrets in secrets_data.get("secrets", {}).items():
-        if app_name != "shared" and isinstance(app_secrets, dict):
-            project_secrets.update(app_secrets)
+        project_root = get_project_root()
+        project_path = get_project_path(self.project_name)
 
-    # Run Ansible playbook for project deployment
-    ansible_dir = project_root / "shared" / "ansible"
-    ansible_playbook = ansible_dir / "playbooks" / "project_deploy.yml"
+        if not project_path.exists():
+            self.console.print(
+                f"[red]❌ Project '{self.project_name}' not found at {project_path}[/red]"
+            )
+            return
 
-    if not ansible_playbook.exists():
-        console.print("[yellow]Creating project deployment playbook...[/yellow]")
-        _create_project_deploy_playbook(ansible_dir)
+        secret_mgr = SecretManager(project_root, self.project_name)
 
-    # Build ansible extra vars dynamically from project secrets
-    extra_vars = [f'-e "project_name={project}"']
+        try:
+            secrets_data = secret_mgr.load_secrets()
+        except FileNotFoundError:
+            self.console.print(
+                f"[red]❌ Project secrets not found: {project_path / 'secrets.yml'}[/red]"
+            )
+            self.console.print(
+                f"[dim]Run: superdeploy {self.project_name}:init[/dim]"
+            )
+            return
 
-    # Add all secret variables dynamically (no hardcoded addon names)
-    for key, value in project_secrets.items():
-        if value:  # Only add non-empty values
-            # Convert to ansible var format (e.g., POSTGRES_PASSWORD -> project_postgres_password)
-            ansible_var = f"project_{key.lower()}"
-            extra_vars.append(f'-e "{ansible_var}={value}"')
+        # Extract all secrets (shared + app-specific)
+        project_secrets = {}
+        if secrets_data.get("secrets", {}).get("shared"):
+            project_secrets.update(secrets_data["secrets"]["shared"])
 
-    extra_vars_str = " \\\n  ".join(extra_vars)
+        # Add app-specific secrets
+        for app_name, app_secrets in secrets_data.get("secrets", {}).items():
+            if app_name != "shared" and isinstance(app_secrets, dict):
+                project_secrets.update(app_secrets)
 
-    ansible_cmd = f"""
+        # Run Ansible playbook for project deployment
+        ansible_dir = project_root / "shared" / "ansible"
+        ansible_playbook = ansible_dir / "playbooks" / "project_deploy.yml"
+
+        if not ansible_playbook.exists():
+            self.console.print(
+                "[yellow]Creating project deployment playbook...[/yellow]"
+            )
+            _create_project_deploy_playbook(ansible_dir, self.console)
+
+        # Build ansible extra vars dynamically from project secrets
+        extra_vars = [f'-e "project_name={self.project_name}"']
+
+        # Add all secret variables dynamically (no hardcoded addon names)
+        for key, value in project_secrets.items():
+            if value:  # Only add non-empty values
+                # Convert to ansible var format (e.g., POSTGRES_PASSWORD -> project_postgres_password)
+                ansible_var = f"project_{key.lower()}"
+                extra_vars.append(f'-e "{ansible_var}={value}"')
+
+        extra_vars_str = " \\\n  ".join(extra_vars)
+
+        ansible_cmd = f"""
 cd {ansible_dir} && \\
 ansible-playbook -i inventories/dev.ini playbooks/project_deploy.yml \\
   {extra_vars_str}
 """
 
-    # Run ansible with clean tree view
-    from cli.ansible_runner import AnsibleRunner
-    from cli.logger import DeployLogger
+        # Run ansible with clean tree view
+        from cli.ansible_runner import AnsibleRunner
+        from cli.logger import DeployLogger
 
-    verbose = False  # Can be made a CLI option later
-    with DeployLogger("project", project, verbose=verbose) as logger:
-        logger.step("Deploying project services")
+        with DeployLogger(
+            "project", self.project_name, verbose=self.verbose
+        ) as logger:
+            logger.step("Deploying project services")
 
-        runner = AnsibleRunner(logger, title=f"Deploying {project}", verbose=verbose)
-        returncode = runner.run(ansible_cmd, cwd=project_root)
+            runner = AnsibleRunner(
+                logger,
+                title=f"Deploying {self.project_name}",
+                verbose=self.verbose,
+            )
+            returncode = runner.run(ansible_cmd, cwd=project_root)
 
-        if returncode != 0:
-            logger.log_error("Deployment failed", context="Check logs for details")
-            raise SystemExit(1)
+            if returncode != 0:
+                logger.log_error("Deployment failed", context="Check logs for details")
+                raise SystemExit(1)
 
-        logger.success("Project deployed successfully")
-        console.print(f"\n[green]✅ Project '{project}' deployed successfully![/green]")
-        console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
+            logger.success("Project deployed successfully")
+            self.console.print(
+                f"\n[green]✅ Project '{self.project_name}' deployed successfully![/green]"
+            )
+            self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
 
-def _create_project_deploy_playbook(ansible_dir):
+def _create_project_deploy_playbook(ansible_dir, console):
     """Create generic project deployment playbook"""
     playbook_path = ansible_dir / "playbooks" / "project_deploy.yml"
     playbook_content = """---
@@ -199,3 +208,17 @@ def _create_project_deploy_playbook(ansible_dir):
 
     playbook_path.write_text(playbook_content)
     console.print(f"[green]✅ Created {playbook_path}[/green]")
+
+
+@click.command(name="projects:deploy")
+@click.option(
+    "--services",
+    "-s",
+    default="all",
+    help="Services to deploy (comma-separated or 'all')",
+)
+@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
+def projects_deploy(project, services, verbose):
+    """Deploy project-specific services to VM"""
+    cmd = ProjectsDeployCommand(project, services=services, verbose=verbose)
+    cmd.run()
