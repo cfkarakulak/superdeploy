@@ -60,9 +60,7 @@ class ReleasesCommand(ProjectCommand):
 
             ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
             if ip_key not in env:
-                self.console.print(
-                    f"[red]❌ VM IP not found in state: {ip_key}[/red]"
-                )
+                self.console.print(f"[red]❌ VM IP not found in state: {ip_key}[/red]")
                 return
 
             ssh_host = env[ip_key]
