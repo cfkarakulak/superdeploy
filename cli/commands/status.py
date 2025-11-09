@@ -9,9 +9,8 @@ from cli.base import ProjectCommand
 class StatusCommand(ProjectCommand):
     """Show infrastructure and application status."""
 
-    def __init__(self, project_name: str, verbose: bool = False, show_versions: bool = False):
+    def __init__(self, project_name: str, verbose: bool = False):
         super().__init__(project_name, verbose=verbose)
-        self.show_versions = show_versions
         self.table = Table(
             title=f"{project_name} - Infrastructure Status",
             title_justify="left",
@@ -20,9 +19,7 @@ class StatusCommand(ProjectCommand):
         self.table.add_column("Component", style="cyan", no_wrap=True)
         self.table.add_column("Status", style="green")
         self.table.add_column("Details", style="dim")
-        
-        if show_versions:
-            self.table.add_column("Version", style="yellow")
+        self.table.add_column("Version", style="yellow")
 
     def execute(self) -> None:
         """Execute status command."""
@@ -53,29 +50,32 @@ class StatusCommand(ProjectCommand):
 
         # Get apps
         apps = self.list_apps()
-        
-        # Get version info if requested
+
+        # Get version info for all apps
         app_versions = {}
-        if self.show_versions:
-            for vm_name in all_vms.keys():
-                vm_data = all_vms[vm_name]
-                vm_ip = vm_data["external_ip"]
-                
-                try:
-                    result = ssh_service.execute_command(
-                        vm_ip,
-                        f"cat /opt/superdeploy/projects/{self.project_name}/versions.json 2>/dev/null || echo '[]'",
-                        timeout=5,
-                    )
-                    
-                    if result.returncode == 0 and result.stdout.strip():
-                        versions = json.loads(result.stdout)
-                        for version in versions:
-                            app_name = version["app"]
-                            if app_name not in app_versions or version["deployed_at"] > app_versions[app_name]["deployed_at"]:
-                                app_versions[app_name] = version
-                except Exception:
-                    pass
+        for vm_name in all_vms.keys():
+            vm_data = all_vms[vm_name]
+            vm_ip = vm_data["external_ip"]
+
+            try:
+                result = ssh_service.execute_command(
+                    vm_ip,
+                    f"cat /opt/superdeploy/projects/{self.project_name}/versions.json 2>/dev/null || echo '[]'",
+                    timeout=5,
+                )
+
+                if result.returncode == 0 and result.stdout.strip():
+                    versions = json.loads(result.stdout)
+                    for version in versions:
+                        app_name = version["app"]
+                        if (
+                            app_name not in app_versions
+                            or version["deployed_at"]
+                            > app_versions[app_name]["deployed_at"]
+                        ):
+                            app_versions[app_name] = version
+            except Exception:
+                pass
 
         # Check each VM and its containers
         for vm_name in sorted(all_vms.keys()):
@@ -109,21 +109,23 @@ class StatusCommand(ProjectCommand):
                                 app_name = container.replace(
                                     f"{self.project_name}-", ""
                                 )
-                                
+
                                 # Add version if available
-                                if self.show_versions and app_name in app_versions:
+                                if app_name in app_versions:
                                     version_info = app_versions[app_name]
                                     self.table.add_row(
-                                        f"  └─ {app_name}", 
-                                        status, 
+                                        f"  └─ {app_name}",
+                                        status,
                                         "container",
-                                        f"{version_info['short_sha']} ({version_info['branch']})"
+                                        f"{version_info['short_sha']} ({version_info['branch']})",
                                     )
                                 else:
-                                    row_data = [f"  └─ {app_name}", status, "container"]
-                                    if self.show_versions:
-                                        row_data.append("-")
-                                    self.table.add_row(*row_data)
+                                    self.table.add_row(
+                                        f"  └─ {app_name}",
+                                        status,
+                                        "container",
+                                        "-",
+                                    )
                     else:
                         # VM running but no containers
                         self.table.add_row(
@@ -165,8 +167,7 @@ class StatusCommand(ProjectCommand):
 
 @click.command()
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-@click.option("--versions", is_flag=True, help="Show deployed versions (Git SHA)")
-def status(project, verbose, versions):
+def status(project, verbose):
     """
     Show infrastructure and application status
 
@@ -174,7 +175,7 @@ def status(project, verbose, versions):
     - VM status per role
     - Container status per VM
     - Application health
-    - Deployed versions (with --versions flag)
+    - Deployed versions (Git SHA)
     """
-    cmd = StatusCommand(project, verbose=verbose, show_versions=versions)
+    cmd = StatusCommand(project, verbose=verbose)
     cmd.run()
