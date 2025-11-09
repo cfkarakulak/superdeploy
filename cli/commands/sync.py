@@ -338,18 +338,24 @@ def sync(project, clear, environment):
 
         # Clear existing secrets if --clear flag is provided
         if clear:
-            console.print("  [yellow]🧹 Clearing existing secrets...[/yellow]")
-            existing_secrets = list_github_repo_secrets(repo, console)
-            if existing_secrets:
-                console.print(
-                    f"  [dim]Found {len(existing_secrets)} secrets to remove[/dim]"
-                )
-                success, fail = remove_github_repo_secrets(
-                    repo, existing_secrets, console
-                )
-                console.print(f"  [dim]→ {success} removed, {fail} failed[/dim]\n")
-            else:
-                console.print("  [dim]No existing secrets found[/dim]\n")
+            console.print("  [yellow]🧹 Clearing ALL existing secrets...[/yellow]")
+            
+            # Clear repository secrets
+            repo_secrets = list_github_repo_secrets(repo, console)
+            if repo_secrets:
+                console.print(f"  [dim]Found {len(repo_secrets)} repository secrets[/dim]")
+                success, fail = remove_github_repo_secrets(repo, repo_secrets, console)
+                console.print(f"  [dim]→ {success} repo secrets removed, {fail} failed[/dim]")
+            
+            # Clear environment secrets for both production and staging
+            for env in ["production", "staging"]:
+                env_secrets = list_github_env_secrets(repo, env, console)
+                if env_secrets:
+                    console.print(f"  [dim]Found {len(env_secrets)} {env} environment secrets[/dim]")
+                    success, fail = remove_github_env_secrets(repo, env, env_secrets, console)
+                    console.print(f"  [dim]→ {success} {env} secrets removed, {fail} failed[/dim]")
+            
+            console.print()
 
         # Repository-level secrets (Docker, orchestrator, etc.)
         # These are needed by build job which doesn't have environment context
@@ -413,9 +419,12 @@ def sync(project, clear, environment):
         merged_env = {**local_env, **app_secrets}
         console.print(f"  [dim]🔀 Merged total: {len(merged_env)} variables[/dim]")
 
+        # Remove Docker secrets from environment secrets (they go to repo level)
+        docker_keys = ["DOCKER_ORG", "DOCKER_USERNAME", "DOCKER_TOKEN", "DOCKER_REGISTRY"]
+        env_secret_dict = {k: v for k, v in merged_env.items() if k not in docker_keys}
+        
         # Set the merged environment as ENVIRONMENT SECRET
         # This allows production and staging to have different values
-        env_secret_dict = merged_env
         success, fail = set_github_env_secrets(
             repo, environment, env_secret_dict, console
         )
