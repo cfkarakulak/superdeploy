@@ -325,11 +325,12 @@ jobs:
           
           APP_NAME="${{ needs.build.outputs.app }}"
           
-          # Read hooks from config.yml
-          HOOKS=$(APP_NAME="$APP_NAME" python3 << 'PYSCRIPT'
+          # Read hooks from config.yml using Python
+          cat > /tmp/read_hooks.py << 'EOF'
 import yaml
 import sys
 import os
+
 try:
     with open('config.yml') as f:
         config = yaml.safe_load(f)
@@ -341,8 +342,9 @@ try:
             print(cmd)
 except Exception:
     sys.exit(0)
-PYSCRIPT
-)
+EOF
+          
+          HOOKS=$(APP_NAME="$APP_NAME" python3 /tmp/read_hooks.py)
           
           if [ -z "$HOOKS" ]; then
             echo "⏭️  No post-deployment hooks configured for ${{ needs.build.outputs.app }}"
@@ -508,11 +510,12 @@ jobs:
           
           APP_NAME="${{ needs.build.outputs.app }}"
           
-          # Read hooks from config.yml
-          HOOKS=$(APP_NAME="$APP_NAME" python3 << 'PYSCRIPT'
+          # Read hooks from config.yml using Python
+          cat > /tmp/read_hooks.py << 'EOF'
 import yaml
 import sys
 import os
+
 try:
     with open('config.yml') as f:
         config = yaml.safe_load(f)
@@ -524,8 +527,9 @@ try:
             print(cmd)
 except Exception:
     sys.exit(0)
-PYSCRIPT
-)
+EOF
+          
+          HOOKS=$(APP_NAME="$APP_NAME" python3 /tmp/read_hooks.py)
           
           if [ -z "$HOOKS" ]; then
             echo "⏭️  No post-deployment hooks configured for ${{ needs.build.outputs.app }}"
