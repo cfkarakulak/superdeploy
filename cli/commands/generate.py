@@ -324,7 +324,9 @@ jobs:
           fi
           
           APP_NAME="${{ needs.build.outputs.app }}"
-          HOOKS=$(python3 -c "
+          
+          # Read hooks from config.yml
+          HOOKS=$(APP_NAME="$APP_NAME" python3 << 'PYSCRIPT'
 import yaml
 import sys
 import os
@@ -339,7 +341,8 @@ try:
             print(cmd)
 except Exception:
     sys.exit(0)
-" APP_NAME="$APP_NAME")
+PYSCRIPT
+)
           
           if [ -z "$HOOKS" ]; then
             echo "⏭️  No post-deployment hooks configured for ${{ needs.build.outputs.app }}"
@@ -504,7 +507,9 @@ jobs:
           fi
           
           APP_NAME="${{ needs.build.outputs.app }}"
-          HOOKS=$(python3 -c "
+          
+          # Read hooks from config.yml
+          HOOKS=$(APP_NAME="$APP_NAME" python3 << 'PYSCRIPT'
 import yaml
 import sys
 import os
@@ -519,7 +524,8 @@ try:
             print(cmd)
 except Exception:
     sys.exit(0)
-" APP_NAME="$APP_NAME")
+PYSCRIPT
+)
           
           if [ -z "$HOOKS" ]; then
             echo "⏭️  No post-deployment hooks configured for ${{ needs.build.outputs.app }}"
