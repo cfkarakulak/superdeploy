@@ -53,9 +53,7 @@ class MetricsCommand(ProjectCommand):
             # Parse and display stats
             self.console.print("\n[bold]Current Resource Usage:[/bold]\n")
 
-            table = Table(
-                title="Resource Usage", title_justify="left", padding=(0, 1)
-            )
+            table = Table(title="Resource Usage", title_justify="left", padding=(0, 1))
             table.add_column("Service", style="cyan")
             table.add_column("CPU %", style="yellow")
             table.add_column("Memory", style="green")
@@ -89,9 +87,7 @@ class MetricsCommand(ProjectCommand):
 
             self.console.print("\n[bold]Service Uptime:[/bold]\n")
 
-            table = Table(
-                title="Service Uptime", title_justify="left", padding=(0, 1)
-            )
+            table = Table(title="Service Uptime", title_justify="left", padding=(0, 1))
             table.add_column("Service", style="cyan")
             table.add_column("Status", style="green")
 

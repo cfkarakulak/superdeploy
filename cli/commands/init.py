@@ -274,7 +274,9 @@ class InitCommand(BaseCommand):
         )
         yml_lines.append("# " + "=" * 77)
         yml_lines.append("#")
-        yml_lines.append("# ⚠️  SECURITY WARNING: This file contains sensitive credentials!")
+        yml_lines.append(
+            "# ⚠️  SECURITY WARNING: This file contains sensitive credentials!"
+        )
         yml_lines.append("#    - DO NOT commit this file to Git")
         yml_lines.append("#    - Keep restrictive file permissions (600)")
         yml_lines.append("#    - Store securely in password manager/vault")
@@ -335,7 +337,9 @@ class InitCommand(BaseCommand):
         yml_lines.append("    # Docker Registry Credentials")
         yml_lines.append("    # " + "-" * 73)
         yml_lines.append("    # Required for building and deploying container images")
-        yml_lines.append("    # Get token from: https://hub.docker.com/settings/security")
+        yml_lines.append(
+            "    # Get token from: https://hub.docker.com/settings/security"
+        )
         yml_lines.append("    DOCKER_REGISTRY: 'docker.io'  # Docker registry URL")
         yml_lines.append("    DOCKER_ORG: ''        # Docker Hub organization/username")
         yml_lines.append("    DOCKER_USERNAME: ''   # Your Docker Hub username")
@@ -350,8 +354,12 @@ class InitCommand(BaseCommand):
         yml_lines.append(
             "    SMTP_HOST: 'smtp.gmail.com'  # Gmail SMTP (or use smtp.sendgrid.net, etc.)"
         )
-        yml_lines.append("    SMTP_PORT: '587'     # 587 (TLS), 465 (SSL), or 25 (plain)")
-        yml_lines.append("    SMTP_USER: ''        # SMTP username (usually your email)")
+        yml_lines.append(
+            "    SMTP_PORT: '587'     # 587 (TLS), 465 (SSL), or 25 (plain)"
+        )
+        yml_lines.append(
+            "    SMTP_USER: ''        # SMTP username (usually your email)"
+        )
         yml_lines.append(
             "    SMTP_PASSWORD: ''    # SMTP password or app-specific password"
         )
@@ -380,7 +388,9 @@ class InitCommand(BaseCommand):
         yml_lines.append("  # " + "=" * 75)
         yml_lines.append("  # Application-Specific Secrets")
         yml_lines.append("  # " + "=" * 75)
-        yml_lines.append("  # Add secrets that are only needed by specific applications")
+        yml_lines.append(
+            "  # Add secrets that are only needed by specific applications"
+        )
         yml_lines.append("  # Example: API_KEY: 'xyz123', STRIPE_SECRET: 'sk_test_...'")
         yml_lines.append("  # " + "=" * 75)
         for app_name in app_names:
@@ -391,7 +401,9 @@ class InitCommand(BaseCommand):
         yml_lines.append("# " + "=" * 77)
         yml_lines.append("# Environment Variable Aliases")
         yml_lines.append("# " + "=" * 77)
-        yml_lines.append("# Map framework-specific variable names to secrets defined above")
+        yml_lines.append(
+            "# Map framework-specific variable names to secrets defined above"
+        )
         yml_lines.append("# " + "=" * 77)
         yml_lines.append("#")
         yml_lines.append("# Format:")

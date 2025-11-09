@@ -48,6 +48,7 @@ def get_addon_prefixes(project):
     except Exception as e:
         # Fallback to common addon prefixes if loading fails
         from rich.console import Console
+
         console = Console()
         console.print(f"[dim]Could not load addon prefixes: {e}[/dim]")
         return ["POSTGRES", "RABBITMQ", "REDIS", "MONGODB", "ELASTICSEARCH"]

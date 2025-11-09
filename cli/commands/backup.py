@@ -13,9 +13,7 @@ from cli.utils import ssh_command, get_project_path
 class BackupsCreateCommand(ProjectCommand):
     """Backup project database and configurations."""
 
-    def __init__(
-        self, project_name: str, output: str = None, verbose: bool = False
-    ):
+    def __init__(self, project_name: str, output: str = None, verbose: bool = False):
         super().__init__(project_name, verbose=verbose)
         self.output = output
 
@@ -156,9 +154,7 @@ class BackupsCreateCommand(ProjectCommand):
                 # Copy compose files
                 compose_dir = project_path / "compose"
                 if compose_dir.exists():
-                    shutil.copytree(
-                        compose_dir, f"{self.output}/{backup_name}/compose"
-                    )
+                    shutil.copytree(compose_dir, f"{self.output}/{backup_name}/compose")
 
                 progress.advance(task3)
                 self.console.print("[green]✓[/green] Configs backed up")
@@ -188,7 +184,9 @@ class BackupsCreateCommand(ProjectCommand):
             self.console.print("[green]✓[/green] Manifest created")
 
         self.console.print("\n[color(248)]Backup complete.[/color(248)]")
-        self.console.print(f"\n[white]Backup location:[/white] {self.output}/{backup_name}")
+        self.console.print(
+            f"\n[white]Backup location:[/white] {self.output}/{backup_name}"
+        )
         self.console.print(
             f"[white]Restore with:[/white] superdeploy {self.project_name}:restore --from {backup_name}"
         )

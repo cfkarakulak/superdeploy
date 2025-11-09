@@ -68,9 +68,7 @@ class SwitchCommand(ProjectCommand):
 
             ip_key = f"{vm_role.upper()}_0_EXTERNAL_IP"
             if ip_key not in env:
-                self.console.print(
-                    f"[red]❌ VM IP not found in state: {ip_key}[/red]"
-                )
+                self.console.print(f"[red]❌ VM IP not found in state: {ip_key}[/red]")
                 return
 
             ssh_host = env[ip_key]
@@ -93,7 +91,9 @@ class SwitchCommand(ProjectCommand):
             )
 
             if releases_output.strip() == "NO_RELEASES":
-                self.console.print(f"[red]❌ No releases found for {self.app_name}[/red]")
+                self.console.print(
+                    f"[red]❌ No releases found for {self.app_name}[/red]"
+                )
                 self.console.print(
                     "[dim]Deploy the app first: git push origin production[/dim]"
                 )
@@ -320,7 +320,9 @@ class SwitchCommand(ProjectCommand):
             )
 
             if "SWITCH_SUCCESS" in result:
-                self.console.print("\n[green]✅ Zero-downtime switch completed![/green]")
+                self.console.print(
+                    "\n[green]✅ Zero-downtime switch completed![/green]"
+                )
                 self.console.print(f"[green]✅ Now running: {target_release}[/green]")
                 self.console.print("[dim]  → New container started[/dim]")
                 self.console.print("[dim]  → Health check passed[/dim]")

@@ -2,7 +2,6 @@
 Project deployment commands
 """
 
-from pathlib import Path
 from cli.base import ProjectCommand
 import click
 
@@ -10,9 +9,7 @@ import click
 class ProjectsDeployCommand(ProjectCommand):
     """Deploy project-specific services to VM."""
 
-    def __init__(
-        self, project_name: str, services: str = "all", verbose: bool = False
-    ):
+    def __init__(self, project_name: str, services: str = "all", verbose: bool = False):
         super().__init__(project_name, verbose=verbose)
         self.services = services
 
@@ -45,9 +42,7 @@ class ProjectsDeployCommand(ProjectCommand):
             self.console.print(
                 f"[red]❌ Project secrets not found: {project_path / 'secrets.yml'}[/red]"
             )
-            self.console.print(
-                f"[dim]Run: superdeploy {self.project_name}:init[/dim]"
-            )
+            self.console.print(f"[dim]Run: superdeploy {self.project_name}:init[/dim]")
             return
 
         # Extract all secrets (shared + app-specific)
@@ -92,9 +87,7 @@ ansible-playbook -i inventories/dev.ini playbooks/project_deploy.yml \\
         from cli.ansible_runner import AnsibleRunner
         from cli.logger import DeployLogger
 
-        with DeployLogger(
-            "project", self.project_name, verbose=self.verbose
-        ) as logger:
+        with DeployLogger("project", self.project_name, verbose=self.verbose) as logger:
             logger.step("Deploying project services")
 
             runner = AnsibleRunner(

@@ -190,9 +190,7 @@ class DeployCommand(ProjectCommand):
                 .get("ssh", {})
                 .get("key_path", "~/.ssh/superdeploy_deploy")
             ).expanduser()
-            ssh_user = (
-                config.get("cloud", {}).get("ssh", {}).get("user", "superdeploy")
-            )
+            ssh_user = config.get("cloud", {}).get("ssh", {}).get("user", "superdeploy")
 
             self.console.print(f"Target: {ssh_user}@{vm_ip}")
 
