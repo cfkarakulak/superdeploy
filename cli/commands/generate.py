@@ -323,20 +323,21 @@ jobs:
             exit 0
           fi
           
+          APP_NAME="${{ needs.build.outputs.app }}"
           HOOKS=$(python3 -c "
 import yaml
 import sys
 try:
     with open('config.yml') as f:
         config = yaml.safe_load(f)
-    hooks = config.get('apps', {}).get('${{ needs.build.outputs.app }}', {}).get('hooks', {})
+    hooks = config.get('apps', {}).get('$APP_NAME', {}).get('hooks', {})
     after_deploy = hooks.get('after_deploy', [])
     if after_deploy:
         for cmd in after_deploy:
             print(cmd)
 except Exception:
     sys.exit(0)
-" 2>/dev/null)
+")
           
           if [ -z "$HOOKS" ]; then
             echo "⏭️  No post-deployment hooks configured for ${{ needs.build.outputs.app }}"
@@ -500,20 +501,21 @@ jobs:
             exit 0
           fi
           
+          APP_NAME="${{ needs.build.outputs.app }}"
           HOOKS=$(python3 -c "
 import yaml
 import sys
 try:
     with open('config.yml') as f:
         config = yaml.safe_load(f)
-    hooks = config.get('apps', {}).get('${{ needs.build.outputs.app }}', {}).get('hooks', {})
+    hooks = config.get('apps', {}).get('$APP_NAME', {}).get('hooks', {})
     after_deploy = hooks.get('after_deploy', [])
     if after_deploy:
         for cmd in after_deploy:
             print(cmd)
 except Exception:
     sys.exit(0)
-" 2>/dev/null)
+")
           
           if [ -z "$HOOKS" ]; then
             echo "⏭️  No post-deployment hooks configured for ${{ needs.build.outputs.app }}"
