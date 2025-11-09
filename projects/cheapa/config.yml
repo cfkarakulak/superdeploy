@@ -62,6 +62,10 @@ apps:
     vm: app
     port: 8000
     domain: api.cheapa.io
+    hooks:
+      after_deploy:
+        - python craft migrate
+        - python craft cache:clear
   storefront:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/storefront
     vm: app

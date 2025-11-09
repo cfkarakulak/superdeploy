@@ -313,6 +313,47 @@ jobs:
             docker logs $CONTAINER_NAME --tail 50
             exit 1
           fi
+      
+      - name: Run deployment hooks
+        run: |
+          cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}
+          
+          if [ ! -f config.yml ]; then
+            echo "⏭️  No config.yml found, skipping hooks"
+            exit 0
+          fi
+          
+          HOOKS=$(python3 -c "
+import yaml
+import sys
+try:
+    with open('config.yml') as f:
+        config = yaml.safe_load(f)
+    hooks = config.get('apps', {}).get('${{ needs.build.outputs.app }}', {}).get('hooks', {})
+    after_deploy = hooks.get('after_deploy', [])
+    if after_deploy:
+        for cmd in after_deploy:
+            print(cmd)
+except Exception:
+    sys.exit(0)
+" 2>/dev/null)
+          
+          if [ -z "$HOOKS" ]; then
+            echo "⏭️  No post-deployment hooks configured for ${{ needs.build.outputs.app }}"
+            exit 0
+          fi
+          
+          echo "🔧 Running post-deployment hooks for ${{ needs.build.outputs.app }}..."
+          cd compose
+          
+          echo "$HOOKS" | while IFS= read -r cmd; do
+            if [ -n "$cmd" ]; then
+              echo "▶ Running: $cmd"
+              docker compose exec -T ${{ needs.build.outputs.app }} $cmd || echo "⚠️  Hook failed: $cmd"
+            fi
+          done
+          
+          echo "✅ Post-deployment hooks completed"
 {% endraw %}"""
 
     # Default: Python/Cara
@@ -449,4 +490,45 @@ jobs:
             docker logs $CONTAINER_NAME --tail 50
             exit 1
           fi
+      
+      - name: Run deployment hooks
+        run: |
+          cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}
+          
+          if [ ! -f config.yml ]; then
+            echo "⏭️  No config.yml found, skipping hooks"
+            exit 0
+          fi
+          
+          HOOKS=$(python3 -c "
+import yaml
+import sys
+try:
+    with open('config.yml') as f:
+        config = yaml.safe_load(f)
+    hooks = config.get('apps', {}).get('${{ needs.build.outputs.app }}', {}).get('hooks', {})
+    after_deploy = hooks.get('after_deploy', [])
+    if after_deploy:
+        for cmd in after_deploy:
+            print(cmd)
+except Exception:
+    sys.exit(0)
+" 2>/dev/null)
+          
+          if [ -z "$HOOKS" ]; then
+            echo "⏭️  No post-deployment hooks configured for ${{ needs.build.outputs.app }}"
+            exit 0
+          fi
+          
+          echo "🔧 Running post-deployment hooks for ${{ needs.build.outputs.app }}..."
+          cd compose
+          
+          echo "$HOOKS" | while IFS= read -r cmd; do
+            if [ -n "$cmd" ]; then
+              echo "▶ Running: $cmd"
+              docker compose exec -T ${{ needs.build.outputs.app }} $cmd || echo "⚠️  Hook failed: $cmd"
+            fi
+          done
+          
+          echo "✅ Post-deployment hooks completed"
 {% endraw %}"""
