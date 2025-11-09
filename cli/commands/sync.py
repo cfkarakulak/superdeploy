@@ -145,7 +145,17 @@ def list_github_env_secrets(repo, environment, console):
     """List all GitHub environment secrets using gh CLI"""
     try:
         result = subprocess.run(
-            ["gh", "secret", "list", "-R", repo, "--env", environment, "--json", "name"],
+            [
+                "gh",
+                "secret",
+                "list",
+                "-R",
+                repo,
+                "--env",
+                environment,
+                "--json",
+                "name",
+            ],
             check=True,
             capture_output=True,
             text=True,
@@ -202,7 +212,16 @@ def remove_github_env_secrets(repo, environment, secret_names, console):
     for secret_name in secret_names:
         try:
             subprocess.run(
-                ["gh", "secret", "remove", secret_name, "-R", repo, "--env", environment],
+                [
+                    "gh",
+                    "secret",
+                    "remove",
+                    secret_name,
+                    "-R",
+                    repo,
+                    "--env",
+                    environment,
+                ],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -346,9 +365,12 @@ def sync(project, clear, environment):
         # Remove None values
         repo_secrets = {k: v for k, v in repo_secrets.items() if v is not None}
 
-        # Set repository secrets
-        success, fail = set_github_repo_secrets(repo, repo_secrets, console)
-        console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
+        if repo_secrets:
+            # Set repository secrets
+            success, fail = set_github_repo_secrets(repo, repo_secrets, console)
+            console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
+        else:
+            console.print("  [dim]⚠️  No Docker secrets found in shared config[/dim]\n")
 
         # App environment variables (merged .env + secrets.yml)
         console.print(f"[cyan]App Environment: {app_name} ({environment})[/cyan]")
