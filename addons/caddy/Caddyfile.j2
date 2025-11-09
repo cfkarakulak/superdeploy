@@ -45,7 +45,7 @@
     }
     
     # Proxy to {{ app_name }} container
-    reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
+    reverse_proxy {{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
@@ -56,7 +56,7 @@
 # Port-based routing (development - no domain yet)
 :{{ app_config.port }} {
     # Simple pass-through to app
-    reverse_proxy {{ project_name }}-{{ app_name }}:{{ app_config.internal_port | default(app_config.port) }}
+    reverse_proxy {{ app_name }}:{{ app_config.internal_port | default(app_config.port) }}
 }
 {% endif %}
 {% endif %}
