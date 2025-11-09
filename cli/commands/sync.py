@@ -37,6 +37,7 @@ def read_env_file(env_path):
                     env_dict[key] = value
     except Exception as e:
         from rich.console import Console
+
         console = Console()
         console.print(f"[yellow]⚠️  Could not read .env file: {e}[/yellow]")
 
@@ -63,7 +64,9 @@ def set_github_repo_secrets(repo, secrets_dict, console):
             console.print(f"  [red]✗[/red] {key}: timeout (30s)")
             fail_count += 1
         except subprocess.CalledProcessError as e:
-            error_msg = e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            error_msg = (
+                e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            )
             error_msg = error_msg.strip().replace("\n", " ")[:60]
             console.print(f"  [red]✗[/red] {key}: {error_msg}")
             fail_count += 1
@@ -83,7 +86,18 @@ def set_github_environment_secrets(repo, environment, secrets_dict, console):
     for key, value in secrets_dict.items():
         try:
             subprocess.run(
-                ["gh", "secret", "set", key, "-b", str(value), "-R", repo, "--env", environment],
+                [
+                    "gh",
+                    "secret",
+                    "set",
+                    key,
+                    "-b",
+                    str(value),
+                    "-R",
+                    repo,
+                    "--env",
+                    environment,
+                ],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -95,7 +109,9 @@ def set_github_environment_secrets(repo, environment, secrets_dict, console):
             console.print(f"  [red]✗[/red] {key}: timeout (30s)")
             fail_count += 1
         except subprocess.CalledProcessError as e:
-            error_msg = e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            error_msg = (
+                e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            )
             error_msg = error_msg.strip().replace("\n", " ")[:60]
             console.print(f"  [red]✗[/red] {key}: {error_msg}")
             fail_count += 1
@@ -128,7 +144,17 @@ def list_github_env_secrets(repo, environment, console):
     """List all GitHub environment secrets using gh CLI"""
     try:
         result = subprocess.run(
-            ["gh", "secret", "list", "-R", repo, "--env", environment, "--json", "name"],
+            [
+                "gh",
+                "secret",
+                "list",
+                "-R",
+                repo,
+                "--env",
+                environment,
+                "--json",
+                "name",
+            ],
             check=True,
             capture_output=True,
             text=True,
@@ -163,7 +189,9 @@ def remove_github_repo_secrets(repo, secret_names, console):
             console.print(f"  [red]✗[/red] {secret_name} [dim](removed)[/dim]")
             success_count += 1
         except subprocess.CalledProcessError as e:
-            error_msg = e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            error_msg = (
+                e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            )
             error_msg = error_msg.strip().replace("\n", " ")[:60]
             console.print(f"  [yellow]⚠️[/yellow] {secret_name}: {error_msg}")
             fail_count += 1
@@ -183,7 +211,16 @@ def remove_github_env_secrets(repo, environment, secret_names, console):
     for secret_name in secret_names:
         try:
             subprocess.run(
-                ["gh", "secret", "remove", secret_name, "-R", repo, "--env", environment],
+                [
+                    "gh",
+                    "secret",
+                    "remove",
+                    secret_name,
+                    "-R",
+                    repo,
+                    "--env",
+                    environment,
+                ],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -192,7 +229,9 @@ def remove_github_env_secrets(repo, environment, secret_names, console):
             console.print(f"  [red]✗[/red] {secret_name} [dim](removed)[/dim]")
             success_count += 1
         except subprocess.CalledProcessError as e:
-            error_msg = e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            error_msg = (
+                e.stderr if e.stderr else e.stdout if e.stdout else "unknown error"
+            )
             error_msg = error_msg.strip().replace("\n", " ")[:60]
             console.print(f"  [yellow]⚠️[/yellow] {secret_name}: {error_msg}")
             fail_count += 1
@@ -207,7 +246,13 @@ def remove_github_env_secrets(repo, environment, secret_names, console):
 class SyncCommand(ProjectCommand):
     """Sync ALL secrets to GitHub."""
 
-    def __init__(self, project_name: str, clear: bool = False, environment: str = "production", verbose: bool = False):
+    def __init__(
+        self,
+        project_name: str,
+        clear: bool = False,
+        environment: str = "production",
+        verbose: bool = False,
+    ):
         super().__init__(project_name, verbose=verbose)
         self.clear = clear
         self.environment = environment
@@ -265,7 +310,9 @@ class SyncCommand(ProjectCommand):
             return
 
         self.console.print("\n[bold cyan]📦 Repository Secrets[/bold cyan]")
-        self.console.print("[dim]These secrets are shared across all apps in the repo[/dim]\n")
+        self.console.print(
+            "[dim]These secrets are shared across all apps in the repo[/dim]\n"
+        )
 
         # Process each app
         for app_name, app_config in config.get("apps", {}).items():
@@ -274,55 +321,95 @@ class SyncCommand(ProjectCommand):
 
             # Clear existing secrets if --clear flag is provided
             if self.clear:
-                self.console.print("  [yellow]🧹 Clearing ALL existing secrets...[/yellow]")
+                self.console.print(
+                    "  [yellow]🧹 Clearing ALL existing secrets...[/yellow]"
+                )
 
                 # Clear repository secrets
                 repo_secrets = list_github_repo_secrets(repo, self.console)
                 if repo_secrets:
-                    self.console.print(f"  [dim]Found {len(repo_secrets)} repository secrets[/dim]")
-                    success, fail = remove_github_repo_secrets(repo, repo_secrets, self.console)
-                    self.console.print(f"  [dim]→ {success} repo secrets removed, {fail} failed[/dim]")
+                    self.console.print(
+                        f"  [dim]Found {len(repo_secrets)} repository secrets[/dim]"
+                    )
+                    success, fail = remove_github_repo_secrets(
+                        repo, repo_secrets, self.console
+                    )
+                    self.console.print(
+                        f"  [dim]→ {success} repo secrets removed, {fail} failed[/dim]"
+                    )
 
                 # Clear environment secrets for both production and staging
                 for env in ["production", "staging"]:
                     env_secrets = list_github_env_secrets(repo, env, self.console)
                     if env_secrets:
-                        self.console.print(f"  [dim]Found {len(env_secrets)} {env} environment secrets[/dim]")
-                        success, fail = remove_github_env_secrets(repo, env, env_secrets, self.console)
-                        self.console.print(f"  [dim]→ {success} {env} secrets removed, {fail} failed[/dim]")
+                        self.console.print(
+                            f"  [dim]Found {len(env_secrets)} {env} environment secrets[/dim]"
+                        )
+                        success, fail = remove_github_env_secrets(
+                            repo, env, env_secrets, self.console
+                        )
+                        self.console.print(
+                            f"  [dim]→ {success} {env} secrets removed, {fail} failed[/dim]"
+                        )
 
                 self.console.print()
 
             # Repository-level secrets (Docker, orchestrator, etc.)
             repo_secrets = {
-                "DOCKER_REGISTRY": all_secrets.get("secrets", {}).get("shared", {}).get("DOCKER_REGISTRY", "docker.io"),
-                "DOCKER_ORG": all_secrets.get("secrets", {}).get("shared", {}).get("DOCKER_ORG"),
-                "DOCKER_USERNAME": all_secrets.get("secrets", {}).get("shared", {}).get("DOCKER_USERNAME"),
-                "DOCKER_TOKEN": all_secrets.get("secrets", {}).get("shared", {}).get("DOCKER_TOKEN"),
+                "DOCKER_REGISTRY": all_secrets.get("secrets", {})
+                .get("shared", {})
+                .get("DOCKER_REGISTRY", "docker.io"),
+                "DOCKER_ORG": all_secrets.get("secrets", {})
+                .get("shared", {})
+                .get("DOCKER_ORG"),
+                "DOCKER_USERNAME": all_secrets.get("secrets", {})
+                .get("shared", {})
+                .get("DOCKER_USERNAME"),
+                "DOCKER_TOKEN": all_secrets.get("secrets", {})
+                .get("shared", {})
+                .get("DOCKER_TOKEN"),
             }
 
             # Remove None values
             repo_secrets = {k: v for k, v in repo_secrets.items() if v is not None}
 
             if repo_secrets:
-                success, fail = set_github_repo_secrets(repo, repo_secrets, self.console)
+                success, fail = set_github_repo_secrets(
+                    repo, repo_secrets, self.console
+                )
                 self.console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
             else:
-                self.console.print("  [dim]⚠️  No Docker secrets found in shared config[/dim]\n")
+                self.console.print(
+                    "  [dim]⚠️  No Docker secrets found in shared config[/dim]\n"
+                )
 
             # App environment variables (merged .env + secrets.yml)
-            self.console.print(f"[cyan]App Environment: {app_name} ({self.environment})[/cyan]")
+            self.console.print(
+                f"[cyan]App Environment: {app_name} ({self.environment})[/cyan]"
+            )
 
             # Clear existing environment secrets if --clear flag is provided
             if self.clear:
-                self.console.print(f"  [yellow]🧹 Clearing environment secrets ({self.environment})...[/yellow]")
-                existing_env_secrets = list_github_env_secrets(repo, self.environment, self.console)
+                self.console.print(
+                    f"  [yellow]🧹 Clearing environment secrets ({self.environment})...[/yellow]"
+                )
+                existing_env_secrets = list_github_env_secrets(
+                    repo, self.environment, self.console
+                )
                 if existing_env_secrets:
-                    self.console.print(f"  [dim]Found {len(existing_env_secrets)} environment secrets to remove[/dim]")
-                    success, fail = remove_github_env_secrets(repo, self.environment, existing_env_secrets, self.console)
-                    self.console.print(f"  [dim]→ {success} removed, {fail} failed[/dim]\n")
+                    self.console.print(
+                        f"  [dim]Found {len(existing_env_secrets)} environment secrets to remove[/dim]"
+                    )
+                    success, fail = remove_github_env_secrets(
+                        repo, self.environment, existing_env_secrets, self.console
+                    )
+                    self.console.print(
+                        f"  [dim]→ {success} removed, {fail} failed[/dim]\n"
+                    )
                 else:
-                    self.console.print("  [dim]No existing environment secrets found[/dim]\n")
+                    self.console.print(
+                        "  [dim]No existing environment secrets found[/dim]\n"
+                    )
 
             # Read app's local .env file
             app_path = Path(app_config["path"]).expanduser().resolve()
@@ -331,27 +418,46 @@ class SyncCommand(ProjectCommand):
             local_env = {}
             if env_file_path.exists():
                 local_env = read_env_file(env_file_path)
-                self.console.print(f"  [dim]📄 Read {len(local_env)} variables from .env[/dim]")
+                self.console.print(
+                    f"  [dim]📄 Read {len(local_env)} variables from .env[/dim]"
+                )
             else:
-                self.console.print(f"  [dim]⚠️  No .env file found at {env_file_path}[/dim]")
+                self.console.print(
+                    f"  [dim]⚠️  No .env file found at {env_file_path}[/dim]"
+                )
 
             # Get app-specific secrets from secrets.yml
             app_secrets = secret_mgr.get_app_secrets(app_name)
-            self.console.print(f"  [dim]🔐 Read {len(app_secrets)} secrets from secrets.yml[/dim]")
+            self.console.print(
+                f"  [dim]🔐 Read {len(app_secrets)} secrets from secrets.yml[/dim]"
+            )
 
             # MERGE: local .env as base, secrets.yml overrides
             merged_env = {**local_env, **app_secrets}
-            self.console.print(f"  [dim]🔀 Merged total: {len(merged_env)} variables[/dim]")
+            self.console.print(
+                f"  [dim]🔀 Merged total: {len(merged_env)} variables[/dim]"
+            )
 
             # Remove Docker secrets from environment secrets
-            docker_keys = ["DOCKER_ORG", "DOCKER_USERNAME", "DOCKER_TOKEN", "DOCKER_REGISTRY"]
-            env_secret_dict = {k: v for k, v in merged_env.items() if k not in docker_keys}
+            docker_keys = [
+                "DOCKER_ORG",
+                "DOCKER_USERNAME",
+                "DOCKER_TOKEN",
+                "DOCKER_REGISTRY",
+            ]
+            env_secret_dict = {
+                k: v for k, v in merged_env.items() if k not in docker_keys
+            }
 
             # Create ONLY {APP}_ENV_JSON (no individual secrets)
-            env_json_secret = {f"{app_name.upper()}_ENV_JSON": json.dumps(env_secret_dict)}
+            env_json_secret = {
+                f"{app_name.upper()}_ENV_JSON": json.dumps(env_secret_dict)
+            }
 
             # Set the merged environment as ENVIRONMENT SECRET (JSON only)
-            success, fail = set_github_env_secrets(repo, self.environment, env_json_secret, self.console)
+            success, fail = set_github_env_secrets(
+                repo, self.environment, env_json_secret, self.console
+            )
             self.console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
 
             self.console.print()
@@ -359,14 +465,24 @@ class SyncCommand(ProjectCommand):
         self.console.print("\n[green]✅ Sync complete![/green]")
         self.console.print("\n[bold]📝 Next steps:[/bold]")
         self.console.print("\n1. Get GitHub runner token:")
-        self.console.print(f"   https://github.com/{github_org}/settings/actions/runners/new")
+        self.console.print(
+            f"   https://github.com/{github_org}/settings/actions/runners/new"
+        )
         self.console.print("\n2. Deploy with token:")
-        self.console.print(f"   [red]GITHUB_RUNNER_TOKEN=<token> superdeploy {self.project_name}:up[/red]")
+        self.console.print(
+            f"   [red]GITHUB_RUNNER_TOKEN=<token> superdeploy {self.project_name}:up[/red]"
+        )
 
 
 @click.command(name="sync")
 @click.option("--clear", is_flag=True, help="Clear all existing secrets before syncing")
-@click.option("-e", "--env", "environment", default="production", help="Target environment (production/staging)")
+@click.option(
+    "-e",
+    "--env",
+    "environment",
+    default="production",
+    help="Target environment (production/staging)",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
 def sync(project, clear, environment, verbose):
     """

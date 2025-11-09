@@ -477,7 +477,9 @@ class GenerateCommand(ProjectCommand):
         # Check if secrets.yml exists
         if not secret_mgr.secrets_file.exists():
             self.console.print("\n[red]❌ No secrets.yml found![/red]")
-            self.console.print(f"[yellow]Run first:[/yellow] superdeploy {self.project_name}:init")
+            self.console.print(
+                f"[yellow]Run first:[/yellow] superdeploy {self.project_name}:init"
+            )
             self.console.print("[dim]Or create manually with structure:[/dim]")
             self.console.print("[dim]secrets:[/dim]")
             self.console.print("[dim]  shared: {}[/dim]")
@@ -501,7 +503,9 @@ class GenerateCommand(ProjectCommand):
         )
 
         # Get GitHub org
-        github_org = config.get("github", {}).get("organization", f"{self.project_name}io")
+        github_org = config.get("github", {}).get(
+            "organization", f"{self.project_name}io"
+        )
 
         # Generate for each app
         for app_name, app_config in apps_to_generate.items():
@@ -521,7 +525,9 @@ class GenerateCommand(ProjectCommand):
 
             # 2. Create .superdeploy marker
             vm_role = app_config.get("vm", "app")
-            marker = MarkerManager.create_marker(app_path, self.project_name, app_name, vm_role)
+            marker = MarkerManager.create_marker(
+                app_path, self.project_name, app_name, vm_role
+            )
             self.console.print(f"  [green]✓[/green] {marker.name}")
 
             # 3. Get app secrets (merged)
