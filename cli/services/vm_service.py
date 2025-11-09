@@ -42,8 +42,23 @@ class VMService:
         # Get VM role from config
         vm_role = self.config_service.get_app_vm_role(self.project_name, app_name)
 
-        # Default to first VM of that role
-        vm_name = f"{vm_role}-0"
+        # Try to find VM in state (with or without suffix)
+        state = self.state_service.load_state()
+        vms = state.get("vms", {})
+        
+        # First try exact role match
+        if vm_role in vms:
+            vm_name = vm_role
+        # Then try with -0 suffix
+        elif f"{vm_role}-0" in vms:
+            vm_name = f"{vm_role}-0"
+        else:
+            # List available VMs for better error message
+            available = ", ".join(vms.keys())
+            raise RuntimeError(
+                f"VM '{vm_role}' or '{vm_role}-0' not found in state\n"
+                f"Available VMs: {available}"
+            )
 
         # Get IP from state
         vm_ip = self.state_service.get_vm_ip(vm_name)
