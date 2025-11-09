@@ -443,11 +443,17 @@ def sync(project, clear, environment):
             "DOCKER_REGISTRY",
         ]
         env_secret_dict = {k: v for k, v in merged_env.items() if k not in docker_keys}
+        
+        # Also create {APP}_ENV_JSON for workflows that use JSON format
+        env_json_secret = {
+            f"{app_name.upper()}_ENV_JSON": json.dumps(env_secret_dict)
+        }
 
-        # Set the merged environment as ENVIRONMENT SECRET
+        # Set the merged environment as ENVIRONMENT SECRETs (individual + JSON)
         # This allows production and staging to have different values
+        all_env_secrets = {**env_secret_dict, **env_json_secret}
         success, fail = set_github_env_secrets(
-            repo, environment, env_secret_dict, console
+            repo, environment, all_env_secrets, console
         )
         console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
 
