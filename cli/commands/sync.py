@@ -360,12 +360,12 @@ def sync(project, clear, environment):
         # Repository-level secrets (Docker, orchestrator, etc.)
         # These are needed by build job which doesn't have environment context
         repo_secrets = {
-            "DOCKER_REGISTRY": all_secrets.get("shared", {}).get(
+            "DOCKER_REGISTRY": all_secrets.get("secrets", {}).get("shared", {}).get(
                 "DOCKER_REGISTRY", "docker.io"
             ),
-            "DOCKER_ORG": all_secrets.get("shared", {}).get("DOCKER_ORG"),
-            "DOCKER_USERNAME": all_secrets.get("shared", {}).get("DOCKER_USERNAME"),
-            "DOCKER_TOKEN": all_secrets.get("shared", {}).get("DOCKER_TOKEN"),
+            "DOCKER_ORG": all_secrets.get("secrets", {}).get("shared", {}).get("DOCKER_ORG"),
+            "DOCKER_USERNAME": all_secrets.get("secrets", {}).get("shared", {}).get("DOCKER_USERNAME"),
+            "DOCKER_TOKEN": all_secrets.get("secrets", {}).get("shared", {}).get("DOCKER_TOKEN"),
         }
 
         # Remove None values
