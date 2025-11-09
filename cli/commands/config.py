@@ -120,7 +120,7 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
     # Step 2: Sync to GitHub
     if not no_sync:
         logger.step("[2/4] Syncing to GitHub")
-        logger.log("Running sync command...")
+        logger.log(f"Running sync command for {environment} environment...")
 
         try:
             # Use subprocess to call sync command
@@ -132,6 +132,8 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
                 "-m",
                 "cli.main",
                 f"{project}:sync",
+                "-e",
+                environment,
             ]
 
             result = subprocess.run(
@@ -142,7 +144,7 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
             )
 
             if result.returncode == 0:
-                logger.log("✓ Synced to GitHub")
+                logger.log(f"✓ Synced to GitHub ({environment})")
             else:
                 logger.warning("⚠ Sync had issues")
                 if result.stderr:
@@ -249,14 +251,19 @@ def config_set(key_value, project, app, environment, deploy, no_sync):
 
 @click.command(name="config:get")
 @click.argument("key")
-def config_get(key, project):
+@click.option(
+    "-a",
+    "--app",
+    help="App name (api, storefront, services). If not specified, searches in shared",
+)
+def config_get(key, project, app):
     """
     Get configuration variable (Heroku-like!)
 
     \b
     Examples:
       superdeploy config:get POSTGRES_PASSWORD -p myproject
-      superdeploy config:get API_KEY -p myproject
+      superdeploy config:get AUTH_SECRET -p myproject -a storefront
     """
     from cli.utils import validate_project
 
@@ -265,7 +272,7 @@ def config_get(key, project):
     show_header(
         title="Get Configuration",
         project=project,
-        details={"Key": key},
+        details={"Key": key, "App": app if app else "shared"},
         console=console,
     )
 
@@ -274,9 +281,18 @@ def config_get(key, project):
 
     secret_mgr = SecretManager(get_project_root(), project)
     secrets_data = secret_mgr.load_secrets()
-    env_vars = secrets_data.get("secrets", {}).get("shared", {})
 
-    value = env_vars.get(key)
+    # Get value from appropriate location
+    if app:
+        # Get from app-specific secrets
+        app_secrets = secret_mgr.get_app_secrets(app)
+        value = app_secrets.get(key)
+        location = f"secrets.{app} (merged with shared)"
+    else:
+        # Get from shared secrets only
+        shared_secrets = secrets_data.get("secrets", {}).get("shared", {})
+        value = shared_secrets.get(key)
+        location = "secrets.shared"
 
     if value:
         # Mask sensitive values
@@ -284,27 +300,35 @@ def config_get(key, project):
             sensitive in key.upper()
             for sensitive in ["PASSWORD", "TOKEN", "SECRET", "KEY"]
         ):
-            masked = "***" + value[-4:] if len(value) > 4 else "***"
+            masked = "***" + str(value)[-4:] if len(str(value)) > 4 else "***"
             console.print(
-                f"[cyan]{key}[/cyan]=[yellow]{masked}[/yellow] [dim](masked)[/dim]"
+                f"[cyan]{key}[/cyan]=[yellow]{masked}[/yellow] [dim](masked, from {location})[/dim]"
             )
         else:
-            console.print(f"[cyan]{key}[/cyan]=[green]{value}[/green]")
+            console.print(
+                f"[cyan]{key}[/cyan]=[green]{value}[/green] [dim](from {location})[/dim]"
+            )
     else:
-        console.print(f"[yellow]⚠️  {key} not found in project config[/yellow]")
+        console.print(f"[yellow]⚠️  {key} not found in {location}[/yellow]")
         raise SystemExit(1)
 
 
 @click.command(name="config:list")
 @click.option("--filter", help="Filter by prefix (e.g., POSTGRES, REDIS)")
-def config_list(project, filter):
+@click.option(
+    "-a",
+    "--app",
+    help="App name. If specified, shows merged secrets (shared + app-specific)",
+)
+def config_list(project, filter, app):
     """
     List all configuration variables (Heroku-like!)
 
     \b
     Examples:
-      superdeploy config:list -p myproject                    # All vars
-      superdeploy config:list -p myproject --filter POSTGRES  # Only POSTGRES_* vars
+      superdeploy config:list -p myproject                       # Shared secrets
+      superdeploy config:list -p myproject -a storefront         # Merged secrets for storefront
+      superdeploy config:list -p myproject --filter POSTGRES     # Only POSTGRES_* vars
     """
     from cli.utils import validate_project
 
@@ -313,7 +337,10 @@ def config_list(project, filter):
     show_header(
         title="Configuration List",
         project=project,
-        details={"Filter": filter if filter else "All"},
+        details={
+            "Filter": filter if filter else "All",
+            "Scope": f"App: {app} (merged)" if app else "Shared only",
+        },
         console=console,
     )
 
@@ -321,11 +348,20 @@ def config_list(project, filter):
     from cli.secret_manager import SecretManager
 
     secret_mgr = SecretManager(get_project_root(), project)
-    secrets_data = secret_mgr.load_secrets()
-    env_vars = secrets_data.get("secrets", {}).get("shared", {})
+
+    # Get appropriate secrets
+    if app:
+        # Get merged secrets for app
+        env_vars = secret_mgr.get_app_secrets(app)
+        scope = f"{app} (shared + app-specific)"
+    else:
+        # Get only shared secrets
+        secrets_data = secret_mgr.load_secrets()
+        env_vars = secrets_data.get("secrets", {}).get("shared", {})
+        scope = "shared"
 
     # Create table
-    table = Table(title="Configuration Variables", padding=(0, 1))
+    table = Table(title=f"Configuration Variables - {scope}", padding=(0, 1))
     table.add_column("Key", style="cyan", no_wrap=True)
     table.add_column("Value", style="green")
 
@@ -368,9 +404,16 @@ def config_list(project, filter):
     "--app",
     help="App name (api, storefront, services). If not specified, removes from shared",
 )
+@click.option(
+    "-e",
+    "--env",
+    "environment",
+    default="production",
+    help="Environment (production/staging)",
+)
 @click.option("--deploy", is_flag=True, help="Auto-deploy after unsetting config")
 @click.option("--no-sync", is_flag=True, help="Skip GitHub sync")
-def config_unset(key, project, app, deploy, no_sync):
+def config_unset(key, project, app, environment, deploy, no_sync):
     """
     Unset (delete) configuration variable (Heroku-like!)
 
@@ -405,25 +448,53 @@ def config_unset(key, project, app, deploy, no_sync):
         raise SystemExit(1)
 
     with open(secrets_file) as f:
-        passwords = yaml.safe_load(f) or {}
+        secrets_data = yaml.safe_load(f) or {}
 
-    if key not in passwords:
-        console.print(f"[yellow]⚠️  {key} not found in config[/yellow]")
+    # Check structure
+    if "secrets" not in secrets_data:
+        console.print(f"[yellow]⚠️  No secrets found in {secrets_file}[/yellow]")
+        raise SystemExit(1)
+
+    # Determine where to remove from
+    if app:
+        # Remove from app-specific
+        if app not in secrets_data["secrets"]:
+            console.print(
+                f"[yellow]⚠️  App '{app}' not found in secrets configuration[/yellow]"
+            )
+            raise SystemExit(1)
+
+        target_dict = secrets_data["secrets"][app]
+        location = f"secrets.{app}"
+    else:
+        # Remove from shared
+        if "shared" not in secrets_data["secrets"]:
+            console.print("[yellow]⚠️  No shared secrets found[/yellow]")
+            raise SystemExit(1)
+
+        target_dict = secrets_data["secrets"]["shared"]
+        location = "secrets.shared"
+
+    # Check if key exists
+    if target_dict is None or key not in target_dict:
+        console.print(f"[yellow]⚠️  {key} not found in {location}[/yellow]")
         raise SystemExit(1)
 
     # Remove key
-    passwords.pop(key)
+    target_dict.pop(key)
 
     # Write back
     with open(secrets_file, "w") as f:
-        yaml.dump(passwords, f, default_flow_style=False, sort_keys=True)
+        yaml.dump(secrets_data, f, default_flow_style=False, sort_keys=False)
 
-    logger.log(f"✓ Removed {key} from secrets.yml")
+    logger.log(f"✓ Removed {key} from {location}")
 
     # Step 2: Sync to GitHub (removes from there too)
     if not no_sync:
         logger.step("[2/3] Syncing to GitHub")
-        logger.log("Clearing and re-syncing to remove deleted secret...")
+        logger.log(
+            f"Clearing and re-syncing to remove deleted secret ({environment})..."
+        )
 
         try:
             # Use subprocess to call sync with --clear flag
@@ -435,6 +506,8 @@ def config_unset(key, project, app, deploy, no_sync):
                 "-m",
                 "cli.main",
                 f"{project}:sync",
+                "-e",
+                environment,
                 "--clear",  # Clear all secrets then re-sync
             ]
 
@@ -446,7 +519,7 @@ def config_unset(key, project, app, deploy, no_sync):
             )
 
             if result.returncode == 0:
-                logger.log("✓ Remote secrets updated (secret removed)")
+                logger.log(f"✓ Remote secrets updated ({environment} - secret removed)")
             else:
                 logger.warning("⚠ Sync had issues")
                 if result.stderr:

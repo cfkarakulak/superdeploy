@@ -79,15 +79,12 @@ def set_github_repo_secrets(repo, secrets_dict, console):
     return success_count, fail_count
 
 
-def set_github_env_secrets(repo, env_name, secrets_dict, console):
+def set_github_environment_secrets(repo, environment, secrets_dict, console):
     """Set GitHub environment secrets using gh CLI"""
     success_count = 0
     fail_count = 0
 
     for key, value in secrets_dict.items():
-        if not value or str(value).strip() == "":
-            continue
-
         try:
             subprocess.run(
                 [
@@ -97,10 +94,10 @@ def set_github_env_secrets(repo, env_name, secrets_dict, console):
                     key,
                     "-b",
                     str(value),
-                    "-e",
-                    env_name,
                     "-R",
                     repo,
+                    "--env",
+                    environment,
                 ],
                 check=True,
                 capture_output=True,
@@ -144,6 +141,28 @@ def list_github_repo_secrets(repo, console):
         return []
 
 
+def list_github_env_secrets(repo, environment, console):
+    """List all GitHub environment secrets using gh CLI"""
+    try:
+        result = subprocess.run(
+            ["gh", "secret", "list", "-R", repo, "--env", environment, "--json", "name"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        secrets = json.loads(result.stdout)
+        return [secret["name"] for secret in secrets]
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Could not list environment secrets: {e}[/yellow]")
+        return []
+
+
+def set_github_env_secrets(repo, environment, secrets_dict, console):
+    """Set GitHub environment secrets using gh CLI"""
+    return set_github_environment_secrets(repo, environment, secrets_dict, console)
+
+
 def remove_github_repo_secrets(repo, secret_names, console):
     """Remove GitHub repository secrets using gh CLI"""
     success_count = 0
@@ -175,24 +194,7 @@ def remove_github_repo_secrets(repo, secret_names, console):
     return success_count, fail_count
 
 
-def list_github_env_secrets(repo, env_name, console):
-    """List all GitHub environment secrets using gh CLI"""
-    try:
-        result = subprocess.run(
-            ["gh", "secret", "list", "-e", env_name, "-R", repo, "--json", "name"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        secrets = json.loads(result.stdout)
-        return [secret["name"] for secret in secrets]
-    except Exception as e:
-        console.print(f"[yellow]⚠️  Could not list environment secrets: {e}[/yellow]")
-        return []
-
-
-def remove_github_env_secrets(repo, env_name, secret_names, console):
+def remove_github_env_secrets(repo, environment, secret_names, console):
     """Remove GitHub environment secrets using gh CLI"""
     success_count = 0
     fail_count = 0
@@ -200,7 +202,7 @@ def remove_github_env_secrets(repo, env_name, secret_names, console):
     for secret_name in secret_names:
         try:
             subprocess.run(
-                ["gh", "secret", "remove", secret_name, "-e", env_name, "-R", repo],
+                ["gh", "secret", "remove", secret_name, "-R", repo, "--env", environment],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -225,26 +227,37 @@ def remove_github_env_secrets(repo, env_name, secret_names, console):
 
 @click.command(name="sync")
 @click.option("--clear", is_flag=True, help="Clear all existing secrets before syncing")
-def sync(project, clear):
+@click.option(
+    "-e",
+    "--env",
+    "environment",
+    default="production",
+    help="Target environment (production/staging)",
+)
+def sync(project, clear, environment):
     """
     Sync ALL secrets to GitHub
 
-    - Repository secrets (Docker, GitHub runner token, etc.)
-    - Environment secrets (per-app configuration)
+    - Repository secrets (Docker credentials, shared build secrets)
+    - Environment secrets (per-app secrets for production/staging)
 
     Requirements:
     - gh CLI installed and authenticated
     - secrets.yml file in project directory
+    - GitHub Environments created (production/staging)
 
     Options:
     - --clear: Remove all existing secrets before syncing new ones
+    - -e, --env: Target environment (production or staging, default: production)
 
     Examples:
-        superdeploy cheapa:sync
-        superdeploy cheapa:sync --clear
+        superdeploy cheapa:sync                    # Sync to production
+        superdeploy cheapa:sync -e staging         # Sync to staging
+        superdeploy cheapa:sync --clear            # Clear & sync production
+        superdeploy cheapa:sync -e staging --clear # Clear & sync staging
     """
     show_header(
-        title="Sync Secrets to GitHub",
+        title=f"Sync Secrets to GitHub ({environment})",
         project=project,
         subtitle="Automated secret management",
         console=console,
@@ -332,25 +345,25 @@ def sync(project, clear):
         # Remove None values
         repo_secrets = {k: v for k, v in repo_secrets.items() if v is not None}
 
+        # Set repository secrets
         success, fail = set_github_repo_secrets(repo, repo_secrets, console)
         console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
 
-        # Environment secrets (production)
-        env_name = "production"
-        console.print(
-            f"[cyan]Environment '{env_name}' (merged .env + secrets.yml):[/cyan]"
-        )
+        # App environment variables (merged .env + secrets.yml)
+        console.print(f"[cyan]App Environment: {app_name} ({environment})[/cyan]")
 
         # Clear existing environment secrets if --clear flag is provided
         if clear:
-            console.print("  [yellow]🧹 Clearing environment secrets...[/yellow]")
-            existing_env_secrets = list_github_env_secrets(repo, env_name, console)
+            console.print(
+                f"  [yellow]🧹 Clearing environment secrets ({environment})...[/yellow]"
+            )
+            existing_env_secrets = list_github_env_secrets(repo, environment, console)
             if existing_env_secrets:
                 console.print(
                     f"  [dim]Found {len(existing_env_secrets)} environment secrets to remove[/dim]"
                 )
                 success, fail = remove_github_env_secrets(
-                    repo, env_name, existing_env_secrets, console
+                    repo, environment, existing_env_secrets, console
                 )
                 console.print(f"  [dim]→ {success} removed, {fail} failed[/dim]\n")
             else:
@@ -377,34 +390,13 @@ def sync(project, clear):
         merged_env = {**local_env, **app_secrets}
         console.print(f"  [dim]🔀 Merged total: {len(merged_env)} variables[/dim]")
 
-        # Create JSON secret with merged environment
-        env_json_secret_name = f"{app_name.upper()}_ENV_JSON"
-        env_json_value = json.dumps(merged_env)
-
-        console.print(
-            f"  [green]✓[/green] {env_json_secret_name} [dim](JSON with {len(merged_env)} vars)[/dim]"
+        # Set the merged environment as ENVIRONMENT SECRET
+        # This allows production and staging to have different values
+        env_secret_dict = merged_env
+        success, fail = set_github_env_secrets(
+            repo, environment, env_secret_dict, console
         )
-
-        # Set the JSON secret
-        try:
-            subprocess.run(
-                [
-                    "gh",
-                    "secret",
-                    "set",
-                    env_json_secret_name,
-                    "-b",
-                    env_json_value,
-                    "-R",
-                    repo,
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-        except Exception as e:
-            console.print(f"  [red]✗[/red] Failed to set {env_json_secret_name}: {e}")
+        console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
 
         console.print()
 

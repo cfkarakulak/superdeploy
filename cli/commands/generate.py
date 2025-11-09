@@ -178,7 +178,7 @@ def _get_github_workflow_template(app_type: str) -> str:
 
 on:
   push:
-    branches: [production]
+    branches: [production, staging]
   workflow_dispatch:
 
 jobs:
@@ -230,6 +230,7 @@ jobs:
 
   deploy:
     needs: build
+    environment: ${{ github.ref_name }}
     runs-on: 
       - self-hosted
       - superdeploy
@@ -368,7 +369,7 @@ jobs:
 
 on:
   push:
-    branches: [production]
+    branches: [production, staging]
   workflow_dispatch:
 
 jobs:
@@ -414,6 +415,7 @@ jobs:
 
   deploy:
     needs: build
+    environment: ${{ github.ref_name }}
     runs-on: 
       - self-hosted
       - superdeploy
