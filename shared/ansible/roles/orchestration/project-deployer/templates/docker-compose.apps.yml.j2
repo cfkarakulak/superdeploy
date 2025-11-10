@@ -7,12 +7,16 @@ services:
     image: {{ project_config.docker.registry | default('docker.io') }}/{{ project_config.docker.organization }}/{{ app_name }}:latest
     container_name: {{ project_name }}_{{ app_name }}
     restart: unless-stopped
+{% if app_config.port is defined %}
     ports:
       - "{{ app_config.port }}:{{ app_config.port }}"
+{% endif %}
     environment:
       - PROJECT_NAME={{ project_name }}
       - APP_NAME={{ app_name }}
+{% if app_config.port is defined %}
       - PORT={{ app_config.port }}
+{% endif %}
     env_file:
       - {{ project_base_path }}/data/{{ app_name }}/.env
     volumes:
@@ -23,8 +27,10 @@ services:
     labels:
       - "com.superdeploy.project={{ project_name }}"
       - "com.superdeploy.app={{ app_name }}"
+{% if app_config.port is defined %}
       - "com.superdeploy.port={{ app_config.port }}"
-{% if monitoring_enabled %}
+{% endif %}
+{% if monitoring_enabled and app_config.port is defined %}
       - "prometheus.scrape=true"
       - "prometheus.port={{ app_config.port }}"
       - "prometheus.path=/metrics"
