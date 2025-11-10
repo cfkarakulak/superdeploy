@@ -43,16 +43,16 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
+{% raw %}          username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
-      
+{% endraw %}      
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./{{ app_name }}/Dockerfile
           push: true
-          tags: |
+{% raw %}          tags: |
             ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest
             ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
           cache-from: type=registry,ref=${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache
@@ -66,9 +66,10 @@ jobs:
       - superdeploy
       - ${{ needs.build.outputs.project }}
       - ${{ needs.build.outputs.vm_role }}
+{% endraw %}
     
     steps:
-      - name: Validate runner
+{% raw %}      - name: Validate runner
         run: |
           echo "🔍 Validating deployment environment..."
           
@@ -91,7 +92,7 @@ jobs:
           ENV_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}/data/$APP_NAME"
           
           echo "📝 Creating .env from ${APP_NAME^^}_ENV_JSON..."
-{% endraw %}          
+{% endraw %}
           # GitHub Actions cannot dynamically access secrets
           # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
           case "$APP_NAME" in
@@ -103,7 +104,7 @@ jobs:
               exit 1
               ;;
           esac
-{% raw %}          
+{% raw %}
           # Convert JSON to .env format
           echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
           
