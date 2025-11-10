@@ -168,6 +168,9 @@ class EnvListCommand(BaseCommand):
 
         # Filter logic
         for key, value in sorted(env_vars.items()):
+            # Convert value to string (handles int ports, etc.)
+            value = str(value)
+            
             # Category determination
             if key in infra_keys:
                 category = "infra"
@@ -258,7 +261,7 @@ class EnvCheckCommand(BaseCommand):
         ]
 
         for key in required:
-            value = env_vars.get(key, "")
+            value = str(env_vars.get(key, ""))
 
             if not value:
                 issues.append(f"❌ {key}: Not set")
