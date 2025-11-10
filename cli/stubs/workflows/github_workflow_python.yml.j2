@@ -153,7 +153,8 @@ jobs:
             docker rename $CONTAINER_NAME $BACKUP_CONTAINER 2>/dev/null || true
             
             echo "🚀 Step 3/5: Starting new container (green)..."
-            docker compose up -d {% raw %}${{ needs.build.outputs.app }}{% endraw %}
+            # Use --no-deps to prevent compose from touching other containers
+            docker compose up -d --no-deps {% raw %}${{ needs.build.outputs.app }}{% endraw %}
             
             echo "⏳ Step 4/5: Health check (30s timeout)..."
             # Wait for container to be running and healthy
@@ -197,14 +198,23 @@ jobs:
               docker stop $CONTAINER_NAME 2>/dev/null || true
               docker rm $CONTAINER_NAME 2>/dev/null || true
               
-              # Restore backup (blue)
-              docker rename $BACKUP_CONTAINER $CONTAINER_NAME
-              docker start $CONTAINER_NAME
+              # Check if backup exists
+              if docker ps -a --format '{% raw %}{{.Names}}{% endraw %}' | grep -q "^${BACKUP_CONTAINER}$"; then
+                # Restore backup (blue)
+                docker rename $BACKUP_CONTAINER $CONTAINER_NAME 2>/dev/null || true
+                docker start $CONTAINER_NAME
+                echo "✅ Rollback complete - old version restored"
+              else
+                echo "⚠️  Backup container not found, redeploying from image..."
+                # Redeploy from last known good image
+                docker compose up -d --no-deps {% raw %}${{ needs.build.outputs.app }}{% endraw %}
+                sleep 5
+                echo "✅ Redeployed from previous image"
+              fi
               
-              echo "✅ Rollback complete - old version restored"
               echo ""
-              echo "📋 Failed container logs:"
-              docker logs $BACKUP_CONTAINER --tail 50 2>/dev/null || true
+              echo "📋 Failed deployment logs:"
+              docker logs $CONTAINER_NAME --tail 50 2>/dev/null || true
               
               exit 1
             fi

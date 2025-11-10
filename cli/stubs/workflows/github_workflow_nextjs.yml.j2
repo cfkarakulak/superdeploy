@@ -145,7 +145,7 @@ jobs:
             docker rename $CONTAINER_NAME $BACKUP_CONTAINER 2>/dev/null || true
             
             echo "🚀 Step 3/5: Starting new container (green)..."
-            docker compose up -d ${{ needs.build.outputs.app }}
+            docker compose up -d --no-deps ${{ needs.build.outputs.app }}
             
             echo "⏳ Step 4/5: Health check (30s timeout)..."
             TIMEOUT=30
@@ -178,9 +178,15 @@ jobs:
               echo "❌ New container failed, performing rollback..."
               docker stop $CONTAINER_NAME 2>/dev/null || true
               docker rm $CONTAINER_NAME 2>/dev/null || true
-              docker rename $BACKUP_CONTAINER $CONTAINER_NAME
-              docker start $CONTAINER_NAME
-              echo "✅ Rollback complete"
+              
+              if docker ps -a --format '{{.Names}}' | grep -q "^${BACKUP_CONTAINER}$"; then
+                docker rename $BACKUP_CONTAINER $CONTAINER_NAME 2>/dev/null || true
+                docker start $CONTAINER_NAME
+                echo "✅ Rollback complete"
+              else
+                echo "⚠️  Backup not found, redeploying..."
+                docker compose up -d --no-deps ${{ needs.build.outputs.app }}
+              fi
               exit 1
             fi
           else

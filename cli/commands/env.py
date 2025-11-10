@@ -170,7 +170,7 @@ class EnvListCommand(BaseCommand):
         for key, value in sorted(env_vars.items()):
             # Convert value to string (handles int ports, etc.)
             value = str(value)
-            
+
             # Category determination
             if key in infra_keys:
                 category = "infra"
