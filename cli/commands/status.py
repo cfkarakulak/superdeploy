@@ -65,6 +65,8 @@ class StatusCommand(ProjectCommand):
                 )
 
                 if result.returncode == 0 and result.stdout.strip():
+                    if self.verbose:
+                        logger.log(f"Version data from {vm_ip}: {result.stdout.strip()}")
                     versions = json.loads(result.stdout)
                     # versions.json format: {"app_name": {"version": "1.0.5", "deployed_at": "...", ...}}
                     for app_name, version_data in versions.items():
@@ -72,8 +74,9 @@ class StatusCommand(ProjectCommand):
                             "deployed_at", ""
                         ) > app_versions[app_name].get("deployed_at", ""):
                             app_versions[app_name] = version_data
-            except Exception:
-                pass
+            except Exception as e:
+                if self.verbose:
+                    logger.log(f"Error reading versions from {vm_ip}: {e}")
 
         # Check each VM and its containers
         for vm_name in sorted(all_vms.keys()):
@@ -87,11 +90,15 @@ class StatusCommand(ProjectCommand):
 
                 # Get container status
                 try:
+                    # Try both naming conventions: dash (-) and underscore (_)
                     result = ssh_service.execute_command(
                         vm_ip,
-                        f"docker ps --filter name={self.project_name}- --format '{{{{.Names}}}}\\t{{{{.Status}}}}'",
+                        f"docker ps --format '{{{{.Names}}}}\\t{{{{.Status}}}}' | grep -E '^{self.project_name}[-_]|^superdeploy-'",
                         timeout=5,
                     )
+
+                    if self.verbose:
+                        logger.log(f"Containers on {vm_ip}: {result.stdout.strip()}")
 
                     if result.returncode == 0 and result.stdout.strip():
                         # Add VM header
@@ -103,10 +110,14 @@ class StatusCommand(ProjectCommand):
                         for line in result.stdout.strip().split("\n"):
                             if "\t" in line:
                                 container, status = line.split("\t", 1)
-                                # Extract app name from container name
-                                app_name = container.replace(
-                                    f"{self.project_name}-", ""
-                                )
+                                # Extract app name from container name (handle both - and _ separators)
+                                app_name = container
+                                if container.startswith(f"{self.project_name}-"):
+                                    app_name = container.replace(f"{self.project_name}-", "", 1)
+                                elif container.startswith(f"{self.project_name}_"):
+                                    app_name = container.replace(f"{self.project_name}_", "", 1)
+                                elif container.startswith("superdeploy-"):
+                                    app_name = container.replace("superdeploy-", "", 1)
 
                                 # Get version for this app
                                 version = "-"
