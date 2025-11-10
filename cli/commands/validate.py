@@ -381,7 +381,7 @@ def validate_project(project):
 @click.option(
     "--fix", is_flag=True, help="Attempt to auto-fix issues (not implemented yet)"
 )
-def validate_addons(project, addon, fix):
+def validate_addons(project=None, addon=None, fix=False):
     """
     Validate addon structure and configuration
 
@@ -389,7 +389,7 @@ def validate_addons(project, addon, fix):
     Examples:
       superdeploy validate:addons                    # Validate all addons
       superdeploy validate:addons -a postgres        # Validate specific addon
-      superdeploy validate:addons -p acme            # Validate addons for project
+      superdeploy cheapa:validate:addons             # Validate addons for project
       superdeploy validate:addons --fix              # Auto-fix issues (future)
 
     \b

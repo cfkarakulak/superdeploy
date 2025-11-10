@@ -26,6 +26,17 @@ class ReleasesCommand(ProjectCommand):
             details={"Limit": str(self.limit)},
         )
 
+        # Check if state service is available
+        if not self.state_service:
+            self.console.print("[yellow]⚠️  Release history not available[/yellow]\n")
+            self.console.print(
+                "[dim]This project uses version tracking instead of release history.[/dim]"
+            )
+            self.console.print(
+                f"[dim]Use: [cyan]superdeploy {self.project_name}:status[/cyan] to see deployed versions[/dim]\n"
+            )
+            return
+
         # Load project config to find VM
         try:
             config = self.config_service.get_raw_config(self.project_name)

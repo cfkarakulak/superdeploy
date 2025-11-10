@@ -322,7 +322,7 @@ def env_list(show_all, app, no_mask, verbose):
 
 @click.command(name="env:check")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def env_check(verbose):
+def env_check(project=None, verbose=False):
     """
     Check environment configuration health
 
