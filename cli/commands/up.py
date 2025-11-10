@@ -1280,12 +1280,13 @@ def _update_secrets_with_vm_ips(project_root, project, env, logger):
     for host_key, (default_name, service_name) in service_hosts.items():
         if host_key in shared_secrets:
             current_value = shared_secrets[host_key]
-            # If it's still the default hostname, replace with internal IP
-            if current_value == default_name:
+            # Update if it's default hostname OR if it differs from core IP
+            if current_value != core_internal_ip:
+                old_value = current_value
                 shared_secrets[host_key] = core_internal_ip
                 updated = True
                 logger.log(
-                    f"  [dim]✓ Updated {service_name} host: {default_name} → {core_internal_ip}[/dim]"
+                    f"  [dim]✓ Updated {service_name} host: {old_value} → {core_internal_ip}[/dim]"
                 )
 
     if updated:
