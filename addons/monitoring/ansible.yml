@@ -207,6 +207,25 @@
     msg: "{{ monitoring_cleanup_result.stdout_lines }}"
   when: monitoring_cleanup_result.stdout_lines is defined
 
+- name: Final pre-start container check for {{ addon_name }}
+  shell:
+    cmd: |
+      # One last check before docker-compose starts
+      EXISTING=$(docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}" 2>/dev/null || true)
+      if [ -n "$EXISTING" ]; then
+        echo "Found existing container(s), force removing..."
+        echo "$EXISTING" | xargs -r docker stop -t 5 2>&1 || true
+        echo "$EXISTING" | xargs -r docker rm -f 2>&1 || true
+        sleep 3
+        docker ps -a > /dev/null 2>&1  # Force sync
+        echo "Removed: $EXISTING"
+      else
+        echo "No existing containers found"
+      fi
+    executable: /bin/bash
+  become: yes
+  changed_when: false
+
 - name: Start {{ addon_name }} services (with explicit project name)
   community.docker.docker_compose_v2:
     project_name: "{{ project_name }}-{{ addon_name }}"
