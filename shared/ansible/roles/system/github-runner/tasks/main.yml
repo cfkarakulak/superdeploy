@@ -38,29 +38,7 @@
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
 
-- name: Check if GitHub runner is already installed
-  stat:
-    path: /opt/github-runner/config.sh
-  register: runner_check
-
-- name: Download GitHub Actions runner
-  get_url:
-    url: "https://github.com/actions/runner/releases/download/v2.311.0/actions-runner-linux-x64-2.311.0.tar.gz"
-    dest: /tmp/github-runner.tar.gz
-    mode: '0644'
-  when: not runner_check.stat.exists
-
-- name: Extract GitHub runner
-  unarchive:
-    src: /tmp/github-runner.tar.gz
-    dest: /opt/github-runner
-    remote_src: yes
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group | default(superdeploy_user) }}"
-  become: yes
-  when: not runner_check.stat.exists
-
-- name: Check if runner is already configured
+- name: Check if runner is already configured (early check)
   stat:
     path: /opt/github-runner/.runner
   register: runner_config_check
@@ -82,21 +60,103 @@
     runner_exists_in_github: "{{ github_runners_list.json.runners | selectattr('name', 'equalto', inventory_hostname_short | default(inventory_hostname)) | list | length > 0 }}"
   when: runner_config_check.stat.exists
 
-- name: Remove stale runner configuration if not in GitHub
-  file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - /opt/github-runner/.runner
-    - /opt/github-runner/.credentials
+- name: Get runner status from GitHub API
+  set_fact:
+    runner_github_status: "{{ (github_runners_list.json.runners | selectattr('name', 'equalto', inventory_hostname_short | default(inventory_hostname)) | list | first).status }}"
   when: 
     - runner_config_check.stat.exists
-    - not (runner_exists_in_github | default(true))
+    - runner_exists_in_github | default(false)
+
+- name: Remove stale runner configuration if not in GitHub or offline
+  block:
+    - name: Stop runner service if offline
+      systemd:
+        name: github-runner
+        state: stopped
+      ignore_errors: yes
+    
+    - name: Wait for service to stop
+      shell: sleep 2
+      changed_when: false
+    
+    - name: Remove runner from GitHub API if offline
+      command: >
+        ./config.sh remove
+        --token {{ project_secrets.shared.GITHUB_TOKEN }}
+      args:
+        chdir: /opt/github-runner
+      become_user: "{{ superdeploy_user }}"
+      ignore_errors: yes
+      when: runner_exists_in_github | default(false)
+    
+    - name: Remove entire runner directory (clean install)
+      shell: rm -rf /opt/github-runner
+    
+    - name: Recreate runner directory after cleanup
+      file:
+        path: /opt/github-runner
+        state: directory
+        owner: "{{ superdeploy_user }}"
+        group: "{{ superdeploy_group | default(superdeploy_user) }}"
+        mode: '0755'
+  when: 
+    - runner_config_check.stat.exists
+    - not (runner_exists_in_github | default(true)) or (runner_github_status | default('offline')) == 'offline'
 
 - name: Update runner config check after cleanup
   stat:
     path: /opt/github-runner/.runner
   register: runner_config_check
+
+- name: Ensure runner directory exists (for fresh install)
+  file:
+    path: /opt/github-runner
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0755'
+  when: not runner_config_check.stat.exists
+
+- name: Create runner systemd service file (before first config)
+  template:
+    src: github-runner.service.j2
+    dest: /etc/systemd/system/github-runner.service
+    mode: '0644'
+  when: not runner_config_check.stat.exists
+
+- name: Reload systemd daemon (before first config)
+  systemd:
+    daemon_reload: yes
+  when: not runner_config_check.stat.exists
+
+- name: Remove old runner tarball (force fresh download)
+  file:
+    path: /tmp/github-runner.tar.gz
+    state: absent
+  when: not runner_config_check.stat.exists
+
+- name: Download GitHub Actions runner (fresh install or after cleanup)
+  get_url:
+    url: "https://github.com/actions/runner/releases/download/v2.320.0/actions-runner-linux-x64-2.320.0.tar.gz"
+    dest: /tmp/github-runner.tar.gz
+    mode: '0644'
+    force: yes
+  when: not runner_config_check.stat.exists
+
+- name: Clean directory before extract
+  shell: rm -rf /opt/github-runner/*
+  when: not runner_config_check.stat.exists
+
+- name: Extract GitHub runner (fresh install or after cleanup)
+  unarchive:
+    src: /tmp/github-runner.tar.gz
+    dest: /opt/github-runner
+    remote_src: yes
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    extra_opts: [--strip-components=0]
+  become: yes
+  when: not runner_config_check.stat.exists
 
 - name: Get GitHub runner registration token from API
   uri:
@@ -113,7 +173,7 @@
   retries: 3
   delay: 5
   until: github_runner_token_response.status == 201
-  when: not runner_config_check.stat.exists
+  when: not (runner_config_check.stat.exists | default(true))
   failed_when:
     - github_runner_token_response.failed is defined
     - github_runner_token_response.failed
@@ -126,7 +186,7 @@
 - name: Extract runner token
   set_fact:
     github_runner_token: "{{ github_runner_token_response.json.token }}"
-  when: not runner_config_check.stat.exists
+  when: not (runner_config_check.stat.exists | default(true))
   no_log: true
 
 - name: Configure GitHub runner
@@ -142,10 +202,11 @@
   args:
     chdir: /opt/github-runner
   become_user: "{{ superdeploy_user }}"
-  when: not runner_config_check.stat.exists
+  when: not (runner_config_check.stat.exists | default(true))
   register: runner_register_result
   failed_when:
     - runner_register_result.rc != 0
+    - "'Successfully replaced the runner' not in runner_register_result.stdout"
   vars:
     error_msg: |
       Failed to configure GitHub runner.
@@ -166,25 +227,16 @@
       - ""
       - "✅ Workflows should use: runs-on: [self-hosted, superdeploy, {{ runner_project_name }}, {{ vm_role }}]"
 
-- name: Create runner systemd service file
-  template:
-    src: github-runner.service.j2
-    dest: /etc/systemd/system/github-runner.service
-    mode: '0644'
-
-- name: Reload systemd daemon
-  systemd:
-    daemon_reload: yes
-
-- name: Enable and start runner service
+- name: Enable and start runner service after registration
   systemd:
     name: github-runner
     enabled: yes
     state: started
-    daemon_reload: yes
+  when: runner_register_result is defined and runner_register_result.changed
 
-- name: Wait for runner service to initialize
-  shell: sleep 5
+- name: Wait for runner to connect and stabilize
+  shell: sleep 15
+  when: runner_register_result is defined and runner_register_result.changed
   changed_when: false
 
 - name: Display runner health status

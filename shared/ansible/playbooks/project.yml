@@ -79,6 +79,39 @@
           - "Should install runner: {{ should_install_runner }}"
       when: should_install_runner is defined
     
+    # Check and fix offline runners BEFORE deciding whether to install
+    - name: Check if runner config exists (for offline detection)
+      stat:
+        path: /opt/github-runner/.runner
+      register: runner_config_exists_check
+    
+    - name: Get runner status from GitHub API if config exists
+      uri:
+        url: "https://api.github.com/orgs/{{ github_org }}/actions/runners"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ project_secrets.shared.GITHUB_TOKEN }}"
+          Accept: "application/vnd.github+json"
+        status_code: 200
+        return_content: yes
+      register: github_runners_api_check
+      when: runner_config_exists_check.stat.exists
+      ignore_errors: yes
+    
+    - name: Check if this runner is offline in GitHub
+      set_fact:
+        runner_is_offline: "{{ (github_runners_api_check.json.runners | selectattr('name', 'equalto', inventory_hostname_short | default(inventory_hostname)) | list | first).status == 'offline' if github_runners_api_check.json is defined else false }}"
+      when: 
+        - runner_config_exists_check.stat.exists
+        - github_runners_api_check.json is defined
+    
+    - name: Force reinstall if runner is offline
+      set_fact:
+        should_install_runner: true
+      when:
+        - runner_config_exists_check.stat.exists
+        - runner_is_offline | default(false)
+    
     - name: Install GitHub Runner
       include_role:
         name: system/github-runner

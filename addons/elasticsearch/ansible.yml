@@ -26,7 +26,10 @@
       
       # Phase 2: Wait for Docker daemon to sync
       echo "Phase 2: Waiting for Docker daemon to sync..."
-      sleep 2
+      sleep 5
+      
+      # Force sync by listing containers
+      docker ps -a > /dev/null 2>&1
       
       # Phase 3: Force remove any remaining containers by exact name or prefix
       echo "Phase 3: Force removing any remaining containers..."
@@ -49,8 +52,13 @@
       
       if [ -n "$REMAINING_CONTAINERS" ]; then
         echo "Found remaining containers: $REMAINING_CONTAINERS"
+        # First stop, then remove
+        echo "$REMAINING_CONTAINERS" | xargs -r docker stop -t 5 2>&1 || true
         echo "$REMAINING_CONTAINERS" | xargs -r docker rm -f 2>&1 || true
-        sleep 2
+        sleep 5
+      
+      # Force sync by listing containers
+      docker ps -a > /dev/null 2>&1
       fi
       # Phase 4: Final verification
       echo "Phase 4: Final verification..."
@@ -72,8 +80,13 @@
         echo "⚠ WARNING: Some containers still exist:"
         docker ps -a | grep "${PROJECT_NAME}-${ADDON_NAME}" || true
         echo "Attempting final force removal..."
+        # Stop first, then remove
+        echo "$FINAL_CHECK" | xargs -r docker stop -t 5 2>&1 || true
         echo "$FINAL_CHECK" | xargs -r docker rm -f 2>&1 || true
-        sleep 2
+        sleep 5
+      
+      # Force sync by listing containers
+      docker ps -a > /dev/null 2>&1
       fi
       
       
@@ -85,7 +98,10 @@
         docker ps -a --filter "name=${PROJECT_NAME}-${ADDON_NAME}-"
         echo "Attempting final force removal..."
         echo "$FINAL_CHECK" | xargs -r docker rm -f 2>&1 || true
-        sleep 2
+        sleep 5
+      
+      # Force sync by listing containers
+      docker ps -a > /dev/null 2>&1
       fi
       echo "✓ Cleanup completed - ready for deployment"
     executable: /bin/bash
@@ -96,6 +112,12 @@
   become: yes
   register: elasticsearch_cleanup_result
   changed_when: false
+
+- name: Display cleanup output (debug)
+  debug:
+    msg: "{{ elasticsearch_cleanup_result.stdout_lines }}"
+  when: elasticsearch_cleanup_result.stdout_lines is defined
+
 - name: Start {{ addon_name }} services (with explicit project name)
   community.docker.docker_compose_v2:
     project_name: "{{ project_name }}-{{ addon_name }}"
