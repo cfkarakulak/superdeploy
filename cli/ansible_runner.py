@@ -145,7 +145,7 @@ class AnsibleRunner:
                     line = process.stdout.readline()
                     if not line:
                         break
-                    
+
                     line_stripped = line.rstrip()
 
                     # Log to main log file
