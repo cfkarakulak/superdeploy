@@ -84,7 +84,7 @@ from cli.commands.config import (
 )
 from cli.commands.env import env_list, env_check
 from cli.commands.releases import releases_list
-from cli.commands.switch import releases_rollback
+from cli.commands.switch import releases_switch
 from cli.commands.backup import backups_create
 from cli.commands.orchestrator import (
     orchestrator_init,
@@ -274,7 +274,7 @@ cli.add_command(env_list)
 cli.add_command(env_check)
 # Register releases commands (Heroku-style with colons)
 cli.add_command(releases_list)
-cli.add_command(releases_rollback)
+cli.add_command(releases_switch)
 # Register project commands (Heroku-style with colons)
 cli.add_command(projects_deploy)
 cli.add_command(promote.promote)

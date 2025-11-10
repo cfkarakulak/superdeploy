@@ -951,7 +951,6 @@ def config_unset(project, key, app, environment, deploy, no_sync, verbose):
 
 
 @click.command(name="config:show")
-@click.option("-p", "--project", help="Project name (optional)")
 @click.option("--mask", is_flag=True, help="Mask sensitive values")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
 def config_show(project, mask, verbose):
@@ -962,29 +961,6 @@ def config_show(project, mask, verbose):
     Examples:
       superdeploy cheapa:config:show           # Show all configs
       superdeploy cheapa:config:show --mask    # Mask passwords
-      superdeploy config:show -p cheapa        # Specify project
     """
-    # If no project specified, use first available project
-    if not project:
-        from cli.utils import get_project_root
-
-        project_root = get_project_root()
-        projects_dir = project_root / "projects"
-        projects = [
-            p.name
-            for p in projects_dir.iterdir()
-            if p.is_dir() and not p.name.startswith(".")
-        ]
-
-        if not projects:
-            from rich.console import Console
-
-            Console().print(
-                "[red]❌ No projects found. Please create a project first.[/red]"
-            )
-            raise SystemExit(1)
-
-        project = projects[0]
-
     cmd = ConfigShowCommand(project, mask=mask, verbose=verbose)
     cmd.run()
