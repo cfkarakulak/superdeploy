@@ -14,26 +14,26 @@ jobs:
       vm_role: ${{ steps.config.outputs.vm_role }}
 {% endraw %}    
     steps:
-      - name: Checkout {% endraw %}{{ app_name }}{% raw %} repository
+      - name: Checkout {{ app_name }} repository
         uses: actions/checkout@v4
         with:
-          path: {% endraw %}{{ app_name }}{% raw %}
+          path: {{ app_name }}
       
       - name: Checkout commons models (shared workspace)
         uses: actions/checkout@v4
         with:
-          repository: {% endraw %}{{ repo_org }}{% raw %}/commons
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          repository: {{ repo_org }}/commons
+          token: {% raw %}${{ secrets.PRIVATE_REPO_TOKEN }}{% endraw %}
           path: commons
       
       - name: Read app configuration
-        working-directory: {% endraw %}{{ app_name }}{% raw %}
+        working-directory: {{ app_name }}
         id: config
         run: |
           PROJECT=$(grep "^project:" .superdeploy | cut -d: -f2 | xargs)
           APP=$(grep "^app:" .superdeploy | cut -d: -f2 | xargs)
           VM_ROLE=$(grep "^vm:" .superdeploy | cut -d: -f2 | xargs)
-          echo "project=$PROJECT" >> $GITHUB_OUTPUT
+{% raw %}          echo "project=$PROJECT" >> $GITHUB_OUTPUT
           echo "app=$APP" >> $GITHUB_OUTPUT
           echo "vm_role=$VM_ROLE" >> $GITHUB_OUTPUT
       
@@ -50,7 +50,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./{% endraw %}{{ app_name }}{% raw %}/Dockerfile
+          file: ./{{ app_name }}/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest
