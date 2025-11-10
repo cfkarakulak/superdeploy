@@ -158,7 +158,7 @@ class GenerateCommand(ProjectCommand):
                 app_name=app_name,
                 vm_role=vm_role,
                 secret_var_line=secret_var_line,
-                repo_org=config.get("github", {}).get("org", "GITHUB_ORG"),
+                repo_org=config.get("github", {}).get("organization", "GITHUB_ORG"),
             )
             github_dir = app_path / ".github" / "workflows"
             github_dir.mkdir(parents=True, exist_ok=True)
