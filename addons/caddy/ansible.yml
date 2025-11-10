@@ -147,19 +147,50 @@
 - name: Final pre-start container check for {{ addon_name }}
   shell:
     cmd: |
+      set -x  # Debug mode
+      echo "=== Pre-start check for {{ project_name }}-{{ addon_name }} ==="
       # One last check before docker-compose starts
       EXISTING=$(docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}" 2>/dev/null || true)
+      echo "Found containers: [$EXISTING]"
       if [ -n "$EXISTING" ]; then
-        echo "Found existing container(s), force removing..."
+        echo "Force removing existing container(s)..."
         echo "$EXISTING" | xargs -r docker stop -t 5 2>&1 || true
         echo "$EXISTING" | xargs -r docker rm -f 2>&1 || true
         sleep 3
         docker ps -a > /dev/null 2>&1  # Force sync
-        echo "Removed: $EXISTING"
+        echo "✓ Removed: $EXISTING"
       else
-        echo "No existing containers found"
+        echo "✓ No existing containers found - clean state"
       fi
     executable: /bin/bash
+  become: yes
+  register: prestart_check_result
+  changed_when: false
+
+- name: Display pre-start check output
+  debug:
+    msg: "{{ prestart_check_result.stdout_lines }}"
+  when: prestart_check_result.stdout_lines is defined
+
+- name: Force stop {{ addon_name }} (workaround for hardcoded container_name)
+  community.docker.docker_compose_v2:
+    project_name: "{{ project_name }}-{{ addon_name }}"
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: stopped
+  become: yes
+  ignore_errors: yes
+
+- name: Force remove {{ addon_name }} containers (workaround for hardcoded container_name)
+  community.docker.docker_compose_v2:
+    project_name: "{{ project_name }}-{{ addon_name }}"
+    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    state: absent
+    remove_orphans: true
+  become: yes
+  ignore_errors: yes
+
+- name: Wait after removal
+  shell: sleep 2 && docker ps -a > /dev/null 2>&1
   become: yes
   changed_when: false
 
