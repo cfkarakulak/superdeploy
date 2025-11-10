@@ -234,17 +234,16 @@ class UpCommand(ProjectCommand):
 
                         # Call generate command directly (uses same environment)
                         from cli.commands.generate import GenerateCommand
-                        
+
                         try:
                             gen_cmd = GenerateCommand(
-                                project_name=self.project_name,
-                                verbose=self.verbose
+                                project_name=self.project_name, verbose=self.verbose
                             )
                             gen_cmd.execute()
                             logger.log("  [dim]✓ Workflows generated[/dim]")
                         except Exception as e:
                             logger.log_error("Workflow generation failed")
-                            logger.warn(f"  {str(e)}")
+                            logger.warning(f"  {str(e)}")
                             raise SystemExit(1)
 
                     logger.log("")
