@@ -45,68 +45,13 @@ class AnsibleRunner:
             / "strategy"
         )
 
-        # Setup environment for VERBOSE logging to file
-        env_verbose = os.environ.copy()
-        env_verbose.update(
-            {
-                "PYTHONUNBUFFERED": "1",
-                "ANSIBLE_STDOUT_CALLBACK": "default",  # RAW output for log file
-                "ANSIBLE_DISPLAY_SKIPPED_HOSTS": "false",
-                "ANSIBLE_LOG_PATH": str(ansible_log_path),
-                "ANSIBLE_NOCOLOR": "true",  # No colors in log file
-                # COLLECTIONS: Use venv collections (both singular and plural for compatibility)
-                "ANSIBLE_COLLECTIONS_PATH": str(collections_path),
-                "ANSIBLE_COLLECTIONS_PATHS": str(collections_path),
-                # MITOGEN: Use venv Mitogen strategy plugins
-                "ANSIBLE_STRATEGY_PLUGINS": str(mitogen_strategy_path),
-            }
-        )
-
-        # SEQUENTIAL APPROACH: Run verbose process FIRST, then terminal
-        # This prevents race conditions and VM conflicts
-        
-        if not self.verbose:
-            # Show progress message for non-verbose mode
-            print("  [dim]Running Ansible deployment (logging to file)...[/dim]", flush=True)
-        
-        # Run verbose process and WAIT for completion
-        # Capture output to show dots for progress
-        import threading
-        import time
-        
-        verbose_process = subprocess.Popen(
-            ansible_cmd,
-            shell=True,
-            cwd=str(cwd),
-            env=env_verbose,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        
-        # Show progress dots while waiting
-        if not self.verbose:
-            def show_progress():
-                while verbose_process.poll() is None:
-                    print(".", end="", flush=True)
-                    time.sleep(5)
-            
-            progress_thread = threading.Thread(target=show_progress, daemon=True)
-            progress_thread.start()
-        
-        # Wait for verbose process to complete
-        verbose_returncode = verbose_process.wait()
-        
-        if not self.verbose:
-            # Stop progress thread and clear line
-            print("\r  [dim]✓ Deployment complete, showing results...[/dim]" + " " * 20, flush=True)
-        
-        # Store the actual result (this is the real deployment)
-        actual_returncode = verbose_returncode
-        
+        # Note: ANSIBLE_LOG_PATH automatically logs raw output to file
+        # regardless of callback used for terminal output
         self.logger.log(f"Ansible detailed log: {ansible_log_path}", "INFO")
 
-        # Setup environment for TERMINAL output
-        # IMPORTANT: Don't use ANSIBLE_LOG_PATH here (would overwrite verbose log)
+        # Setup environment for single Ansible process
+        # - Terminal output: tree_minimal (or default in verbose mode)
+        # - Log file: Ansible automatically writes raw output via ANSIBLE_LOG_PATH
         env_terminal = os.environ.copy()
         env_terminal.update(
             {
@@ -117,6 +62,8 @@ class AnsibleRunner:
                 "ANSIBLE_DISPLAY_SKIPPED_HOSTS": "false",
                 # Verbose mode: keep colors for better readability
                 "ANSIBLE_FORCE_COLOR": "true" if self.verbose else "false",
+                # Log to file (Ansible's built-in feature writes raw output)
+                "ANSIBLE_LOG_PATH": str(ansible_log_path),
                 # COLLECTIONS: Use venv collections (both singular and plural for compatibility)
                 "ANSIBLE_COLLECTIONS_PATH": str(collections_path),
                 "ANSIBLE_COLLECTIONS_PATHS": str(collections_path),
@@ -124,9 +71,6 @@ class AnsibleRunner:
                 "ANSIBLE_STRATEGY_PLUGINS": str(mitogen_strategy_path),
             }
         )
-
-        # Remove ANSIBLE_LOG_PATH from terminal env if it exists
-        env_terminal.pop("ANSIBLE_LOG_PATH", None)
 
         if self.verbose:
             # VERBOSE MODE: Let Ansible write directly to terminal (no capture)
@@ -137,8 +81,7 @@ class AnsibleRunner:
                 cwd=str(cwd),
                 env=env_terminal,
             )
-            # Ignore this returncode, use actual_returncode from verbose run
-            returncode = actual_returncode
+            returncode = result.returncode
         else:
             # NON-VERBOSE MODE: Capture and display with tree_minimal
             import sys
@@ -201,7 +144,5 @@ class AnsibleRunner:
                         print(line_stripped, flush=True)
 
             returncode = process.wait()
-            # Use actual_returncode from verbose run (that's the real deployment)
-            returncode = actual_returncode
 
         return returncode
