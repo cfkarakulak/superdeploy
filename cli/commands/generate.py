@@ -155,8 +155,10 @@ class GenerateCommand(ProjectCommand):
             github_workflow = Template(github_workflow_template).render(
                 project=self.project_name,
                 app=app_name,
+                app_name=app_name,
                 vm_role=vm_role,
                 secret_var_line=secret_var_line,
+                repo_org=config.get("github", {}).get("org", "GITHUB_ORG"),
             )
             github_dir = app_path / ".github" / "workflows"
             github_dir.mkdir(parents=True, exist_ok=True)
