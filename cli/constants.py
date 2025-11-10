@@ -95,7 +95,7 @@ SENSITIVE_KEYWORDS = [
 ]
 
 # Container Name Format
-CONTAINER_NAME_FORMAT = "{project}-{app}"
+CONTAINER_NAME_FORMAT = "{project}_{app}"  # Docker Compose uses underscore
 
 # File Permissions
 SECRET_FILE_PERMISSIONS = 0o600

@@ -251,7 +251,7 @@ class SwitchCommand(ProjectCommand):
             set -e
             cd /opt/apps/{self.project_name}/releases/{self.app_name}/{target_release}
             
-            CONTAINER_NAME="{self.project_name}-{self.app_name}"
+            CONTAINER_NAME="{self.project_name}_{self.app_name}"
             NEW_CONTAINER="${{CONTAINER_NAME}}-new-$RANDOM"
             
             echo "📦 Preparing new release..."

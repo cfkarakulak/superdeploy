@@ -2,6 +2,7 @@
 
 import click
 from cli.base import ProjectCommand
+from cli.constants import CONTAINER_NAME_FORMAT
 
 
 class RestartCommand(ProjectCommand):
@@ -39,7 +40,9 @@ class RestartCommand(ProjectCommand):
 
         logger.step("Restarting Container")
 
-        container_name = f"{self.project_name}-{self.app_name}"
+        container_name = CONTAINER_NAME_FORMAT.format(
+            project=self.project_name, app=self.app_name
+        )
 
         try:
             # Restart container
