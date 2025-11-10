@@ -262,12 +262,21 @@ jobs:
           echo "🔧 Running post-deployment hooks for ${{ needs.build.outputs.app }}..."
           cd compose
           
+          FAILED=0
           echo "$HOOKS" | while IFS= read -r cmd; do
             if [ -n "$cmd" ]; then
               echo "▶ Running: $cmd"
-              docker compose exec -T ${{ needs.build.outputs.app }} $cmd || echo "⚠️  Hook failed: $cmd"
+              if ! docker compose exec -T ${{ needs.build.outputs.app }} $cmd; then
+                echo "⚠️  Hook failed: $cmd"
+                FAILED=1
+              fi
             fi
           done
+          
+          if [ $FAILED -eq 1 ]; then
+            echo "❌ Post-deployment hooks failed"
+            exit 1
+          fi
           
           echo "✅ Post-deployment hooks completed"
 {% endraw %}
