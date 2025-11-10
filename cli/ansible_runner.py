@@ -64,11 +64,17 @@ class AnsibleRunner:
 
         # SEQUENTIAL APPROACH: Run verbose process FIRST, then terminal
         # This prevents race conditions and VM conflicts
-
-        self.logger.log("Running Ansible (verbose logging to file)...", "INFO")
-
+        
+        if not self.verbose:
+            # Show progress message for non-verbose mode
+            print("  [dim]Running Ansible deployment (logging to file)...[/dim]", flush=True)
+        
         # Run verbose process and WAIT for completion
-        verbose_result = subprocess.run(
+        # Capture output to show dots for progress
+        import threading
+        import time
+        
+        verbose_process = subprocess.Popen(
             ansible_cmd,
             shell=True,
             cwd=str(cwd),
@@ -76,10 +82,27 @@ class AnsibleRunner:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-
+        
+        # Show progress dots while waiting
+        if not self.verbose:
+            def show_progress():
+                while verbose_process.poll() is None:
+                    print(".", end="", flush=True)
+                    time.sleep(5)
+            
+            progress_thread = threading.Thread(target=show_progress, daemon=True)
+            progress_thread.start()
+        
+        # Wait for verbose process to complete
+        verbose_returncode = verbose_process.wait()
+        
+        if not self.verbose:
+            # Stop progress thread and clear line
+            print("\r  [dim]✓ Deployment complete, showing results...[/dim]" + " " * 20, flush=True)
+        
         # Store the actual result (this is the real deployment)
-        actual_returncode = verbose_result.returncode
-
+        actual_returncode = verbose_returncode
+        
         self.logger.log(f"Ansible detailed log: {ansible_log_path}", "INFO")
 
         # Setup environment for TERMINAL output
@@ -101,7 +124,7 @@ class AnsibleRunner:
                 "ANSIBLE_STRATEGY_PLUGINS": str(mitogen_strategy_path),
             }
         )
-        
+
         # Remove ANSIBLE_LOG_PATH from terminal env if it exists
         env_terminal.pop("ANSIBLE_LOG_PATH", None)
 
