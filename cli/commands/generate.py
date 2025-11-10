@@ -28,9 +28,9 @@ def _detect_app_type(app_path: Path) -> str:
 
 def _load_github_workflow_template(app_type: str) -> str:
     """Load GitHub workflow template from stub files"""
-    # Get project root and use stubs directory
-    project_root = Path(__file__).parent.parent.parent
-    stub_dir = project_root / "stubs" / "workflows"
+    # Get cli root and use stubs directory
+    cli_root = Path(__file__).parent.parent
+    stub_dir = cli_root / "stubs" / "workflows"
 
     if app_type == "nextjs":
         stub_file = stub_dir / "github_workflow_nextjs.yml.j2"

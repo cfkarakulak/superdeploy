@@ -155,12 +155,48 @@ superdeploy myproject:sync
 superdeploy myproject:status
 
 # Çıktı:
-# ✅ myproject-app-0 (RUNNING)
-#    External IP: 34.123.45.67
-#    Services: api, storefront
-# ✅ myproject-core-0 (RUNNING)
-#    External IP: 34.123.45.68
-#    Services: postgres, rabbitmq
+# ┏━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━┓
+# ┃ Component     ┃ Status              ┃ Details        ┃ Version ┃
+# ┡━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━┩
+# │ app (app)     │ Running             │ 34.123.45.67   │         │
+# │   └─ api      │ Up 5 mins (healthy) │ container      │ 1.2.5   │
+# │   └─ frontend │ Up 5 mins (healthy) │ container      │ 0.3.1   │
+# │ core (core)   │ Running             │ 34.123.45.68   │         │
+# │   └─ postgres │ Up 2 days (healthy) │ container      │ -       │
+# │   └─ rabbitmq │ Up 2 days (healthy) │ container      │ -       │
+# └───────────────┴─────────────────────┴────────────────┴─────────┘
+
+# Verbose mode (debug için)
+superdeploy myproject:status -v
+```
+
+### Version Management
+
+SuperDeploy automatically tracks semantic versions for each deployment.
+
+```bash
+# Version'lar otomatik artırılır:
+# - Normal commit: patch bump (0.0.1 → 0.0.2)
+# - feat: veya [minor]: minor bump (0.0.2 → 0.1.0)  
+# - breaking: veya [major]: major bump (0.1.0 → 1.0.0)
+
+# Örnek commit'ler:
+git commit -m "Fix bug in API"                    # → 0.0.1 → 0.0.2
+git commit -m "feat: add new endpoint"            # → 0.0.2 → 0.1.0
+git commit -m "[minor] improve performance"       # → 0.1.0 → 0.2.0
+git commit -m "breaking: change database schema"  # → 0.2.0 → 1.0.0
+
+# Version bilgileri VM'de saklanır:
+# /opt/superdeploy/projects/myproject/versions.json
+# {
+#   "api": {
+#     "version": "1.2.5",
+#     "deployed_at": "2025-11-10T12:30:00Z",
+#     "git_sha": "abc1234...",
+#     "deployed_by": "user",
+#     "branch": "production"
+#   }
+# }
 ```
 
 ### SSH to VM

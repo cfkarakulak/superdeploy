@@ -40,7 +40,7 @@ class DownCommand(ProjectCommand):
         if not self.yes and not self._confirm_destruction():
             self.print_warning("❌ Destruction cancelled")
             raise SystemExit(0)
-
+        
         self.console.print()
 
         # Load config for GCP details (using ProjectCommand's config_service)
@@ -60,6 +60,7 @@ class DownCommand(ProjectCommand):
 
         # Step 1: GCP Resource Cleanup (ALWAYS do this first to ensure resources are deleted)
         logger.step(f"[1/{total_steps}] GCP Resource Cleanup")
+        self.console.print("  [dim]✓ Configuration loaded[/dim]")
         self._gcp_cleanup(logger, region)
 
         # Step 2: Terraform State Cleanup
@@ -116,8 +117,6 @@ class DownCommand(ProjectCommand):
 
     def _gcp_cleanup(self, logger, region: str) -> None:
         """Clean up all GCP resources for this project."""
-
-        self.console.print("  [dim]✓ Starting GCP resource cleanup[/dim]")
 
         vms_deleted = 0
         ips_deleted = 0
@@ -219,14 +218,14 @@ class DownCommand(ProjectCommand):
         resources = []
         if vms_deleted > 0:
             resources.append(f"{vms_deleted} VM(s)")
-        if ips_deleted > 0:
-            resources.append(f"{ips_deleted} IP(s)")
         if firewalls_deleted > 0:
-            resources.append(f"{firewalls_deleted} firewall(s)")
+            resources.append(f"{firewalls_deleted} firewall rule(s)")
         if subnets_deleted > 0:
             resources.append(f"{subnets_deleted} subnet(s)")
         if networks_deleted > 0:
             resources.append(f"{networks_deleted} network(s)")
+        if ips_deleted > 0:
+            resources.append(f"{ips_deleted} IP(s)")
 
         if resources:
             self.console.print(

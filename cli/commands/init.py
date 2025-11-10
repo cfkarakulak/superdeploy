@@ -73,9 +73,8 @@ class InitCommand(BaseCommand):
         # Import generator from stubs using importlib
         import importlib.util
 
-        stub_file = (
-            self.project_root / "stubs" / "configs" / "project_config_generator.py"
-        )
+        cli_root = Path(__file__).resolve().parents[1]
+        stub_file = cli_root / "stubs" / "configs" / "project_config_generator.py"
         spec = importlib.util.spec_from_file_location(
             "project_config_generator", stub_file
         )
@@ -104,9 +103,8 @@ class InitCommand(BaseCommand):
         rabbitmq_password = secrets.token_urlsafe(32)
 
         # Import generator from stubs using importlib
-        stub_file = (
-            self.project_root / "stubs" / "configs" / "project_secrets_generator.py"
-        )
+        cli_root = Path(__file__).resolve().parents[1]
+        stub_file = cli_root / "stubs" / "configs" / "project_secrets_generator.py"
         spec = importlib.util.spec_from_file_location(
             "project_secrets_generator", stub_file
         )

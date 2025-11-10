@@ -32,13 +32,16 @@ cli/
 │   ├── sync.py               # Secret senkronizasyonu (GitHub)
 │   ├── generate.py           # GitHub workflow generation
 │   ├── deploy.py             # Uygulama deployment
-│   ├── status.py             # Sistem durumu
+│   ├── status.py             # Sistem durumu (version tracking dahil)
 │   └── down.py               # Infrastructure teardown
-└── core/                      # Temel fonksiyonellik
-    ├── addon.py              # Addon veri modeli
-    ├── addon_loader.py       # Dinamik addon keşfi
-    ├── config_loader.py      # Proje konfigürasyonu
-    └── validator.py          # Konfigürasyon validasyonu
+├── core/                      # Temel fonksiyonellik
+│   ├── addon.py              # Addon veri modeli
+│   ├── addon_loader.py       # Dinamik addon keşfi
+│   ├── config_loader.py      # Proje konfigürasyonu
+│   └── validator.py          # Konfigürasyon validasyonu
+└── stubs/                     # Template dosyaları
+    ├── workflows/            # GitHub Actions workflow templates
+    └── configs/              # Config generator scripts
 ```
 
 **Temel Özellikler:**
@@ -382,9 +385,46 @@ GitHub Actions Workflow
         ├── Pull Docker image
         ├── docker compose up -d {app}
         ├── Health check
-        └── Cleanup old images
+        ├── Track version (semantic versioning)
+        │   ├── Read current version from versions.json
+        │   ├── Determine bump type (commit message)
+        │   ├── Increment version (major/minor/patch)
+        │   └── Save to versions.json
+        ├── Cleanup old images
+        └── Run deployment hooks (optional)
     ↓
-Production Container Running
+Production Container Running (with version tracked)
+```
+
+**Semantic Versioning:**
+
+Version'lar commit message'a göre otomatik artırılır:
+
+```bash
+# Patch bump (default): 0.0.1 → 0.0.2
+git commit -m "Fix bug in API"
+
+# Minor bump: 0.0.2 → 0.1.0
+git commit -m "feat: add new endpoint"
+git commit -m "[minor] improve performance"
+
+# Major bump: 0.1.0 → 1.0.0
+git commit -m "breaking: change API structure"
+git commit -m "[major] rewrite authentication"
+```
+
+Version metadata `/opt/superdeploy/projects/{project}/versions.json` dosyasında saklanır:
+
+```json
+{
+  "api": {
+    "version": "1.2.5",
+    "deployed_at": "2025-11-10T12:30:00Z",
+    "git_sha": "abc1234...",
+    "deployed_by": "user",
+    "branch": "production"
+  }
+}
 ```
 
 **Runner Validation:**

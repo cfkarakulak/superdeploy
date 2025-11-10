@@ -72,7 +72,8 @@ def orchestrator_init():
     # Generate config using stub generator
     import importlib.util
 
-    stub_file = project_root / "stubs" / "configs" / "orchestrator_config_generator.py"
+    cli_root = Path(__file__).resolve().parents[1]
+    stub_file = cli_root / "stubs" / "configs" / "orchestrator_config_generator.py"
     spec = importlib.util.spec_from_file_location(
         "orchestrator_config_generator", stub_file
     )

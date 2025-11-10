@@ -168,7 +168,8 @@ See [Security Guide](SECURITY.md) for details.
 ```bash
 superdeploy myproject:up              # Deploy infrastructure
 superdeploy myproject:down            # Destroy infrastructure
-superdeploy myproject:status          # Check status
+superdeploy myproject:status          # Check status (includes versions)
+superdeploy myproject:status -v       # Verbose status with debug info
 ```
 
 ### Deployment
@@ -185,6 +186,23 @@ superdeploy myproject:config show     # Show configuration
 superdeploy myproject:config validate # Validate configuration
 ```
 
+### Versioning
+
+SuperDeploy automatically tracks semantic versions for deployments:
+
+```bash
+# Versions are auto-incremented based on commit messages:
+git commit -m "fix: bug"              # Patch: 0.0.1 → 0.0.2
+git commit -m "feat: new feature"     # Minor: 0.0.2 → 0.1.0
+git commit -m "breaking: api change"  # Major: 0.1.0 → 1.0.0
+
+# View versions
+superdeploy myproject:status
+
+# Version metadata stored at:
+# /opt/superdeploy/projects/{project}/versions.json
+```
+
 ---
 
 ## 📊 Project Structure
@@ -193,7 +211,8 @@ superdeploy myproject:config validate # Validate configuration
 superdeploy/
 ├── cli/                    # CLI commands
 │   ├── commands/          # Command implementations
-│   └── core/              # Core functionality
+│   ├── core/              # Core functionality
+│   └── stubs/             # Templates (workflows, configs)
 ├── addons/                 # Service templates
 │   ├── postgres/
 │   ├── redis/
