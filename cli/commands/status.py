@@ -66,7 +66,9 @@ class StatusCommand(ProjectCommand):
 
                 if result.returncode == 0 and result.stdout.strip():
                     if self.verbose:
-                        logger.log(f"Version data from {vm_ip}: {result.stdout.strip()}")
+                        logger.log(
+                            f"Version data from {vm_ip}: {result.stdout.strip()}"
+                        )
                     versions = json.loads(result.stdout)
                     # versions.json format: {"app_name": {"version": "1.0.5", "deployed_at": "...", ...}}
                     for app_name, version_data in versions.items():
@@ -113,9 +115,13 @@ class StatusCommand(ProjectCommand):
                                 # Extract app name from container name (handle both - and _ separators)
                                 app_name = container
                                 if container.startswith(f"{self.project_name}-"):
-                                    app_name = container.replace(f"{self.project_name}-", "", 1)
+                                    app_name = container.replace(
+                                        f"{self.project_name}-", "", 1
+                                    )
                                 elif container.startswith(f"{self.project_name}_"):
-                                    app_name = container.replace(f"{self.project_name}_", "", 1)
+                                    app_name = container.replace(
+                                        f"{self.project_name}_", "", 1
+                                    )
                                 elif container.startswith("superdeploy-"):
                                     app_name = container.replace("superdeploy-", "", 1)
 
