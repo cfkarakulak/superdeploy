@@ -62,28 +62,28 @@ class AnsibleRunner:
             }
         )
 
-        # Run Ansible in background for logging (captures to file)
-        # This runs with default callback for full details
-        import threading
+        # SEQUENTIAL APPROACH: Run verbose process FIRST, then terminal
+        # This prevents race conditions and VM conflicts
 
-        def run_ansible_logger():
-            """Background thread to capture full Ansible output to log file"""
-            subprocess.run(
-                ansible_cmd,
-                shell=True,
-                cwd=str(cwd),
-                env=env_verbose,
-                stdout=subprocess.DEVNULL,  # We don't need this output
-                stderr=subprocess.DEVNULL,
-            )
+        self.logger.log("Running Ansible (verbose logging to file)...", "INFO")
 
-        # Start background logging thread
-        log_thread = threading.Thread(target=run_ansible_logger, daemon=True)
-        log_thread.start()
+        # Run verbose process and WAIT for completion
+        verbose_result = subprocess.run(
+            ansible_cmd,
+            shell=True,
+            cwd=str(cwd),
+            env=env_verbose,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        # Store the actual result (this is the real deployment)
+        actual_returncode = verbose_result.returncode
 
         self.logger.log(f"Ansible detailed log: {ansible_log_path}", "INFO")
 
         # Setup environment for TERMINAL output
+        # IMPORTANT: Don't use ANSIBLE_LOG_PATH here (would overwrite verbose log)
         env_terminal = os.environ.copy()
         env_terminal.update(
             {
@@ -101,6 +101,9 @@ class AnsibleRunner:
                 "ANSIBLE_STRATEGY_PLUGINS": str(mitogen_strategy_path),
             }
         )
+        
+        # Remove ANSIBLE_LOG_PATH from terminal env if it exists
+        env_terminal.pop("ANSIBLE_LOG_PATH", None)
 
         if self.verbose:
             # VERBOSE MODE: Let Ansible write directly to terminal (no capture)
@@ -111,7 +114,8 @@ class AnsibleRunner:
                 cwd=str(cwd),
                 env=env_terminal,
             )
-            returncode = result.returncode
+            # Ignore this returncode, use actual_returncode from verbose run
+            returncode = actual_returncode
         else:
             # NON-VERBOSE MODE: Capture and display with tree_minimal
             import sys
@@ -174,12 +178,7 @@ class AnsibleRunner:
                         print(line_stripped, flush=True)
 
             returncode = process.wait()
-
-        # Wait for background logger to finish (non-blocking)
-        # Thread is daemon so it will auto-terminate with main process
-        if log_thread.is_alive():
-            # Give it a short time to finish naturally
-            log_thread.join(timeout=2)
-            # If still running, let it finish in background (it's daemon)
+            # Use actual_returncode from verbose run (that's the real deployment)
+            returncode = actual_returncode
 
         return returncode
