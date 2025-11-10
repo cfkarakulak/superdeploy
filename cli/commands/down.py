@@ -40,7 +40,7 @@ class DownCommand(ProjectCommand):
         if not self.yes and not self._confirm_destruction():
             self.print_warning("❌ Destruction cancelled")
             raise SystemExit(0)
-        
+
         self.console.print()
 
         # Load config for GCP details (using ProjectCommand's config_service)

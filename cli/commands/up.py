@@ -719,6 +719,8 @@ def _deploy_project_internal(
                 )
                 raise SystemExit(1)
 
+            console.print("[green]✓ Services configured[/green]")
+
             logger.success("Services configured successfully")
 
             # Update state: Mark deployment complete (VMs running, Ansible succeeded)

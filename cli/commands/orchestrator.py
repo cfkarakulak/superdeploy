@@ -176,13 +176,14 @@ def orchestrator_down(yes, preserve_ip, verbose):
             end="",
         )
         answer = input().strip().lower()
-        console.print()  # Add newline after input
         confirmed = answer in ["y", "yes"]
 
         if not confirmed:
             console.print("[yellow]❌ Destruction cancelled[/yellow]")
             logger.log("User cancelled destruction")
             return
+
+    console.print()
 
     shared_dir = project_root / "shared"
 

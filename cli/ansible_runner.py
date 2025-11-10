@@ -115,6 +115,7 @@ class AnsibleRunner:
         else:
             # NON-VERBOSE MODE: Capture and display with tree_minimal
             import sys
+            import selectors
 
             process = subprocess.Popen(
                 ansible_cmd,
@@ -123,13 +124,28 @@ class AnsibleRunner:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=0,  # UNBUFFERED - immediate output
+                bufsize=1,  # Line buffered
                 env=env_terminal,
             )
 
+            # Use selectors for non-blocking read
+            sel = selectors.DefaultSelector()
+            sel.register(process.stdout, selectors.EVENT_READ)
+
             # Pass through output (to both main log and console)
-            if process.stdout:
-                for line in process.stdout:
+            while True:
+                # Check if process is still running
+                if process.poll() is not None:
+                    # Process finished, read any remaining output
+                    break
+
+                # Wait for data with timeout
+                events = sel.select(timeout=0.1)
+                if events:
+                    line = process.stdout.readline()
+                    if not line:
+                        break
+                    
                     line_stripped = line.rstrip()
 
                     # Log to main log file
@@ -142,9 +158,10 @@ class AnsibleRunner:
                     print(line_stripped, flush=True)
                     sys.stdout.flush()
 
-            returncode = process.wait()
+            # Close selector
+            sel.close()
 
-            # Ensure we flush any remaining output
+            # Read any remaining output after process finished
             if process.stdout:
                 remaining = process.stdout.read()
                 if remaining:
@@ -154,7 +171,9 @@ class AnsibleRunner:
                             self.logger.log_output(line_stripped, "ansible")
                         except (BlockingIOError, OSError):
                             pass
-                        print(line_stripped)
+                        print(line_stripped, flush=True)
+
+            returncode = process.wait()
 
         # Wait for background logger to finish (non-blocking)
         # Thread is daemon so it will auto-terminate with main process
