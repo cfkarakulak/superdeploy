@@ -68,7 +68,6 @@ from cli.commands import (
     restart,
     doctor,
     promote,
-    update_firewall,
     subnets,
     tunnel,
 )
@@ -292,7 +291,6 @@ cli.add_command(orchestrator_init)
 cli.add_command(orchestrator_up)
 cli.add_command(orchestrator_down)
 cli.add_command(orchestrator_status)
-cli.add_command(update_firewall.update_firewall, name="update-firewall")
 cli.add_command(subnets.subnets)
 cli.add_command(tunnel.tunnel)
 
