@@ -106,6 +106,12 @@ def generate_project_secrets(
     yml_lines.append("    #   - Trigger GitHub Actions workflows")
     yml_lines.append("    #   - Auto-generate runner registration tokens via API")
     yml_lines.append("")
+    yml_lines.append(
+        "    PRIVATE_REPO_TOKEN: ''     # GitHub PAT for private repo access in workflows"
+    )
+    yml_lines.append("    #   Required scope: repo (full control of private repos)")
+    yml_lines.append("    #   Used by GitHub Actions to checkout private repositories")
+    yml_lines.append("")
 
     # App-Specific Secrets Section
     yml_lines.append("  # " + "=" * 75)
