@@ -937,9 +937,9 @@ def _deploy_project_internal(
 
         # VMs
         if vm_ips:
-            console.print("\n[bold cyan]📍 Virtual Machines:[/bold cyan]")
+            console.print("\n[bold cyan]📍 Virtual Machines (External IPs):[/bold cyan]")
             for vm_name, ip in sorted(vm_ips.items()):
-                console.print(f"   • {vm_name}: {ip}")
+                console.print(f"   • {vm_name}: [green]{ip}[/green]")
 
         # Orchestrator (if available)
         if orchestrator_ip:
