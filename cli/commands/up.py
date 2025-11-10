@@ -232,32 +232,20 @@ class UpCommand(ProjectCommand):
                     if changes["needs_generate"]:
                         logger.log("  [cyan]→ Auto-generating workflows...[/cyan]")
 
-                        # Use subprocess to call generate with namespace syntax
-                        import sys
-
-                        generate_cmd = [
-                            sys.executable,
-                            "-m",
-                            "cli.main",
-                            f"{self.project_name}:generate",
-                        ]
-
-                        result = subprocess.run(
-                            generate_cmd,
-                            capture_output=True,
-                            text=True,
-                            timeout=120,
-                        )
-
-                        if result.returncode != 0:
+                        # Call generate command directly (uses same environment)
+                        from cli.commands.generate import GenerateCommand
+                        
+                        try:
+                            gen_cmd = GenerateCommand(
+                                project_name=self.project_name,
+                                verbose=self.verbose
+                            )
+                            gen_cmd.execute()
+                            logger.log("  [dim]✓ Workflows generated[/dim]")
+                        except Exception as e:
                             logger.log_error("Workflow generation failed")
-                            if result.stderr:
-                                for line in result.stderr.split("\n")[:5]:
-                                    if line.strip():
-                                        logger.warn(f"  {line}")
+                            logger.warn(f"  {str(e)}")
                             raise SystemExit(1)
-
-                        logger.log("  [dim]✓ Workflows generated[/dim]")
 
                     logger.log("")
 
