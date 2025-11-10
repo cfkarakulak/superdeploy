@@ -132,24 +132,73 @@ jobs:
             fi
           done
           
-          echo "🚀 Deploying ${{ needs.build.outputs.app }}..."
-          
-          docker compose pull ${{ needs.build.outputs.app }}
-          docker compose up -d ${{ needs.build.outputs.app }}
-          
-          sleep 5
-          
           CONTAINER_NAME="${{ needs.build.outputs.project }}_${{ needs.build.outputs.app }}"
-          STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
+          BACKUP_CONTAINER="${CONTAINER_NAME}_backup_$$"
           
-          if [ "$STATUS" = "running" ]; then
-            echo "✅ Deployment successful!"
-            docker image prune -f
+          echo "🚀 Starting blue-green deployment..."
+          
+          echo "📦 Step 1/5: Pulling new image..."
+          docker compose pull ${{ needs.build.outputs.app }}
+          
+          if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+            echo "💾 Step 2/5: Backing up current container (blue)..."
+            docker rename $CONTAINER_NAME $BACKUP_CONTAINER 2>/dev/null || true
+            
+            echo "🚀 Step 3/5: Starting new container (green)..."
+            docker compose up -d ${{ needs.build.outputs.app }}
+            
+            echo "⏳ Step 4/5: Health check (30s timeout)..."
+            TIMEOUT=30
+            ELAPSED=0
+            while [ $ELAPSED -lt $TIMEOUT ]; do
+              STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
+              HEALTH=$(docker inspect -f '{{.State.Health.Status}}' $CONTAINER_NAME 2>/dev/null || echo "none")
+              
+              if [ "$STATUS" = "running" ]; then
+                if [ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "none" ]; then
+                  echo "✅ New container healthy!"
+                  break
+                fi
+              fi
+              
+              sleep 2
+              ELAPSED=$((ELAPSED + 2))
+              echo "   Waiting... ${ELAPSED}s/${TIMEOUT}s"
+            done
+            
+            STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
+            HEALTH=$(docker inspect -f '{{.State.Health.Status}}' $CONTAINER_NAME 2>/dev/null || echo "none")
+            
+            if [ "$STATUS" = "running" ] && ([ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "none" ]); then
+              echo "✅ Step 5/5: Deployment successful, removing old container..."
+              docker stop $BACKUP_CONTAINER 2>/dev/null || true
+              docker rm $BACKUP_CONTAINER 2>/dev/null || true
+              echo "✅ Blue-green deployment complete!"
+            else
+              echo "❌ New container failed, performing rollback..."
+              docker stop $CONTAINER_NAME 2>/dev/null || true
+              docker rm $CONTAINER_NAME 2>/dev/null || true
+              docker rename $BACKUP_CONTAINER $CONTAINER_NAME
+              docker start $CONTAINER_NAME
+              echo "✅ Rollback complete"
+              exit 1
+            fi
           else
-            echo "❌ Container failed to start"
-            docker logs $CONTAINER_NAME --tail 50
-            exit 1
+            echo "📦 Step 2/5: Fresh deployment..."
+            echo "🚀 Step 3/5: Starting container..."
+            docker compose up -d ${{ needs.build.outputs.app }}
+            sleep 10
+            STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
+            if [ "$STATUS" = "running" ]; then
+              echo "✅ Deployment successful!"
+            else
+              echo "❌ Container failed to start"
+              docker logs $CONTAINER_NAME --tail 50
+              exit 1
+            fi
           fi
+          
+          docker image prune -f >/dev/null 2>&1 || true
       
       - name: Calculate and update version
         run: |

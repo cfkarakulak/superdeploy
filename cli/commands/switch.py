@@ -187,14 +187,16 @@ docker image prune -f > /dev/null 2>&1
             )
 
             if "SWITCH_SUCCESS" in result.stdout:
-                self.console.print("\n[green]✅ Zero-downtime switch completed successfully![/green]")
+                self.console.print(
+                    "\n[green]✅ Zero-downtime switch completed successfully![/green]"
+                )
                 self.console.print(
                     f"[dim]Application switched to Git SHA: {self.git_sha[:7]}[/dim]"
                 )
                 self.console.print("[dim]  → Old container stopped[/dim]")
                 self.console.print("[dim]  → New container started[/dim]")
                 self.console.print("[dim]  → Health check passed[/dim]\n")
-                
+
                 # Show verification command
                 self.console.print("[bold]Verify deployment:[/bold]")
                 self.console.print(
@@ -204,7 +206,9 @@ docker image prune -f > /dev/null 2>&1
                     f"  [cyan]superdeploy {self.project_name}:logs -a {self.app_name}[/cyan]\n"
                 )
             elif "ROLLBACK_PERFORMED" in result.stdout:
-                self.console.print("\n[red]❌ Switch failed - automatic rollback performed[/red]")
+                self.console.print(
+                    "\n[red]❌ Switch failed - automatic rollback performed[/red]"
+                )
                 self.console.print(
                     "[yellow]⚠️  Original version restored (no downtime occurred)[/yellow]"
                 )

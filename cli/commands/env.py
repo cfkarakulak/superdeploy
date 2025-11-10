@@ -299,7 +299,7 @@ class EnvCheckCommand(BaseCommand):
     "--no-mask", is_flag=True, help="Show full values (requires verification)"
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def env_list(show_all, app, no_mask, verbose):
+def env_list(project=None, show_all=False, app=None, no_mask=False, verbose=False):
     """
     View environment variables (secure)
 

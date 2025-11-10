@@ -116,11 +116,11 @@ jobs:
           echo "✅ Environment file created at $ENV_DIR/.env"
           echo "📊 Total variables: $(wc -l < "$ENV_DIR/.env")"
       
-      - name: Deploy application
+      - name: Deploy application (blue-green zero-downtime)
         run: |
           cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}/compose
           
-          # Check if this specific service exists in docker-compose.yml (without running full config validation)
+          # Check if this specific service exists in docker-compose.yml
           if ! grep -q "^  {% raw %}${{ needs.build.outputs.app }}{% endraw %}:" docker-compose.yml; then
             echo "⏭️  Skipping: App not configured on this VM"
             exit 0
@@ -138,24 +138,97 @@ jobs:
             fi
           done
           
-          echo "🚀 Deploying {% raw %}${{ needs.build.outputs.app }}{% endraw %}..."
-          
-          docker compose pull {% raw %}${{ needs.build.outputs.app }}{% endraw %}
-          docker compose up -d {% raw %}${{ needs.build.outputs.app }}{% endraw %}
-          
-          sleep 5
-          
           CONTAINER_NAME="{% raw %}${{ needs.build.outputs.project }}{% endraw %}_{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
-          STATUS=$(docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
+          BACKUP_CONTAINER="${CONTAINER_NAME}_backup_$$"
           
-          if [ "$STATUS" = "running" ]; then
-            echo "✅ Deployment successful!"
-            docker image prune -f
+          echo "🚀 Starting blue-green deployment..."
+          
+          # Pull new image first
+          echo "📦 Step 1/5: Pulling new image..."
+          docker compose pull {% raw %}${{ needs.build.outputs.app }}{% endraw %}
+          
+          # Check if container exists
+          if docker ps -a --format '{% raw %}{{.Names}}{% endraw %}' | grep -q "^${CONTAINER_NAME}$"; then
+            echo "💾 Step 2/5: Backing up current container (blue)..."
+            docker rename $CONTAINER_NAME $BACKUP_CONTAINER 2>/dev/null || true
+            
+            echo "🚀 Step 3/5: Starting new container (green)..."
+            docker compose up -d {% raw %}${{ needs.build.outputs.app }}{% endraw %}
+            
+            echo "⏳ Step 4/5: Health check (30s timeout)..."
+            # Wait for container to be running and healthy
+            TIMEOUT=30
+            ELAPSED=0
+            while [ $ELAPSED -lt $TIMEOUT ]; do
+              STATUS=$(docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
+              HEALTH=$(docker inspect -f '{% raw %}{{.State.Health.Status}}{% endraw %}' $CONTAINER_NAME 2>/dev/null || echo "none")
+              
+              if [ "$STATUS" = "running" ]; then
+                if [ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "none" ]; then
+                  echo "✅ New container healthy!"
+                  break
+                fi
+              fi
+              
+              sleep 2
+              ELAPSED=$((ELAPSED + 2))
+              echo "   Waiting... ${ELAPSED}s/${TIMEOUT}s (Status: $STATUS, Health: $HEALTH)"
+            done
+            
+            # Final check
+            STATUS=$(docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
+            HEALTH=$(docker inspect -f '{% raw %}{{.State.Health.Status}}{% endraw %}' $CONTAINER_NAME 2>/dev/null || echo "none")
+            
+            if [ "$STATUS" = "running" ] && ([ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "none" ]); then
+              echo "✅ Step 5/5: Deployment successful, removing old container..."
+              docker stop $BACKUP_CONTAINER 2>/dev/null || true
+              docker rm $BACKUP_CONTAINER 2>/dev/null || true
+              echo "✅ Blue-green deployment complete!"
+              echo "   Old (blue): Removed"
+              echo "   New (green): Running"
+            else
+              echo "❌ New container failed health check!"
+              echo "   Status: $STATUS"
+              echo "   Health: $HEALTH"
+              echo ""
+              echo "🔄 Performing automatic rollback..."
+              
+              # Stop failed new container
+              docker stop $CONTAINER_NAME 2>/dev/null || true
+              docker rm $CONTAINER_NAME 2>/dev/null || true
+              
+              # Restore backup (blue)
+              docker rename $BACKUP_CONTAINER $CONTAINER_NAME
+              docker start $CONTAINER_NAME
+              
+              echo "✅ Rollback complete - old version restored"
+              echo ""
+              echo "📋 Failed container logs:"
+              docker logs $BACKUP_CONTAINER --tail 50 2>/dev/null || true
+              
+              exit 1
+            fi
           else
-            echo "❌ Container failed to start"
-            docker logs $CONTAINER_NAME --tail 50
-            exit 1
+            echo "📦 Step 2/5: Fresh deployment (no existing container)..."
+            echo "🚀 Step 3/5: Starting container..."
+            docker compose up -d {% raw %}${{ needs.build.outputs.app }}{% endraw %}
+            
+            echo "⏳ Step 4/5: Health check..."
+            sleep 10
+            
+            STATUS=$(docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
+            
+            if [ "$STATUS" = "running" ]; then
+              echo "✅ Step 5/5: Deployment successful!"
+            else
+              echo "❌ Container failed to start"
+              docker logs $CONTAINER_NAME --tail 50
+              exit 1
+            fi
           fi
+          
+          # Cleanup old images
+          docker image prune -f >/dev/null 2>&1 || true
       
       - name: Calculate and update version
         run: |
