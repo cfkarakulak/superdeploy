@@ -9,10 +9,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-{% raw %}      project: ${{ steps.config.outputs.project }}
-      app: ${{ steps.config.outputs.app }}
-      vm_role: ${{ steps.config.outputs.vm_role }}
-{% endraw %}    
+      project: {% raw %}${{ steps.config.outputs.project }}{% endraw %}
+      app: {% raw %}${{ steps.config.outputs.app }}{% endraw %}
+      vm_role: {% raw %}${{ steps.config.outputs.vm_role }}{% endraw %}
+    
     steps:
       - name: Checkout {{ app_name }} repository
         uses: actions/checkout@v4
@@ -33,7 +33,7 @@ jobs:
           PROJECT=$(grep "^project:" .superdeploy | cut -d: -f2 | xargs)
           APP=$(grep "^app:" .superdeploy | cut -d: -f2 | xargs)
           VM_ROLE=$(grep "^vm:" .superdeploy | cut -d: -f2 | xargs)
-{% raw %}          echo "project=$PROJECT" >> $GITHUB_OUTPUT
+          echo "project=$PROJECT" >> $GITHUB_OUTPUT
           echo "app=$APP" >> $GITHUB_OUTPUT
           echo "vm_role=$VM_ROLE" >> $GITHUB_OUTPUT
       
@@ -43,33 +43,32 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-{% raw %}          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
-{% endraw %}      
+          username: {% raw %}${{ secrets.DOCKER_USERNAME }}{% endraw %}
+          password: {% raw %}${{ secrets.DOCKER_TOKEN }}{% endraw %}
+      
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./{{ app_name }}/Dockerfile
           push: true
-{% raw %}          tags: |
-            ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest
-            ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
-          cache-from: type=registry,ref=${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache,mode=max
+          tags: |
+            {% raw %}${{ secrets.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:latest
+            {% raw %}${{ secrets.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:{% raw %}${{ github.sha }}{% endraw %}
+          cache-from: type=registry,ref={% raw %}${{ secrets.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:buildcache
+          cache-to: type=registry,ref={% raw %}${{ secrets.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:buildcache,mode=max
 
   deploy:
     needs: build
-    environment: ${{ github.ref_name }}
+    environment: {% raw %}${{ github.ref_name }}{% endraw %}
     runs-on: 
       - self-hosted
       - superdeploy
-      - ${{ needs.build.outputs.project }}
-      - ${{ needs.build.outputs.vm_role }}
-{% endraw %}
+      - {% raw %}${{ needs.build.outputs.project }}{% endraw %}
+      - {% raw %}${{ needs.build.outputs.vm_role }}{% endraw %}
     
     steps:
-{% raw %}      - name: Validate runner
+      - name: Validate runner
         run: |
           echo "🔍 Validating deployment environment..."
           
@@ -79,8 +78,8 @@ jobs:
           fi
           
           RUNNER_PROJECT=$(cat /opt/superdeploy/.project)
-          if [ "$RUNNER_PROJECT" != "${{ needs.build.outputs.project }}" ]; then
-            echo "❌ ERROR: Wrong project! Expected ${{ needs.build.outputs.project }}, got $RUNNER_PROJECT"
+          if [ "$RUNNER_PROJECT" != "{% raw %}${{ needs.build.outputs.project }}{% endraw %}" ]; then
+            echo "❌ ERROR: Wrong project! Expected {% raw %}${{ needs.build.outputs.project }}{% endraw %}, got $RUNNER_PROJECT"
             exit 1
           fi
           
@@ -88,11 +87,11 @@ jobs:
       
       - name: Create .env from merged secrets
         run: |
-          APP_NAME="${{ needs.build.outputs.app }}"
-          ENV_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}/data/$APP_NAME"
+          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
+          ENV_DIR="/opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}/data/$APP_NAME"
           
           echo "📝 Creating .env from ${APP_NAME^^}_ENV_JSON..."
-{% endraw %}
+
           # GitHub Actions cannot dynamically access secrets
           # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
           case "$APP_NAME" in
@@ -104,7 +103,7 @@ jobs:
               exit 1
               ;;
           esac
-{% raw %}
+
           # Convert JSON to .env format
           echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
           
@@ -119,10 +118,10 @@ jobs:
       
       - name: Deploy application
         run: |
-          cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}/compose
+          cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}/compose
           
           # Check if this specific service exists in docker-compose.yml (without running full config validation)
-          if ! grep -q "^  ${{ needs.build.outputs.app }}:" docker-compose.yml; then
+          if ! grep -q "^  {% raw %}${{ needs.build.outputs.app }}{% endraw %}:" docker-compose.yml; then
             echo "⏭️  Skipping: App not configured on this VM"
             exit 0
           fi
@@ -139,15 +138,15 @@ jobs:
             fi
           done
           
-          echo "🚀 Deploying ${{ needs.build.outputs.app }}..."
+          echo "🚀 Deploying {% raw %}${{ needs.build.outputs.app }}{% endraw %}..."
           
-          docker compose pull ${{ needs.build.outputs.app }}
-          docker compose up -d ${{ needs.build.outputs.app }}
+          docker compose pull {% raw %}${{ needs.build.outputs.app }}{% endraw %}
+          docker compose up -d {% raw %}${{ needs.build.outputs.app }}{% endraw %}
           
           sleep 5
           
-          CONTAINER_NAME="${{ needs.build.outputs.project }}_${{ needs.build.outputs.app }}"
-          STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
+          CONTAINER_NAME="{% raw %}${{ needs.build.outputs.project }}{% endraw %}_{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
+          STATUS=$(docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
           
           if [ "$STATUS" = "running" ]; then
             echo "✅ Deployment successful!"
@@ -160,9 +159,9 @@ jobs:
       
       - name: Calculate and update version
         run: |
-          PROJECT_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}"
+          PROJECT_DIR="/opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}"
           VERSION_FILE="$PROJECT_DIR/versions.json"
-          APP_NAME="${{ needs.build.outputs.app }}"
+          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
           
           # Initialize versions.json if it doesn't exist
           sudo mkdir -p "$PROJECT_DIR"
@@ -177,7 +176,7 @@ jobs:
           echo "Current version: $CURRENT_VERSION"
           
           # Determine version bump type from commit message
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          COMMIT_MSG="{% raw %}${{ github.event.head_commit.message }}{% endraw %}"
           
           if echo "$COMMIT_MSG" | grep -qiE '^\[major\]|^breaking:'; then
             BUMP_TYPE="major"
@@ -214,7 +213,7 @@ jobs:
           echo "📌 Updating version: $APP_NAME v$NEW_VERSION"
           
           # Update version for this app
-          UPDATED_JSON=$(sudo cat "$VERSION_FILE" | jq --arg app "$APP_NAME" --arg ver "$NEW_VERSION" --arg deployed "$DEPLOYED_AT" --arg sha "${{ github.sha }}" --arg actor "${{ github.actor }}" --arg branch "${{ github.ref_name }}" '
+          UPDATED_JSON=$(sudo cat "$VERSION_FILE" | jq --arg app "$APP_NAME" --arg ver "$NEW_VERSION" --arg deployed "$DEPLOYED_AT" --arg sha "{% raw %}${{ github.sha }}{% endraw %}" --arg actor "{% raw %}${{ github.actor }}{% endraw %}" --arg branch "{% raw %}${{ github.ref_name }}{% endraw %}" '
             .[$app] = {
               "version": $ver,
               "deployed_at": $deployed,
@@ -232,14 +231,14 @@ jobs:
       
       - name: Run deployment hooks
         run: |
-          cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}
+          cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}
           
           if [ ! -f config.yml ]; then
             echo "⏭️  No config.yml found, skipping hooks"
             exit 0
           fi
           
-          APP_NAME="${{ needs.build.outputs.app }}"
+          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
           
           cat > /tmp/read_hooks.py <<'PYEOF'
           import yaml
@@ -262,18 +261,18 @@ jobs:
           HOOKS=$(APP_NAME="$APP_NAME" python3 /tmp/read_hooks.py)
           
           if [ -z "$HOOKS" ]; then
-            echo "⏭️  No post-deployment hooks configured for ${{ needs.build.outputs.app }}"
+            echo "⏭️  No post-deployment hooks configured for {% raw %}${{ needs.build.outputs.app }}{% endraw %}"
             exit 0
           fi
           
-          echo "🔧 Running post-deployment hooks for ${{ needs.build.outputs.app }}..."
+          echo "🔧 Running post-deployment hooks for {% raw %}${{ needs.build.outputs.app }}{% endraw %}..."
           cd compose
           
           FAILED=0
           echo "$HOOKS" | while IFS= read -r cmd; do
             if [ -n "$cmd" ]; then
               echo "▶ Running: $cmd"
-              if ! docker compose exec -T ${{ needs.build.outputs.app }} $cmd; then
+              if ! docker compose exec -T {% raw %}${{ needs.build.outputs.app }}{% endraw %} $cmd; then
                 echo "⚠️  Hook failed: $cmd"
                 FAILED=1
               fi
@@ -286,5 +285,5 @@ jobs:
           fi
           
           echo "✅ Post-deployment hooks completed"
-{% endraw %}
+
 
