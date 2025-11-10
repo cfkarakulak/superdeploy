@@ -151,6 +151,78 @@ jobs:
             exit 1
           fi
       
+      - name: Calculate and update version
+        run: |
+          PROJECT_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}"
+          VERSION_FILE="$PROJECT_DIR/versions.json"
+          APP_NAME="${{ needs.build.outputs.app }}"
+          
+          # Initialize versions.json if it doesn't exist
+          sudo mkdir -p "$PROJECT_DIR"
+          if [ ! -f "$VERSION_FILE" ]; then
+            echo "{}" | sudo tee "$VERSION_FILE" > /dev/null
+            sudo chown superdeploy:superdeploy "$VERSION_FILE"
+            sudo chmod 644 "$VERSION_FILE"
+          fi
+          
+          # Get current version for this app
+          CURRENT_VERSION=$(sudo cat "$VERSION_FILE" | jq -r --arg app "$APP_NAME" '.[$app].version // "0.0.0"')
+          echo "Current version: $CURRENT_VERSION"
+          
+          # Determine version bump type from commit message
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          
+          if echo "$COMMIT_MSG" | grep -qiE '^\[major\]|^breaking:'; then
+            BUMP_TYPE="major"
+          elif echo "$COMMIT_MSG" | grep -qiE '^\[minor\]|^feat:'; then
+            BUMP_TYPE="minor"
+          else
+            BUMP_TYPE="patch"
+          fi
+          
+          echo "Bump type: $BUMP_TYPE"
+          
+          # Parse and increment version
+          IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+          
+          case $BUMP_TYPE in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+          esac
+          
+          NEW_VERSION="$major.$minor.$patch"
+          DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          echo "New version: $NEW_VERSION"
+          echo "📌 Updating version: $APP_NAME v$NEW_VERSION"
+          
+          # Update version for this app
+          UPDATED_JSON=$(sudo cat "$VERSION_FILE" | jq --arg app "$APP_NAME" --arg ver "$NEW_VERSION" --arg deployed "$DEPLOYED_AT" --arg sha "${{ github.sha }}" --arg actor "${{ github.actor }}" --arg branch "${{ github.ref_name }}" '
+            .[$app] = {
+              "version": $ver,
+              "deployed_at": $deployed,
+              "git_sha": $sha,
+              "deployed_by": $actor,
+              "branch": $branch
+            }
+          ')
+          
+          echo "$UPDATED_JSON" | sudo tee "$VERSION_FILE" > /dev/null
+          sudo chown superdeploy:superdeploy "$VERSION_FILE"
+          sudo chmod 644 "$VERSION_FILE"
+          
+          echo "✅ Version tracked: v$NEW_VERSION"
+      
       - name: Run deployment hooks
         run: |
           cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}

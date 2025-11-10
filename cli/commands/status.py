@@ -51,7 +51,7 @@ class StatusCommand(ProjectCommand):
         # Get apps
         apps = self.list_apps()
 
-        # Get version info for all apps
+        # Get version info for all apps from versions.json
         app_versions = {}
         for vm_name in all_vms.keys():
             vm_data = all_vms[vm_name]
@@ -60,20 +60,18 @@ class StatusCommand(ProjectCommand):
             try:
                 result = ssh_service.execute_command(
                     vm_ip,
-                    f"cat /opt/superdeploy/projects/{self.project_name}/versions.json 2>/dev/null || echo '[]'",
+                    f"cat /opt/superdeploy/projects/{self.project_name}/versions.json 2>/dev/null || echo '{{}}'",
                     timeout=5,
                 )
 
                 if result.returncode == 0 and result.stdout.strip():
                     versions = json.loads(result.stdout)
-                    for version in versions:
-                        app_name = version["app"]
-                        if (
-                            app_name not in app_versions
-                            or version["deployed_at"]
-                            > app_versions[app_name]["deployed_at"]
-                        ):
-                            app_versions[app_name] = version
+                    # versions.json format: {"app_name": {"version": "1.0.5", "deployed_at": "...", ...}}
+                    for app_name, version_data in versions.items():
+                        if app_name not in app_versions or version_data.get(
+                            "deployed_at", ""
+                        ) > app_versions[app_name].get("deployed_at", ""):
+                            app_versions[app_name] = version_data
             except Exception:
                 pass
 
@@ -110,22 +108,18 @@ class StatusCommand(ProjectCommand):
                                     f"{self.project_name}-", ""
                                 )
 
-                                # Add version if available
+                                # Get version for this app
+                                version = "-"
                                 if app_name in app_versions:
-                                    version_info = app_versions[app_name]
-                                    self.table.add_row(
-                                        f"  └─ {app_name}",
-                                        status,
-                                        "container",
-                                        f"{version_info['short_sha']} ({version_info['branch']})",
-                                    )
-                                else:
-                                    self.table.add_row(
-                                        f"  └─ {app_name}",
-                                        status,
-                                        "container",
-                                        "-",
-                                    )
+                                    version_data = app_versions[app_name]
+                                    version = version_data.get("version", "-")
+
+                                self.table.add_row(
+                                    f"  └─ {app_name}",
+                                    status,
+                                    "container",
+                                    version,
+                                )
                     else:
                         # VM running but no containers
                         self.table.add_row(
