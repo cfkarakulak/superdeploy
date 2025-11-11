@@ -29,12 +29,21 @@ class SwitchCommand(ProjectCommand):
             details={"Target Git SHA": self.git_sha[:7] if self.git_sha else "latest"},
         )
 
+        # Initialize logger
+        logger = self.init_logger(self.project_name, f"switch-{self.app_name}")
+
+        logger.step(f"Switching {self.app_name} to Git SHA: {self.git_sha[:7]}")
+
         # Get VM for app
         try:
             vm_name, vm_ip = self.get_vm_for_app(self.app_name)
+            logger.log(f"Target VM: {vm_name} ({vm_ip})")
             self.console.print(f"[dim]Target VM: {vm_name} ({vm_ip})[/dim]\n")
         except Exception as e:
+            logger.log_error(f"Failed to find VM: {e}")
             self.console.print(f"[red]❌ Failed to find VM: {e}[/red]")
+            if not self.verbose:
+                self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
             raise SystemExit(1)
 
         # Get SSH service
@@ -187,6 +196,9 @@ docker image prune -f > /dev/null 2>&1
             )
 
             if "SWITCH_SUCCESS" in result.stdout:
+                logger.success(
+                    f"Zero-downtime switch completed: {self.app_name} → {self.git_sha[:7]}"
+                )
                 self.console.print(
                     "\n[green]✅ Zero-downtime switch completed successfully![/green]"
                 )
@@ -205,7 +217,11 @@ docker image prune -f > /dev/null 2>&1
                 self.console.print(
                     f"  [cyan]superdeploy {self.project_name}:logs -a {self.app_name}[/cyan]\n"
                 )
+
+                if not self.verbose:
+                    self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
             elif "ROLLBACK_PERFORMED" in result.stdout:
+                logger.log_error("Switch failed - automatic rollback performed")
                 self.console.print(
                     "\n[red]❌ Switch failed - automatic rollback performed[/red]"
                 )
@@ -214,15 +230,23 @@ docker image prune -f > /dev/null 2>&1
                 )
                 self.console.print("\n[dim]Check logs for details:[/dim]")
                 self.console.print(f"[dim]{result.stdout}[/dim]\n")
+                if not self.verbose:
+                    self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
                 raise SystemExit(1)
             else:
+                logger.log_error("Switch failed")
                 self.console.print("\n[red]❌ Switch failed[/red]")
                 if self.verbose and result.stderr:
                     self.console.print(f"[dim]{result.stderr}[/dim]")
+                if not self.verbose:
+                    self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
                 raise SystemExit(1)
 
         except Exception as e:
+            logger.log_error(f"Switch error: {e}")
             self.console.print(f"[red]❌ Switch error: {e}[/red]")
+            if not self.verbose:
+                self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
             raise SystemExit(1)
 
 

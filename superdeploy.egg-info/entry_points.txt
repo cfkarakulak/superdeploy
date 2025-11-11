@@ -1,2 +1,2 @@
 [console_scripts]
-superdeploy = cli.main:cli
+superdeploy = cli.main:main

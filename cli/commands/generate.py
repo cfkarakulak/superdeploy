@@ -4,44 +4,109 @@ Generate deployment files - GitHub Actions workflows with self-hosted runners
 
 import click
 from pathlib import Path
+from dataclasses import dataclass
 from jinja2 import Template
+
 from cli.base import ProjectCommand
+from cli.secret_manager import SecretManager
+from cli.marker_manager import MarkerManager
+from cli.core.app_type_registry import app_type_registry
+from cli.exceptions import ConfigurationError
 
 
-def _detect_app_type(app_path: Path) -> str:
-    """Detect app type from files"""
+@dataclass
+class WorkflowConfig:
+    """Configuration for generating workflow files."""
 
-    # Next.js
-    if (app_path / "next.config.js").exists() or (app_path / "next.config.ts").exists():
-        return "nextjs"
+    project: str
+    app: str
+    vm_role: str
+    app_type: str
+    secret_var_line: str
+    repo_org: str
 
-    # Python/Cara
-    if (app_path / "requirements.txt").exists():
-        requirements = (app_path / "requirements.txt").read_text()
-        if "cara" in requirements.lower():
-            return "python"  # Cara framework
+
+class WorkflowGenerator:
+    """Handles workflow template generation with pluggable app types."""
+
+    CLI_ROOT = Path(__file__).parent.parent
+
+    @classmethod
+    def get_or_detect_app_type(cls, app_config: dict, app_path: Path) -> str:
+        """
+        Get app type from config or auto-detect it.
+
+        Priority:
+        1. Explicit 'type' field in config (recommended)
+        2. Auto-detection from app path
+        3. Default fallback to 'python'
+
+        Args:
+            app_config: App configuration dictionary
+            app_path: Path to the application directory
+
+        Returns:
+            App type name (e.g., "python", "nextjs")
+
+        Raises:
+            ConfigurationError: If explicit type is invalid
+        """
+        # Priority 1: Explicit type in config
+        if "type" in app_config:
+            app_type = app_config["type"]
+            try:
+                # Validate it exists in registry
+                app_type_registry.get(app_type)
+                return app_type
+            except ValueError as e:
+                raise ConfigurationError(str(e))
+
+        # Priority 2: Auto-detect from path
+        detected_type = app_type_registry.detect(app_path)
+        if detected_type != "unknown":
+            return detected_type
+
+        # Priority 3: Default fallback
         return "python"
 
-    # Default
-    return "python"
+    @classmethod
+    def load_workflow_template(cls, app_type: str) -> str:
+        """
+        Load GitHub workflow template from registry.
 
+        Args:
+            app_type: The app type (e.g., "python", "nextjs")
 
-def _load_github_workflow_template(app_type: str) -> str:
-    """Load GitHub workflow template from stub files"""
-    # Get cli root and use stubs directory
-    cli_root = Path(__file__).parent.parent
-    stub_dir = cli_root / "stubs" / "workflows"
+        Returns:
+            Template file contents
 
-    if app_type == "nextjs":
-        stub_file = stub_dir / "github_workflow_nextjs.yml.j2"
-    else:
-        # Default: Python/Cara
-        stub_file = stub_dir / "github_workflow_python.yml.j2"
+        Raises:
+            ValueError: If app type is not supported
+            FileNotFoundError: If template file doesn't exist
+        """
+        stub_dir = cls.CLI_ROOT / "stubs" / "workflows"
 
-    if not stub_file.exists():
-        raise FileNotFoundError(f"Template stub not found: {stub_file}")
+        # Get template name from registry
+        type_config = app_type_registry.get(app_type)
+        stub_file = stub_dir / type_config.workflow_template
 
-    return stub_file.read_text(encoding="utf-8")
+        if not stub_file.exists():
+            raise FileNotFoundError(f"Template stub not found: {stub_file}")
+
+        return stub_file.read_text(encoding="utf-8")
+
+    @classmethod
+    def generate_workflow(cls, config: WorkflowConfig) -> str:
+        """Generate GitHub workflow content from template."""
+        template_content = cls.load_workflow_template(config.app_type)
+        return Template(template_content).render(
+            project=config.project,
+            app=config.app,
+            app_name=config.app,
+            vm_role=config.vm_role,
+            secret_var_line=config.secret_var_line,
+            repo_org=config.repo_org,
+        )
 
 
 class GenerateCommand(ProjectCommand):
@@ -58,9 +123,6 @@ class GenerateCommand(ProjectCommand):
             project=self.project_name,
             subtitle="GitHub Actions workflows + Self-hosted runners",
         )
-
-        from cli.secret_manager import SecretManager
-        from cli.marker_manager import MarkerManager
 
         project_root = self.project_root
         projects_dir = project_root / "projects"
@@ -132,16 +194,61 @@ class GenerateCommand(ProjectCommand):
 
             self.console.print(f"[cyan]{app_name}:[/cyan]")
 
-            # 1. Detect app type
-            app_type = _detect_app_type(app_path)
-            self.console.print(f"  Type: {app_type}")
+            # 1. Get or detect app type
+            app_type = WorkflowGenerator.get_or_detect_app_type(app_config, app_path)
+            type_source = "explicit" if "type" in app_config else "detected"
+            self.console.print(f"  Type: {app_type} [dim]({type_source})[/dim]")
 
-            # 2. Create .superdeploy marker
+            # 2. Create .superdeploy marker (multi-process mode)
             vm_role = app_config.get("vm", "app")
+
+            # Get processes from config or create default
+            processes = app_config.get("processes")
+            if not processes:
+                # Auto-create default process based on app type
+                port = app_config.get("port")
+
+                if app_type == "nextjs":
+                    default_cmd = "npm start"
+                    default_name = "web"
+                elif app_type == "python":
+                    if port:
+                        # Web service
+                        default_cmd = f"python craft serve --host 0.0.0.0 --port {port}"
+                        default_name = "web"
+                    else:
+                        # Worker service
+                        default_cmd = "python craft queue:work"
+                        default_name = "worker"
+                else:
+                    # Generic default
+                    default_cmd = "npm start" if port else "python main.py"
+                    default_name = "web" if port else "worker"
+
+                processes = {default_name: {"command": default_cmd, "replicas": 1}}
+
+                self.console.print(
+                    f"  [dim]Using default process: {default_name} (replicas: 1)[/dim]"
+                )
+            else:
+                # Ensure all processes have replicas field
+                for proc_name, proc_config in processes.items():
+                    if "replicas" not in proc_config:
+                        proc_config["replicas"] = 1
+
             marker = MarkerManager.create_marker(
-                app_path, self.project_name, app_name, vm_role
+                app_path,
+                self.project_name,
+                app_name,
+                vm_role,
+                processes=processes,
             )
-            self.console.print(f"  [green]✓[/green] {marker.name}")
+
+            # Show marker creation with process info
+            proc_names = ", ".join(processes.keys())
+            self.console.print(
+                f"  [green]✓[/green] {marker.name} [dim]({proc_names})[/dim]"
+            )
 
             # 3. Get app secrets (merged)
             app_secrets = secret_mgr.get_app_secrets(app_name)
@@ -151,15 +258,16 @@ class GenerateCommand(ProjectCommand):
             # 4. Generate GitHub workflow
             secret_var_line = f"              SECRET_VALUE='${{{{ secrets.{app_name.upper()}_ENV_JSON }}}}'"
 
-            github_workflow_template = _load_github_workflow_template(app_type)
-            github_workflow = Template(github_workflow_template).render(
+            workflow_config = WorkflowConfig(
                 project=self.project_name,
                 app=app_name,
-                app_name=app_name,
                 vm_role=vm_role,
+                app_type=app_type,
                 secret_var_line=secret_var_line,
                 repo_org=config.get("github", {}).get("organization", "GITHUB_ORG"),
             )
+
+            github_workflow = WorkflowGenerator.generate_workflow(workflow_config)
             github_dir = app_path / ".github" / "workflows"
             github_dir.mkdir(parents=True, exist_ok=True)
             (github_dir / "deploy.yml").write_text(github_workflow)

@@ -1,8 +1,35 @@
 """SuperDeploy CLI - Validate command (Refactored)"""
 
 import click
+from dataclasses import dataclass
+from typing import List, Dict, Any
 from rich.table import Table
+
 from cli.base import BaseCommand, ProjectCommand
+from cli.secret_manager import SecretManager
+
+
+@dataclass
+class ValidationResult:
+    """Results from validation checks."""
+
+    errors: List[str]
+    warnings: List[str]
+
+    @property
+    def has_errors(self) -> bool:
+        """Check if there are any errors."""
+        return len(self.errors) > 0
+
+    @property
+    def has_warnings(self) -> bool:
+        """Check if there are any warnings."""
+        return len(self.warnings) > 0
+
+    @property
+    def is_valid(self) -> bool:
+        """Check if validation passed (no errors)."""
+        return not self.has_errors
 
 
 class ValidateProjectCommand(ProjectCommand):
@@ -15,15 +42,42 @@ class ValidateProjectCommand(ProjectCommand):
             project=self.project_name,
         )
 
+        # Initialize logger
+        logger = self.init_logger(self.project_name, "validate")
+
+        logger.step("Running validation checks")
+        self.console.print("\n[bold]Running validation checks...[/bold]\n")
+
+        # Run all validations
+        result = self._run_validations()
+
+        logger.success("Validation checks complete")
+
+        # Display results
+        self._display_results(result, logger)
+
+    def _run_validations(self) -> ValidationResult:
+        """Run all validation checks."""
         errors = []
         warnings = []
 
-        self.console.print("\n[bold]Running validation checks...[/bold]\n")
-
-        # Get config
         config = self.config_service.get_raw_config(self.project_name)
 
-        # 1. Required fields
+        # Run individual validation checks
+        errors.extend(self._validate_required_fields(config))
+        errors.extend(self._validate_apps(config, warnings))
+        errors.extend(self._validate_port_conflicts(config))
+        self._validate_vms(config, warnings)
+        self._validate_addons(config)
+        self._validate_github(config, warnings)
+        self._validate_network(config, warnings)
+        errors.extend(self._validate_secrets(warnings))
+
+        return ValidationResult(errors=errors, warnings=warnings)
+
+    def _validate_required_fields(self, config: Dict[str, Any]) -> List[str]:
+        """Validate required configuration fields."""
+        errors = []
         required_fields = ["project", "apps", "addons", "github", "vms"]
         for field in required_fields:
             if field not in config:
@@ -31,7 +85,12 @@ class ValidateProjectCommand(ProjectCommand):
             else:
                 self.console.print(f"[green]✓[/green] Required field: {field}")
 
-        # 2. Apps validation
+        return errors
+
+    def _validate_apps(self, config: Dict[str, Any], warnings: List[str]) -> List[str]:
+        """Validate app configurations."""
+        errors = []
+
         if "apps" in config:
             apps = config["apps"]
             if not apps or len(apps) == 0:
@@ -46,7 +105,11 @@ class ValidateProjectCommand(ProjectCommand):
                     if "vm" not in app_config:
                         warnings.append(f"App '{app_name}' has no VM assignment")
 
-        # 3. Port conflicts
+        return errors
+
+    def _validate_port_conflicts(self, config: Dict[str, Any]) -> List[str]:
+        """Validate port assignments for conflicts."""
+        errors = []
         if "apps" in config:
             used_ports = []
             for app_name, app_config in config["apps"].items():
@@ -60,7 +123,10 @@ class ValidateProjectCommand(ProjectCommand):
                 f"[green]✓[/green] Port assignments: {len(used_ports)} ports"
             )
 
-        # 4. VMs validation
+        return errors
+
+    def _validate_vms(self, config: Dict[str, Any], warnings: List[str]) -> None:
+        """Validate VM configurations."""
         if "vms" in config:
             vms = config["vms"]
             self.console.print(f"[green]✓[/green] VMs defined: {len(vms)}")
@@ -74,13 +140,15 @@ class ValidateProjectCommand(ProjectCommand):
                                 f"VM '{vm_name}' uses service '{service}' but it's not in addons"
                             )
 
-        # 5. Addons
+    def _validate_addons(self, config: Dict[str, Any]) -> None:
+        """Validate addon configurations."""
         if "addons" in config:
             self.console.print(
                 f"[green]✓[/green] Addons configured: {len(config['addons'])}"
             )
 
-        # 6. GitHub configuration
+    def _validate_github(self, config: Dict[str, Any], warnings: List[str]) -> None:
+        """Validate GitHub configuration."""
         if "github" in config:
             if "organization" in config["github"]:
                 self.console.print(
@@ -89,7 +157,8 @@ class ValidateProjectCommand(ProjectCommand):
             else:
                 warnings.append("GitHub organization not configured")
 
-        # 7. Network configuration
+    def _validate_network(self, config: Dict[str, Any], warnings: List[str]) -> None:
+        """Validate network configuration."""
         if "network" in config:
             if "vpc_subnet" in config["network"]:
                 self.console.print(
@@ -102,14 +171,15 @@ class ValidateProjectCommand(ProjectCommand):
         else:
             warnings.append("Network configuration not found")
 
-        # 8. Secrets validation (Docker credentials required)
-        from cli.secret_manager import SecretManager
+    def _validate_secrets(self, warnings: List[str]) -> List[str]:
+        """Validate secrets configuration."""
+        errors = []
 
         secret_mgr = SecretManager(self.project_root, self.project_name)
         secrets_data = secret_mgr.load_secrets()
 
-        if secrets_data and "secrets" in secrets_data:
-            shared_secrets = secrets_data["secrets"].get("shared", {})
+        if secrets_data:
+            shared_secrets = secrets_data.shared.values
 
             # Check Docker credentials (required for deployment)
             docker_username = shared_secrets.get("DOCKER_USERNAME", "")
@@ -150,22 +220,30 @@ class ValidateProjectCommand(ProjectCommand):
         else:
             errors.append("secrets.yml not found or invalid")
 
-        # Display results
+        return errors
+
+    def _display_results(self, result: ValidationResult, logger) -> None:
+        """Display validation results."""
+        config = self.config_service.get_raw_config(self.project_name)
+
         self.console.print("\n[bold]Validation Results:[/bold]\n")
 
-        if errors:
+        if result.has_errors:
+            logger.log_error(f"Validation failed with {len(result.errors)} error(s)")
             self.console.print("[bold red]❌ Errors:[/bold red]")
-            for error in errors:
+            for error in result.errors:
                 self.console.print(f"  • {error}")
             self.console.print()
 
-        if warnings:
+        if result.has_warnings:
+            logger.warning(f"Validation has {len(result.warnings)} warning(s)")
             self.console.print("[bold yellow]⚠️  Warnings:[/bold yellow]")
-            for warning in warnings:
+            for warning in result.warnings:
                 self.console.print(f"  • {warning}")
             self.console.print()
 
-        if not errors and not warnings:
+        if result.is_valid and not result.has_warnings:
+            logger.success("Configuration is valid")
             self.console.print("[color(248)]Configuration is valid.[/color(248)]")
 
             # Display summary table
@@ -192,15 +270,18 @@ class ValidateProjectCommand(ProjectCommand):
 
             self.console.print()
             self.console.print(table)
+            self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
             raise SystemExit(0)
-        elif errors:
+        elif result.has_errors:
             self.console.print("[bold red]❌ Validation failed with errors[/bold red]")
+            self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
             raise SystemExit(1)
         else:
             self.console.print(
                 "[bold yellow]⚠️  Validation passed with warnings[/bold yellow]"
             )
+            self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
             raise SystemExit(0)
 
 
@@ -226,8 +307,13 @@ class ValidateAddonsCommand(BaseCommand):
             details={"Target": self.addon_name if self.addon_name else "All addons"},
         )
 
+        # Initialize logger
+        logger = self.init_logger("addons", "validate")
+
         if self.fix:
             self.console.print("[yellow]⚠️  Auto-fix is not yet implemented[/yellow]\n")
+
+        logger.step("Starting addon validation")
 
         from cli.core.addon_validator import AddonValidator
 
@@ -346,12 +432,16 @@ class ValidateAddonsCommand(BaseCommand):
 
         # Exit code
         if total_failed > 0:
+            logger.log_error(f"Validation failed: {total_failed} addon(s) failed")
             self.console.print("\n[bold red]❌ Validation failed[/bold red]")
+            self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
             raise SystemExit(1)
         else:
+            logger.success(f"All {total_passed} addon(s) validated successfully")
             self.console.print(
                 "\n[color(248)]All addons validated successfully.[/color(248)]"
             )
+            self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
             raise SystemExit(0)
 
 

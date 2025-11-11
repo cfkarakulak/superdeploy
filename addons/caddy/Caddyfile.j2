@@ -3,10 +3,10 @@
 
 {
     # Global options
-    email {{ CADDY_EMAIL | default('admin@example.com') }}
+    email {{ EMAIL | default('admin@example.com') }}
     
     # Admin API
-    admin :{{ CADDY_ADMIN_PORT | default('2019') }}
+    admin :{{ ADMIN_PORT | default('2019') }}
     
     # Enable metrics for Prometheus
     servers {
@@ -21,7 +21,7 @@
 # Each app on this VM gets its own domain block
 {% if apps is defined %}
 {% for app_name, app_config in apps.items() %}
-{% if app_config.vm == vm_role %}
+{% if app_config.get('vm') == vm_role %}
 
 # {{ app_name }} service
 {% if app_config.get('domain') %}
@@ -44,19 +44,31 @@
         respond "OK" 200
     }
     
-    # Proxy to {{ app_name }} container
-    reverse_proxy {{ app_name }}:{{ app_config.internal_port | default(app_config.port) }} {
+    # Proxy to {{ app_name }} service (Docker Compose automatic load balancing)
+    reverse_proxy {{ app_name }}:{{ app_config.get('port', 8000) }} {
+        # Docker Compose service discovery handles load balancing across replicas
+        lb_policy round_robin
+        lb_try_duration 5s
+        lb_try_interval 250ms
+        
+        # Standard proxy headers
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
+        
+        # Health checks (optional - Docker already tracks container health)
+        health_uri /health
+        health_interval 10s
+        health_timeout 5s
+        health_status 2xx
     }
 }
 {% else %}
 # Port-based routing (development - no domain yet)
-:{{ app_config.port }} {
-    # Simple pass-through to app
-    reverse_proxy {{ app_name }}:{{ app_config.internal_port | default(app_config.port) }}
+:{{ app_config.get('port', 8000) }} {
+    # Simple pass-through to app service (load balanced if replicas > 1)
+    reverse_proxy {{ app_name }}:{{ app_config.get('port', 8000) }}
 }
 {% endif %}
 {% endif %}
@@ -64,6 +76,6 @@
 {% endif %}
 
 # Metrics endpoint (Prometheus)
-:{{ (monitoring | default({})).get('metrics_port', '2019') }} {
+:{{ ADMIN_PORT | default('2019') }} {
     metrics /metrics
 }

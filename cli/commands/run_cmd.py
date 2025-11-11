@@ -1,25 +1,53 @@
-"""SuperDeploy CLI - Run command (Refactored)"""
+"""
+Run Command
+
+Execute commands in application containers.
+"""
 
 import click
+from dataclasses import dataclass
+
 from cli.base import ProjectCommand
 from cli.constants import CONTAINER_NAME_FORMAT
+from cli.services.ssh_service import DockerExecOptions
+
+
+@dataclass
+class RunCommandOptions:
+    """Options for run command."""
+
+    app_name: str
+    command: str
+    interactive: bool = False
 
 
 class RunCommand(ProjectCommand):
-    """Execute command in application container."""
+    """
+    Execute command in application container.
+
+    Features:
+    - Interactive and non-interactive modes
+    - Output capture and display
+    - Exit code propagation
+    """
 
     def __init__(
         self,
         project_name: str,
-        app_name: str,
-        command: str,
-        interactive: bool = False,
+        options: RunCommandOptions,
         verbose: bool = False,
     ):
+        """
+        Initialize run command.
+
+        Args:
+            project_name: Name of the project
+            options: RunCommandOptions with configuration
+            verbose: Whether to show verbose output
+        """
         super().__init__(project_name, verbose=verbose)
-        self.app_name = app_name
-        self.command = command
-        self.interactive = interactive
+        self.options = options
+        self.logger = None
 
     def execute(self) -> None:
         """Execute run command."""
@@ -27,30 +55,33 @@ class RunCommand(ProjectCommand):
             self.show_header(
                 title="Run Command",
                 project=self.project_name,
-                app=self.app_name,
+                app=self.options.app_name,
                 details={
-                    "Command": self.command,
-                    "Interactive": "Yes" if self.interactive else "No",
+                    "Command": self.options.command,
+                    "Interactive": "Yes" if self.options.interactive else "No",
                 },
             )
 
-        # Require deployment
         self.require_deployment()
 
         # Initialize logger (unless interactive mode)
-        if not self.interactive:
-            logger = self.init_logger(self.project_name, f"run-{self.app_name}")
-            logger.step("Finding Application")
+        if not self.options.interactive:
+            self.logger = self.init_logger(
+                self.project_name, f"run-{self.options.app_name}"
+            )
+            self.logger.step("Finding Application")
 
-        # Get VM and IP
+        # Get VM and IP for app
         try:
-            vm_name, vm_ip = self.get_vm_for_app(self.app_name)
+            vm_name, vm_ip = self.get_vm_for_app(self.options.app_name)
 
-            if not self.interactive:
-                logger.log(f"App '{self.app_name}' running on {vm_name} ({vm_ip})")
+            if not self.options.interactive and self.logger:
+                self.logger.log(
+                    f"App '{self.options.app_name}' running on {vm_name} ({vm_ip})"
+                )
 
         except Exception as e:
-            self.handle_error(e, f"Could not find VM for app '{self.app_name}'")
+            self.handle_error(e, f"Could not find VM for app '{self.options.app_name}'")
             raise SystemExit(1)
 
         # Get SSH service
@@ -59,55 +90,85 @@ class RunCommand(ProjectCommand):
 
         # Build container name
         container_name = CONTAINER_NAME_FORMAT.format(
-            project=self.project_name, app=self.app_name
+            project=self.project_name, app=self.options.app_name
         )
 
-        if not self.interactive:
-            logger.step("Executing Command")
-            logger.log(f"Container: {container_name}")
-            logger.log(f"Command: {self.command}")
+        if self.options.interactive:
+            self._execute_interactive(ssh_service, vm_ip, container_name)
+        else:
+            self._execute_non_interactive(ssh_service, vm_ip, container_name)
+
+    def _execute_interactive(
+        self, ssh_service, vm_ip: str, container_name: str
+    ) -> None:
+        """
+        Execute command in interactive mode.
+
+        Args:
+            ssh_service: SSH service instance
+            vm_ip: VM IP address
+            container_name: Docker container name
+        """
+        try:
+            exec_options = DockerExecOptions(interactive=True, tty=True)
+            result = ssh_service.docker_exec(
+                vm_ip, container_name, self.options.command, options=exec_options
+            )
+
+            if result.returncode != 0:
+                raise SystemExit(result.returncode)
+
+        except Exception:
+            # Don't log in interactive mode
+            raise SystemExit(1)
+
+    def _execute_non_interactive(
+        self, ssh_service, vm_ip: str, container_name: str
+    ) -> None:
+        """
+        Execute command in non-interactive mode.
+
+        Args:
+            ssh_service: SSH service instance
+            vm_ip: VM IP address
+            container_name: Docker container name
+        """
+        if not self.logger:
+            return
+
+        self.logger.step("Executing Command")
+        self.logger.log(f"Container: {container_name}")
+        self.logger.log(f"Command: {self.options.command}")
 
         try:
-            if self.interactive:
-                # Interactive mode (with TTY)
-                exit_code = ssh_service.docker_exec(
-                    vm_ip, container_name, self.command, interactive=True
-                )
+            result = ssh_service.docker_exec(
+                vm_ip, container_name, self.options.command
+            )
 
-                if exit_code != 0:
-                    raise SystemExit(exit_code)
+            # Display output
+            if result.stdout:
+                self.console.print("\n[bold cyan]Output:[/bold cyan]")
+                self.console.print(result.stdout)
 
+            if result.stderr:
+                self.console.print("\n[bold yellow]Errors:[/bold yellow]")
+                self.console.print(result.stderr)
+
+            if result.is_success:
+                self.logger.success("Command executed successfully")
             else:
-                # Non-interactive mode
-                result = ssh_service.docker_exec(
-                    vm_ip, container_name, self.command, interactive=False
+                self.logger.log_error(
+                    f"Command failed with exit code: {result.returncode}"
                 )
+                raise SystemExit(result.returncode)
 
-                # Display output
-                if result.stdout:
-                    self.console.print("\n[bold cyan]Output:[/bold cyan]")
-                    self.console.print(result.stdout)
-
-                if result.stderr:
-                    self.console.print("\n[bold yellow]Errors:[/bold yellow]")
-                    self.console.print(result.stderr)
-
-                if result.returncode == 0:
-                    logger.success("Command executed successfully")
-                else:
-                    logger.log_error(
-                        f"Command failed with exit code: {result.returncode}"
-                    )
-                    raise SystemExit(result.returncode)
-
-                if not self.verbose:
-                    self.console.print(
-                        f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n"
-                    )
+            if not self.verbose:
+                self.console.print(
+                    f"\n[dim]Logs saved to:[/dim] {self.logger.log_path}\n"
+                )
 
         except Exception as e:
-            if not self.interactive:
-                self.handle_error(e, "Command execution failed")
+            self.handle_error(e, "Command execution failed")
             raise SystemExit(1)
 
 
@@ -120,16 +181,31 @@ def run(project, app, command, verbose, interactive):
     """
     Run command in application container
 
-    \b
-    Examples:
-      superdeploy run api "python manage.py migrate"
-      superdeploy run api "bash" -i                    # Interactive shell
-      superdeploy run services "npm run test"
+    Execute arbitrary commands inside running application containers.
+    Supports both interactive (with TTY) and non-interactive modes.
 
-    \b
+    Examples:
+        # Run database migrations
+        superdeploy cheapa:run api "python manage.py migrate"
+
+        # Interactive bash shell
+        superdeploy cheapa:run api "bash" -i
+
+        # Run tests
+        superdeploy cheapa:run services "npm run test"
+
+        # Access PostgreSQL
+        superdeploy cheapa:run api "psql -U user database" -i
+
     Interactive mode:
-      Use -i flag for commands that need user input or TTY
-      (e.g., bash, psql, redis-cli)
+        Use -i flag for commands that need user input or TTY allocation
+        (e.g., bash, psql, redis-cli, python REPL)
     """
-    cmd = RunCommand(project, app, command, interactive=interactive, verbose=verbose)
+    options = RunCommandOptions(
+        app_name=app,
+        command=command,
+        interactive=interactive,
+    )
+
+    cmd = RunCommand(project, options, verbose=verbose)
     cmd.run()

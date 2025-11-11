@@ -4,43 +4,55 @@ description: Caddy reverse proxy with automatic HTTPS
 version: "2-alpine"
 category: proxy
 
-# Environment variables this addon provides
-env_vars:
-  - name: CADDY_EMAIL
-    description: Email for Let's Encrypt certificate notifications
+# Resource plans (small/standard/large/xlarge)
+plans:
+  small:
+    memory: 64M
+    cpu: 0.1
+    disk: 1G
+    description: "For development/low traffic"
+    
+  standard:
+    memory: 128M
+    cpu: 0.25
+    disk: 2G
+    description: "For production proxying"
+    
+  large:
+    memory: 256M
+    cpu: 0.5
+    disk: 5G
+    description: "For high-traffic proxying"
+    
+  xlarge:
+    memory: 512M
+    cpu: 1.0
+    disk: 10G
+    description: "For enterprise proxying"
+
+# Environment variable template (uses {INSTANCE} placeholder)
+env_template:
+  - name: "{INSTANCE}_EMAIL"
+    description: "Email for Let's Encrypt certificate notifications"
     default: "admin@example.com"
-    required: true
-    secret: false
     
-  - name: CADDY_HTTP_PORT
-    description: HTTP port for Caddy
+  - name: "{INSTANCE}_HTTP_PORT"
+    description: "HTTP port for Caddy"
     default: "80"
-    required: true
-    secret: false
     
-  - name: CADDY_HTTPS_PORT
-    description: HTTPS port for Caddy
+  - name: "{INSTANCE}_HTTPS_PORT"
+    description: "HTTPS port for Caddy"
     default: "443"
-    required: true
-    secret: false
     
-  - name: CADDY_ADMIN_PORT
-    description: Caddy admin API port
+  - name: "{INSTANCE}_ADMIN_PORT"
+    description: "Caddy admin API port"
     default: "2019"
-    required: false
-    secret: false
-    
-  - name: GRAFANA_DOMAIN
-    description: Domain for Grafana (orchestrator only)
-    default: ""
-    required: false
-    secret: false
-    
-  - name: PROMETHEUS_DOMAIN
-    description: Domain for Prometheus (orchestrator only)
-    default: ""
-    required: false
-    secret: false
+
+# Port allocation strategy
+# Note: Caddy typically uses fixed ports (80, 443)
+port_allocation:
+  base_port: 80
+  increment: 0  # Caddy instances usually share same external ports
 
 # Docker compose configuration
 compose:

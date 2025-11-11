@@ -37,6 +37,11 @@ def generate_orchestrator_config(
             "subnet_cidr": "10.128.0.0/20",
             "docker_subnet": docker_subnet,
         },
+        "addons": {
+            "monitoring": {
+                "main": {"type": "monitoring", "version": "latest", "plan": "standard"}
+            }
+        },
         "grafana": {
             "domain": "",
             "port": 3000,
@@ -117,6 +122,17 @@ def generate_orchestrator_config(
     yml_lines.append(
         yaml.dump(
             {"network": orchestrator_config["network"]},
+            default_flow_style=False,
+            sort_keys=False,
+        ).strip()
+    )
+    yml_lines.append("")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append("# Addons Configuration")
+    yml_lines.append("# " + "=" * 77)
+    yml_lines.append(
+        yaml.dump(
+            {"addons": orchestrator_config["addons"]},
             default_flow_style=False,
             sort_keys=False,
         ).strip()

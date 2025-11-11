@@ -1,420 +1,77 @@
-"""SuperDeploy CLI - Orchestrator command (with improved logging and UX)"""
+"""Orchestrator deployment command."""
 
 import click
 import subprocess
 import time
+import json
 from pathlib import Path
-from rich.console import Console
+
+from cli.base import BaseCommand
 from cli.ui_components import show_header
-from rich.prompt import Prompt
-from cli.logger import DeployLogger
-
-console = Console()
-
-
-@click.command(name="orchestrator:init")
-def orchestrator_init():
-    """Initialize orchestrator configuration"""
-
-    show_header(
-        title="Orchestrator Setup",
-        subtitle="Global monitoring (Prometheus + Grafana)",
-        show_logo=True,
-        console=console,
-    )
-
-    project_root = Path.cwd()
-    shared_dir = project_root / "shared"
-    orchestrator_dir = shared_dir / "orchestrator"
-    orchestrator_dir.mkdir(parents=True, exist_ok=True)
-
-    config_path = orchestrator_dir / "config.yml"
-
-    # Check if config already exists
-    if config_path.exists():
-        console.print(
-            "[yellow]Config exists. Overwrite? [y/n][/yellow] [dim](n)[/dim]: ",
-            end="",
-        )
-        answer = input().strip().lower()
-        console.print()  # Add newline after input
-        if answer not in ["y", "yes"]:
-            console.print("[dim]Cancelled[/dim]")
-            return
-
-    # Cloud Configuration
-    console.print("\n[white]Cloud Configuration[/white]")
-    gcp_project = Prompt.ask("GCP Project ID", default="")
-    region = Prompt.ask("GCP Region", default="us-central1")
-    zone = Prompt.ask("GCP Zone", default=f"{region}-a")
-
-    # SSL Configuration
-    console.print("\n[white]SSL Configuration[/white]")
-    ssl_email = Prompt.ask("Email for Let's Encrypt", default="")
-
-    # Allocate Docker subnet for orchestrator
-    console.print("\n[dim]Allocating network subnet...[/dim]")
-    from cli.subnet_allocator import SubnetAllocator
-
-    allocator = SubnetAllocator()
-
-    # Check if orchestrator already has a subnet allocated
-    if "orchestrator" not in allocator.docker_allocations:
-        docker_subnet = SubnetAllocator.ORCHESTRATOR_DOCKER_SUBNET
-        allocator.docker_allocations["orchestrator"] = docker_subnet
-        allocator.allocations["docker_subnets"] = allocator.docker_allocations
-        allocator._save_allocations()
-    else:
-        docker_subnet = allocator.docker_allocations["orchestrator"]
-
-    console.print(f"[dim]✓ Subnet allocated: {docker_subnet}[/dim]")
-
-    # Generate config using stub generator
-    import importlib.util
-
-    cli_root = Path(__file__).resolve().parents[1]
-    stub_file = cli_root / "stubs" / "configs" / "orchestrator_config_generator.py"
-    spec = importlib.util.spec_from_file_location(
-        "orchestrator_config_generator", stub_file
-    )
-    module = importlib.util.module_from_spec(spec)  # type: ignore
-    spec.loader.exec_module(module)  # type: ignore
-
-    config_content = module.generate_orchestrator_config(
-        gcp_project=gcp_project,
-        region=region,
-        zone=zone,
-        ssl_email=ssl_email,
-        docker_subnet=docker_subnet,
-    )
-
-    # Write config
-    with open(config_path, "w") as f:
-        f.write(config_content)
-
-    console.print(
-        f"\n[dim]✓ Config saved: {config_path.relative_to(project_root)}[/dim]"
-    )
-    console.print("\n[white]Next steps:[/white]")
-    console.print("  [dim]1. Review: shared/orchestrator/config.yml[/dim]")
-    console.print("  [dim]2. Deploy: superdeploy orchestrator up[/dim]\n")
+from cli.logger import DeployLogger, run_with_progress
+from cli.core.orchestrator_loader import OrchestratorLoader
+from cli.terraform_utils import select_workspace
+from cli.ansible_utils import build_ansible_command
+from cli.ansible_runner import AnsibleRunner
 
 
-def _show_orchestrator_resources_to_destroy(preserve_ip, verbose):
-    """Show orchestrator resources that will be destroyed."""
-    if verbose:
-        return
+class OrchestratorUpCommand(BaseCommand):
+    """Deploy orchestrator VM with monitoring."""
 
-    console.print("Resources to be destroyed:")
+    def __init__(
+        self,
+        skip_terraform: bool = False,
+        preserve_ip: bool = False,
+        addon: str = None,
+        tags: str = None,
+        verbose: bool = False,
+        force: bool = False,
+    ):
+        super().__init__(verbose=verbose)
+        self.skip_terraform = skip_terraform
+        self.preserve_ip = preserve_ip
+        self.addon = addon
+        self.tags = tags
+        self.force = force
 
-    # Check for VMs
-    result = subprocess.run(
-        "gcloud compute instances list --filter='name:orchestrator-*' --format='value(name)' 2>/dev/null",
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
+    def execute(self) -> None:
+        """Execute up command."""
+        if not self.verbose:
+            show_header(
+                title="Orchestrator Deployment",
+                subtitle="Deploying monitoring infrastructure (Prometheus + Grafana)",
+                show_logo=True,
+                console=self.console,
+            )
 
-    vm_names = []
-    if result.returncode == 0 and result.stdout.strip():
-        vm_names = [
-            line.strip() for line in result.stdout.strip().split("\n") if line.strip()
-        ]
+        project_root = Path.cwd()
+        shared_dir = project_root / "shared"
 
-    if vm_names:
-        console.print(f"  {len(vm_names)} VM(s)")
-        for name in vm_names:
-            console.print(f"    - {name}")
-    else:
-        console.print("  [dim]No VMs found[/dim]")
-
-    # Check for Static IP (if not preserving)
-    if not preserve_ip:
-        result = subprocess.run(
-            "gcloud compute addresses list --filter='name:orchestrator-*' --format='value(name)' 2>/dev/null",
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0 and result.stdout.strip():
-            console.print("  Static IP")
-
-    # Always show network resources
-    console.print("  VPC Network & Firewall Rules")
-
-
-@click.command(name="orchestrator:down")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-@click.option("--preserve-ip", is_flag=True, help="Keep static IP (don't delete)")
-@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def orchestrator_down(yes, preserve_ip, verbose):
-    """Destroy orchestrator VM and clean up state"""
-
-    project_root = Path.cwd()
-
-    # Initialize logger
-    logger = DeployLogger("orchestrator", "down", verbose=verbose)
-
-    if not verbose:
-        show_header(
-            title="Orchestrator Shutdown",
-            subtitle="[bold red]This will destroy the orchestrator VM and clean up all state![/bold red]",
-            project="orchestrator",
-            border_color="red",
-            console=console,
-        )
-
-        # Show what will be destroyed
-        _show_orchestrator_resources_to_destroy(preserve_ip, verbose)
-        console.print()
-
-    if not yes:
-        console.print(
-            "[bold red]Are you sure you want to destroy the orchestrator?[/bold red] "
-            "[bold bright_white]\\[y/n][/bold bright_white] [dim](n)[/dim]: ",
-            end="",
-        )
-        answer = input().strip().lower()
-        confirmed = answer in ["y", "yes"]
-
-        if not confirmed:
-            console.print("[yellow]❌ Destruction cancelled[/yellow]")
-            logger.log("User cancelled destruction")
-            return
-
-    console.print()
-
-    shared_dir = project_root / "shared"
-
-    from cli.core.orchestrator_loader import OrchestratorLoader
-
-    orchestrator_loader = OrchestratorLoader(shared_dir)
-
-    # Try to load config, but don't fail if it doesn't exist (for cleanup)
-    try:
-        orch_config = orchestrator_loader.load()
-        gcp_config = orch_config.config.get("gcp", {})
-        zone = gcp_config.get("zone", "us-central1-a")
-        region = gcp_config.get("region", "us-central1")
-    except FileNotFoundError:
-        # Config doesn't exist - use defaults for cleanup
-        # This is OK for down command since we're destroying everything anyway
-        logger.log("[dim]No config found, using defaults for cleanup[/dim]")
-        zone = "us-central1-a"
-        region = "us-central1"
-
-    import subprocess
-    from cli.terraform_utils import workspace_exists
-
-    # Always do manual cleanup FIRST to ensure GCP resources are gone
-    current_step = 1
-    total_steps = 3
-
-    logger.step(f"[{current_step}/{total_steps}] GCP Resource Cleanup")
-    console.print("  [dim]✓ Configuration loaded[/dim]")
-
-    vms_deleted = 0
-    ips_deleted = 0
-    firewalls_deleted = 0
-    subnets_deleted = 0
-    networks_deleted = 0
-
-    # Delete VM instances first
-    result = subprocess.run(
-        "gcloud compute instances list --filter='name:orchestrator-*' --format='value(name,zone)' 2>/dev/null",
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-
-    if result.returncode == 0 and result.stdout.strip():
-        lines = result.stdout.strip().split("\n")
-        for line in lines:
-            if line.strip():
-                parts = line.split()
-                if len(parts) >= 2:
-                    vm_name, vm_zone = parts[0], parts[1]
-                    result = subprocess.run(
-                        f"gcloud compute instances delete {vm_name} --zone={vm_zone} --quiet",
-                        shell=True,
-                        capture_output=True,
-                    )
-                    if result.returncode == 0:
-                        vms_deleted += 1
-
-    # Delete External IP (unless --preserve-ip flag is set)
-    if not preserve_ip:
-        result = subprocess.run(
-            "gcloud compute addresses list --filter='name:orchestrator-*' --format='value(name,region)' 2>/dev/null",
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0 and result.stdout.strip():
-            lines = result.stdout.strip().split("\n")
-            for line in lines:
-                if line.strip():
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        ip_name, ip_region = parts[0], parts[1]
-                        result = subprocess.run(
-                            f"gcloud compute addresses delete {ip_name} --region={ip_region} --quiet",
-                            shell=True,
-                            capture_output=True,
-                        )
-                        if result.returncode == 0:
-                            ips_deleted += 1
-
-    # Delete Firewall Rules
-    result = subprocess.run(
-        "gcloud compute firewall-rules list --filter='network:superdeploy-network' --format='value(name)' 2>/dev/null",
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-
-    if result.returncode == 0 and result.stdout.strip():
-        firewall_rules = result.stdout.strip().split("\n")
-        for rule in firewall_rules:
-            rule = rule.strip()
-            if rule:
-                result = subprocess.run(
-                    f"gcloud compute firewall-rules delete {rule} --quiet",
-                    shell=True,
-                    capture_output=True,
+        # Initialize logger
+        with DeployLogger("orchestrator", "up", verbose=self.verbose) as logger:
+            try:
+                _deploy_orchestrator(
+                    logger,
+                    self.console,
+                    project_root,
+                    shared_dir,
+                    self.skip_terraform,
+                    self.preserve_ip,
+                    self.addon,
+                    self.tags,
+                    self.verbose,
+                    self.force,
                 )
-                if result.returncode == 0:
-                    firewalls_deleted += 1
 
-    # Delete Subnet
-    result = subprocess.run(
-        f"gcloud compute networks subnets delete superdeploy-network-subnet --region={region} --quiet 2>&1",
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0 or "not found" in result.stderr.lower():
-        subnets_deleted += 1
+                if not self.verbose:
+                    self.console.print(
+                        "\n[color(248)]Orchestrator deployed.[/color(248)]"
+                    )
 
-    # Delete Network
-    result = subprocess.run(
-        "gcloud compute networks delete superdeploy-network --quiet 2>&1",
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0 or "not found" in result.stderr.lower():
-        networks_deleted += 1
-
-    # Show summary
-    resources = []
-    if vms_deleted > 0:
-        resources.append(f"{vms_deleted} VM(s)")
-    if firewalls_deleted > 0:
-        resources.append(f"{firewalls_deleted} firewall rule(s)")
-    if subnets_deleted > 0:
-        resources.append(f"{subnets_deleted} subnet(s)")
-    if networks_deleted > 0:
-        resources.append(f"{networks_deleted} network(s)")
-    if ips_deleted > 0:
-        resources.append(f"{ips_deleted} IP(s)")
-
-    if resources:
-        console.print(f"  [dim]✓ GCP resources cleaned: {', '.join(resources)}[/dim]")
-    else:
-        console.print("  [dim]✓ No GCP resources found[/dim]")
-
-    # Now try Terraform cleanup
-    terraform_success = False
-    terraform_dir = shared_dir / "terraform"
-    workspace_found = workspace_exists("orchestrator")
-
-    current_step += 1
-    logger.step(f"[{current_step}/{total_steps}] Terraform State Cleanup")
-
-    if workspace_found:
-        # Switch to default workspace
-        subprocess.run(
-            "terraform workspace select default 2>/dev/null || true",
-            shell=True,
-            cwd=terraform_dir,
-            capture_output=True,
-        )
-
-        # Just remove the workspace directory directly since resources are already deleted from GCP
-        terraform_state_dir = terraform_dir / "terraform.tfstate.d" / "orchestrator"
-        if terraform_state_dir.exists():
-            import shutil
-
-            shutil.rmtree(terraform_state_dir)
-            console.print("  [dim]✓ Terraform workspace cleaned[/dim]")
-    else:
-        console.print("  [dim]✓ No Terraform workspace found[/dim]")
-
-    # Final cleanup step
-    current_step += 1
-    logger.step(f"[{current_step}/{total_steps}] Local Files Cleanup")
-
-    # Delete state.yml completely
-    state_file = shared_dir / "orchestrator" / "state.yml"
-    if state_file.exists():
-        state_file.unlink()
-
-    # Clean inventory
-    inventory_file = shared_dir / "ansible" / "inventories" / "orchestrator.ini"
-    if inventory_file.exists():
-        inventory_file.unlink()
-
-    # Release subnet allocation
-    try:
-        from cli.subnet_allocator import SubnetAllocator
-
-        allocator = SubnetAllocator()
-        allocator.release_subnet("orchestrator")
-    except Exception as e:
-        logger.warning(f"Subnet release warning: {e}")
-
-    console.print("  [dim]✓ Local files cleaned[/dim]")
-
-    console.print("\n[color(248)]Orchestrator destroyed.[/color(248)]")
-
-
-@click.command(name="orchestrator:status")
-def orchestrator_status():
-    """Show orchestrator status"""
-    project_root = Path.cwd()
-    shared_dir = project_root / "shared"
-
-    from cli.core.orchestrator_loader import OrchestratorLoader
-
-    orchestrator_loader = OrchestratorLoader(shared_dir)
-
-    try:
-        orch_config = orchestrator_loader.load()
-    except FileNotFoundError as e:
-        console.print(f"[red]❌ {e}[/red]")
-        raise SystemExit(1)
-
-    if orch_config.is_deployed():
-        console.print("[green]✅ Orchestrator is deployed[/green]")
-        console.print(f"  IP: {orch_config.get_ip()}")
-        console.print(f"  URL: http://{orch_config.get_ip()}:3001")
-
-        # Get state details
-        state = orch_config.state_manager.load_state()
-        last_updated = state.get("last_updated", "Unknown")
-        vm_info = state.get("vm", {})
-
-        console.print(f"  Last Updated: {last_updated}")
-        if vm_info.get("machine_type"):
-            console.print(f"  VM Type: {vm_info.get('machine_type')}")
-        if vm_info.get("disk_size"):
-            console.print(f"  Disk Size: {vm_info.get('disk_size')}GB")
-    else:
-        console.print("[yellow]⚠️  Orchestrator not deployed[/yellow]")
-        console.print("  Run: [red]superdeploy orchestrator up[/red]")
+            except Exception as e:
+                logger.log_error(str(e), context="Orchestrator deployment failed")
+                self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
+                raise SystemExit(1)
 
 
 @click.command(name="orchestrator:up")
@@ -422,7 +79,9 @@ def orchestrator_status():
     "--skip-terraform", is_flag=True, help="Skip Terraform (VM already exists)"
 )
 @click.option(
-    "--preserve-ip", is_flag=True, help="Preserve static IP on destroy (for production)"
+    "--preserve-ip",
+    is_flag=True,
+    help="Preserve static IP on destroy (for production)",
 )
 @click.option(
     "--addon",
@@ -444,44 +103,20 @@ def orchestrator_status():
 )
 def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose, force):
     """Deploy orchestrator VM with monitoring (runs Terraform + Ansible by default)"""
-
-    if not verbose:
-        show_header(
-            title="Orchestrator Deployment",
-            subtitle="Deploying monitoring infrastructure (Prometheus + Grafana)",
-            show_logo=True,
-            console=console,
-        )
-
-    project_root = Path.cwd()
-    shared_dir = project_root / "shared"
-
-    # Initialize logger
-    with DeployLogger("orchestrator", "up", verbose=verbose) as logger:
-        try:
-            _deploy_orchestrator(
-                logger,
-                project_root,
-                shared_dir,
-                skip_terraform,
-                preserve_ip,
-                addon,
-                tags,
-                verbose,
-                force,
-            )
-
-            if not verbose:
-                console.print("\n[color(248)]Orchestrator deployed.[/color(248)]")
-
-        except Exception as e:
-            logger.log_error(str(e), context="Orchestrator deployment failed")
-            console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
-            raise SystemExit(1)
+    cmd = OrchestratorUpCommand(
+        skip_terraform=skip_terraform,
+        preserve_ip=preserve_ip,
+        addon=addon,
+        tags=tags,
+        verbose=verbose,
+        force=force,
+    )
+    cmd.run()
 
 
 def _deploy_orchestrator(
     logger,
+    console,
     project_root,
     shared_dir,
     skip_terraform,
@@ -496,8 +131,6 @@ def _deploy_orchestrator(
     logger.step("[1/3] Setup & Infrastructure")
 
     # Load orchestrator config
-    from cli.core.orchestrator_loader import OrchestratorLoader
-
     orchestrator_loader = OrchestratorLoader(shared_dir)
 
     try:
@@ -620,8 +253,6 @@ def _deploy_orchestrator(
             )
 
         # Init
-        from cli.logger import run_with_progress
-
         try:
             returncode, stdout, stderr = run_with_progress(
                 logger,
@@ -640,8 +271,6 @@ def _deploy_orchestrator(
             raise SystemExit(1)
 
         # Select or create orchestrator workspace (silently)
-        from cli.terraform_utils import select_workspace
-
         try:
             select_workspace("orchestrator", create=True)
         except Exception as e:
@@ -665,7 +294,6 @@ def _deploy_orchestrator(
         tfvars_file = (
             project_root / "shared" / "terraform" / "orchestrator.auto.tfvars.json"
         )
-        import json
 
         with open(tfvars_file, "w") as f:
             json.dump(tfvars, f, indent=2)
@@ -710,8 +338,6 @@ def _deploy_orchestrator(
         if result.returncode != 0:
             logger.log_error("Failed to get terraform outputs", context=result.stderr)
             raise SystemExit(1)
-
-        import json
 
         outputs = json.loads(result.stdout)
 
@@ -805,18 +431,16 @@ ansible_python_interpreter=/usr/bin/python3
     # Ansible - Phase 2 & 3
     logger.step("[2/3] Base System")
 
-    from cli.ansible_utils import build_ansible_command
-
     ansible_dir = project_root / "shared" / "ansible"
 
     # Prepare ansible vars
     ansible_vars = orch_config.to_ansible_vars()
 
-    # Load orchestrator secrets from secrets.yml
-    orchestrator_secrets = orch_config.get_secrets()
+    # Load orchestrator secrets from secrets.yml (complete structure including addons)
+    orchestrator_secrets_full = orch_config.secret_manager.load_secrets()
 
-    # Add secrets to ansible vars (wrap in 'secrets' key to match generate-env.yml expectations)
-    ansible_vars["project_secrets"] = {"secrets": orchestrator_secrets}
+    # Add secrets to ansible vars (keep full structure for addon credentials)
+    ansible_vars["project_secrets"] = orchestrator_secrets_full
 
     # Add orchestrator IP and ansible_host for runtime variables
     ansible_env_vars = {
@@ -855,8 +479,6 @@ ansible_python_interpreter=/usr/bin/python3
     )
 
     # Run ansible with clean tree view (no messy logs)
-    from cli.ansible_runner import AnsibleRunner
-
     runner = AnsibleRunner(logger, title="Configuring Orchestrator", verbose=verbose)
     result_returncode = runner.run(ansible_cmd, cwd=project_root)
 

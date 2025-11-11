@@ -1,19 +1,21 @@
 version: '3.8'
 
 services:
-  {{ addon_name }}:
+  {{ service_name }}:
     image: redis:{{ version }}
-    container_name: {{ project_name }}-{{ addon_name }}
+    container_name: {{ container_name }}
     restart: always
-    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    env_file:
+      - .env
+    command: redis-server --requirepass ${PASSWORD} --appendonly yes
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PASSWORD: ${PASSWORD}
     volumes:
-      - {{ addon_name }}-data:/data
+      - redis-data:/data
     networks:
       - {{ project_name }}-network
     ports:
-      - "0.0.0.0:6379:6379"   # Redis (internal network + SSH tunnel)
+      - "0.0.0.0:${PORT}:6379"   # Redis (instance-specific port)
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
       test: ["CMD-SHELL", "{{ healthcheck.command }}"]
@@ -22,7 +24,7 @@ services:
       retries: {{ healthcheck.retries }}
       start_period: {{ healthcheck.start_period }}
 {% endif %}
-    # RESOURCE LIMITS: Redis is memory-efficient
+    # RESOURCE LIMITS (Plan: {{ resources.plan | default('standard') }})
     deploy:
       resources:
         limits:
@@ -32,15 +34,23 @@ services:
           memory: {{ resources.memory_reservation | default('128M') }}
           cpus: '{{ resources.cpu_reservation | default('0.25') }}'
     labels:
+      # Monitoring
       - "prometheus.scrape=true"
       - "prometheus.port={{ monitoring.metrics_port | default(9090) }}"
       - "prometheus.path=/metrics"
+      # Project & service info
       - "project={{ project_name }}"
-      - "service={{ addon_name }}"
+      - "service={{ service_name }}"
+      # Addon instance metadata
+      - "addon.type=redis"
+      - "addon.instance={{ instance_name }}"
+      - "addon.full_name={{ instance_full_name }}"
+      - "addon.category={{ instance_category }}"
+      - "addon.plan={{ resources.plan | default('standard') }}"
 
 volumes:
-  {{ addon_name }}-data:
-    name: {{ project_name }}-{{ addon_name }}-data
+  redis-data:
+    name: {{ volume_name }}
 
 networks:
   {{ project_name }}-network:

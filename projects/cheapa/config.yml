@@ -9,7 +9,7 @@
 project:
   name: cheapa
   description: cheapa project
-  created_at: '2025-11-09T00:01:39.523595'
+  created_at: '2025-11-11T16:23:41.272616'
   ssl_email: admin@cheapa.io
 
 # =============================================================================
@@ -56,25 +56,29 @@ addons:
 # =============================================================================
 # Application Services
 # =============================================================================
+# Each app can specify:
+#   type: Application type (python, nextjs) - optional, auto-detected
+#   replicas: Number of container instances (default: 1)
+#   path: Path to application source code
+#   vm: VM role to deploy to
+#   port: HTTP port for the application (optional for workers)
+#   domain: Custom domain (optional)
+#   addons: List of addon connections
+#   hooks: Post-deployment commands (optional)
+# =============================================================================
 apps:
   api:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/api
     vm: app
     port: 8000
-    domain: api.cheapa.io
-    hooks:
-      after_deploy:
-        - python craft migrate
-        - python craft cache:clear
+  services:
+    path: /Users/cfkarakulak/Desktop/cheapa.io/code/services
+    vm: app
+    port: 
   storefront:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/storefront
     vm: app
     port: 3000
-    domain: cheapa.io
-  services:
-    path: /Users/cfkarakulak/Desktop/cheapa.io/code/services
-    vm: app
-    # No port - this is a queue worker, not an HTTP server
 
 # =============================================================================
 # Docker Configuration

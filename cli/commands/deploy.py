@@ -2,10 +2,198 @@
 
 import click
 import subprocess
-import yaml
 from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional
+
 from cli.base import ProjectCommand
 from cli.secret_manager import SecretManager
+from cli.exceptions import DeploymentError
+
+
+@dataclass
+class DeploymentConfig:
+    """Configuration for deployment."""
+
+    app_name: str
+    app_path: Path
+    vm_role: str
+    image_name: str
+    image_tag: str
+    image_latest: str
+    git_sha: str
+    docker_registry: str
+    docker_username: Optional[str]
+    docker_token: Optional[str]
+
+
+@dataclass
+class VMTarget:
+    """Target VM for deployment."""
+
+    ip: str
+    ssh_user: str
+    ssh_key: Path
+    vm_name: str
+
+
+class DockerImageBuilder:
+    """Handles Docker image building operations."""
+
+    def __init__(self, console, verbose: bool = False):
+        self.console = console
+        self.verbose = verbose
+
+    def build(self, app_path: Path, image_tag: str, image_latest: str) -> bool:
+        """Build Docker image with given tags."""
+        self.console.print("\n[bold]📦 Building Docker image...[/bold]")
+
+        build_cmd = [
+            "docker",
+            "build",
+            "-t",
+            image_tag,
+            "-t",
+            image_latest,
+            str(app_path),
+        ]
+
+        if self.verbose:
+            self.console.print(f"[dim]$ {' '.join(build_cmd)}[/dim]")
+
+        result = subprocess.run(build_cmd, cwd=app_path)
+        if result.returncode != 0:
+            self.console.print("[red]❌ Build failed[/red]")
+            return False
+
+        self.console.print("[green]✓ Build successful[/green]")
+        return True
+
+    def push(
+        self,
+        image_tag: str,
+        image_latest: str,
+        docker_registry: str,
+        docker_username: Optional[str],
+        docker_token: Optional[str],
+    ) -> bool:
+        """Push Docker image to registry."""
+        self.console.print("\n[bold]📤 Pushing to registry...[/bold]")
+
+        # Login if credentials provided
+        if docker_username and docker_token:
+            login_result = subprocess.run(
+                [
+                    "docker",
+                    "login",
+                    docker_registry,
+                    "-u",
+                    docker_username,
+                    "--password-stdin",
+                ],
+                input=docker_token,
+                text=True,
+                capture_output=True,
+            )
+            if login_result.returncode != 0:
+                self.console.print(
+                    "[yellow]⚠️  Docker login failed, continuing anyway...[/yellow]"
+                )
+
+        # Push both tags
+        for tag in [image_tag, image_latest]:
+            if self.verbose:
+                self.console.print(f"[dim]Pushing {tag}...[/dim]")
+
+            result = subprocess.run(["docker", "push", tag])
+            if result.returncode != 0:
+                self.console.print(f"[red]❌ Push failed for {tag}[/red]")
+                return False
+
+        self.console.print("[green]✓ Push successful[/green]")
+        return True
+
+
+class ApplicationDeployer:
+    """Handles application deployment to VM."""
+
+    def __init__(self, console, verbose: bool = False):
+        self.console = console
+        self.verbose = verbose
+
+    def deploy(
+        self, target: VMTarget, project_name: str, app_name: str, domain: Optional[str]
+    ) -> bool:
+        """Deploy application to target VM."""
+        self.console.print("\n[bold]🚀 Deploying to VM...[/bold]")
+        self.console.print(f"Target: {target.ssh_user}@{target.ip}")
+
+        # Build deployment script
+        deploy_script = self._build_deploy_script(project_name, app_name)
+
+        # Execute via SSH
+        ssh_cmd = [
+            "ssh",
+            "-i",
+            str(target.ssh_key),
+            "-o",
+            "StrictHostKeyChecking=no",
+            f"{target.ssh_user}@{target.ip}",
+            deploy_script,
+        ]
+
+        if self.verbose:
+            self.console.print(f"[dim]$ ssh {target.ssh_user}@{target.ip} ...[/dim]")
+
+        result = subprocess.run(ssh_cmd)
+
+        if result.returncode == 0:
+            self.console.print(f"\n[green]✅ {app_name} deployed successfully![/green]")
+            if domain:
+                self.console.print(f"🌐 https://{domain}")
+            return True
+        else:
+            self.console.print("\n[red]❌ Deployment failed[/red]")
+            return False
+
+    def _build_deploy_script(self, project_name: str, app_name: str) -> str:
+        """Build shell script for deployment with replica support."""
+        return f"""
+cd /opt/superdeploy/projects/{project_name}/compose
+echo "🔄 Pulling latest image..."
+docker compose pull {app_name}
+
+echo "🚀 Deploying {app_name}..."
+docker compose up -d {app_name}
+
+echo "⏳ Waiting for containers to stabilize..."
+sleep 5
+
+# Check replica status (no container_name in replicated mode)
+RUNNING_REPLICAS=$(docker compose ps {app_name} --status running --format '{{{{.Name}}}}' 2>/dev/null | wc -l)
+TOTAL_CONTAINERS=$(docker compose ps {app_name} --format '{{{{.Name}}}}' 2>/dev/null | wc -l)
+
+if [ "$RUNNING_REPLICAS" -ge "1" ]; then
+    echo "✅ Deployment successful! ($RUNNING_REPLICAS/$TOTAL_CONTAINERS replicas running)"
+    
+    # Show logs from first replica
+    FIRST_CONTAINER=$(docker compose ps {app_name} --format '{{{{.Name}}}}' 2>/dev/null | head -1)
+    if [ -n "$FIRST_CONTAINER" ]; then
+        echo ""
+        echo "📋 Recent logs from $FIRST_CONTAINER:"
+        docker logs $FIRST_CONTAINER --tail 20
+    fi
+    
+    # Cleanup old images
+    docker image prune -f >/dev/null 2>&1
+else
+    echo "❌ Deployment failed - no replicas running"
+    echo ""
+    echo "📋 Service logs:"
+    docker compose logs {app_name} --tail 50
+    exit 1
+fi
+"""
 
 
 class DeployCommand(ProjectCommand):
@@ -21,231 +209,199 @@ class DeployCommand(ProjectCommand):
     ):
         super().__init__(project_name, verbose=verbose)
         self.app_name = app_name
-        self.build = build
-        self.push = push
+        self.build_image = build
+        self.push_image = push
+
+        # Initialize service classes
+        self.image_builder = DockerImageBuilder(self.console, verbose)
+        self.app_deployer = ApplicationDeployer(self.console, verbose)
 
     def execute(self) -> None:
         """Execute deploy command."""
-        
+        self.show_header(
+            title="Quick Deploy",
+            project=self.project_name,
+            app=self.app_name,
+        )
+
+        # Initialize logger
+        logger = self.init_logger(self.project_name, f"deploy-{self.app_name}")
+
         try:
-            # Get project root
-            # Load secrets
-            secret_mgr = SecretManager(self.project_root, self.project_name)
-            secrets = secret_mgr.load_secrets()
+            logger.step("Loading deployment configuration")
+            # Load and validate configuration
+            deploy_config = self._load_deployment_config()
+            target_vm = self._find_target_vm(deploy_config.vm_role)
+            logger.success("Configuration loaded")
 
-            if not secrets or "secrets" not in secrets:
-                self.console.print(
-                    f"[red]❌ No secrets found. Run 'superdeploy {self.project_name}:init' first[/red]"
-                )
-                return
+            # Display deployment info
+            self._display_deployment_info(deploy_config)
 
-            shared_secrets = secrets["secrets"].get("shared", {})
-
-            # Find app in project config
-            config_file = self.project_root / "projects" / self.project_name / "config.yml"
-            if not config_file.exists():
-                self.console.print(
-                    f"[red]❌ Project config not found: {config_file}[/red]"
-                )
-                return
-
-            with open(config_file) as f:
-                config = yaml.safe_load(f)
-
-            apps = config.get("apps", {})
-            if self.app_name not in apps:
-                self.console.print(
-                    f"[red]❌ App '{self.app_name}' not found in config[/red]"
-                )
-                self.console.print(f"Available apps: {', '.join(apps.keys())}")
-                return
-
-            app_config = apps[self.app_name]
-            app_path = Path(app_config["path"])
-            vm_role = app_config.get("vm", "app")
-
-            if not app_path.exists():
-                self.console.print(f"[red]❌ App path not found: {app_path}[/red]")
-                return
-
-            self.console.print(f"\n[bold cyan]🚀 Deploying {self.app_name}[/bold cyan]")
-            self.console.print(f"Path: {app_path}")
-            self.console.print(f"VM: {vm_role}")
-
-            # Read .superdeploy marker (verify it exists)
-            marker_file = app_path / ".superdeploy"
-            if not marker_file.exists():
-                self.console.print(
-                    f"[red]❌ No .superdeploy marker found. Run 'superdeploy {self.project_name}:generate' first[/red]"
-                )
-                return
-
-            # Docker config
-            docker_org = shared_secrets.get(
-                "DOCKER_ORG", config.get("docker", {}).get("organization")
-            )
-            docker_registry = shared_secrets.get(
-                "DOCKER_REGISTRY",
-                config.get("docker", {}).get("registry", "docker.io"),
-            )
-            image_name = f"{docker_registry}/{docker_org}/{self.app_name}"
-
-            # Get Git SHA for tagging
-            git_sha = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=app_path, text=True
-            ).strip()[:7]
-
-            image_tag = f"{image_name}:{git_sha}"
-            image_latest = f"{image_name}:latest"
-
-            self.console.print(f"Image: {image_tag}")
-
-            # Step 1: Build
-            if self.build:
-                self.console.print("\n[bold]📦 Building Docker image...[/bold]")
-                build_cmd = [
-                    "docker",
-                    "build",
-                    "-t",
-                    image_tag,
-                    "-t",
-                    image_latest,
-                    str(app_path),
-                ]
-
-                if self.verbose:
-                    self.console.print(f"[dim]$ {' '.join(build_cmd)}[/dim]")
-
-                result = subprocess.run(build_cmd, cwd=app_path)
-                if result.returncode != 0:
-                    self.console.print("[red]❌ Build failed[/red]")
+            # Step 1: Build Docker image
+            if self.build_image:
+                logger.step("Building Docker image")
+                if not self.image_builder.build(
+                    deploy_config.app_path,
+                    deploy_config.image_tag,
+                    deploy_config.image_latest,
+                ):
+                    logger.log_error("Image build failed")
                     return
+                logger.success("Image built successfully")
 
-                self.console.print("[green]✓ Build successful[/green]")
-
-            # Step 2: Push
-            if self.push:
-                self.console.print("\n[bold]📤 Pushing to registry...[/bold]")
-
-                # Login first
-                docker_username = shared_secrets.get("DOCKER_USERNAME")
-                docker_token = shared_secrets.get("DOCKER_TOKEN")
-
-                if docker_username and docker_token:
-                    login_result = subprocess.run(
-                        [
-                            "docker",
-                            "login",
-                            docker_registry,
-                            "-u",
-                            docker_username,
-                            "--password-stdin",
-                        ],
-                        input=docker_token,
-                        text=True,
-                        capture_output=True,
-                    )
-                    if login_result.returncode != 0:
-                        self.console.print(
-                            "[yellow]⚠️  Docker login failed, continuing anyway...[/yellow]"
-                        )
-
-                # Push both tags
-                for tag in [image_tag, image_latest]:
-                    if self.verbose:
-                        self.console.print(f"[dim]Pushing {tag}...[/dim]")
-
-                    result = subprocess.run(["docker", "push", tag])
-                    if result.returncode != 0:
-                        self.console.print(f"[red]❌ Push failed for {tag}[/red]")
-                        return
-
-                self.console.print("[green]✓ Push successful[/green]")
+            # Step 2: Push to registry
+            if self.push_image:
+                logger.step("Pushing image to registry")
+                if not self.image_builder.push(
+                    deploy_config.image_tag,
+                    deploy_config.image_latest,
+                    deploy_config.docker_registry,
+                    deploy_config.docker_username,
+                    deploy_config.docker_token,
+                ):
+                    logger.log_error("Image push failed")
+                    return
+                logger.success("Image pushed successfully")
 
             # Step 3: Deploy to VM
-            self.console.print("\n[bold]🚀 Deploying to VM...[/bold]")
-
-            # Find target VM
-            state = self.state_service.load_state()
-
-            vms = state.get("vms", {})
-            target_vm = None
-
-            # Find VM matching the role
-            for vm_name, vm_data in vms.items():
-                if vm_role in vm_name:
-                    target_vm = vm_data
-                    break
-
-            if not target_vm:
-                self.console.print(f"[red]❌ No VM found for role '{vm_role}'[/red]")
+            logger.step(f"Deploying to VM ({target_vm.vm_name})")
+            domain = self._get_app_domain()
+            if not self.app_deployer.deploy(
+                target_vm, self.project_name, self.app_name, domain
+            ):
+                logger.log_error("Deployment failed")
                 return
 
-            vm_ip = target_vm.get("external_ip")
-            ssh_key = Path(
-                config.get("cloud", {})
-                .get("ssh", {})
-                .get("key_path", "~/.ssh/superdeploy_deploy")
-            ).expanduser()
-            ssh_user = config.get("cloud", {}).get("ssh", {}).get("user", "superdeploy")
+            logger.success("Deployment completed successfully")
 
-            self.console.print(f"Target: {ssh_user}@{vm_ip}")
+            if not self.verbose:
+                self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
-            # Deploy via SSH
-            deploy_script = f"""
-cd /opt/superdeploy/projects/{self.project_name}/compose
-echo "🔄 Pulling latest image..."
-docker compose pull {self.app_name}
-echo "🚀 Deploying {self.app_name}..."
-docker compose up -d {self.app_name}
-sleep 3
-CONTAINER_NAME="{self.project_name}_{self.app_name}"
-STATUS=$(docker inspect -f '{{{{.State.Status}}}}' $CONTAINER_NAME 2>/dev/null || echo "not_found")
-if [ "$STATUS" = "running" ]; then
-    echo "✅ Deployment successful!"
-    docker logs $CONTAINER_NAME --tail 20
-    docker image prune -f
-else
-    echo "❌ Container failed to start"
-    docker logs $CONTAINER_NAME --tail 50
-    exit 1
-fi
-"""
-
-            ssh_cmd = [
-                "ssh",
-                "-i",
-                str(ssh_key),
-                "-o",
-                "StrictHostKeyChecking=no",
-                f"{ssh_user}@{vm_ip}",
-                deploy_script,
-            ]
-
-            if self.verbose:
-                self.console.print(f"[dim]$ ssh {ssh_user}@{vm_ip} ...[/dim]")
-
-            result = subprocess.run(ssh_cmd)
-
-            if result.returncode == 0:
-                self.console.print(
-                    f"\n[green]✅ {self.app_name} deployed successfully![/green]"
-                )
-
-                # Show URL if domain configured
-                domain = app_config.get("domain")
-                if domain:
-                    self.console.print(f"🌐 https://{domain}")
-            else:
-                self.console.print("\n[red]❌ Deployment failed[/red]")
-                return
-
+        except DeploymentError as e:
+            logger.log_error(f"Deployment error: {e}")
+            self.console.print(f"[red]❌ {e}[/red]")
+            if not self.verbose:
+                self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
+            raise SystemExit(1)
         except Exception as e:
+            logger.log_error(f"Unexpected error: {e}")
             self.console.print(f"[red]❌ Error: {e}[/red]")
             if self.verbose:
                 import traceback
 
                 self.console.print(traceback.format_exc())
+            if not self.verbose:
+                self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
+            raise SystemExit(1)
+
+    def _load_deployment_config(self) -> DeploymentConfig:
+        """Load and validate deployment configuration."""
+        # Load secrets
+        secret_mgr = SecretManager(self.project_root, self.project_name)
+        secrets = secret_mgr.load_secrets()
+
+        if not secrets:
+            raise DeploymentError(
+                f"No secrets found. Run 'superdeploy {self.project_name}:init' first"
+            )
+
+        shared_secrets = secrets.shared.values
+
+        # Load project config
+        project_config = self.config_service.load_project_config(self.project_name)
+        config = project_config.raw_config
+
+        # Get app configuration
+        apps = config.get("apps", {})
+        if self.app_name not in apps:
+            available = ", ".join(apps.keys())
+            raise DeploymentError(
+                f"App '{self.app_name}' not found. Available: {available}"
+            )
+
+        app_config = apps[self.app_name]
+        app_path = Path(app_config["path"])
+        vm_role = app_config.get("vm", "app")
+
+        if not app_path.exists():
+            raise DeploymentError(f"App path not found: {app_path}")
+
+        # Verify marker file
+        marker_file = app_path / ".superdeploy"
+        if not marker_file.exists():
+            raise DeploymentError(
+                f"No .superdeploy marker found. Run 'superdeploy {self.project_name}:generate' first"
+            )
+
+        # Build Docker image configuration
+        docker_org = shared_secrets.get(
+            "DOCKER_ORG", config.get("docker", {}).get("organization")
+        )
+        docker_registry = shared_secrets.get(
+            "DOCKER_REGISTRY", config.get("docker", {}).get("registry", "docker.io")
+        )
+        image_name = f"{docker_registry}/{docker_org}/{self.app_name}"
+
+        # Get Git SHA
+        git_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=app_path, text=True
+        ).strip()[:7]
+
+        return DeploymentConfig(
+            app_name=self.app_name,
+            app_path=app_path,
+            vm_role=vm_role,
+            image_name=image_name,
+            image_tag=f"{image_name}:{git_sha}",
+            image_latest=f"{image_name}:latest",
+            git_sha=git_sha,
+            docker_registry=docker_registry,
+            docker_username=shared_secrets.get("DOCKER_USERNAME"),
+            docker_token=shared_secrets.get("DOCKER_TOKEN"),
+        )
+
+    def _find_target_vm(self, vm_role: str) -> VMTarget:
+        """Find target VM for deployment."""
+        state = self.state_service.load_state()
+        vms = state.get("vms", {})
+
+        # Find VM matching the role
+        target_vm = None
+        for vm_name, vm_data in vms.items():
+            if vm_role in vm_name:
+                target_vm = vm_data
+                break
+
+        if not target_vm:
+            raise DeploymentError(f"No VM found for role '{vm_role}'")
+
+        # Get SSH configuration
+        project_config = self.config_service.load_project_config(self.project_name)
+        config = project_config.raw_config
+
+        vm_ip = target_vm.get("external_ip")
+        ssh_key = Path(
+            config.get("cloud", {})
+            .get("ssh", {})
+            .get("key_path", "~/.ssh/superdeploy_deploy")
+        ).expanduser()
+        ssh_user = config.get("cloud", {}).get("ssh", {}).get("user", "superdeploy")
+
+        return VMTarget(ip=vm_ip, ssh_user=ssh_user, ssh_key=ssh_key, vm_name=vm_name)
+
+    def _display_deployment_info(self, config: DeploymentConfig) -> None:
+        """Display deployment information."""
+        self.console.print(f"\n[bold cyan]🚀 Deploying {self.app_name}[/bold cyan]")
+        self.console.print(f"Path: {config.app_path}")
+        self.console.print(f"VM: {config.vm_role}")
+        self.console.print(f"Image: {config.image_tag}")
+
+    def _get_app_domain(self) -> Optional[str]:
+        """Get app domain if configured."""
+        project_config = self.config_service.load_project_config(self.project_name)
+        apps = project_config.raw_config.get("apps", {})
+        app_config = apps.get(self.app_name, {})
+        return app_config.get("domain")
 
 
 @click.command(name="deploy")

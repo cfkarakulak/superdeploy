@@ -1,23 +1,25 @@
 version: '3.8'
 
 services:
-  {{ addon_name }}:
+  {{ service_name }}:
     image: postgres:{{ version }}
-    container_name: {{ project_name }}-{{ addon_name }}
+    container_name: {{ container_name }}
     restart: always
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${USER}
+      POSTGRES_PASSWORD: ${PASSWORD}
+      POSTGRES_DB: ${DATABASE}
     volumes:
-      - {{ addon_name }}-data:/var/lib/postgresql/data
+      - {{ volume_name }}:/var/lib/postgresql/data
     networks:
       - {{ project_name }}-network
     ports:
-      - "0.0.0.0:5432:5432"   # PostgreSQL (internal network + SSH tunnel)
+      - "0.0.0.0:{{ PORT }}:5432"   # Instance-specific port
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
-      test: ["CMD-SHELL", "{{ healthcheck.command }}"]
+      test: ["CMD-SHELL", "{{ healthcheck.command | replace('${POSTGRES_USER}', '${USER}') | replace('${POSTGRES_DB}', '${DATABASE}') }}"]
       interval: {{ healthcheck.interval }}
       timeout: {{ healthcheck.timeout }}
       retries: {{ healthcheck.retries }}
@@ -30,18 +32,21 @@ services:
           memory: {{ resources.memory | default('512M') }}
           cpus: '{{ resources.cpu | default('1.0') }}'
         reservations:
-          memory: {{ resources.memory_reservation | default('256M') }}
-          cpus: '{{ resources.cpu_reservation | default('0.5') }}'
+          memory: {{ (resources.memory | default('512M') | regex_replace('([0-9]+)([MG])', '\\1') | int / 2) | int }}{{ resources.memory | default('512M') | regex_replace('[0-9]+', '') }}
+          cpus: '{{ (resources.cpu | default('1.0') | float / 2) | round(2) }}'
     labels:
       - "prometheus.scrape=true"
       - "prometheus.port={{ monitoring.metrics_port | default(9090) }}"
       - "prometheus.path=/metrics"
       - "project={{ project_name }}"
-      - "service={{ addon_name }}"
+      - "addon.type=postgres"
+      - "addon.instance={{ instance_name }}"
+      - "addon.full_name={{ instance_full_name }}"
+      - "service={{ service_name }}"
 
 volumes:
-  {{ addon_name }}-data:
-    name: {{ project_name }}-{{ addon_name }}-data
+  {{ volume_name }}:
+    name: {{ volume_name }}
 
 networks:
   {{ project_name }}-network:

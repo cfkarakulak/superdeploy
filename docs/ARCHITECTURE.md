@@ -26,19 +26,39 @@ Tüm operasyonları orkestra eden komut satırı arayüzü:
 ```
 cli/
 ├── main.py                    # Giriş noktası, komut kaydı
+├── base/                      # Base command classes
+│   ├── base_command.py       # BaseCommand (console, verbose, etc.)
+│   └── project_command.py    # ProjectCommand (extends BaseCommand)
 ├── commands/                  # Komut implementasyonları
 │   ├── init.py               # Proje başlatma
 │   ├── up.py                 # Altyapı deployment
 │   ├── sync.py               # Secret senkronizasyonu (GitHub)
-│   ├── generate.py           # GitHub workflow generation
+│   ├── generate.py           # GitHub workflow generation (type-aware)
 │   ├── deploy.py             # Uygulama deployment
 │   ├── status.py             # Sistem durumu (version tracking dahil)
-│   └── down.py               # Infrastructure teardown
+│   ├── down.py               # Infrastructure teardown
+│   └── orchestrator/         # Orchestrator subcommands
+│       ├── init.py           # Orchestrator initialization
+│       ├── up.py             # Orchestrator deployment
+│       ├── down.py           # Orchestrator teardown
+│       └── status.py         # Orchestrator status
 ├── core/                      # Temel fonksiyonellik
 │   ├── addon.py              # Addon veri modeli
 │   ├── addon_loader.py       # Dinamik addon keşfi
+│   ├── app_type_registry.py  # App type plugin system (Python, Next.js)
 │   ├── config_loader.py      # Proje konfigürasyonu
 │   └── validator.py          # Konfigürasyon validasyonu
+├── models/                    # Type-safe dataclasses
+│   ├── deployment.py         # DeploymentState, VMState, etc.
+│   ├── results.py            # CommandResult, ValidationResult
+│   ├── secrets.py            # SecretConfig, AppSecrets
+│   └── ssh.py                # SSHConfig, SSHConnection
+├── services/                  # Business logic layer
+│   ├── config_service.py     # Configuration management
+│   ├── state_service.py      # State management
+│   ├── secret_service.py     # Secret operations
+│   ├── ssh_service.py        # SSH operations
+│   └── vm_service.py         # VM operations
 └── stubs/                     # Template dosyaları
     ├── workflows/            # GitHub Actions workflow templates
     └── configs/              # Config generator scripts
@@ -49,8 +69,90 @@ cli/
 - Kurulum için interaktif wizard'lar
 - Kapsamlı hata yönetimi
 - Mümkün olduğunda paralel operasyonlar
+- **Heroku-like app scaling** - Docker Compose replicas ile horizontal scaling
 
-### 2. Addon Sistemi (`addons/`)
+### 2. Process-Based Architecture (Heroku Procfile-like)
+
+**Multi-Process Support:**
+
+SuperDeploy, Heroku Procfile-like process definitions ile tek bir codebase'den birden fazla process type çalıştırır:
+
+```yaml
+apps:
+  api:
+    type: python       # App technology (not process type!)
+    path: /path/to/api
+    vm: app
+    domain: api.cheapa.io
+    processes:
+      web:
+        command: python craft serve --host 0.0.0.0 --port 8000
+        port: 8000
+        replicas: 2    # 2 web containers (load balanced)
+      worker:
+        command: python craft queue:work --tries=3
+        replicas: 5    # 5 worker containers (background jobs)
+      release:
+        command: python craft migrate --force
+        run_on: deploy # Runs once on deployment
+```
+
+**Özellikler:**
+- ✅ **Heroku Procfile-like** - Tek codebase, birden fazla process type
+- ✅ **Process-level scaling** - Her process type bağımsız scale edilir
+- ✅ **Command override** - Dockerfile CMD yerine marker'dan command kullanılır
+- ✅ **Zero-downtime deployments** - `start-first` stratejisi ile yeni container önce başlar
+- ✅ **Automatic load balancing** - Caddy ve Docker Compose service discovery
+- ✅ **Fast scaling** - 10-30 saniye (VM scaling: 5-10 dakika)
+- ✅ **Cost-effective** - VM eklemeden horizontal scaling
+
+**Docker Compose Implementation:**
+```yaml
+# Generated docker-compose.yml
+services:
+  api-web:           # Process: web
+    image: org/api:latest
+    command: python craft serve --host 0.0.0.0 --port 8000
+    ports: ["8000:8000"]
+    environment:
+      - PROCESS_TYPE=web
+    deploy:
+      replicas: 2
+      update_config:
+        order: start-first
+  
+  api-worker:        # Process: worker
+    image: org/api:latest
+    command: python craft queue:work --tries=3
+    environment:
+      - PROCESS_TYPE=worker
+    deploy:
+      replicas: 5
+```
+
+**Key Design Decisions:**
+- ✅ **Pattern**: `app-process` service naming (e.g., `api-web`, `api-worker`)
+- ✅ **Same image**, different commands per process
+- ✅ **NO `container_name`** - Docker auto-names replicas
+- ✅ **ALL processes** use `deploy.replicas` format
+- ✅ **Workflows deploy** all processes for an app automatically
+
+**Caddy Load Balancing:**
+- Service name routing (e.g., `api-web:8000`) instead of container names
+- Docker Compose service discovery automatically load balances
+- Round-robin policy with health checks
+- Transparent to application code
+
+**Benefits:**
+- **Heroku-compatible** - Familiar Procfile-like workflow
+- **Single codebase** - No duplicate app configs
+- **Independent scaling** - web vs worker scaled separately
+- **10x faster** than VM scaling (30 seconds vs 5-10 minutes)
+- **10x cheaper** - No new VMs needed, just more containers
+- **High availability** - Replica redundancy provides automatic failover
+- **Gradual rollouts** - Rolling updates with automatic rollback on failure
+
+### 3. Addon Sistemi (`addons/`)
 
 Her proje için deploy edilebilen yeniden kullanılabilir servis template'leri:
 
@@ -141,10 +243,12 @@ github:
 # Uygulama servisleri
 apps:
   api:
+    type: python              # App type (python, nextjs) - optional, auto-detected
     path: "~/code/myorg/api"
     vm: app
   
   storefront:
+    type: nextjs              # App type (python, nextjs) - optional, auto-detected
     path: "~/code/myorg/storefront"
     vm: app
 
@@ -321,11 +425,14 @@ Proje yapısını oluştur
 ### 2. Deployment File Generation (`superdeploy myproject:generate`)
 
 ```
-App Detection (Python, Next.js, etc.)
+App Type Resolution
+    ├── Priority 1: Explicit type in config.yml (recommended)
+    ├── Priority 2: Auto-detection from app path
+    └── Priority 3: Default fallback (python)
     ↓
 Create .superdeploy marker (project, app, vm_role)
     ↓
-Generate GitHub workflow
+Generate GitHub workflow (type-specific template)
     ├── Build job (GitHub-hosted runner)
     └── Deploy job (Self-hosted runner)
     ↓
@@ -663,6 +770,32 @@ Project B:
    - Unchanged - still addon-based
    - Each VM runs only assigned services
    - Resource optimization
+
+### CLI Refactoring (2025-11)
+
+1. **Plugin Architecture:**
+   - App type registry system (`app_type_registry.py`)
+   - Extensible app type support
+   - Explicit type field in config.yml
+   - Priority: Explicit > Auto-detect > Default
+
+2. **Command Structure:**
+   - BaseCommand pattern for all commands
+   - ProjectCommand extends BaseCommand
+   - Orchestrator commands modularized
+   - Type-safe dataclass models
+
+3. **Service Layer:**
+   - Clean service classes (ConfigService, StateService, etc.)
+   - Dependency injection pattern
+   - Business logic separation
+   - Removed unused services
+
+4. **Code Quality:**
+   - Zero dead code (Vulture 80% confidence)
+   - Full type hints coverage
+   - SOLID principles
+   - Clean exception hierarchy
 
 ---
 

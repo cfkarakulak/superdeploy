@@ -20,9 +20,17 @@ Comprehensive documentation for SuperDeploy - GitHub Actions-first Infrastructur
   - GitHub-first architecture
   - Self-hosted runners
   - Label-based routing
+  - Process-based deployment (Heroku Procfile-like)
   - Addon system
   - Template → Instance pattern
   - Security architecture
+
+- **[Process-Based Deployment](PROCESSES_IMPLEMENTATION.md)** - Heroku Procfile-like multi-process support
+  - Process definitions (web, worker, release)
+  - Command override from markers
+  - Independent process scaling
+  - Docker Compose generation
+  - GitHub Actions workflow integration
 
 ### Daily Operations
 
@@ -163,7 +171,16 @@ See [Security Guide](SECURITY.md) for details.
 
 ## 🚀 Commands Reference
 
-### Infrastructure
+### Orchestrator (Monitoring Infrastructure)
+
+```bash
+superdeploy orchestrator:init         # Initialize orchestrator config
+superdeploy orchestrator:up           # Deploy orchestrator (Prometheus + Grafana)
+superdeploy orchestrator:down         # Destroy orchestrator
+superdeploy orchestrator:status       # Check orchestrator status
+```
+
+### Project Infrastructure
 
 ```bash
 superdeploy myproject:up              # Deploy infrastructure
@@ -175,7 +192,7 @@ superdeploy myproject:status -v       # Verbose status with debug info
 ### Deployment
 
 ```bash
-superdeploy myproject:generate        # Generate workflows
+superdeploy myproject:generate        # Generate workflows (type-aware)
 superdeploy myproject:sync            # Sync secrets to GitHub
 ```
 

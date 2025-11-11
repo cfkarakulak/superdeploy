@@ -263,16 +263,28 @@ class SyncCommand(ProjectCommand):
             subtitle="Automated secret management",
         )
 
+        # Initialize logger
+        logger = self.init_logger(self.project_name, f"sync-{self.environment}")
+
         from cli.secret_manager import SecretManager
+
+        logger.step("Loading project configuration")
 
         # Load config
         try:
             project_config = self.config_service.load_project_config(self.project_name)
+            logger.success("Configuration loaded")
         except FileNotFoundError as e:
+            logger.log_error(f"Configuration not found: {e}")
             self.console.print(f"[red]❌ {e}[/red]")
+            if not self.verbose:
+                self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
             return
         except ValueError as e:
+            logger.log_error(f"Invalid configuration: {e}")
             self.console.print(f"[red]❌ Invalid configuration: {e}[/red]")
+            if not self.verbose:
+                self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
             return
 
         config = project_config.raw_config

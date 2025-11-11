@@ -6,8 +6,9 @@ Used by 25+ commands that need project config access.
 """
 
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from cli.core.config_loader import ConfigLoader
+from cli.core.addon_instance import AddonInstance, AddonAttachment
 from cli.constants import (
     DEFAULT_SSH_KEY_PATH,
     DEFAULT_SSH_PUBLIC_KEY_PATH,
@@ -57,7 +58,7 @@ class ConfigService:
                 raise FileNotFoundError(
                     f"Project '{project_name}' not found\n"
                     f"Available projects: {', '.join(self.list_projects())}\n"
-                    f"Or run: superdeploy init -p {project_name}"
+                    f"Or run: superdeploy {project_name}:init"
                 )
 
         return self._config_cache[project_name]
@@ -244,3 +245,136 @@ class ConfigService:
             Project directory path
         """
         return self.projects_dir / project_name
+
+    def parse_addons(self, config: Dict) -> List[AddonInstance]:
+        """
+        Parse addon instances from config.yml
+
+        Input:
+            addons:
+              databases:
+                primary:
+                  type: postgres
+                  version: 15-alpine
+                  plan: standard
+
+        Output:
+            [AddonInstance(category='databases', name='primary', type='postgres', ...)]
+
+        Args:
+            config: Project configuration dictionary
+
+        Returns:
+            List of AddonInstance objects
+        """
+        instances = []
+
+        addons_config = config.get("addons", {})
+
+        for category, category_instances in addons_config.items():
+            if not isinstance(category_instances, dict):
+                continue
+
+            for instance_name, instance_config in category_instances.items():
+                if not isinstance(instance_config, dict):
+                    continue
+
+                instance = AddonInstance(
+                    category=category,
+                    name=instance_name,
+                    type=instance_config["type"],
+                    version=instance_config.get("version", "latest"),
+                    plan=instance_config.get("plan", "standard"),
+                    options=instance_config.get("options", {}),
+                )
+                instances.append(instance)
+
+        return instances
+
+    def parse_app_attachments(self, app_config: Dict) -> List[AddonAttachment]:
+        """
+        Parse app's addon attachments
+
+        Input:
+            addons:
+              - addon: databases.primary
+                as: DATABASE
+                access: readwrite
+              - databases.analytics  # Simple format
+
+        Output:
+            [AddonAttachment(addon='databases.primary', as_='DATABASE', access='readwrite')]
+
+        Args:
+            app_config: App configuration dictionary
+
+        Returns:
+            List of AddonAttachment objects
+        """
+        attachments = []
+
+        for attachment_config in app_config.get("addons", []):
+            if isinstance(attachment_config, str):
+                # Simple format: "databases.primary"
+                addon = attachment_config
+                as_ = self._default_prefix(addon)
+                access = "readwrite"
+            else:
+                # Full format with options
+                addon = attachment_config["addon"]
+                as_ = attachment_config.get("as", self._default_prefix(addon))
+                access = attachment_config.get("access", "readwrite")
+
+            attachment = AddonAttachment(addon=addon, as_=as_, access=access)
+            attachments.append(attachment)
+
+        return attachments
+
+    def get_addon_instance(
+        self, project_name: str, category: str, name: str
+    ) -> Optional[AddonInstance]:
+        """
+        Get specific addon instance.
+
+        Args:
+            project_name: Project name
+            category: Addon category (databases, caches, queues)
+            name: Instance name (primary, analytics, etc.)
+
+        Returns:
+            AddonInstance if found, None otherwise
+        """
+        config = self.get_raw_config(project_name)
+        instances = self.parse_addons(config)
+
+        for instance in instances:
+            if instance.category == category and instance.name == name:
+                return instance
+
+        return None
+
+    def _default_prefix(self, addon: str) -> str:
+        """
+        Get default env var prefix from addon name
+
+        databases.primary → DATABASE
+        caches.session → CACHE
+        queues.main → QUEUE
+
+        Args:
+            addon: Full addon name (category.name)
+
+        Returns:
+            Default environment variable prefix
+        """
+        category = addon.split(".")[0]
+
+        prefix_map = {
+            "databases": "DATABASE",
+            "caches": "CACHE",
+            "queues": "QUEUE",
+            "search": "SEARCH",
+            "proxy": "PROXY",
+        }
+
+        return prefix_map.get(category, category.upper())

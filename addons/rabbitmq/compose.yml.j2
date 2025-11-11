@@ -1,22 +1,24 @@
 version: '3.8'
 
 services:
-  {{ addon_name }}:
+  {{ service_name }}:
     image: rabbitmq:{{ version }}
-    container_name: {{ project_name }}-{{ addon_name }}
+    container_name: {{ container_name }}
     restart: always
-    hostname: {{ project_name }}-{{ addon_name }}
+    hostname: {{ container_name }}
+    env_file:
+      - .env
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+      RABBITMQ_DEFAULT_USER: ${USER}
+      RABBITMQ_DEFAULT_PASS: ${PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${VHOST}
     volumes:
-      - {{ addon_name }}-data:/var/lib/rabbitmq
+      - {{ volume_name }}:/var/lib/rabbitmq
     networks:
       - {{ project_name }}-network
     ports:
-      - "0.0.0.0:5672:5672"   # AMQP (internal network + SSH tunnel)
-      - "0.0.0.0:15672:15672" # Management UI (internal network + SSH tunnel)
+      - "0.0.0.0:{{ PORT }}:5672"   # AMQP (instance-specific port)
+      - "0.0.0.0:{{ PORT | int + 10000 }}:15672" # Management UI (port + 10000)
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
       test: ["CMD-SHELL", "{{ healthcheck.command }}"]
@@ -32,18 +34,21 @@ services:
           memory: {{ resources.memory | default('512M') }}
           cpus: '{{ resources.cpu | default('1.0') }}'
         reservations:
-          memory: {{ resources.memory_reservation | default('256M') }}
-          cpus: '{{ resources.cpu_reservation | default('0.5') }}'
+          memory: {{ (resources.memory | default('512M') | regex_replace('([0-9]+)([MG])', '\\1') | int / 2) | int }}{{ resources.memory | default('512M') | regex_replace('[0-9]+', '') }}
+          cpus: '{{ (resources.cpu | default('1.0') | float / 2) | round(2) }}'
     labels:
       - "prometheus.scrape=true"
       - "prometheus.port={{ monitoring.metrics_port | default(9090) }}"
       - "prometheus.path=/metrics"
       - "project={{ project_name }}"
-      - "service={{ addon_name }}"
+      - "addon.type=rabbitmq"
+      - "addon.instance={{ instance_name }}"
+      - "addon.full_name={{ instance_full_name }}"
+      - "service={{ service_name }}"
 
 volumes:
-  {{ addon_name }}-data:
-    name: {{ project_name }}-{{ addon_name }}-data
+  {{ volume_name }}:
+    name: {{ volume_name }}
 
 networks:
   {{ project_name }}-network:

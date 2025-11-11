@@ -2,10 +2,86 @@
 Project initialization - interactive wizard with secrets management
 """
 
-import secrets
 import click
+import importlib.util
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Dict, List
 from rich.prompt import Prompt
+
 from cli.base import BaseCommand
+
+
+@dataclass
+class ProjectSetupConfig:
+    """Configuration for new project setup."""
+
+    project_name: str
+    gcp_project: str
+    gcp_region: str
+    github_org: str
+    apps: Dict[str, Dict[str, any]]
+    addons: Dict[str, Dict[str, Dict[str, any]]]  # category -> instance -> config
+
+
+class StubModuleLoader:
+    """Loads and executes stub generator modules."""
+
+    CLI_ROOT = Path(__file__).resolve().parents[1]
+
+    @classmethod
+    def load_generator(cls, stub_name: str):
+        """Load generator module from stubs directory."""
+        stub_file = cls.CLI_ROOT / "stubs" / "configs" / f"{stub_name}.py"
+        spec = importlib.util.spec_from_file_location(stub_name, stub_file)
+        module = importlib.util.module_from_spec(spec)  # type: ignore
+        spec.loader.exec_module(module)  # type: ignore
+        return module
+
+
+class ProjectInitializer:
+    """Handles project initialization workflow."""
+
+    def __init__(self, project_root: Path, console):
+        self.project_root = project_root
+        self.console = console
+
+    def create_config_file(
+        self, project_dir: Path, setup_config: ProjectSetupConfig
+    ) -> Path:
+        """Generate and save config.yml."""
+        config_yml = project_dir / "config.yml"
+
+        generator = StubModuleLoader.load_generator("project_config_generator")
+        config_content = generator.generate_project_config(
+            project_name=setup_config.project_name,
+            gcp_project=setup_config.gcp_project,
+            gcp_region=setup_config.gcp_region,
+            github_org=setup_config.github_org,
+            apps=setup_config.apps,
+        )
+
+        config_yml.write_text(config_content)
+        return config_yml
+
+    def create_secrets_file(
+        self, project_dir: Path, project_name: str, app_names: List[str], addons: dict
+    ) -> Path:
+        """Generate and save secrets.yml with addon-aware credentials."""
+        secrets_yml = project_dir / "secrets.yml"
+
+        # Generate secrets content (addon-aware)
+        generator = StubModuleLoader.load_generator("project_secrets_generator")
+        secrets_content = generator.generate_project_secrets(
+            project_name=project_name,
+            app_names=app_names,
+            addons=addons,  # Pass addons from config.yml
+        )
+
+        secrets_yml.write_text(secrets_content)
+        secrets_yml.chmod(0o600)  # Restrictive permissions
+
+        return secrets_yml
 
 
 class InitCommand(BaseCommand):
@@ -26,6 +102,54 @@ class InitCommand(BaseCommand):
         project_dir = self.project_root / "projects" / self.project_name
 
         # Check if project exists
+        if not self._confirm_overwrite(project_dir):
+            return
+
+        project_dir.mkdir(parents=True, exist_ok=True)
+
+        # Collect configuration via interactive prompts
+        setup_config = self._collect_project_config()
+        app_names = list(setup_config.apps.keys())
+        addons = setup_config.addons  # Extract addons dict
+
+        # Initialize project files
+        initializer = ProjectInitializer(self.project_root, self.console)
+
+        # Create config.yml
+        config_yml = initializer.create_config_file(project_dir, setup_config)
+        self.console.print(
+            f"\n[dim]✓ Created: {config_yml.relative_to(self.project_root)}[/dim]"
+        )
+
+        # Create secrets.yml (addon-aware)
+        self.console.print("\n[dim]Generating secrets...[/dim]")
+        secrets_yml = initializer.create_secrets_file(
+            project_dir, self.project_name, app_names, addons
+        )
+
+        self.console.print(
+            f"[dim]✓ Created: {secrets_yml.relative_to(self.project_root)}[/dim]"
+        )
+        addon_count = (
+            sum(len(instances) for instances in addons.values()) if addons else 0
+        )
+        if addon_count > 0:
+            self.console.print(
+                f"[dim]  Generated secure credentials for {addon_count} addon instance(s)[/dim]"
+            )
+        else:
+            self.console.print(
+                "[dim]  No addons configured - add them in config.yml if needed[/dim]"
+            )
+        self.console.print(
+            "[yellow]  ⚠ Fill in Docker, GitHub, and SMTP credentials before deploying![/yellow]"
+        )
+
+        # Display next steps
+        self._display_next_steps()
+
+    def _confirm_overwrite(self, project_dir: Path) -> bool:
+        """Confirm project overwrite if it exists."""
         if project_dir.exists():
             self.console.print(
                 f"[yellow]Project exists: {self.project_name}. Overwrite? [y/n][/yellow] [dim](n)[/dim]: ",
@@ -34,10 +158,11 @@ class InitCommand(BaseCommand):
             answer = input().strip().lower()
             if answer not in ["y", "yes"]:
                 self.console.print("[dim]Cancelled[/dim]")
-                return
+                return False
+        return True
 
-        project_dir.mkdir(parents=True, exist_ok=True)
-
+    def _collect_project_config(self) -> ProjectSetupConfig:
+        """Collect project configuration via interactive prompts."""
         # Cloud Provider
         self.console.print("\n[white]Cloud Provider[/white]")
         gcp_project = Prompt.ask("GCP Project ID", default="my-gcp-project")
@@ -53,7 +178,7 @@ class InitCommand(BaseCommand):
         apps_input = Prompt.ask("Apps")
         app_names = [a.strip() for a in apps_input.split(",")]
 
-        # App paths
+        # Collect app details
         apps = {}
         for app_name in app_names:
             default_path = f"/path/to/{app_name}"
@@ -61,88 +186,56 @@ class InitCommand(BaseCommand):
             default_port = "8000"
             app_port = Prompt.ask(f"  Port for {app_name}", default=default_port)
 
+            # Note: 'type' field is optional and auto-detected during generate
+            # User can manually add: type: python or type: nextjs
             apps[app_name] = {
                 "path": app_path,
                 "vm": "app",
                 "port": int(app_port),
             }
 
-        # Generate config.yml using stub generator
-        project_yml = project_dir / "config.yml"
+        # Default addons (postgres + rabbitmq + caddy)
+        addons = {
+            "databases": {
+                "primary": {
+                    "type": "postgres",
+                    "version": "15-alpine",
+                    "plan": "standard",
+                    "vm": "core",
+                }
+            },
+            "queues": {
+                "main": {
+                    "type": "rabbitmq",
+                    "version": "3.12-management-alpine",
+                    "plan": "standard",
+                    "vm": "core",
+                }
+            },
+            "proxy": {
+                "main": {
+                    "type": "caddy",
+                    "version": "2-alpine",
+                    "plan": "standard",
+                    "vm": "app",
+                }
+            },
+        }
 
-        # Import generator from stubs using importlib
-        import importlib.util
-
-        cli_root = Path(__file__).resolve().parents[1]
-        stub_file = cli_root / "stubs" / "configs" / "project_config_generator.py"
-        spec = importlib.util.spec_from_file_location(
-            "project_config_generator", stub_file
-        )
-        module = importlib.util.module_from_spec(spec)  # type: ignore
-        spec.loader.exec_module(module)  # type: ignore
-
-        config_content = module.generate_project_config(
+        return ProjectSetupConfig(
             project_name=self.project_name,
             gcp_project=gcp_project,
             gcp_region=gcp_region,
             github_org=github_org,
             apps=apps,
+            addons=addons,
         )
 
-        with open(project_yml, "w") as f:
-            f.write(config_content)
-
-        self.console.print(
-            f"\n[dim]✓ Created: {project_yml.relative_to(self.project_root)}[/dim]"
-        )
-
-        # Generate secrets.yml with template
-        self.console.print("\n[dim]Generating secrets...[/dim]")
-
-        postgres_password = secrets.token_urlsafe(32)
-        rabbitmq_password = secrets.token_urlsafe(32)
-
-        # Import generator from stubs using importlib
-        cli_root = Path(__file__).resolve().parents[1]
-        stub_file = cli_root / "stubs" / "configs" / "project_secrets_generator.py"
-        spec = importlib.util.spec_from_file_location(
-            "project_secrets_generator", stub_file
-        )
-        module = importlib.util.module_from_spec(spec)  # type: ignore
-        spec.loader.exec_module(module)  # type: ignore
-
-        secrets_content = module.generate_project_secrets(
-            project_name=self.project_name,
-            app_names=app_names,
-            postgres_password=postgres_password,
-            rabbitmq_password=rabbitmq_password,
-        )
-
-        # Generate secrets.yml with beautiful formatting
-        secrets_yml = project_dir / "secrets.yml"
-
-        with open(secrets_yml, "w") as f:
-            f.write(secrets_content)
-
-        # Set restrictive permissions
-        secrets_yml.chmod(0o600)
-
-        self.console.print(
-            f"[dim]✓ Created: {secrets_yml.relative_to(self.project_root)}[/dim]"
-        )
-        self.console.print(
-            "[dim]  Generated secure passwords for PostgreSQL and RabbitMQ[/dim]"
-        )
-        self.console.print(
-            "[yellow]  ⚠ Fill in Docker, GitHub, and SMTP credentials before deploying![/yellow]"
-        )
-
-        # Summary
+    def _display_next_steps(self) -> None:
+        """Display next steps after initialization."""
         self.console.print("\n[white]Next steps:[/white]")
         self.console.print(
-            "  [dim]1. Edit secrets: nano projects/{}/secrets.yml[/dim]".format(
-                self.project_name
-            )
+            f"  [dim]1. Edit secrets: nano projects/{self.project_name}/secrets.yml[/dim]"
         )
         self.console.print(
             "     [yellow]→ Add DOCKER_ORG, DOCKER_USERNAME, DOCKER_TOKEN (required)[/yellow]"
@@ -154,14 +247,10 @@ class InitCommand(BaseCommand):
             "     [yellow]→ Add SMTP credentials (optional, for email notifications)[/yellow]"
         )
         self.console.print(
-            "  [dim]2. Generate deployment files: superdeploy {}:generate[/dim]".format(
-                self.project_name
-            )
+            f"  [dim]2. Generate deployment files: superdeploy {self.project_name}:generate[/dim]"
         )
         self.console.print(
-            "  [dim]3. Deploy infrastructure: superdeploy {}:up[/dim]\n".format(
-                self.project_name
-            )
+            f"  [dim]3. Deploy infrastructure: superdeploy {self.project_name}:up[/dim]\n"
         )
 
 

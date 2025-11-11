@@ -37,6 +37,8 @@
     # These are OK - reasonable defaults for system users
     superdeploy_user: "{{ superdeploy_user | default('superdeploy') }}"
     superdeploy_group: "{{ superdeploy_group | default('superdeploy') }}"
+    # Network configuration - extract from project_config
+    network_subnet: "{{ project_config.network.docker_subnet | default('172.30.0.0/24') }}"
 
 - name: Display addon deployment plan
   debug:
@@ -71,8 +73,7 @@
   when: 
     - network_exists.rc == 0
     - current_subnet.stdout != ""
-    # NO DEFAULT - fail fast if subnet not configured
-    - current_subnet.stdout != project_config.network.docker_subnet
+    - current_subnet.stdout != network_subnet
   ignore_errors: yes
 
 - name: Remove existing project Docker network (if subnet changed)
@@ -84,8 +85,7 @@
   when: 
     - network_exists.rc == 0
     - current_subnet.stdout != ""
-    # NO DEFAULT - fail fast if subnet not configured
-    - current_subnet.stdout != project_config.network.docker_subnet
+    - current_subnet.stdout != network_subnet
   ignore_errors: yes
 
 - name: Create project Docker network
@@ -93,8 +93,7 @@
     name: "{{ project_name }}-network"
     driver: bridge
     ipam_config:
-      # NO DEFAULT - fail fast if subnet not configured
-      - subnet: "{{ project_config.network.docker_subnet }}"
+      - subnet: "{{ network_subnet }}"
     state: present
   become_user: "{{ superdeploy_user }}"
   register: network_create
@@ -102,16 +101,19 @@
     - network_create.failed
     - "'already exists' not in network_create.msg | default('')"
 
-- name: "Deploy Infrastructure Addons"
+- name: "Parse addon instances from project config"
+  include_tasks: parse-addon-instances.yml
+
+- name: "Display addon deployment plan"
   debug:
     msg:
-      - "Deploying {{ enabled_addons | length }} addon(s): {{ enabled_addons | join(', ') }}"
-      - "Tip: To deploy only one addon, use: --addon <name>"
+      - "Deploying {{ addon_instances | length }} addon instance(s)"
+      - "Instances: {{ addon_instances | map(attribute='full_name') | list | join(', ') }}"
+    verbosity: 0
 
-# Loop through each enabled addon and deploy it
-# NOTE: Play-level any_errors_fatal ensures addon failures STOP the playbook
-- name: Deploy each addon
-  include_tasks: deploy-addon.yml
-  loop: "{{ enabled_addons }}"
+# Deploy each addon instance
+- include_tasks: deploy-addon-instance.yml
+  loop: "{{ addon_instances }}"
   loop_control:
-    loop_var: addon_name
+    loop_var: addon_instance
+    label: "{{ addon_instance.full_name }}"

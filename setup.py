@@ -15,7 +15,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "superdeploy=cli.main:cli",
+            "superdeploy=cli.main:main",
         ],
     },
     python_requires=">=3.9",

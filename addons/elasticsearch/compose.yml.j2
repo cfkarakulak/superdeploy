@@ -1,20 +1,67 @@
-  {{ addon_name }}:
+version: '3.8'
+
+services:
+  {{ service_name }}:
     image: elasticsearch:{{ version }}
-    container_name: {{ project_name }}-{{ addon_name }}
+    container_name: {{ container_name }}
     restart: always
+    env_file:
+      - .env
     environment:
       - discovery.type=single-node
-      - ELASTIC_PASSWORD=${ELASTICSEARCH_PASSWORD}
+      - ELASTIC_PASSWORD=${PASSWORD}
       - xpack.security.enabled=true
+      - "ES_JAVA_OPTS=-Xms{{ resources.heap_size | default('512m') }} -Xmx{{ resources.heap_size | default('512m') }}"
     volumes:
-      - {{ addon_name }}-data:/usr/share/elasticsearch/data
+      - elasticsearch-data:/usr/share/elasticsearch/data
     networks:
       - {{ project_name }}-network
-    expose:
-      - "9200"
+    ports:
+      - "0.0.0.0:${PORT}:9200"   # Elasticsearch HTTP (instance-specific port)
+{% if healthcheck and healthcheck.command is defined %}
     healthcheck:
       test: ["CMD-SHELL", "{{ healthcheck.command }}"]
       interval: {{ healthcheck.interval }}
       timeout: {{ healthcheck.timeout }}
       retries: {{ healthcheck.retries }}
       start_period: {{ healthcheck.start_period }}
+{% endif %}
+    # RESOURCE LIMITS (Plan: {{ resources.plan | default('standard') }})
+    deploy:
+      resources:
+        limits:
+          memory: {{ resources.memory | default('2G') }}
+          cpus: '{{ resources.cpu | default('1.0') }}'
+        reservations:
+          memory: {{ resources.memory_reservation | default('1G') }}
+          cpus: '{{ resources.cpu_reservation | default('0.5') }}'
+    labels:
+      # Monitoring
+      - "prometheus.scrape=true"
+      - "prometheus.port={{ monitoring.metrics_port | default(9114) }}"
+      - "prometheus.path=/metrics"
+      # Project & service info
+      - "project={{ project_name }}"
+      - "service={{ service_name }}"
+      # Addon instance metadata
+      - "addon.type=elasticsearch"
+      - "addon.instance={{ instance_name }}"
+      - "addon.full_name={{ instance_full_name }}"
+      - "addon.category={{ instance_category }}"
+      - "addon.plan={{ resources.plan | default('standard') }}"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+
+volumes:
+  elasticsearch-data:
+    name: {{ volume_name }}
+
+networks:
+  {{ project_name }}-network:
+    name: {{ project_name }}-network
+    external: true

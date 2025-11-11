@@ -1,0 +1,47 @@
+---
+# Parse addon instances from new config structure
+# Input: project_config.addons with nested structure
+# Output: addon_instances list
+
+- name: "Check if project_config has addons key"
+  set_fact:
+    has_addons: "{{ 'addons' in project_config and project_config.addons | length > 0 }}"
+
+- name: "Debug: Show addons key availability"
+  debug:
+    msg: 
+      - "Has 'addons' in project_config: {{ 'addons' in project_config }}"
+      - "Has 'addons' as top-level var: {{ addons is defined }}"
+      - "Addons content (if exists): {{ addons | default('NOT FOUND') }}"
+
+- name: "Parse addon instances from config"
+  set_fact:
+    addon_instances: >-
+      {%- set instances = [] -%}
+      {%- if addons is defined and addons is mapping -%}
+        {%- for category, category_instances in addons.items() -%}
+          {%- if category_instances is mapping -%}
+            {%- for instance_name, instance_config in category_instances.items() -%}
+              {%- if instance_config is mapping and 'type' in instance_config -%}
+                {%- set instance = {
+                  'category': category,
+                  'name': instance_name,
+                  'type': instance_config.type,
+                  'version': instance_config.version | default('latest'),
+                  'plan': instance_config.plan | default('standard'),
+                  'options': instance_config.options | default({}),
+                  'full_name': category + '.' + instance_name
+                } -%}
+                {%- set _ = instances.append(instance) -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endif -%}
+        {%- endfor -%}
+      {%- endif -%}
+      {{ instances }}
+
+- name: "Display parsed addon instances"
+  debug:
+    msg: "Parsed {{ addon_instances | length }} addon instances: {{ addon_instances | map(attribute='full_name') | list }}"
+    verbosity: 1
+

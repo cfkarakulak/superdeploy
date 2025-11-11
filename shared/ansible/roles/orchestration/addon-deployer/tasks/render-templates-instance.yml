@@ -1,0 +1,79 @@
+---
+# Render templates for an addon instance
+# Instance-aware version with unique container names, ports, volumes
+
+- name: Check if addon has compose.yml.j2 template
+  stat:
+    path: "{{ addon_path }}/compose.yml.j2"
+  register: compose_template
+  delegate_to: localhost
+  become: no
+
+- name: Set metadata variables for templates
+  set_fact:
+    version: "{{ addon_version }}"
+    healthcheck: "{{ addon_metadata.healthcheck | default({}) }}"
+    resources: "{{ addon_plan_resources | default({}) }}"
+    compose: "{{ addon_metadata.compose | default({}) }}"
+    ports: "{{ addon_metadata.ports | default([]) }}"
+    monitoring: "{{ addon_metadata.monitoring | default({}) }}"
+    addon_config: "{{ addon_options }}"
+    project: "{{ project_name }}"
+    # Instance-specific vars
+    instance_name: "{{ addon_name }}"
+    instance_full_name: "{{ addon_full_name }}"
+    instance_category: "{{ addon_category }}"
+    container_name: "{{ project_name }}_{{ addon_type }}_{{ addon_name }}"
+    volume_name: "{{ project_name }}-{{ addon_type }}-{{ addon_name }}-data"
+    service_name: "{{ addon_type }}-{{ addon_name }}"
+
+- name: Flatten environment variables for template access
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ addon_env_vars | dict2items }}"
+  no_log: true
+
+- name: Render docker-compose.yml from template
+  template:
+    src: "{{ addon_path }}/compose.yml.j2"
+    dest: "{{ addon_deployment_path }}/docker-compose.yml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0644'
+  when: compose_template.stat.exists
+
+- name: Find additional templates in addon templates directory
+  find:
+    paths: "{{ addon_path }}/templates"
+    patterns: "*.j2"
+    recurse: yes
+  register: addon_templates
+  when: addon_has_templates
+
+- name: Create templates output directory
+  file:
+    path: "{{ addon_deployment_path }}/config"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0755'
+  when: addon_templates.matched | default(0) > 0
+
+- name: Render additional addon templates
+  template:
+    src: "{{ item.path }}"
+    dest: "{{ addon_deployment_path }}/config/{{ item.path | basename | regex_replace('\\.j2$', '') }}"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0644'
+  loop: "{{ addon_templates.files }}"
+  when: addon_templates.matched | default(0) > 0
+
+- name: Display rendered templates info
+  debug:
+    msg:
+      - "Rendered templates for {{ addon_full_name }}"
+      - "Container name: {{ container_name }}"
+      - "Volume name: {{ volume_name }}"
+    verbosity: 1
+

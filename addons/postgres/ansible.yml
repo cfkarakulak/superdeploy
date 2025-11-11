@@ -1,7 +1,8 @@
 ---
-# PostgreSQL Addon Deployment Tasks
+# PostgreSQL Addon Instance Deployment Tasks
+# Instance: {{ instance_full_name }}
 
-- name: Create {{ addon_name }} directories
+- name: Create {{ instance_full_name }} directories
   file:
     path: "{{ item }}"
     state: directory
@@ -9,32 +10,23 @@
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0755'
   loop:
-    - "{{ addon_base_path }}/{{ addon_name }}"
-    - "{{ addon_base_path }}/{{ addon_name }}/data"
+    - "{{ addon_deployment_path }}"
+    - "{{ addon_deployment_path }}/data"
 
-# Note: docker-compose.yml is already rendered by orchestration/addon-deployer/tasks/render-templates.yml
+# Note: docker-compose.yml and .env are already rendered by orchestration/addon-deployer/tasks/
 # This keeps the deployment logic clean and focused on service-specific tasks
 
-- name: Render {{ addon_name }} environment file
-  template:
-    src: "{{ addon_path }}/templates/postgres.env.j2"
-    dest: "{{ addon_base_path }}/{{ addon_name }}/.env"
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group | default(superdeploy_user) }}"
-    mode: '0600'
-  when: addon_path is defined and addon_path | length > 0
-
-- name: Deploy {{ addon_name }} with intelligent cleanup
+- name: Deploy {{ instance_full_name }} with intelligent cleanup
   shell:
     cmd: |
       set -e
-      cd "${ADDON_BASE_PATH}/${ADDON_NAME}"
+      cd "{{ addon_deployment_path }}"
       
-      echo "Starting cleanup for ${PROJECT_NAME}-${ADDON_NAME}..."
+      echo "Starting cleanup for {{ instance_full_name }} ({{ container_name }})..."
       
       # Phase 1: Stop via Docker Compose (graceful shutdown with remove)
       echo "Phase 1: Stopping containers via Docker Compose..."
-      docker compose --project-name "${PROJECT_NAME}-${ADDON_NAME}" down --remove-orphans --volumes --timeout 30 2>&1 || true
+      docker compose --project-name "{{ project_name }}-{{ addon_type }}-{{ instance_name }}" down --remove-orphans --volumes --timeout 30 2>&1 || true
       
       # Phase 2: Wait for Docker daemon to sync
       echo "Phase 2: Waiting for Docker daemon to sync..."
@@ -46,15 +38,15 @@
       # Phase 3: Force remove any remaining containers by exact name or prefix
       echo "Phase 3: Force removing any remaining containers..."
       # Get all container names matching our pattern and filter for exact/prefix match
-      ALL_NAMES=$(docker ps -a --filter "name=${PROJECT_NAME}-${ADDON_NAME}" --format '{{ '{{' }}.Names{{ '}}' }}' 2>/dev/null || true)
+      ALL_NAMES=$(docker ps -a --filter "name=${CONTAINER_NAME}" --format '{{ '{{' }}.Names{{ '}}' }}' 2>/dev/null || true)
       EXACT_CONTAINER=""
       PREFIX_CONTAINERS=""
       
       for name in $ALL_NAMES; do
-        if [ "$name" = "${PROJECT_NAME}-${ADDON_NAME}" ]; then
+        if [ "$name" = "${CONTAINER_NAME}" ]; then
           # Exact match
           EXACT_CONTAINER=$(docker ps -aq --filter "name=${name}" 2>/dev/null || true)
-        elif [[ "$name" == ${PROJECT_NAME}-${ADDON_NAME}-* ]]; then
+        elif [[ "$name" == ${CONTAINER_NAME}-* ]]; then
           # Prefix match (compose generated names)
           PREFIX_CONTAINERS="$PREFIX_CONTAINERS $(docker ps -aq --filter "name=${name}" 2>/dev/null || true)"
         fi
@@ -75,14 +67,14 @@
       
       # Phase 4: Final verification
       echo "Phase 4: Final verification..."
-      ALL_NAMES_FINAL=$(docker ps -a --filter "name=${PROJECT_NAME}-${ADDON_NAME}" --format '{{ '{{' }}.Names{{ '}}' }}' 2>/dev/null || true)
+      ALL_NAMES_FINAL=$(docker ps -a --filter "name=${CONTAINER_NAME}" --format '{{ '{{' }}.Names{{ '}}' }}' 2>/dev/null || true)
       EXACT_CHECK=""
       PREFIX_CHECK=""
       
       for name in $ALL_NAMES_FINAL; do
-        if [ "$name" = "${PROJECT_NAME}-${ADDON_NAME}" ]; then
+        if [ "$name" = "${CONTAINER_NAME}" ]; then
           EXACT_CHECK=$(docker ps -aq --filter "name=${name}" 2>/dev/null || true)
-        elif [[ "$name" == ${PROJECT_NAME}-${ADDON_NAME}-* ]]; then
+        elif [[ "$name" == ${CONTAINER_NAME}-* ]]; then
           PREFIX_CHECK="$PREFIX_CHECK $(docker ps -aq --filter "name=${name}" 2>/dev/null || true)"
         fi
       done
@@ -91,7 +83,7 @@
       
       if [ -n "$FINAL_CHECK" ]; then
         echo "⚠ WARNING: Some containers still exist:"
-        docker ps -a | grep "${PROJECT_NAME}-${ADDON_NAME}" || true
+        docker ps -a | grep "${CONTAINER_NAME}" || true
         echo "Attempting final force removal..."
         # Stop first, then remove
         echo "$FINAL_CHECK" | xargs -r docker stop -t 5 2>&1 || true
@@ -105,9 +97,11 @@
       echo "✓ Cleanup completed - ready for deployment"
     executable: /bin/bash
   environment:
+    CONTAINER_NAME: "{{ container_name }}"
     PROJECT_NAME: "{{ project_name }}"
-    ADDON_NAME: "{{ addon_name }}"
-    ADDON_BASE_PATH: "{{ addon_base_path }}"
+    ADDON_NAME: "{{ instance_name }}"
+    ADDON_DEPLOYMENT_PATH: "{{ addon_deployment_path }}"
+    ADDON_BASE_PATH: "{{ addons_base_path }}"
   become: yes
   register: postgres_cleanup_result
   changed_when: false
@@ -117,11 +111,11 @@
     msg: "{{ postgres_cleanup_result.stdout_lines }}"
   when: postgres_cleanup_result.stdout_lines is defined
 
-- name: Final pre-start container check for {{ addon_name }}
+- name: Final pre-start container check for {{ instance_name }}
   shell:
     cmd: |
       # One last check before docker-compose starts
-      EXISTING=$(docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}" 2>/dev/null || true)
+      EXISTING=$(docker ps -aq --filter "name={{ project_name }}-{{ instance_name }}" 2>/dev/null || true)
       if [ -n "$EXISTING" ]; then
         echo "Found existing container(s), force removing..."
         echo "$EXISTING" | xargs -r docker stop -t 5 2>&1 || true
@@ -142,11 +136,11 @@
     msg: "{{ prestart_check_result.stdout_lines }}"
   when: prestart_check_result.stdout_lines is defined
 
-- name: Force remove all {{ addon_name }} containers with shell (bypass Docker SDK bug)
+- name: Force remove all {{ instance_name }} containers with shell (bypass Docker SDK bug)
   shell:
     cmd: |
-      echo "=== Force removing {{ project_name }}-{{ addon_name }} containers ==="
-      ALL_CONTAINERS=$(docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}" 2>/dev/null || true)
+      echo "=== Force removing {{ project_name }}-{{ instance_name }} containers ==="
+      ALL_CONTAINERS=$(docker ps -aq --filter "name={{ project_name }}-{{ instance_name }}" 2>/dev/null || true)
       if [ -n "$ALL_CONTAINERS" ]; then
         echo "Found containers: $ALL_CONTAINERS"
         echo "$ALL_CONTAINERS" | xargs -r docker stop -t 5 2>&1 || true
@@ -161,10 +155,10 @@
   become: yes
   changed_when: false
 
-- name: Start {{ addon_name }} services (with explicit project name)
+- name: Start {{ instance_name }} services (with explicit project name)
   community.docker.docker_compose_v2:
-    project_name: "{{ project_name }}-{{ addon_name }}"
-    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    project_name: "{{ project_name }}-{{ instance_name }}"
+    project_src: "{{ addon_deployment_path }}"
     state: present
     pull: "always"
     recreate: "always"
@@ -172,9 +166,9 @@
   become: yes
   register: postgres_compose_result
 
-- name: Verify {{ addon_name }} is accessible
+- name: Verify {{ instance_name }} is accessible
   shell: |
-    docker exec {{ project_name }}-{{ addon_name }} pg_isready -U {{ POSTGRES_USER }}
+    docker exec {{ container_name }} pg_isready -U {{ USER }}
   register: postgres_health_check
   until: postgres_health_check.rc == 0
   retries: 5
@@ -182,14 +176,14 @@
   changed_when: false
   failed_when: postgres_health_check.rc != 0
 
-- name: Verify {{ addon_name }} database exists
+- name: Verify {{ instance_name }} database exists
   shell: |
-    docker exec {{ project_name }}-{{ addon_name }} psql -U {{ POSTGRES_USER }} -lqt | cut -d \| -f 1 | grep -qw {{ POSTGRES_DB }}
+    docker exec {{ container_name }} psql -U {{ USER }} -lqt | cut -d \| -f 1 | grep -qw {{ DATABASE }}
   register: db_check
   changed_when: false
   failed_when: false
 
-- name: Display {{ addon_name }} deployment status
-  debug:
-    msg: "PostgreSQL is ready and database '{{ POSTGRES_DB }}' is accessible"
-  when: db_check.rc == 0
+- name: "🗄️  PostgreSQL ready → Database: {{ DATABASE }} • User: {{ USER }} • Port: {{ PORT }}"
+  set_fact:
+    _postgres_ready: true
+  changed_when: false

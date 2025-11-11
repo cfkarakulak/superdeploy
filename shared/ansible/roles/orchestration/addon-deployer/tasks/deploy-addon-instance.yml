@@ -1,0 +1,140 @@
+---
+# Deploy a single addon instance (e.g., databases.primary)
+# This handles named instances with unique ports, containers, and credentials
+
+- name: "▶ {{ addon_instance.full_name }} ({{ addon_instance.type }}:{{ addon_instance.version }} • {{ addon_instance.plan }})"
+  set_fact:
+    _addon_header: "{{ addon_instance.full_name }}"
+  changed_when: false
+
+- name: Set instance paths and configuration
+  set_fact:
+    addon_type: "{{ addon_instance.type }}"
+    addon_category: "{{ addon_instance.category }}"
+    addon_name: "{{ addon_instance.name }}"
+    addon_full_name: "{{ addon_instance.full_name }}"
+    addon_version: "{{ addon_instance.version }}"
+    addon_plan: "{{ addon_instance.plan }}"
+    addon_options: "{{ addon_instance.options }}"
+    addon_path: "{{ addons_source_path }}/{{ addon_instance.type }}"
+    addon_deployment_path: "{{ addons_base_path }}/{{ addon_instance.type }}/{{ addon_instance.name }}"
+
+- name: Display instance deployment info
+  debug:
+    msg:
+      - "Instance: {{ addon_full_name }}"
+      - "Type: {{ addon_type }}"
+      - "Version: {{ addon_version }}"
+      - "Plan: {{ addon_plan }}"
+      - "Source path: {{ addon_path }}"
+      - "Deployment path: {{ addon_deployment_path }}"
+    verbosity: 1
+
+- name: Check if addon type exists
+  stat:
+    path: "{{ addon_path }}"
+  register: addon_dir
+  delegate_to: localhost
+  become: no
+
+- name: Fail if addon type does not exist
+  fail:
+    msg: |
+      [ADDON-DEPLOYER] ERROR: Addon type not found
+        - Instance: {{ addon_full_name }}
+        - Type: {{ addon_type }}
+        - Expected path: {{ addon_path }}
+        - Fix: Ensure the addon type exists in the addons directory
+  when: not addon_dir.stat.exists
+
+- name: Load addon metadata
+  include_vars:
+    file: "{{ addon_path }}/addon.yml"
+    name: addon_metadata
+  register: addon_metadata_load
+  ignore_errors: yes
+
+- name: Fail if addon.yml is missing or invalid
+  fail:
+    msg: |
+      [ADDON-DEPLOYER] ERROR: Invalid addon metadata
+        - Instance: {{ addon_full_name }}
+        - Type: {{ addon_type }}
+        - File: {{ addon_path }}/addon.yml
+        - Error: {{ addon_metadata_load.msg | default('File not found or invalid YAML') }}
+        - Fix: Ensure addon.yml exists and contains valid YAML
+  when: addon_metadata_load is failed
+
+- name: "Set addon plan resources from metadata"
+  set_fact:
+    addon_plan_resources: "{{ addon_metadata.plans[addon_plan].resources | default({}) }}"
+  when: addon_plan is defined and addon_metadata.plans is defined
+
+- name: "Set default addon plan resources if not available"
+  set_fact:
+    addon_plan_resources: {}
+  when: addon_plan_resources is not defined
+
+- name: "Generate environment variables for addon instance"
+  include_tasks: generate-env.yml
+
+- name: Create addon instance directory
+  file:
+    path: "{{ addon_deployment_path }}"
+    state: directory
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0755'
+
+- name: Generate .env file for addon instance
+  template:
+    src: "{{ playbook_dir }}/../roles/orchestration/addon-deployer/templates/env-file.j2"
+    dest: "{{ addon_deployment_path }}/.env"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0600'
+  vars:
+    env_vars: "{{ addon_env_vars }}"
+
+- name: Check if addon has templates directory
+  stat:
+    path: "{{ addon_path }}/templates"
+  register: addon_templates_dir
+  delegate_to: localhost
+  become: no
+
+- name: Set addon has templates flag
+  set_fact:
+    addon_has_templates: "{{ addon_templates_dir.stat.exists and addon_templates_dir.stat.isdir }}"
+
+- name: Render addon templates
+  include_tasks: render-templates-instance.yml
+  when: addon_has_templates
+
+- name: Check if addon has ansible.yml tasks
+  stat:
+    path: "{{ addon_path }}/ansible.yml"
+  register: addon_ansible_file
+  delegate_to: localhost
+  become: no
+
+- name: Execute addon-specific deployment tasks
+  include_tasks: "{{ addon_path }}/ansible.yml"
+  vars:
+    addon_base_path: "{{ addons_base_path }}"
+    project_name: "{{ project_name }}"
+    addon_config: "{{ addon_options }}"
+    addon_metadata: "{{ addon_metadata }}"
+    env_vars: "{{ addon_env_vars }}"
+    # Instance-specific vars
+    instance_name: "{{ addon_name }}"
+    instance_full_name: "{{ addon_full_name }}"
+    container_name: "{{ project_name }}_{{ addon_type }}_{{ addon_name }}"
+    volume_name: "{{ project_name }}-{{ addon_type }}-{{ addon_name }}-data"
+  when: addon_ansible_file.stat.exists
+
+- name: "✓ {{ addon_full_name }} deployed → Container: {{ project_name }}_{{ addon_type }}_{{ addon_name }} • Port: {{ addon_instance_secrets.PORT | default('internal') }}"
+  set_fact:
+    _addon_deployment_complete: true
+  changed_when: false
+

@@ -9,215 +9,221 @@ import yaml
 import json
 import subprocess
 from pathlib import Path
-from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+from rich.box import ROUNDED
+
+from cli.base import BaseCommand
 from cli.ui_components import show_header
 
-# Global console for functional commands
-console = Console()
 
+class DomainsAddCommand(BaseCommand):
+    """Add a domain to an application or orchestrator service."""
 
-@click.command(name="domains:add")
-@click.option("-p", "--project", help="Project name (required for app domains)")
-@click.argument("app_name")
-@click.argument("domain")
-def domains_add(project: str, app_name: str, domain: str):
-    """
-    Add a domain to an application or orchestrator service.
+    def __init__(self, project: str, app_name: str, domain: str, verbose: bool = False):
+        super().__init__(verbose=verbose)
+        self.project = project
+        self.app_name = app_name
+        self.domain = domain
 
-    Orchestrator services (grafana, prometheus) are auto-detected.
-    Project apps require -p flag.
-
-    Examples:
-    # Orchestrator services (keyword-based)
-    superdeploy orchestrator:domains:add grafana grafana.cheapa.io
-    superdeploy orchestrator:domains:add prometheus prometheus.cheapa.io
-
-    # Project apps (namespace syntax - NEW!)
-    superdeploy cheapa:domains:add api api.cheapa.io
-    superdeploy cheapa:domains:add dashboard dashboard.cheapa.io
-    """
-    try:
+    def execute(self) -> None:
+        """Execute add domain command."""
         # Auto-detect orchestrator services by keyword
         ORCHESTRATOR_SERVICES = ["grafana", "prometheus"]
-        is_orchestrator = app_name in ORCHESTRATOR_SERVICES
+        is_orchestrator = self.app_name in ORCHESTRATOR_SERVICES
 
         # Validate inputs
-        if is_orchestrator and project:
-            console.print(f"[red]✗ '{app_name}' is an orchestrator service[/red]")
-            console.print(
-                "[yellow]Tip: Don't use -p flag for orchestrator services[/yellow]"
-            )
-            console.print(
-                f"Usage: superdeploy orchestrator:domains:add {app_name} {domain}"
-            )
-            raise click.Abort()
-
-        if not is_orchestrator and not project:
-            console.print(f"[red]✗ '{app_name}' requires -p <project> flag[/red]")
-            console.print(
-                f"Usage: superdeploy <project>:domains:add {app_name} {domain}"
-            )
-            raise click.Abort()
+        self._validate_inputs(is_orchestrator)
 
         # Show header
+        self._show_header(is_orchestrator)
+
+        # Execute appropriate mode
+        if is_orchestrator:
+            self._add_orchestrator_domain()
+        else:
+            self._add_project_domain()
+
+    def _validate_inputs(self, is_orchestrator: bool) -> None:
+        """Validate command inputs."""
+        if is_orchestrator and self.project:
+            self.console.print(
+                f"[red]✗ '{self.app_name}' is an orchestrator service[/red]"
+            )
+            self.console.print(
+                f"\n[bold]Usage:[/bold] [cyan]superdeploy orchestrator:domains:add {self.app_name} {self.domain}[/cyan]\n"
+            )
+            raise click.Abort()
+
+        if not is_orchestrator and not self.project:
+            self.console.print(
+                f"[red]✗ '{self.app_name}' requires project context[/red]"
+            )
+            self.console.print(
+                f"\n[bold]Usage:[/bold] [cyan]superdeploy <project>:domains:add {self.app_name} {self.domain}[/cyan]"
+            )
+            self.console.print(
+                f"\n[bold]Example:[/bold] [cyan]superdeploy myproject:domains:add {self.app_name} {self.domain}[/cyan]\n"
+            )
+            raise click.Abort()
+
+    def _show_header(self, is_orchestrator: bool) -> None:
+        """Show command header."""
         if is_orchestrator:
             show_header(
                 title="Add Domain",
-                details={"Service": app_name, "Domain": domain, "Type": "Orchestrator"},
-                console=console,
+                details={
+                    "Service": self.app_name,
+                    "Domain": self.domain,
+                    "Type": "Orchestrator",
+                },
+                console=self.console,
             )
         else:
             show_header(
                 title="Add Domain",
-                project=project,
-                app=app_name,
-                details={"Domain": domain},
-                console=console,
+                project=self.project,
+                app=self.app_name,
+                details={"Domain": self.domain},
+                console=self.console,
             )
 
-        # ORCHESTRATOR MODE
-        if is_orchestrator:
-            # Load orchestrator config
-            config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
-            if not config_file.exists():
-                console.print(
-                    f"[red]✗ Orchestrator config not found at {config_file}[/red]"
-                )
-                console.print("Run 'superdeploy orchestrator:init' first")
-                raise click.Abort()
-
-            with open(config_file, "r") as f:
-                config = yaml.safe_load(f)
-
-            # Get orchestrator IP
-            terraform_dir = Path.cwd() / "shared" / "terraform"
-            try:
-                subprocess.run(
-                    ["terraform", "workspace", "select", "orchestrator"],
-                    cwd=terraform_dir,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-
-                result = subprocess.run(
-                    ["terraform", "output", "-json"],
-                    cwd=terraform_dir,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                outputs = json.loads(result.stdout)
-                vm_ip = outputs.get("orchestrator_ip", {}).get("value")
-
-                if not vm_ip:
-                    console.print("[red]✗ Could not find orchestrator IP[/red]")
-                    raise click.Abort()
-            except Exception as e:
-                console.print(
-                    "[red]✗ Failed to get orchestrator IP from Terraform[/red]"
-                )
-                console.print(f"[dim]Error: {e}[/dim]")
-                raise click.Abort()
-
-            # Show DNS instruction
-            console.print()
-            console.print(
-                Panel(
-                    f"[bold yellow]DNS Configuration Required[/bold yellow]\n\n"
-                    f"Add the following A record to your DNS:\n\n"
-                    f"[cyan]Host:[/cyan] {domain}\n"
-                    f"[cyan]Type:[/cyan] A\n"
-                    f"[cyan]Value:[/cyan] {vm_ip}\n"
-                    f"[cyan]TTL:[/cyan] 3600 (or default)\n\n"
-                    f"[dim]Note: DNS propagation may take a few minutes[/dim]",
-                    title="📋 DNS Setup",
-                    border_style="yellow",
-                )
+    def _add_orchestrator_domain(self) -> None:
+        """Add domain to orchestrator service."""
+        # Load orchestrator config
+        config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
+        if not config_file.exists():
+            self.console.print(
+                f"[red]✗ Orchestrator config not found at {config_file}[/red]"
             )
-            console.print()
+            self.console.print("Run 'superdeploy orchestrator:init' first")
+            raise click.Abort()
 
-            if not click.confirm(
-                f"Have you added the DNS record for {domain}?", default=False
-            ):
-                console.print("Aborted. Add the DNS record and try again.")
-                raise click.Abort()
+        with open(config_file, "r") as f:
+            config = yaml.safe_load(f)
 
-            # Update orchestrator config
-            console.print("Updating orchestrator config.yml...")
-            config[app_name]["domain"] = domain
+        # Get orchestrator IP
+        vm_ip = self._get_orchestrator_ip()
 
-            with open(config_file, "w") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        # Show DNS instruction and confirm
+        self._show_dns_panel(vm_ip)
 
-            console.print(f"[green]✓ Updated {config_file}[/green]")
+        if not click.confirm(
+            f"Have you added the DNS record for {self.domain}?", default=False
+        ):
+            self.console.print("Aborted. Add the DNS record and try again.")
+            raise click.Abort()
 
-            # Redeploy Caddy on orchestrator
-            console.print(
-                "\n[bold yellow]▶[/bold yellow] Redeploying Caddy on orchestrator\n"
-            )
-            console.print("This will update Caddyfile and reload Caddy...")
+        # Update orchestrator config
+        self.console.print("Updating orchestrator config.yml...")
+        config[self.app_name]["domain"] = self.domain
 
-            result = subprocess.run(
-                ["superdeploy", "orchestrator", "up", "--addon", "caddy"],
-                cwd=Path.cwd(),
-            )
+        with open(config_file, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-            if result.returncode != 0:
-                console.print("[red]✗ Failed to redeploy Caddy[/red]")
-                raise click.Abort()
+        self.console.print(f"[green]✓ Updated {config_file}[/green]")
 
-            # Success message
-            console.print()
-            console.print(
-                Panel(
-                    f"[color(248)]Domain added successfully.[/color(248)]\n"
-                    f"[cyan]Service:[/cyan] {app_name}\n"
-                    f"[cyan]Domain:[/cyan] https://{domain}\n"
-                    f"[cyan]VM:[/cyan] {vm_ip} (orchestrator)\n\n"
-                    f"[dim]Caddy will automatically obtain a Let's Encrypt TLS certificate.[/dim]\n"
-                    f"[dim]Your service is now accessible at: https://{domain}[/dim]",
-                    title="🎉 Success",
-                    border_style="green",
-                )
-            )
-            return
+        # Redeploy Caddy
+        self._redeploy_orchestrator_caddy()
 
-        # PROJECT MODE (existing code)
+        # Show success message
+        self._show_success_panel(vm_ip, "orchestrator")
+
+    def _add_project_domain(self) -> None:
+        """Add domain to project app."""
         # Load project config
-        project_dir = Path.cwd() / "projects" / project
+        project_dir = Path.cwd() / "projects" / self.project
         config_file = project_dir / "config.yml"
 
         if not config_file.exists():
-            console.print(
-                f"[red]✗ Project '{project}' not found at {config_file}[/red]"
+            self.console.print(
+                f"[red]✗ Project '{self.project}' not found at {config_file}[/red]"
             )
             raise click.Abort()
 
-        # Read config
         with open(config_file, "r") as f:
             config = yaml.safe_load(f)
 
         # Find app
         apps = config.get("apps", {})
-        if app_name not in apps:
-            console.print(
-                f"[red]✗ App '{app_name}' not found in project '{project}'[/red]"
+        if self.app_name not in apps:
+            self.console.print(
+                f"[red]✗ App '{self.app_name}' not found in project '{self.project}'[/red]"
             )
-            console.print(f"Available apps: {', '.join(apps.keys())}")
+            self.console.print(f"Available apps: {', '.join(apps.keys())}")
             raise click.Abort()
 
-        app = apps[app_name]
+        app = apps[self.app_name]
         vm_role = app.get("vm")
 
-        # Get VM IP from Terraform
+        # Get VM IP
+        vm_ip = self._get_project_vm_ip(vm_role)
+
+        # Show DNS instruction and confirm
+        self._show_dns_panel(vm_ip)
+
+        if not click.confirm(
+            f"Have you added the DNS record for {self.domain}?", default=False
+        ):
+            self.console.print("Aborted. Add the DNS record and try again.")
+            raise click.Abort()
+
+        # Update config.yml
+        self.console.print("Updating config.yml...")
+        apps[self.app_name]["domain"] = self.domain
+
+        with open(config_file, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+        self.console.print(f"[green]✓ Updated {config_file}[/green]")
+
+        # Redeploy Caddy
+        self._redeploy_project_caddy()
+
+        # Show success message
+        self._show_success_panel(vm_ip, vm_role)
+
+    def _get_orchestrator_ip(self) -> str:
+        """Get orchestrator VM IP from Terraform."""
         terraform_dir = Path.cwd() / "shared" / "terraform"
         try:
-            # Select workspace first
             subprocess.run(
-                ["terraform", "workspace", "select", project],
+                ["terraform", "workspace", "select", "orchestrator"],
+                cwd=terraform_dir,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            result = subprocess.run(
+                ["terraform", "output", "-json"],
+                cwd=terraform_dir,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            outputs = json.loads(result.stdout)
+            vm_ip = outputs.get("orchestrator_ip", {}).get("value")
+
+            if not vm_ip:
+                self.console.print("[red]✗ Could not find orchestrator IP[/red]")
+                raise click.Abort()
+
+            return vm_ip
+        except Exception as e:
+            self.console.print(
+                "[red]✗ Failed to get orchestrator IP from Terraform[/red]"
+            )
+            self.console.print(f"[dim]Error: {e}[/dim]")
+            raise click.Abort()
+
+    def _get_project_vm_ip(self, vm_role: str) -> str:
+        """Get project VM IP from Terraform."""
+        terraform_dir = Path.cwd() / "shared" / "terraform"
+        try:
+            # Select workspace
+            subprocess.run(
+                ["terraform", "workspace", "select", self.project],
                 cwd=terraform_dir,
                 capture_output=True,
                 text=True,
@@ -242,24 +248,31 @@ def domains_add(project: str, app_name: str, domain: str):
                 vm_ip = role_vms[0].get("external_ip")
 
             if not vm_ip:
-                console.print(f"[red]✗ Could not find IP for VM role '{vm_role}'[/red]")
-                console.print(f"[dim]Available roles: {list(vms_by_role.keys())}[/dim]")
+                self.console.print(
+                    f"[red]✗ Could not find IP for VM role '{vm_role}'[/red]"
+                )
+                self.console.print(
+                    f"[dim]Available roles: {list(vms_by_role.keys())}[/dim]"
+                )
                 raise click.Abort()
+
+            return vm_ip
         except subprocess.CalledProcessError as e:
-            console.print("[red]✗ Failed to get VM IP from Terraform[/red]")
-            console.print(f"[dim]Error: {e.stderr}[/dim]")
+            self.console.print("[red]✗ Failed to get VM IP from Terraform[/red]")
+            self.console.print(f"[dim]Error: {e.stderr}[/dim]")
             raise click.Abort()
         except Exception as e:
-            console.print(f"[red]✗ Failed to get VM IP: {e}[/red]")
+            self.console.print(f"[red]✗ Failed to get VM IP: {e}[/red]")
             raise click.Abort()
 
-        # Show DNS instruction
-        console.print()
-        console.print(
+    def _show_dns_panel(self, vm_ip: str) -> None:
+        """Show DNS configuration panel."""
+        self.console.print()
+        self.console.print(
             Panel(
                 f"[bold yellow]DNS Configuration Required[/bold yellow]\n\n"
                 f"Add the following A record to your DNS:\n\n"
-                f"[cyan]Host:[/cyan] {domain}\n"
+                f"[cyan]Host:[/cyan] {self.domain}\n"
                 f"[cyan]Type:[/cyan] A\n"
                 f"[cyan]Value:[/cyan] {vm_ip}\n"
                 f"[cyan]TTL:[/cyan] 3600 (or default)\n\n"
@@ -268,35 +281,35 @@ def domains_add(project: str, app_name: str, domain: str):
                 border_style="yellow",
             )
         )
-        console.print()
+        self.console.print()
 
-        # Ask for confirmation
-        if not click.confirm(
-            f"Have you added the DNS record for {domain}?", default=False
-        ):
-            console.print("Aborted. Add the DNS record and try again.")
+    def _redeploy_orchestrator_caddy(self) -> None:
+        """Redeploy Caddy on orchestrator."""
+        self.console.print(
+            "\n[bold yellow]▶[/bold yellow] Redeploying Caddy on orchestrator\n"
+        )
+        self.console.print("This will update Caddyfile and reload Caddy...")
+
+        result = subprocess.run(
+            ["superdeploy", "orchestrator", "up", "--addon", "caddy"],
+            cwd=Path.cwd(),
+        )
+
+        if result.returncode != 0:
+            self.console.print("[red]✗ Failed to redeploy Caddy[/red]")
             raise click.Abort()
 
-        # Update config.yml
-        console.print("Updating config.yml...")
-        apps[app_name]["domain"] = domain
-
-        with open(config_file, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-        console.print(f"[green]✓ Updated {config_file}[/green]")
-
-        # Redeploy Caddy addon
-        console.print(
+    def _redeploy_project_caddy(self) -> None:
+        """Redeploy Caddy for project."""
+        self.console.print(
             "\n[bold yellow]▶[/bold yellow] Redeploying Caddy with new domain\n"
         )
-        console.print("This will update Caddyfile and reload Caddy...")
+        self.console.print("This will update Caddyfile and reload Caddy...")
 
-        # Run superdeploy up with caddy addon only
         result = subprocess.run(
             [
                 "superdeploy",
-                f"{project}:up",
+                f"{self.project}:up",
                 "--skip-terraform",
                 "--addon",
                 "caddy",
@@ -305,58 +318,69 @@ def domains_add(project: str, app_name: str, domain: str):
         )
 
         if result.returncode != 0:
-            console.print("[red]✗ Failed to redeploy Caddy[/red]")
+            self.console.print("[red]✗ Failed to redeploy Caddy[/red]")
             raise click.Abort()
 
-        # Success message
-        console.print()
-        console.print(
+    def _show_success_panel(self, vm_ip: str, vm_info: str) -> None:
+        """Show success panel."""
+        self.console.print()
+        self.console.print(
             Panel(
                 f"[color(248)]Domain added successfully.[/color(248)]\n"
-                f"[cyan]App:[/cyan] {app_name}\n"
-                f"[cyan]Domain:[/cyan] https://{domain}\n"
-                f"[cyan]VM:[/cyan] {vm_ip} ({vm_role})\n\n"
+                f"[cyan]{'Service' if vm_info == 'orchestrator' else 'App'}:[/cyan] {self.app_name}\n"
+                f"[cyan]Domain:[/cyan] https://{self.domain}\n"
+                f"[cyan]VM:[/cyan] {vm_ip} ({vm_info})\n\n"
                 f"[dim]Caddy will automatically obtain a Let's Encrypt TLS certificate.[/dim]\n"
-                f"[dim]Your app is now accessible at: https://{domain}[/dim]",
+                f"[dim]Your {'service' if vm_info == 'orchestrator' else 'app'} is now accessible at: https://{self.domain}[/dim]",
                 title="🎉 Success",
                 border_style="green",
             )
         )
 
-    except Exception as e:
-        console.print(f"[red]✗ Domain add failed: {e}[/red]")
-        raise
 
+class DomainsListCommand(BaseCommand):
+    """List all domains (orchestrator + all projects)."""
 
-@click.command(name="domains:list")
-@click.option("-p", "--project", help="Project name (show only this project)")
-def domains_list(project: str):
-    """
-    List all domains (orchestrator + all projects).
+    def __init__(self, project: str = None, verbose: bool = False):
+        super().__init__(verbose=verbose)
+        self.project = project
 
-    Without -p flag: shows ALL domains (orchestrator + all projects)
-    With -p flag: shows only that project's domains
+    def execute(self) -> None:
+        """Execute list domains command."""
+        # Show header
+        if self.project:
+            show_header(
+                title="Domain List",
+                project=self.project,
+                console=self.console,
+            )
+        else:
+            show_header(
+                title="Domain List",
+                subtitle="All domains across orchestrator and projects",
+                console=self.console,
+            )
 
-    Examples:
-        superdeploy domains:list                  # all domains
-        superdeploy cheapa:domains:list           # only cheapa project
-    """
-    # Show header
-    if project:
-        show_header(
-            title="Domain List",
-            project=project,
-            console=console,
-        )
-    else:
-        show_header(
-            title="Domain List",
-            subtitle="All domains across orchestrator and projects",
-            console=console,
-        )
+        # Get projects to show
+        projects_to_show = self._get_projects_to_show()
 
-    try:
-        # Get all available projects
+        # Build unified table
+        main_table = self._build_domains_table()
+
+        # Add orchestrator domains (if showing all)
+        if not self.project:
+            self._add_orchestrator_domains_to_table(main_table)
+
+        # Add project domains
+        self._add_project_domains_to_table(main_table, projects_to_show)
+
+        # Display table
+        self.console.print()
+        self.console.print(main_table)
+        self.console.print()
+
+    def _get_projects_to_show(self) -> list[str]:
+        """Get list of projects to display."""
         projects_dir = Path.cwd() / "projects"
         all_projects = (
             [
@@ -369,19 +393,17 @@ def domains_list(project: str):
         )
 
         # If -p specified, show only that project
-        if project:
-            if project not in all_projects:
-                console.print(f"[red]✗ Project '{project}' not found[/red]")
+        if self.project:
+            if self.project not in all_projects:
+                self.console.print(f"[red]✗ Project '{self.project}' not found[/red]")
                 raise click.Abort()
-            projects_to_show = [project]
-        else:
-            # Show all projects
-            projects_to_show = all_projects
+            return [self.project]
 
-        # Build single unified table
-        from rich.box import ROUNDED
+        return all_projects
 
-        main_table = Table(
+    def _build_domains_table(self) -> Table:
+        """Build the domains table structure."""
+        table = Table(
             title="[bold white]All Domains[/bold white]",
             show_header=True,
             header_style="bold magenta",
@@ -391,64 +413,40 @@ def domains_list(project: str):
             border_style="cyan",
             padding=(0, 1),
         )
-        main_table.add_column("Type", style="cyan", width=15)
-        main_table.add_column("Service/App", style="yellow", width=20)
-        main_table.add_column("Domain", style="green", width=30)
-        main_table.add_column("VM/Role", style="magenta", width=15)
-        main_table.add_column("IP", style="blue")
+        table.add_column("Type", style="cyan", width=15)
+        table.add_column("Service/App", style="yellow", width=20)
+        table.add_column("Domain", style="green", width=30)
+        table.add_column("VM/Role", style="magenta", width=15)
+        table.add_column("IP", style="blue")
+        return table
 
-        # ═══════════════════════════════════════════════════════
-        # ORCHESTRATOR DOMAINS
-        # ═══════════════════════════════════════════════════════
-        if not project:  # Only show orchestrator when listing all
-            # Load orchestrator config
-            config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
-            if config_file.exists():
-                with open(config_file, "r") as f:
-                    config = yaml.safe_load(f)
+    def _add_orchestrator_domains_to_table(self, table: Table) -> None:
+        """Add orchestrator domains to table."""
+        config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
+        if not config_file.exists():
+            return
 
-                # Get orchestrator IP
-                terraform_dir = Path.cwd() / "shared" / "terraform"
-                try:
-                    subprocess.run(
-                        ["terraform", "workspace", "select", "orchestrator"],
-                        cwd=terraform_dir,
-                        capture_output=True,
-                        text=True,
-                        check=True,
-                    )
+        with open(config_file, "r") as f:
+            config = yaml.safe_load(f)
 
-                    result = subprocess.run(
-                        ["terraform", "output", "-json"],
-                        cwd=terraform_dir,
-                        capture_output=True,
-                        text=True,
-                        check=True,
-                    )
-                    outputs = json.loads(result.stdout)
-                    vm_ip = outputs.get("orchestrator_ip", {}).get("value", "-")
-                except:
-                    vm_ip = "-"
+        # Get orchestrator IP
+        vm_ip = self._get_orchestrator_ip()
 
-                # Add orchestrator section header
-                main_table.add_row(
-                    "[bold yellow]Orchestrator[/bold yellow]", "", "", "", ""
-                )
+        # Add orchestrator section header
+        table.add_row("[bold yellow]Orchestrator[/bold yellow]", "", "", "", "")
 
-                services = ["grafana", "prometheus"]
-                for service in services:
-                    service_config = config.get(service, {})
-                    domain = service_config.get("domain", "") or "-"
-                    main_table.add_row(
-                        "  Service", f"  {service}", domain, "orchestrator", vm_ip
-                    )
+        # Add services
+        services = ["grafana", "prometheus"]
+        for service in services:
+            service_config = config.get(service, {})
+            domain = service_config.get("domain", "") or "-"
+            table.add_row("  Service", f"  {service}", domain, "orchestrator", vm_ip)
 
-        # ═══════════════════════════════════════════════════════
-        # PROJECT DOMAINS
-        # ═══════════════════════════════════════════════════════
+    def _add_project_domains_to_table(self, table: Table, projects: list[str]) -> None:
+        """Add project domains to table."""
         terraform_dir = Path.cwd() / "shared" / "terraform"
 
-        for proj_name in projects_to_show:
+        for proj_name in projects:
             project_dir = Path.cwd() / "projects" / proj_name
             config_file = project_dir / "config.yml"
 
@@ -459,32 +457,10 @@ def domains_list(project: str):
                 config = yaml.safe_load(f)
 
             # Get VM IPs for this project
-            vms_by_role = {}
-            try:
-                # Select workspace
-                subprocess.run(
-                    ["terraform", "workspace", "select", proj_name],
-                    cwd=terraform_dir,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-
-                # Get outputs
-                result = subprocess.run(
-                    ["terraform", "output", "-json"],
-                    cwd=terraform_dir,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                outputs = json.loads(result.stdout)
-                vms_by_role = outputs.get("vms_by_role", {}).get("value", {})
-            except:
-                pass
+            vms_by_role = self._get_project_vms(proj_name, terraform_dir)
 
             # Add project section header
-            main_table.add_row(
+            table.add_row(
                 f"[bold yellow]Project: {proj_name.title()}[/bold yellow]",
                 "",
                 "",
@@ -492,6 +468,7 @@ def domains_list(project: str):
                 "",
             )
 
+            # Add apps
             apps = config.get("apps", {})
             for app_name, app_config in apps.items():
                 domain = app_config.get("domain", "") or "-"
@@ -503,15 +480,284 @@ def domains_list(project: str):
                 if role_vms:
                     vm_ip = role_vms[0].get("external_ip", "-")
 
-                main_table.add_row("  App", f"  {app_name}", domain, vm_role, vm_ip)
+                table.add_row("  App", f"  {app_name}", domain, vm_role, vm_ip)
 
-        console.print()
-        console.print(main_table)
-        console.print()
+    def _get_orchestrator_ip(self) -> str:
+        """Get orchestrator IP from Terraform."""
+        terraform_dir = Path.cwd() / "shared" / "terraform"
+        try:
+            subprocess.run(
+                ["terraform", "workspace", "select", "orchestrator"],
+                cwd=terraform_dir,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
 
-    except Exception as e:
-        console.print(f"[red]✗ Failed to list domains: {e}[/red]")
-        raise
+            result = subprocess.run(
+                ["terraform", "output", "-json"],
+                cwd=terraform_dir,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            outputs = json.loads(result.stdout)
+            return outputs.get("orchestrator_ip", {}).get("value", "-")
+        except:
+            return "-"
+
+    def _get_project_vms(self, project_name: str, terraform_dir: Path) -> dict:
+        """Get VMs by role for a project."""
+        try:
+            # Select workspace
+            subprocess.run(
+                ["terraform", "workspace", "select", project_name],
+                cwd=terraform_dir,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            # Get outputs
+            result = subprocess.run(
+                ["terraform", "output", "-json"],
+                cwd=terraform_dir,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            outputs = json.loads(result.stdout)
+            return outputs.get("vms_by_role", {}).get("value", {})
+        except:
+            return {}
+
+
+class DomainsRemoveCommand(BaseCommand):
+    """Remove a domain from an application or orchestrator service."""
+
+    def __init__(self, project: str, app_name: str, verbose: bool = False):
+        super().__init__(verbose=verbose)
+        self.project = project
+        self.app_name = app_name
+
+    def execute(self) -> None:
+        """Execute remove domain command."""
+        # Auto-detect orchestrator services by keyword
+        ORCHESTRATOR_SERVICES = ["grafana", "prometheus"]
+        is_orchestrator = self.app_name in ORCHESTRATOR_SERVICES
+
+        # Validate inputs
+        self._validate_inputs(is_orchestrator)
+
+        # Show header
+        self._show_header(is_orchestrator)
+
+        # Execute appropriate mode
+        if is_orchestrator:
+            self._remove_orchestrator_domain()
+        else:
+            self._remove_project_domain()
+
+    def _validate_inputs(self, is_orchestrator: bool) -> None:
+        """Validate command inputs."""
+        if is_orchestrator and self.project:
+            self.console.print(
+                f"[red]✗ '{self.app_name}' is an orchestrator service[/red]"
+            )
+            self.console.print(
+                f"\n[bold]Usage:[/bold] [cyan]superdeploy orchestrator:domains:remove {self.app_name}[/cyan]\n"
+            )
+            raise click.Abort()
+
+        if not is_orchestrator and not self.project:
+            self.console.print(
+                f"[red]✗ '{self.app_name}' requires project context[/red]"
+            )
+            self.console.print(
+                f"\n[bold]Usage:[/bold] [cyan]superdeploy <project>:domains:remove {self.app_name}[/cyan]"
+            )
+            self.console.print(
+                f"\n[bold]Example:[/bold] [cyan]superdeploy myproject:domains:remove {self.app_name}[/cyan]\n"
+            )
+            raise click.Abort()
+
+    def _show_header(self, is_orchestrator: bool) -> None:
+        """Show command header."""
+        if is_orchestrator:
+            show_header(
+                title="Remove Domain",
+                details={"Service": self.app_name, "Type": "Orchestrator"},
+                console=self.console,
+            )
+        else:
+            show_header(
+                title="Remove Domain",
+                project=self.project,
+                app=self.app_name,
+                console=self.console,
+            )
+
+    def _remove_orchestrator_domain(self) -> None:
+        """Remove domain from orchestrator service."""
+        # Load orchestrator config
+        config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
+        if not config_file.exists():
+            self.console.print("[red]✗ Orchestrator config not found[/red]")
+            raise click.Abort()
+
+        with open(config_file, "r") as f:
+            config = yaml.safe_load(f)
+
+        service_config = config.get(self.app_name, {})
+        old_domain = service_config.get("domain")
+
+        if not old_domain:
+            self.console.print(
+                f"[yellow]Service '{self.app_name}' has no domain configured[/yellow]"
+            )
+            return
+
+        # Confirm removal
+        if not click.confirm(
+            f"Remove domain '{old_domain}' from {self.app_name}?", default=False
+        ):
+            self.console.print("Aborted")
+            raise click.Abort()
+
+        # Remove domain (set to empty string)
+        config[self.app_name]["domain"] = ""
+
+        with open(config_file, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+        self.console.print(f"[green]✓ Removed domain from {config_file}[/green]")
+
+        # Redeploy Caddy on orchestrator
+        self.console.print(
+            "\n[bold yellow]▶[/bold yellow] Redeploying Caddy on orchestrator\n"
+        )
+
+        result = subprocess.run(
+            ["superdeploy", "orchestrator", "up", "--addon", "caddy"],
+            cwd=Path.cwd(),
+        )
+
+        if result.returncode != 0:
+            self.console.print("[red]✗ Failed to redeploy Caddy[/red]")
+            raise click.Abort()
+
+        self.console.print(
+            f"[green]✓ Domain '{old_domain}' removed from {self.app_name}[/green]"
+        )
+        self.console.print("Service now accessible via port-based routing only")
+
+    def _remove_project_domain(self) -> None:
+        """Remove domain from project app."""
+        # Load project config
+        project_dir = Path.cwd() / "projects" / self.project
+        config_file = project_dir / "config.yml"
+
+        if not config_file.exists():
+            self.console.print(f"[red]✗ Project '{self.project}' not found[/red]")
+            raise click.Abort()
+
+        with open(config_file, "r") as f:
+            config = yaml.safe_load(f)
+
+        apps = config.get("apps", {})
+        if self.app_name not in apps:
+            self.console.print(f"[red]✗ App '{self.app_name}' not found[/red]")
+            raise click.Abort()
+
+        app = apps[self.app_name]
+        old_domain = app.get("domain")
+
+        if not old_domain:
+            self.console.print(
+                f"[yellow]App '{self.app_name}' has no domain configured[/yellow]"
+            )
+            return
+
+        # Confirm removal
+        if not click.confirm(
+            f"Remove domain '{old_domain}' from {self.app_name}?", default=False
+        ):
+            self.console.print("Aborted")
+            raise click.Abort()
+
+        # Remove domain
+        del apps[self.app_name]["domain"]
+
+        with open(config_file, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+        self.console.print(f"[green]✓ Removed domain from {config_file}[/green]")
+
+        # Redeploy Caddy
+        self.console.print("\n[bold yellow]▶[/bold yellow] Redeploying Caddy\n")
+
+        result = subprocess.run(
+            [
+                "superdeploy",
+                "up",
+                "-p",
+                self.project,
+                "--skip-terraform",
+                "--addon",
+                "caddy",
+            ],
+            cwd=Path.cwd(),
+        )
+
+        if result.returncode != 0:
+            self.console.print("[red]✗ Failed to redeploy Caddy[/red]")
+            raise click.Abort()
+
+        self.console.print(
+            f"[green]✓ Domain '{old_domain}' removed from {self.app_name}[/green]"
+        )
+        self.console.print("App now accessible via port-based routing only")
+
+
+# Click command wrappers
+@click.command(name="domains:add")
+@click.option("-p", "--project", help="Project name (required for app domains)")
+@click.argument("app_name")
+@click.argument("domain")
+def domains_add(project: str, app_name: str, domain: str):
+    """
+    Add a domain to an application or orchestrator service.
+
+    Orchestrator services (grafana, prometheus) are auto-detected.
+    Project apps use namespace syntax.
+
+    Examples:
+    # Orchestrator services (keyword-based)
+    superdeploy orchestrator:domains:add grafana grafana.cheapa.io
+    superdeploy orchestrator:domains:add prometheus prometheus.cheapa.io
+
+    # Project apps (namespace syntax - NEW!)
+    superdeploy cheapa:domains:add api api.cheapa.io
+    superdeploy cheapa:domains:add dashboard dashboard.cheapa.io
+    """
+    cmd = DomainsAddCommand(project=project, app_name=app_name, domain=domain)
+    cmd.run()
+
+
+@click.command(name="domains:list")
+@click.option("-p", "--project", help="Project name (show only this project)")
+def domains_list(project: str):
+    """
+    List all domains (orchestrator + all projects).
+
+    By default shows ALL domains. Use namespace syntax to filter by project.
+
+    Examples:
+        superdeploy domains:list                  # all domains
+        superdeploy cheapa:domains:list           # only cheapa project
+    """
+    cmd = DomainsListCommand(project=project)
+    cmd.run()
 
 
 @click.command(name="domains:remove")
@@ -522,163 +768,11 @@ def domains_remove(project: str, app_name: str):
     Remove a domain from an application or orchestrator service.
 
     Orchestrator services (grafana, prometheus) are auto-detected.
-    Project apps require -p flag.
+    Project apps use namespace syntax.
 
     Examples:
         superdeploy orchestrator:domains:remove grafana   # orchestrator
         superdeploy cheapa:domains:remove api            # project app
     """
-    try:
-        # Auto-detect orchestrator services by keyword
-        ORCHESTRATOR_SERVICES = ["grafana", "prometheus"]
-        is_orchestrator = app_name in ORCHESTRATOR_SERVICES
-
-        # Validate inputs
-        if is_orchestrator and project:
-            console.print(f"[red]✗ '{app_name}' is an orchestrator service[/red]")
-            console.print(
-                "[yellow]Tip: Don't use -p flag for orchestrator services[/yellow]"
-            )
-            console.print(f"Usage: superdeploy orchestrator:domains:remove {app_name}")
-            raise click.Abort()
-
-        if not is_orchestrator and not project:
-            console.print(f"[red]✗ '{app_name}' requires -p <project> flag[/red]")
-            console.print(f"Usage: superdeploy <project>:domains:remove {app_name}")
-            raise click.Abort()
-
-        # Show header
-        if is_orchestrator:
-            show_header(
-                title="Remove Domain",
-                details={"Service": app_name, "Type": "Orchestrator"},
-                console=console,
-            )
-        else:
-            show_header(
-                title="Remove Domain",
-                project=project,
-                app=app_name,
-                console=console,
-            )
-
-        # ORCHESTRATOR MODE
-        if is_orchestrator:
-            # Load orchestrator config
-            config_file = Path.cwd() / "shared" / "orchestrator" / "config.yml"
-            if not config_file.exists():
-                console.print("[red]✗ Orchestrator config not found[/red]")
-                raise click.Abort()
-
-            with open(config_file, "r") as f:
-                config = yaml.safe_load(f)
-
-            service_config = config.get(app_name, {})
-            old_domain = service_config.get("domain")
-
-            if not old_domain:
-                console.print(
-                    f"[yellow]Service '{app_name}' has no domain configured[/yellow]"
-                )
-                return
-
-            # Confirm removal
-            if not click.confirm(
-                f"Remove domain '{old_domain}' from {app_name}?", default=False
-            ):
-                console.print("Aborted")
-                raise click.Abort()
-
-            # Remove domain (set to empty string)
-            config[app_name]["domain"] = ""
-
-            with open(config_file, "w") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-            console.print(f"[green]✓ Removed domain from {config_file}[/green]")
-
-            # Redeploy Caddy on orchestrator
-            console.print(
-                "\n[bold yellow]▶[/bold yellow] Redeploying Caddy on orchestrator\n"
-            )
-
-            result = subprocess.run(
-                ["superdeploy", "orchestrator", "up", "--addon", "caddy"],
-                cwd=Path.cwd(),
-            )
-
-            if result.returncode != 0:
-                console.print("[red]✗ Failed to redeploy Caddy[/red]")
-                raise click.Abort()
-
-            console.print(
-                f"[green]✓ Domain '{old_domain}' removed from {app_name}[/green]"
-            )
-            console.print("Service now accessible via port-based routing only")
-            return
-
-        # PROJECT MODE
-        # Load project config
-        project_dir = Path.cwd() / "projects" / project
-        config_file = project_dir / "config.yml"
-
-        if not config_file.exists():
-            console.print(f"[red]✗ Project '{project}' not found[/red]")
-            raise click.Abort()
-
-        with open(config_file, "r") as f:
-            config = yaml.safe_load(f)
-
-        apps = config.get("apps", {})
-        if app_name not in apps:
-            console.print(f"[red]✗ App '{app_name}' not found[/red]")
-            raise click.Abort()
-
-        app = apps[app_name]
-        old_domain = app.get("domain")
-
-        if not old_domain:
-            console.print(f"[yellow]App '{app_name}' has no domain configured[/yellow]")
-            return
-
-        # Confirm removal
-        if not click.confirm(
-            f"Remove domain '{old_domain}' from {app_name}?", default=False
-        ):
-            console.print("Aborted")
-            raise click.Abort()
-
-        # Remove domain
-        del apps[app_name]["domain"]
-
-        with open(config_file, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-        console.print(f"[green]✓ Removed domain from {config_file}[/green]")
-
-        # Redeploy Caddy
-        console.print("\n[bold yellow]▶[/bold yellow] Redeploying Caddy\n")
-
-        result = subprocess.run(
-            [
-                "superdeploy",
-                "up",
-                "-p",
-                project,
-                "--skip-terraform",
-                "--addon",
-                "caddy",
-            ],
-            cwd=Path.cwd(),
-        )
-
-        if result.returncode != 0:
-            console.print("[red]✗ Failed to redeploy Caddy[/red]")
-            raise click.Abort()
-
-        console.print(f"[green]✓ Domain '{old_domain}' removed from {app_name}[/green]")
-        console.print("App now accessible via port-based routing only")
-
-    except Exception as e:
-        console.print(f"[red]✗ Failed to remove domain: {e}[/red]")
-        raise
+    cmd = DomainsRemoveCommand(project=project, app_name=app_name)
+    cmd.run()

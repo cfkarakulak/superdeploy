@@ -1,20 +1,22 @@
 version: '3.8'
 
 services:
-  {{ addon_name }}:
+  {{ service_name }}:
     image: caddy:{{ version }}
-    container_name: {{ project_name }}-{{ addon_name }}
+    container_name: {{ container_name }}
     restart: always
+    env_file:
+      - .env
     environment:
-      CADDY_EMAIL: ${CADDY_EMAIL}
+      CADDY_EMAIL: ${EMAIL}
     volumes:
-      - {{ addon_name }}-data:/data
-      - {{ addon_name }}-config:/config
+      - {{ volume_name }}:/data
+      - {{ volume_name }}-config:/config
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     ports:
-      - "${CADDY_HTTP_PORT}:80"
-      - "${CADDY_HTTPS_PORT}:443"
-      - "${CADDY_ADMIN_PORT}:2019"
+      - "${HTTP_PORT}:80"
+      - "${HTTPS_PORT}:443"
+      - "${ADMIN_PORT}:2019"
     networks:
       - {{ project_name }}-network
 {% if healthcheck and healthcheck.interval is defined %}
@@ -32,20 +34,23 @@ services:
           memory: {{ resources.memory | default('256M') }}
           cpus: '{{ resources.cpu | default('0.5') }}'
         reservations:
-          memory: {{ resources.memory_reservation | default('128M') }}
-          cpus: '{{ resources.cpu_reservation | default('0.25') }}'
+          memory: {{ (resources.memory | default('256M') | regex_replace('([0-9]+)([MG])', '\\1') | int / 2) | int }}{{ resources.memory | default('256M') | regex_replace('[0-9]+', '') }}
+          cpus: '{{ (resources.cpu | default('0.5') | float / 2) | round(2) }}'
     labels:
       - "prometheus.scrape=true"
       - "prometheus.port={{ monitoring.metrics_port | default(9090) }}"
       - "prometheus.path=/metrics"
       - "project={{ project_name }}"
-      - "service={{ addon_name }}"
+      - "addon.type=caddy"
+      - "addon.instance={{ instance_name }}"
+      - "addon.full_name={{ instance_full_name }}"
+      - "service={{ service_name }}"
 
 volumes:
-  {{ addon_name }}-data:
-    name: {{ project_name }}-{{ addon_name }}-data
-  {{ addon_name }}-config:
-    name: {{ project_name }}-{{ addon_name }}-config
+  {{ volume_name }}:
+    name: {{ volume_name }}
+  {{ volume_name }}-config:
+    name: {{ volume_name }}-config
 
 networks:
   {{ project_name }}-network:

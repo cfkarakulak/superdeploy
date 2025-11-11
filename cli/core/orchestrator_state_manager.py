@@ -5,6 +5,46 @@ import hashlib
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional
+from dataclasses import dataclass
+
+
+@dataclass
+class OrchestratorState:
+    """Orchestrator deployment state."""
+
+    deployed: bool
+    orchestrator_ip: Optional[str] = None
+    vm: Optional[Dict[str, Any]] = None
+    addons: Optional[Dict[str, Any]] = None
+    config: Optional[Dict[str, Any]] = None
+    last_applied: Optional[Dict[str, Any]] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "OrchestratorState":
+        """Create from dict."""
+        return cls(
+            deployed=data.get("deployed", False),
+            orchestrator_ip=data.get("orchestrator_ip"),
+            vm=data.get("vm"),
+            addons=data.get("addons"),
+            config=data.get("config"),
+            last_applied=data.get("last_applied"),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dict."""
+        result = {"deployed": self.deployed}
+        if self.orchestrator_ip:
+            result["orchestrator_ip"] = self.orchestrator_ip
+        if self.vm:
+            result["vm"] = self.vm
+        if self.addons:
+            result["addons"] = self.addons
+        if self.config:
+            result["config"] = self.config
+        if self.last_applied:
+            result["last_applied"] = self.last_applied
+        return result
 
 
 class OrchestratorStateManager:

@@ -1,98 +1,125 @@
 """
 State Management Service
 
-Centralized state loading, VM IP resolution, and state updates.
-Used by 20+ commands that need deployment state access.
+Centralized state loading, VM IP resolution, and state updates using domain models.
 """
 
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
+
 from cli.state_manager import StateManager
+from cli.models.deployment import DeploymentState, VMState
+from cli.exceptions import StateError, VMNotFoundError, ProjectNotDeployedError
 
 
 class StateService:
     """
-    Centralized state management service.
+    Centralized state management service with type-safe models.
 
     Responsibilities:
     - Load and cache project state
     - VM IP resolution
-    - State updates
-    - Common error handling for missing state
+    - State query operations
+    - Deployment status checks
     """
 
     def __init__(self, project_root: Path, project_name: str):
+        """
+        Initialize state service.
+
+        Args:
+            project_root: Path to superdeploy root directory
+            project_name: Name of the project
+        """
         self.project_root = project_root
         self.project_name = project_name
         self.state_manager = StateManager(project_root, project_name)
-        self._state_cache: Optional[Dict[str, Any]] = None
+        self._state_cache: Optional[DeploymentState] = None
 
-    def load_state(self, force_reload: bool = False) -> Dict[str, Any]:
+    def load_state(self, force_reload: bool = False) -> DeploymentState:
         """
-        Load project state with caching.
+        Load project deployment state with caching.
 
         Args:
             force_reload: Force reload from disk, ignore cache
 
         Returns:
-            State dictionary
+            DeploymentState object
 
         Raises:
-            RuntimeError: If state not found or invalid
+            ProjectNotDeployedError: If state not found or invalid
         """
         if self._state_cache is None or force_reload:
             self._state_cache = self.state_manager.load_state()
 
-            if not self._state_cache:
-                raise RuntimeError(
-                    f"No deployment state found for project '{self.project_name}'\n"
-                    f"Run: superdeploy {self.project_name}:up"
-                )
-
-            if "vms" not in self._state_cache:
-                raise RuntimeError(
-                    f"Invalid state: no VMs found for project '{self.project_name}'"
-                )
+            if not self._state_cache.has_vms:
+                raise ProjectNotDeployedError(self.project_name)
 
         return self._state_cache
+
+    def get_vm_state(self, vm_name: str) -> VMState:
+        """
+        Get VM state by name.
+
+        Args:
+            vm_name: VM name (e.g., "core", "app")
+
+        Returns:
+            VMState object
+
+        Raises:
+            VMNotFoundError: If VM not found
+        """
+        state = self.load_state()
+        vm_state = state.get_vm(vm_name)
+
+        if vm_state is None:
+            available_vms = list(state.vms.keys())
+            raise VMNotFoundError(vm_name, available_vms)
+
+        return vm_state
 
     def get_vm_ip(self, vm_name: str, ip_type: str = "external") -> str:
         """
         Get VM IP address by name.
 
         Args:
-            vm_name: VM name (e.g., "core-0", "app-0")
+            vm_name: VM name (e.g., "core", "app")
             ip_type: "external" or "internal"
 
         Returns:
             IP address string
 
         Raises:
-            RuntimeError: If VM or IP not found
+            VMNotFoundError: If VM not found
+            StateError: If IP not available
         """
-        state = self.load_state()
-        vms = state.get("vms", {})
+        vm_state = self.get_vm_state(vm_name)
 
-        if vm_name not in vms:
-            raise RuntimeError(
-                f"VM '{vm_name}' not found in state\n"
-                f"Available VMs: {', '.join(vms.keys())}"
+        if ip_type == "external":
+            if vm_state.external_ip is None:
+                raise StateError(
+                    f"No external IP found for VM '{vm_name}'",
+                    context=f"Run: superdeploy {self.project_name}:up",
+                )
+            return vm_state.external_ip
+        elif ip_type == "internal":
+            if vm_state.internal_ip is None:
+                raise StateError(
+                    f"No internal IP found for VM '{vm_name}'",
+                    context=f"Run: superdeploy {self.project_name}:up",
+                )
+            return vm_state.internal_ip
+        else:
+            raise ValueError(
+                f"Invalid IP type: {ip_type}. Must be 'external' or 'internal'"
             )
-
-        ip_key = f"{ip_type}_ip"
-        if ip_key not in vms[vm_name]:
-            raise RuntimeError(
-                f"No {ip_type} IP found for VM '{vm_name}'\n"
-                f"Run: superdeploy {self.project_name}:up"
-            )
-
-        return vms[vm_name][ip_key]
 
     def get_vm_ip_by_role(
         self, vm_role: str, ip_type: str = "external", index: int = 0
     ) -> str:
         """
-        Get VM IP by role and index.
+        Get VM IP by role and index (for multi-VM setups).
 
         Args:
             vm_role: VM role (e.g., "core", "app")
@@ -101,9 +128,13 @@ class StateService:
 
         Returns:
             IP address string
+
+        Raises:
+            VMNotFoundError: If VM not found
         """
-        vm_name = f"{vm_role}-{index}"
-        return self.get_vm_ip(vm_name, ip_type)
+        # For now, we use simple naming: role = name
+        # In future with multi-VM: vm_name = f"{vm_role}-{index}"
+        return self.get_vm_ip(vm_role, ip_type)
 
     def get_all_vm_ips(self, ip_type: str = "external") -> Dict[str, str]:
         """
@@ -116,42 +147,69 @@ class StateService:
             Dictionary of {vm_name: ip_address}
         """
         state = self.load_state()
-        vms = state.get("vms", {})
+        result: Dict[str, str] = {}
 
-        result = {}
-        ip_key = f"{ip_type}_ip"
-
-        for vm_name, vm_data in vms.items():
-            if ip_key in vm_data:
-                result[vm_name] = vm_data[ip_key]
+        for vm_name, vm_state in state.vms.items():
+            if ip_type == "external" and vm_state.external_ip:
+                result[vm_name] = vm_state.external_ip
+            elif ip_type == "internal" and vm_state.internal_ip:
+                result[vm_name] = vm_state.internal_ip
 
         return result
+
+    def get_all_vms(self) -> Dict[str, Dict[str, Optional[str]]]:
+        """
+        Get all VMs with their details.
+
+        Returns:
+            Dictionary of VM states as dicts
+        """
+        state = self.load_state()
+        return {
+            vm_name: {
+                "external_ip": vm.external_ip,
+                "internal_ip": vm.internal_ip,
+                "status": vm.status.value,
+                "machine_type": vm.machine_type,
+            }
+            for vm_name, vm in state.vms.items()
+        }
 
     def has_state(self) -> bool:
         """
         Check if state exists without raising error.
 
         Returns:
-            True if state exists and valid
+            True if state exists and has VMs
         """
         try:
-            self.load_state()
-            return True
-        except RuntimeError:
+            state = self.load_state()
+            return state.has_vms
+        except Exception:
             return False
 
-    def save_state(self, config: Dict[str, Any], state_data: Dict[str, Any]) -> None:
+    def is_deployed(self) -> bool:
         """
-        Save state to disk.
+        Check if project is fully deployed.
 
-        Args:
-            config: Project config
-            state_data: State data (vms, addons, apps)
+        Returns:
+            True if deployment is complete
         """
-        self.state_manager.save_state(config, state_data)
-        self._state_cache = None  # Invalidate cache
+        try:
+            state = self.load_state()
+            return state.is_deployed
+        except Exception:
+            return False
+
+    def invalidate_cache(self) -> None:
+        """Invalidate the state cache to force reload on next access."""
+        self._state_cache = None
 
     def mark_destroyed(self) -> None:
-        """Mark project as destroyed in state."""
+        """
+        Mark project as destroyed and clear state.
+
+        This removes the state file and invalidates cache.
+        """
         self.state_manager.mark_destroyed()
         self._state_cache = None

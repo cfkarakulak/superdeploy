@@ -3,8 +3,29 @@
 import click
 import subprocess
 from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional, List, Tuple
+
 from cli.base import ProjectCommand
 from cli.logger import DeployLogger, run_with_progress
+from cli.services.deployment_validator import DeploymentValidator
+from cli.services.secret_ip_updater import SecretIPUpdater
+from cli.services.ansible_inventory_generator import AnsibleInventoryGenerator
+
+
+@dataclass
+class DeploymentOptions:
+    """Options for deployment execution."""
+
+    skip_terraform: bool = False
+    skip_ansible: bool = False
+    skip_sync: bool = False
+    skip: Tuple[str, ...] = ()
+    addon: Optional[str] = None
+    tags: Optional[str] = None
+    preserve_ip: bool = False
+    force: bool = False
+    dry_run: bool = False
 
 
 class UpCommand(ProjectCommand):
@@ -63,24 +84,13 @@ class UpCommand(ProjectCommand):
         with DeployLogger(self.project_name, "up", verbose=self.verbose) as logger:
             try:
                 # Validate secrets before deployment
-                validation_errors = _validate_secrets(
-                    self.project_root, self.config_service, self.project_name, logger
+                validator = DeploymentValidator(
+                    self.project_root, self.config_service, self.project_name
                 )
+                validation_errors = validator.validate_secrets(logger)
+
                 if validation_errors:
-                    self.console.print("")
-                    self.console.print("[red]❌ Validation Failed[/red]")
-                    self.console.print("")
-                    self.console.print("Please fix the following issues:")
-                    self.console.print("")
-                    for error in validation_errors:
-                        self.console.print(f"  [red]•[/red] {error}")
-                    self.console.print("")
-                    self.console.print(
-                        "[dim]Edit secrets:[/dim] projects/{}/secrets.yml".format(
-                            self.project_name
-                        )
-                    )
-                    self.console.print("")
+                    self._display_validation_errors(validation_errors)
                     raise SystemExit(1)
 
                 # Force mode: Clear state to trigger full re-deployment
@@ -294,6 +304,21 @@ class UpCommand(ProjectCommand):
             changes,
         )
 
+    def _display_validation_errors(self, errors: List[str]) -> None:
+        """Display validation errors in a formatted manner."""
+        self.console.print("")
+        self.console.print("[red]❌ Validation Failed[/red]")
+        self.console.print("")
+        self.console.print("Please fix the following issues:")
+        self.console.print("")
+        for error in errors:
+            self.console.print(f"  [red]•[/red] {error}")
+        self.console.print("")
+        self.console.print(
+            f"[dim]Edit secrets:[/dim] projects/{self.project_name}/secrets.yml"
+        )
+        self.console.print("")
+
 
 def _deploy_project_internal(
     logger,
@@ -378,8 +403,8 @@ def _deploy_project_internal(
     }
 
     # Add secrets to env
-    if secrets_data.get("secrets", {}).get("shared"):
-        env.update(secrets_data["secrets"]["shared"])
+    if secrets_data and secrets_data.shared.values:
+        env.update(secrets_data.shared.values)
 
     # Validate required vars
     required = ["GCP_PROJECT_ID", "GCP_REGION", "SSH_KEY_PATH"]
@@ -592,7 +617,8 @@ def _deploy_project_internal(
             console.print("  [dim]✓ Configuration • Environment loaded[/dim]")
 
     # Auto-update secrets.yml with VM internal IPs (for multi-VM architecture)
-    _update_secrets_with_vm_ips(project_root, project, env, logger)
+    ip_updater = SecretIPUpdater(project_root, project)
+    ip_updater.update_secrets_with_vm_ips(env, logger)
 
     # Ansible - Smart skip logic
     if not skip_ansible:
@@ -628,11 +654,10 @@ def _deploy_project_internal(
             # else: env already has IPs from terraform outputs above
 
             # Generate inventory
-            from cli.commands.up import generate_ansible_inventory
-
             ansible_dir = project_root / "shared" / "ansible"
-            generate_ansible_inventory(
-                env, ansible_dir, project, orchestrator_ip, project_config_obj
+            inventory_generator = AnsibleInventoryGenerator(ansible_dir)
+            inventory_generator.generate_inventory(
+                env, project, orchestrator_ip, project_config_obj
             )
 
             # Build ansible command
@@ -646,8 +671,8 @@ def _deploy_project_internal(
 
             secret_mgr = SecretManager(project_root, project)
             all_secrets = secret_mgr.load_secrets()
-            ansible_vars["project_secrets"] = all_secrets.get("secrets", {})
-            ansible_vars["env_aliases"] = all_secrets.get("env_aliases", {})
+            ansible_vars["project_secrets"] = all_secrets.to_dict().get("secrets", {})
+            ansible_vars["env_aliases"] = all_secrets.env_aliases
 
             ansible_env_vars = {"superdeploy_root": str(project_root)}
 
@@ -694,17 +719,127 @@ def _deploy_project_internal(
             runner = AnsibleRunner(
                 logger, title="Configuring Services", verbose=verbose
             )
-            result_returncode = runner.run(ansible_cmd, cwd=project_root)
 
-            if result_returncode != 0:
-                logger.log_error(
-                    "Ansible configuration failed", context="Check logs for details"
+            # Deploy addons separately for clean output (each addon as main-level play)
+            deploy_addons_separately = "addons" in ansible_tags
+
+            if deploy_addons_separately:
+                # Get list of addons to deploy
+                addons_to_deploy = enabled_addons_list if enabled_addons_list else []
+                if not addons_to_deploy:
+                    # Parse all addons from config
+                    raw_addons = project_config_obj.raw_config.get("addons", {})
+                    for category, instances in raw_addons.items():
+                        for instance_name in instances.keys():
+                            addons_to_deploy.append(f"{category}.{instance_name}")
+
+            if deploy_addons_separately and addons_to_deploy:
+                # Run foundation + project first (without addons)
+                base_tags = (
+                    ansible_tags.replace("addons,", "")
+                    .replace(",addons", "")
+                    .replace("addons", "")
                 )
-                console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
-                console.print(
-                    f"[dim]Ansible detailed log:[/dim] {logger.log_path.parent / f'{logger.log_path.stem}_ansible.log'}\n"
-                )
-                raise SystemExit(1)
+                if base_tags:
+                    base_cmd = build_ansible_command(
+                        ansible_dir=ansible_dir,
+                        project_root=project_root,
+                        project_config=ansible_vars,
+                        env_vars=ansible_env_vars,
+                        tags=base_tags,
+                        project_name=project,
+                        ask_become_pass=False,
+                        enabled_addons=[],
+                        force=force,
+                    )
+                    result_returncode = runner.run(base_cmd, cwd=project_root)
+
+                    if result_returncode != 0:
+                        logger.log_error(
+                            "Ansible configuration failed", context="Check logs"
+                        )
+                        raise SystemExit(1)
+
+                # Deploy each addon separately for clean tree output
+                for addon_name in addons_to_deploy:
+                    # Parse addon (e.g., "databases.primary")
+                    parts = addon_name.split(".")
+                    if len(parts) != 2:
+                        continue
+
+                    category, instance_name = parts
+                    addon_config = (
+                        project_config_obj.raw_config.get("addons", {})
+                        .get(category, {})
+                        .get(instance_name, {})
+                    )
+
+                    if not addon_config:
+                        continue
+
+                    addon_type = addon_config.get("type")
+                    addon_version = addon_config.get("version", "latest")
+                    addon_plan = addon_config.get("plan", "standard")
+
+                    # Build addon instance dict
+                    addon_instance_dict = {
+                        "full_name": addon_name,
+                        "type": addon_type,
+                        "version": addon_version,
+                        "plan": addon_plan,
+                        "category": category,
+                        "name": instance_name,
+                        "options": addon_config.get("options", {}),
+                    }
+
+                    # Build addon-specific env vars (these get passed through to Ansible via custom_vars)
+                    addon_env_vars = ansible_env_vars.copy()
+                    addon_env_vars["addon_instance"] = addon_instance_dict
+                    addon_env_vars["current_addon"] = (
+                        addon_instance_dict  # For role compatibility
+                    )
+                    addon_env_vars["addons_base_path"] = (
+                        f"/opt/superdeploy/projects/{project}/addons"
+                    )
+                    addon_env_vars["addons_source_path"] = str(
+                        project_root / "shared" / "ansible" / "../../addons"
+                    )
+                    addon_env_vars["target_hosts"] = "all:!orchestrator"
+
+                    addon_cmd = build_ansible_command(
+                        ansible_dir=ansible_dir,
+                        project_root=project_root,
+                        project_config=ansible_vars,  # Keep original config
+                        env_vars=addon_env_vars,  # Pass addon vars via env_vars (gets added to custom_vars)
+                        tags="",  # No tags for single addon
+                        project_name=project,
+                        ask_become_pass=False,
+                        enabled_addons=[],
+                        force=force,
+                        playbook="addon-single.yml",  # Override playbook
+                    )
+
+                    addon_runner = AnsibleRunner(
+                        logger, title=f"Deploy {addon_name}", verbose=verbose
+                    )
+                    result_returncode = addon_runner.run(addon_cmd, cwd=project_root)
+
+                    if result_returncode != 0:
+                        logger.log_error(f"Addon {addon_name} deployment failed")
+                        raise SystemExit(1)
+            else:
+                # Normal single Ansible run
+                result_returncode = runner.run(ansible_cmd, cwd=project_root)
+
+                if result_returncode != 0:
+                    logger.log_error(
+                        "Ansible configuration failed", context="Check logs for details"
+                    )
+                    console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
+                    console.print(
+                        f"[dim]Ansible detailed log:[/dim] {logger.log_path.parent / f'{logger.log_path.stem}_ansible.log'}\n"
+                    )
+                    raise SystemExit(1)
 
             console.print("[green]✓ Services configured[/green]")
 
@@ -764,15 +899,15 @@ def _deploy_project_internal(
                 if result.returncode == 0:
                     logger.log("✓ Secrets synced to GitHub")
                 else:
-                    logger.warn("⚠ Secret sync had issues:")
+                    logger.warning("⚠ Secret sync had issues:")
                     if result.stderr:
                         for line in result.stderr.split("\n")[:5]:
                             if line.strip():
-                                logger.warn(f"  {line}")
+                                logger.warning(f"  {line}")
             except subprocess.TimeoutExpired:
-                logger.warn("⚠ Secret sync timed out")
+                logger.warning("⚠ Secret sync timed out")
             except Exception as e:
-                logger.warn(f"⚠ Secret sync failed: {e}")
+                logger.warning(f"⚠ Secret sync failed: {e}")
         except Exception as e:
             logger.log_error(f"Failed to sync secrets: {e}")
             logger.warning("Continuing deployment without secret sync")
@@ -997,9 +1132,14 @@ def _deploy_project_internal(
                 if vm_ip:
                     if domain:
                         console.print(f"   • [cyan]{app_name}:[/cyan] https://{domain}")
-                    else:
+                    elif port:
                         console.print(
                             f"   • [cyan]{app_name}:[/cyan] http://{vm_ip}:{port}"
+                        )
+                    else:
+                        # Worker or internal service (no public endpoint)
+                        console.print(
+                            f"   • [cyan]{app_name}:[/cyan] [dim](worker - no public endpoint)[/dim]"
                         )
 
         console.print("\n" + "=" * 80)
@@ -1007,284 +1147,6 @@ def _deploy_project_internal(
         console.print(
             f"[dim]Ansible detailed log:[/dim] {logger.log_path.parent / f'{logger.log_path.stem}_ansible.log'}\n"
         )
-
-
-def generate_ansible_inventory(
-    env, ansible_dir, project_name, orchestrator_ip=None, project_config=None
-):
-    """Generate Ansible inventory file dynamically from environment variables
-
-    Args:
-        env: Environment variables dict
-        ansible_dir: Path to ansible directory
-        project_name: Project name
-        orchestrator_ip: Orchestrator VM IP (from global config)
-        project_config: Project configuration object (to get VM services)
-    """
-    import json
-
-    # Extract VM groups from environment variables
-    # Format: {ROLE}_{INDEX}_EXTERNAL_IP
-    vm_groups = {}
-
-    for key, value in env.items():
-        if key.endswith("_EXTERNAL_IP"):
-            # Parse VM key from env var (e.g., "CORE_0_EXTERNAL_IP" -> "core-0")
-            vm_key = key.replace("_EXTERNAL_IP", "").lower().replace("_", "-")
-            # Extract role from vm_key (e.g., "core-0" -> "core")
-            role = vm_key.rsplit("-", 1)[0]
-
-            if role not in vm_groups:
-                vm_groups[role] = []
-
-            vm_info = {
-                "name": f"{project_name}-{vm_key}",
-                "host": value,
-                "user": env.get("SSH_USER", "superdeploy"),
-                "role": role,
-            }
-
-            vm_groups[role].append(vm_info)
-
-    # Get VM services and apps from project config
-    vm_services_map = {}
-    vm_apps_map = {}
-
-    if project_config:
-        vms_config = project_config.raw_config.get("vms", {})
-        apps_config = project_config.raw_config.get("apps", {})
-
-        # Build services map per VM
-        for vm_role, vm_def in vms_config.items():
-            services = list(vm_def.get("services", []))  # Make a copy
-
-            # Always add caddy to every VM (for domain management and reverse proxy)
-            if "caddy" not in services:
-                services.append("caddy")
-
-            vm_services_map[vm_role] = services
-
-        # Build apps map per VM (which apps are assigned to which VM)
-        for app_name, app_config in apps_config.items():
-            app_vm = app_config.get("vm", "app")  # Default to 'app' VM
-            if app_vm not in vm_apps_map:
-                vm_apps_map[app_vm] = []
-            vm_apps_map[app_vm].append(app_name)
-
-    # Build inventory content
-    inventory_lines = []
-
-    # NOTE: Orchestrator is included in inventory for runner registration
-    # but it won't receive project-specific addons (filtered by vm_services)
-
-    # Add orchestrator group if available (for runner token generation)
-    if orchestrator_ip:
-        inventory_lines.append("[orchestrator]")
-        inventory_lines.append(
-            f"orchestrator-main-0 ansible_host={orchestrator_ip} ansible_user=superdeploy vm_role=orchestrator"
-        )
-        inventory_lines.append("")
-
-    # Add project VM groups
-    for role in sorted(vm_groups.keys()):
-        inventory_lines.append(f"[{role}]")
-        for vm in sorted(vm_groups[role], key=lambda x: x["name"]):
-            # Get services for this VM role
-            services = vm_services_map.get(role, [])
-            # Get apps for this VM role
-            apps = vm_apps_map.get(role, [])
-
-            # Convert to JSON and properly quote for INI format
-            # INI parser needs quotes around JSON arrays
-            services_json = json.dumps(services).replace('"', '\\"')
-            apps_json = json.dumps(apps).replace('"', '\\"')
-
-            inventory_lines.append(
-                f'{vm["name"]} ansible_host={vm["host"]} ansible_user={vm["user"]} vm_role={role} vm_services="{services_json}" vm_apps="{apps_json}"'
-            )
-        inventory_lines.append("")  # Empty line between groups
-
-    inventory_content = "\n".join(inventory_lines)
-
-    inventory_path = ansible_dir / "inventories" / f"{project_name}.ini"
-    inventory_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(inventory_path, "w") as f:
-        f.write(inventory_content)
-
-
-def _validate_secrets(project_root, config_service, project_name, logger):
-    """
-    Validate project secrets before deployment.
-
-    Returns:
-        List of error messages (empty list if validation passes)
-    """
-    from cli.secret_manager import SecretManager
-
-    errors = []
-
-    # Initialize secret manager
-    secret_mgr = SecretManager(project_root, project_name)
-
-    # Check if secrets file exists
-    if not secret_mgr.secrets_file.exists():
-        errors.append("secrets.yml not found")
-        errors.append(f"Run: superdeploy :init{project_name}")
-        return errors
-
-    # Load secrets
-    try:
-        secrets_data = secret_mgr.load_secrets()
-    except Exception as e:
-        errors.append(f"Failed to load secrets.yml: {e}")
-        return errors
-
-    if not secrets_data or "secrets" not in secrets_data:
-        errors.append("Invalid secrets.yml structure (missing 'secrets' key)")
-        return errors
-
-    shared_secrets = secrets_data["secrets"].get("shared", {})
-
-    # Required: Docker credentials
-    docker_username = shared_secrets.get("DOCKER_USERNAME", "").strip()
-    docker_token = shared_secrets.get("DOCKER_TOKEN", "").strip()
-
-    if not docker_username:
-        errors.append("DOCKER_USERNAME is missing or empty in secrets.yml")
-    if not docker_token:
-        errors.append("DOCKER_TOKEN is missing or empty in secrets.yml")
-
-    # Required: GitHub token (for CI/CD)
-    github_token = shared_secrets.get("GITHUB_TOKEN", "").strip()
-    if not github_token:
-        errors.append("GITHUB_TOKEN is missing or empty in secrets.yml")
-
-    # Warn about ORCHESTRATOR_IP (should be set after orchestrator:up)
-    orchestrator_ip = shared_secrets.get("ORCHESTRATOR_IP", "").strip()
-    if not orchestrator_ip:
-        logger.log("")
-        logger.log("[yellow]⚠[/yellow] ORCHESTRATOR_IP not set in secrets.yml")
-        logger.log(
-            "[dim]   Run 'superdeploy orchestrator:up' first to set it automatically[/dim]"
-        )
-        logger.log("")
-
-    # Addon-specific validation: Check required secrets for enabled addons
-    try:
-        import yaml
-
-        project_config = config_service.load_project_config(project_name)
-
-        # Get enabled addons
-        enabled_addons = project_config.raw_config.get("addons", {})
-
-        if enabled_addons:
-            addons_dir = project_root / "addons"
-
-            for addon_name in enabled_addons.keys():
-                addon_yml_path = addons_dir / addon_name / "addon.yml"
-
-                if not addon_yml_path.exists():
-                    continue  # Skip if addon.yml not found
-
-                # Load addon metadata
-                try:
-                    with open(addon_yml_path, "r") as f:
-                        addon_meta = yaml.safe_load(f)
-
-                    # Check for required secret env vars
-                    env_vars = addon_meta.get("env_vars", [])
-
-                    for env_var in env_vars:
-                        var_name = env_var.get("name")
-                        is_secret = env_var.get("secret", False)
-                        is_required = env_var.get("required", False)
-
-                        # Only validate required secrets
-                        if is_secret and is_required:
-                            var_value = shared_secrets.get(var_name, "").strip()
-
-                            if not var_value:
-                                errors.append(
-                                    f"{var_name} is missing or empty (required by {addon_name} addon)"
-                                )
-
-                except Exception as e:
-                    # Don't fail validation if addon.yml parsing fails
-                    logger.log(
-                        f"[dim]Warning: Could not parse addon.yml for {addon_name}: {e}[/dim]"
-                    )
-
-    except Exception as e:
-        # Don't fail validation if project config loading fails
-        logger.log(
-            f"[dim]Warning: Could not load project config for addon validation: {e}[/dim]"
-        )
-
-    return errors
-
-
-def _update_secrets_with_vm_ips(project_root, project, env, logger):
-    """
-    Auto-update secrets.yml with VM internal IPs for multi-VM architecture
-
-    This ensures services like postgres/rabbitmq on core VM can be reached
-    from apps on app VM using internal IPs instead of hostnames.
-    """
-    from cli.secret_manager import SecretManager
-    from cli.state_manager import StateManager
-
-    secret_mgr = SecretManager(project_root, project)
-    secrets_data = secret_mgr.load_secrets()
-
-    if not secrets_data or "secrets" not in secrets_data:
-        return  # No secrets to update
-
-    shared_secrets = secrets_data.get("secrets", {}).get("shared", {})
-    if not shared_secrets:
-        return  # No shared secrets
-
-    # Get core VM internal IP from env or state
-    core_internal_ip = env.get("CORE_0_INTERNAL_IP")
-
-    if not core_internal_ip:
-        # Try to load from state
-        state_mgr = StateManager(project_root, project)
-        state = state_mgr.load_state()
-        core_vm = state.get("vms", {}).get("core", {})
-        core_internal_ip = core_vm.get("internal_ip")
-
-    if not core_internal_ip:
-        return  # No core VM found
-
-    # Update service hosts with internal IP
-    updated = False
-    service_hosts = {
-        "POSTGRES_HOST": ("postgres", "PostgreSQL"),
-        "RABBITMQ_HOST": ("rabbitmq", "RabbitMQ"),
-        "MONGODB_HOST": ("mongodb", "MongoDB"),
-        "REDIS_HOST": ("redis", "Redis"),
-        "ELASTICSEARCH_HOST": ("elasticsearch", "Elasticsearch"),
-    }
-
-    for host_key, (default_name, service_name) in service_hosts.items():
-        if host_key in shared_secrets:
-            current_value = shared_secrets[host_key]
-            # Update if it's default hostname OR if it differs from core IP
-            if current_value != core_internal_ip:
-                old_value = current_value
-                shared_secrets[host_key] = core_internal_ip
-                updated = True
-                logger.log(
-                    f"  [dim]✓ Updated {service_name} host: {old_value} → {core_internal_ip}[/dim]"
-                )
-
-    if updated:
-        # Save updated secrets
-        secrets_data["secrets"]["shared"] = shared_secrets
-        secret_mgr.save_secrets(secrets_data)
-        logger.log("  [dim]✓ secrets.yml updated with VM internal IPs[/dim]")
 
 
 # Click command wrapper

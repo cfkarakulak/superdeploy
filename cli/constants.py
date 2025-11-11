@@ -61,7 +61,7 @@ LOG_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 # Error Messages
 ERROR_PROJECT_NOT_FOUND = (
-    "Project '{project}' not found\nRun: superdeploy init -p {project}"
+    "Project '{project}' not found\nRun: superdeploy {project}:init"
 )
 ERROR_NO_DEPLOYMENT = "Project '{project}' not deployed\nRun: superdeploy {project}:up"
 ERROR_APP_NOT_FOUND = "App '{app}' not found in project '{project}'"

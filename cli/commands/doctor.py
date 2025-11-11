@@ -190,23 +190,33 @@ class DoctorCommand(BaseCommand):
             subtitle="Running comprehensive health check of tools and configuration",
         )
 
+        # Initialize logger
+        logger = self.init_logger("system", "doctor")
+
+        logger.step("Running system diagnostics")
+
         # Run all checks
         self.check_tools()
         self.check_authentication()
         projects = self.check_configuration()
         self.check_infrastructure(projects)
 
-        # Display results
-        self.console.print("\n")
-        self.console.print(self.table)
+        logger.success("Diagnostics complete")
 
-        # Summary
-        self.console.print("\n[bold cyan]━━━ Summary ━━━[/bold cyan]")
-        self.print_success("Diagnostics complete! Review results above.")
+        # Display results
+        if not self.verbose:
+            self.console.print("\n")
+            self.console.print(self.table)
+
+            # Summary
+            self.console.print("\n[bold cyan]━━━ Summary ━━━[/bold cyan]")
+            self.print_success("Diagnostics complete! Review results above.")
+            self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
 
 @click.command()
-def doctor():
+@click.option("--verbose", "-v", is_flag=True, help="Show verbose output")
+def doctor(verbose):
     """
     Health check & diagnostics
 
@@ -215,6 +225,10 @@ def doctor():
     - Authentication status
     - Configuration validity
     - VM connectivity
+
+    Examples:
+        superdeploy doctor
+        superdeploy doctor -v
     """
-    cmd = DoctorCommand(verbose=False)
+    cmd = DoctorCommand(verbose=verbose)
     cmd.run()

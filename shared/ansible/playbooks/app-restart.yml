@@ -1,0 +1,118 @@
+---
+# App Restart Playbook
+# Restarts specific app containers on VM to pick up new configuration/env vars
+# Usage: ansible-playbook app-restart.yml -e "project_name=cheapa app_name=api vm_role=app"
+
+- name: Restart Application
+  hosts: "{{ project_name }}_{{ vm_role }}"
+  become: yes
+  vars:
+    project_base_path: "/opt/superdeploy/projects/{{ project_name }}"
+    compose_dir: "{{ project_base_path }}/compose"
+    app_env_file: "{{ project_base_path }}/data/{{ app_name }}/.env"
+  
+  tasks:
+    - name: Validate required variables
+      assert:
+        that:
+          - project_name is defined
+          - app_name is defined
+          - vm_role is defined
+        fail_msg: "Required variables: project_name, app_name, vm_role"
+    
+    - name: Check if docker-compose exists
+      stat:
+        path: "{{ compose_dir }}/docker-compose.yml"
+      register: compose_file
+    
+    - name: Fail if compose file not found
+      fail:
+        msg: "Docker compose file not found at {{ compose_dir }}/docker-compose.yml"
+      when: not compose_file.stat.exists
+    
+    - name: Find app process services (pattern: app-*)
+      shell: |
+        grep "^  {{ app_name }}-" docker-compose.yml | cut -d: -f1 | xargs
+      args:
+        chdir: "{{ compose_dir }}"
+      register: app_services
+      changed_when: false
+      failed_when: false
+    
+    - name: Display services found
+      debug:
+        msg: "Found services: {{ app_services.stdout }}"
+    
+    - name: Fail if no services found
+      fail:
+        msg: "No services found for app '{{ app_name }}' in docker-compose.yml"
+      when: app_services.stdout == ""
+    
+    - name: Ensure .env file exists (placeholder if missing)
+      file:
+        path: "{{ app_env_file }}"
+        state: touch
+        mode: '0600'
+        owner: superdeploy
+        group: superdeploy
+      when: not (app_env_file | stat).stat.exists | default(false)
+    
+    - name: Pull latest image
+      shell: |
+        docker pull "{{ docker_org | default('docker.io') }}/{{ app_name }}:latest" || true
+      args:
+        chdir: "{{ compose_dir }}"
+      register: pull_result
+      changed_when: "'Downloaded newer image' in pull_result.stdout"
+    
+    - name: Restart app services (zero-downtime)
+      shell: |
+        set -e
+        for service in {{ app_services.stdout }}; do
+          echo "Restarting $service..."
+          docker compose up -d --no-deps "$service"
+        done
+      args:
+        chdir: "{{ compose_dir }}"
+      register: restart_result
+    
+    - name: Wait for services to be healthy
+      pause:
+        seconds: 5
+    
+    - name: Check service status
+      shell: |
+        set -e
+        TOTAL_RUNNING=0
+        TOTAL_EXPECTED=0
+        for service in {{ app_services.stdout }}; do
+          RUNNING=$(docker compose ps "$service" --status running --format '{{{{.Name}}}}' 2>/dev/null | wc -l)
+          EXPECTED=$(docker compose ps "$service" --format '{{{{.Name}}}}' 2>/dev/null | wc -l)
+          TOTAL_RUNNING=$((TOTAL_RUNNING + RUNNING))
+          TOTAL_EXPECTED=$((TOTAL_EXPECTED + EXPECTED))
+          echo "$service: $RUNNING/$EXPECTED replicas running"
+        done
+        
+        if [ "$TOTAL_RUNNING" -ge "1" ]; then
+          echo "SUCCESS: $TOTAL_RUNNING/$TOTAL_EXPECTED total replicas running"
+          exit 0
+        else
+          echo "FAILED: No replicas running"
+          exit 1
+        fi
+      args:
+        chdir: "{{ compose_dir }}"
+      register: status_check
+      changed_when: false
+    
+    - name: Display service status
+      debug:
+        msg: "{{ status_check.stdout_lines }}"
+    
+    - name: Cleanup old images
+      shell: docker image prune -f
+      args:
+        chdir: "{{ compose_dir }}"
+      changed_when: false
+      failed_when: false
+

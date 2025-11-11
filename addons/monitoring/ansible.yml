@@ -10,13 +10,13 @@
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0755'
   loop:
-    - "{{ addon_base_path }}/{{ addon_name }}"
-    - "{{ addon_base_path }}/{{ addon_name }}/prometheus"
-    - "{{ addon_base_path }}/{{ addon_name }}/grafana"
-    - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning"
-    - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/datasources"
-    - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/dashboards"
-    - "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/dashboards/json"
+    - "{{ addon_deployment_path }}"
+    - "{{ addon_deployment_path }}/prometheus"
+    - "{{ addon_deployment_path }}/grafana"
+    - "{{ addon_deployment_path }}/grafana/provisioning"
+    - "{{ addon_deployment_path }}/grafana/provisioning/datasources"
+    - "{{ addon_deployment_path }}/grafana/provisioning/dashboards"
+    - "{{ addon_deployment_path }}/grafana/provisioning/dashboards/json"
 
 - name: Initialize monitoring projects list
   set_fact:
@@ -48,7 +48,7 @@
 - name: Generate Prometheus configuration
   template:
     src: "{{ addon_path }}/prometheus.yml.j2"
-    dest: "{{ addon_base_path }}/{{ addon_name }}/prometheus/prometheus.yml"
+    dest: "{{ addon_deployment_path }}/prometheus/prometheus.yml"
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
@@ -61,7 +61,7 @@
 - name: Generate Grafana datasource provisioning
   template:
     src: "{{ addon_path }}/grafana-datasources.yml.j2"
-    dest: "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/datasources/datasources.yml"
+    dest: "{{ addon_deployment_path }}/grafana/provisioning/datasources/datasources.yml"
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
@@ -71,7 +71,7 @@
 - name: Generate Grafana dashboard provisioning
   template:
     src: "{{ addon_path }}/grafana-dashboards.yml.j2"
-    dest: "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/dashboards/dashboards.yml"
+    dest: "{{ addon_deployment_path }}/grafana/provisioning/dashboards/dashboards.yml"
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
@@ -81,7 +81,7 @@
 - name: Copy pre-built Grafana dashboards
   copy:
     src: "{{ addon_path }}/dashboards/{{ item }}"
-    dest: "{{ addon_base_path }}/{{ addon_name }}/grafana/provisioning/dashboards/json/{{ item }}"
+    dest: "{{ addon_deployment_path }}/grafana/provisioning/dashboards/json/{{ item }}"
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
@@ -97,7 +97,7 @@
 - name: Copy Prometheus alert rules
   copy:
     src: "{{ addon_path }}/alert-rules.yml"
-    dest: "{{ addon_base_path }}/{{ addon_name }}/prometheus/alert-rules.yml"
+    dest: "{{ addon_deployment_path }}/prometheus/alert-rules.yml"
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0644'
@@ -108,7 +108,7 @@
 - name: Render {{ addon_name }} environment file
   template:
     src: "{{ addon_path }}/templates/monitoring.env.j2"
-    dest: "{{ addon_base_path }}/{{ addon_name }}/.env"
+    dest: "{{ addon_deployment_path }}/.env"
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group | default(superdeploy_user) }}"
     mode: '0600'
@@ -118,13 +118,21 @@
   shell:
     cmd: |
       set -e
-      cd "${ADDON_BASE_PATH}/${ADDON_NAME}"
       
-      echo "Starting cleanup for ${PROJECT_NAME}-${ADDON_NAME}..."
+      # Remove old directory structure if exists (migration from monitoring-main to monitoring/main)
+      OLD_PATH="/opt/superdeploy/projects/{{ project_name }}/addons/{{ addon_type }}-{{ addon_name }}"
+      if [ -d "$OLD_PATH" ]; then
+        echo "Removing old addon structure: $OLD_PATH"
+        rm -rf "$OLD_PATH"
+      fi
+      
+      cd "{{ addon_deployment_path }}"
+      
+      echo "Starting cleanup for {{ project_name }}-{{ addon_type }}-{{ addon_name }}..."
       
       # Phase 1: Stop via Docker Compose (graceful shutdown with remove)
       echo "Phase 1: Stopping containers via Docker Compose..."
-      docker compose --project-name "${PROJECT_NAME}-${ADDON_NAME}" down --remove-orphans --volumes --timeout 30 2>&1 || true
+      docker compose --project-name "{{ project_name }}-{{ addon_type }}-{{ addon_name }}" down --remove-orphans --volumes --timeout 30 2>&1 || true
       
       # Phase 2: Wait for Docker daemon to sync
       echo "Phase 2: Waiting for Docker daemon to sync..."
@@ -136,15 +144,15 @@
       # Phase 3: Force remove any remaining containers by exact name or prefix
       echo "Phase 3: Force removing any remaining containers..."
       # Get all container names matching our pattern and filter for exact/prefix match
-      ALL_NAMES=$(docker ps -a --filter "name=${PROJECT_NAME}-${ADDON_NAME}" --format '{{ '{{' }}.Names{{ '}}' }}' 2>/dev/null || true)
+      ALL_NAMES=$(docker ps -a --filter "name={{ project_name }}-{{ addon_type }}-{{ addon_name }}" --format '{{ '{{' }}.Names{{ '}}' }}' 2>/dev/null || true)
       EXACT_CONTAINER=""
       PREFIX_CONTAINERS=""
       
       for name in $ALL_NAMES; do
-        if [ "$name" = "${PROJECT_NAME}-${ADDON_NAME}" ]; then
+        if [ "$name" = "{{ project_name }}-{{ addon_type }}-{{ addon_name }}" ]; then
           # Exact match
           EXACT_CONTAINER=$(docker ps -aq --filter "name=${name}" 2>/dev/null || true)
-        elif [[ "$name" == ${PROJECT_NAME}-${ADDON_NAME}-* ]]; then
+        elif [[ "$name" == {{ project_name }}-{{ addon_type }}-{{ addon_name }}-* ]]; then
           # Prefix match (compose generated names)
           PREFIX_CONTAINERS="$PREFIX_CONTAINERS $(docker ps -aq --filter "name=${name}" 2>/dev/null || true)"
         fi
@@ -165,14 +173,14 @@
       
       # Phase 4: Final verification
       echo "Phase 4: Final verification..."
-      ALL_NAMES_FINAL=$(docker ps -a --filter "name=${PROJECT_NAME}-${ADDON_NAME}" --format '{{ '{{' }}.Names{{ '}}' }}' 2>/dev/null || true)
+      ALL_NAMES_FINAL=$(docker ps -a --filter "name={{ project_name }}-{{ addon_type }}-{{ addon_name }}" --format '{{ '{{' }}.Names{{ '}}' }}' 2>/dev/null || true)
       EXACT_CHECK=""
       PREFIX_CHECK=""
       
       for name in $ALL_NAMES_FINAL; do
-        if [ "$name" = "${PROJECT_NAME}-${ADDON_NAME}" ]; then
+        if [ "$name" = "{{ project_name }}-{{ addon_type }}-{{ addon_name }}" ]; then
           EXACT_CHECK=$(docker ps -aq --filter "name=${name}" 2>/dev/null || true)
-        elif [[ "$name" == ${PROJECT_NAME}-${ADDON_NAME}-* ]]; then
+        elif [[ "$name" == {{ project_name }}-{{ addon_type }}-{{ addon_name }}-* ]]; then
           PREFIX_CHECK="$PREFIX_CHECK $(docker ps -aq --filter "name=${name}" 2>/dev/null || true)"
         fi
       done
@@ -181,7 +189,7 @@
       
       if [ -n "$FINAL_CHECK" ]; then
         echo "⚠ WARNING: Some containers still exist:"
-        docker ps -a | grep "${PROJECT_NAME}-${ADDON_NAME}" || true
+        docker ps -a | grep "{{ project_name }}-{{ addon_type }}-{{ addon_name }}" || true
         echo "Attempting final force removal..."
         # Stop first, then remove
         echo "$FINAL_CHECK" | xargs -r docker stop -t 5 2>&1 || true
@@ -194,10 +202,6 @@
       
       echo "✓ Cleanup completed - ready for deployment"
     executable: /bin/bash
-  environment:
-    PROJECT_NAME: "{{ project_name }}"
-    ADDON_NAME: "{{ addon_name }}"
-    ADDON_BASE_PATH: "{{ addon_base_path }}"
   become: yes
   register: monitoring_cleanup_result
   changed_when: false
@@ -211,7 +215,7 @@
   shell:
     cmd: |
       # One last check before docker-compose starts
-      EXISTING=$(docker ps -aq --filter "name={{ project_name }}-{{ addon_name }}" 2>/dev/null || true)
+      EXISTING=$(docker ps -aq --filter "name={{ project_name }}-{{ addon_type }}-{{ addon_name }}" 2>/dev/null || true)
       if [ -n "$EXISTING" ]; then
         echo "Found existing container(s), force removing..."
         echo "$EXISTING" | xargs -r docker stop -t 5 2>&1 || true
@@ -228,8 +232,8 @@
 
 - name: Start {{ addon_name }} services (with explicit project name)
   community.docker.docker_compose_v2:
-    project_name: "{{ project_name }}-{{ addon_name }}"
-    project_src: "{{ addon_base_path }}/{{ addon_name }}"
+    project_name: "{{ project_name }}-{{ addon_type }}-{{ addon_name }}"
+    project_src: "{{ addon_deployment_path }}"
     state: present
     pull: "always"
     recreate: "always"

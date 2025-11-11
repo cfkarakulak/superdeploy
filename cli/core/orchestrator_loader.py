@@ -185,6 +185,9 @@ class OrchestratorConfig:
         # Get network config
         network_config = self.config.get("network", {})
 
+        # Get addons configuration from config file
+        addons_config = self.config.get("addons", {})
+
         return {
             "project_name": "orchestrator",
             "project_config": {
@@ -195,6 +198,7 @@ class OrchestratorConfig:
                 "network": network_config,  # Add network config for subnet allocation
                 "grafana": grafana_config,
                 "prometheus": prometheus_config,
+                "addons": addons_config,  # Include addons configuration
             },
             "enabled_addons": enabled_addons,
             "addon_configs": addon_configs,

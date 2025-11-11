@@ -24,6 +24,11 @@ class ReleasesCommand(ProjectCommand):
             details={"Type": "Version Tracking"},
         )
 
+        # Initialize logger
+        logger = self.init_logger(self.project_name, f"releases-{self.app_name}")
+
+        logger.step(f"Fetching deployment history for {self.app_name}")
+
         # Use version tracking system
         try:
             # Get VM for app
@@ -90,6 +95,8 @@ class ReleasesCommand(ProjectCommand):
 
             self.console.print(table)
 
+            logger.success(f"Deployment history retrieved for {self.app_name}")
+
             # Show switch instructions
             self.console.print("\n[bold]💡 Switch to any version:[/bold]")
             self.console.print(
@@ -103,12 +110,18 @@ class ReleasesCommand(ProjectCommand):
                 f"   [dim]docker pull <org>/{self.app_name}:latest[/dim]\n"
             )
 
+            if not self.verbose:
+                self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
+
         except Exception as e:
+            logger.log_error(f"Error fetching history: {e}")
             self.console.print(f"[red]❌ Error: {e}[/red]")
             import traceback
 
             if self.verbose:
                 traceback.print_exc()
+            if not self.verbose:
+                self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
 
 @click.command(name="releases:list")

@@ -1,184 +1,375 @@
-"""SuperDeploy CLI - Ansible utility functions"""
+"""
+Ansible Utilities
+
+Modern Ansible operations manager with type-safe configuration.
+"""
 
 import json
+import sys
 from pathlib import Path
 from datetime import datetime
-from rich.console import Console
-
-console = Console()
-
-
-def json_serializer(obj):
-    """Custom JSON serializer for objects not serializable by default json code"""
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    if isinstance(obj, Path):
-        return str(obj)
-    raise TypeError(f"Type {type(obj)} not serializable")
+from typing import Dict, Any, Optional, List
+from dataclasses import dataclass, field
 
 
-def generate_ansible_extra_vars(project_config, env_vars=None, project_root=None):
+@dataclass
+class AnsibleExtraVars:
+    """Extra variables for Ansible playbook execution."""
+
+    project_name: str
+    project_config: Dict[str, Any] = field(default_factory=dict)
+    project_secrets: Dict[str, Any] = field(default_factory=dict)
+    env_aliases: Dict[str, Any] = field(default_factory=dict)
+    addons_source_path: Optional[str] = None
+    network_subnet: str = "172.30.0.0/24"
+    monitoring_enabled: bool = False
+    prometheus_enabled: bool = False
+    grafana_enabled: bool = False
+    github_org: Optional[str] = None
+    orchestrator_ip: Optional[str] = None
+    enabled_addons: Optional[List[str]] = None
+    custom_vars: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert to dictionary for Ansible.
+
+        Returns:
+            Dictionary with all variables
+        """
+        result = {
+            "project_name": self.project_name,
+            "project_config": self.project_config,
+            "project_secrets": self.project_secrets,
+            "env_aliases": self.env_aliases,
+            "network_subnet": self.network_subnet,
+            "monitoring_enabled": self.monitoring_enabled,
+            "prometheus_enabled": self.prometheus_enabled,
+            "grafana_enabled": self.grafana_enabled,
+        }
+
+        if self.addons_source_path:
+            result["addons_source_path"] = self.addons_source_path
+
+        if self.github_org:
+            result["github_org"] = self.github_org
+
+        if self.orchestrator_ip:
+            result["orchestrator_ip"] = self.orchestrator_ip
+
+        if self.enabled_addons:
+            result["enabled_addons"] = self.enabled_addons
+
+        # Add custom vars
+        result.update(self.custom_vars)
+
+        return result
+
+
+@dataclass
+class AnsibleCommandOptions:
+    """Options for Ansible command execution."""
+
+    tags: Optional[str] = None
+    ask_become_pass: bool = False
+    force: bool = False
+    playbook: Optional[str] = None
+    inventory_file: Optional[str] = None
+    private_key_path: Optional[str] = None
+
+
+class AnsibleSerializer:
+    """Custom JSON serializer for Ansible extra vars."""
+
+    @staticmethod
+    def serialize(obj: Any) -> str:
+        """
+        Serialize object to JSON with custom handlers.
+
+        Args:
+            obj: Object to serialize
+
+        Returns:
+            JSON string
+        """
+        return json.dumps(obj, default=AnsibleSerializer._default)
+
+    @staticmethod
+    def _default(obj: Any) -> str:
+        """Custom serializer for non-standard types."""
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, Path):
+            return str(obj)
+        raise TypeError(f"Type {type(obj)} not serializable")
+
+
+class AnsibleManager:
     """
-    Generate Ansible extra vars from project configuration
+    Manages Ansible operations with clean interfaces.
 
-    Args:
-        project_config (dict): Project configuration from ConfigLoader.to_ansible_vars()
-        env_vars (dict): Optional environment variables to include
-        project_root (Path): Root directory of superdeploy
-
-    Returns:
-        dict: Dictionary of extra vars for Ansible
+    Responsibilities:
+    - Build extra vars from project config
+    - Generate Ansible commands
+    - Manage inventory files
+    - Handle playbook execution
     """
-    # Start with project_config which already has most fields from to_ansible_vars()
-    extra_vars = project_config.copy()
 
-    # Set addons source path explicitly
-    if project_root:
-        extra_vars["addons_source_path"] = str(project_root / "addons")
+    def __init__(self, project_root: Path, ansible_dir: Optional[Path] = None):
+        """
+        Initialize Ansible manager.
 
-        # Load project secrets from secrets.yml (only if not already provided)
-        if "project_secrets" not in extra_vars or not extra_vars["project_secrets"]:
-            project_name = extra_vars.get("project_name", "")
-            if project_name:
-                secrets_file = project_root / "projects" / project_name / "secrets.yml"
-                if secrets_file.exists():
-                    from cli.secret_manager import SecretManager
+        Args:
+            project_root: Path to superdeploy root directory
+            ansible_dir: Path to ansible directory (defaults to shared/ansible)
+        """
+        self.project_root = project_root
+        self.ansible_dir = ansible_dir or (project_root / "shared" / "ansible")
 
-                    secret_mgr = SecretManager(project_root, project_name)
-                    secrets_data = secret_mgr.load_secrets()
-                    # Get shared secrets
-                    extra_vars["project_secrets"] = secrets_data.get("secrets", {})
-                    extra_vars["env_aliases"] = secrets_data.get("env_aliases", {})
-                else:
-                    extra_vars["project_secrets"] = {}
-            else:
-                extra_vars["project_secrets"] = {}
-    else:
-        if "project_secrets" not in extra_vars:
-            extra_vars["project_secrets"] = {}
+    def generate_extra_vars(
+        self,
+        project_config: Dict[str, Any],
+        project_name: str,
+        env_vars: Optional[Dict[str, str]] = None,
+        orchestrator_ip: Optional[str] = None,
+        enabled_addons: Optional[List[str]] = None,
+    ) -> AnsibleExtraVars:
+        """
+        Generate Ansible extra vars from project configuration.
 
-    # Extract convenience vars from nested config
-    network_config = extra_vars.get("network_config", {})
-    if network_config:
-        extra_vars["network_subnet"] = network_config.get(
-            "docker_subnet", "172.30.0.0/24"
+        Args:
+            project_config: Project configuration from ConfigLoader.to_ansible_vars()
+            project_name: Name of the project
+            env_vars: Optional environment variables to include
+            orchestrator_ip: Optional orchestrator IP address
+            enabled_addons: Optional list of addons to enable
+
+        Returns:
+            AnsibleExtraVars object
+        """
+        # Extract network config
+        network_config = project_config.get("network_config", {})
+        network_subnet = network_config.get("docker_subnet", "172.30.0.0/24")
+
+        # Extract monitoring config
+        monitoring_config = project_config.get("monitoring", {})
+        monitoring_enabled = monitoring_config.get("enabled", False)
+        prometheus_enabled = monitoring_config.get("prometheus", False)
+        grafana_enabled = monitoring_config.get("grafana", False)
+
+        # Extract GitHub config
+        github_org = None
+        if project_config.get("project_config", {}).get("github"):
+            github_org = project_config["project_config"]["github"].get("organization")
+
+        # Load project secrets
+        project_secrets = project_config.get("project_secrets", {})
+        if not project_secrets:
+            project_secrets = self._load_project_secrets(project_name)
+
+        env_aliases = project_config.get("env_aliases", {})
+
+        # Create extra vars
+        extra_vars = AnsibleExtraVars(
+            project_name=project_name,
+            project_config=project_config,
+            project_secrets=project_secrets,
+            env_aliases=env_aliases,
+            addons_source_path=str(self.project_root / "addons"),
+            network_subnet=network_subnet,
+            monitoring_enabled=monitoring_enabled,
+            prometheus_enabled=prometheus_enabled,
+            grafana_enabled=grafana_enabled,
+            github_org=github_org,
+            orchestrator_ip=orchestrator_ip,
+            enabled_addons=enabled_addons,
         )
 
-    monitoring_config = extra_vars.get("monitoring", {})
-    if monitoring_config:
-        extra_vars["monitoring_enabled"] = monitoring_config.get("enabled", False)
-        extra_vars["prometheus_enabled"] = monitoring_config.get("prometheus", False)
-        extra_vars["grafana_enabled"] = monitoring_config.get("grafana", False)
+        # Add top-level keys from project_config to custom_vars for direct Ansible access
+        # This allows Ansible to use {{ network_config }} instead of {{ project_config.network_config }}
+        for key in [
+            "network_config",
+            "apps",
+            "monitoring",
+            "addon_configs",
+            "vm_config",
+        ]:
+            if key in project_config:
+                extra_vars.custom_vars[key] = project_config[key]
 
-    # GitHub configuration
-    if extra_vars.get("project_config", {}).get("github"):
-        extra_vars["github_org"] = extra_vars["project_config"]["github"].get(
-            "organization", ""
-        )
+        # Also extract nested keys from raw project_config for convenience
+        if "project_config" in project_config and isinstance(
+            project_config["project_config"], dict
+        ):
+            raw_config = project_config["project_config"]
+            for key in ["docker", "github", "project", "addons", "cloud", "vms"]:
+                if key in raw_config:
+                    extra_vars.custom_vars[key] = raw_config[key]
 
-    # Add environment variables if provided (these override config values)
-    if env_vars:
-        for key, value in env_vars.items():
-            if value:  # Only add non-empty values
-                extra_vars[key] = value
+        # Add environment variables if provided (these override config values)
+        if env_vars:
+            for key, value in env_vars.items():
+                if value:  # Only add non-empty values
+                    extra_vars.custom_vars[key] = value
 
-    return extra_vars
+        return extra_vars
 
+    def _load_project_secrets(self, project_name: str) -> Dict[str, Any]:
+        """
+        Load project secrets from secrets.yml.
 
-def build_ansible_command(
-    ansible_dir,
-    project_root,
-    project_config,
-    env_vars,
-    tags=None,
-    project_name=None,
-    ask_become_pass=False,
-    enabled_addons=None,
-    playbook=None,
-    force=False,
-):
-    """
-    Build complete Ansible playbook command with all necessary variables
+        Args:
+            project_name: Name of the project
 
-    Args:
-        ansible_dir (Path): Path to ansible directory
-        project_root (Path): Root directory of superdeploy
-        project_config (dict): Parsed project configuration
-        env_vars (dict): Environment variables
-        tags (str): Optional Ansible tags to run (e.g. 'foundation', 'addons', 'project')
-        project_name (str): Project name for dynamic inventory file selection
-        ask_become_pass (bool): Whether to prompt for sudo password
-        force (bool): Force deployment ignoring Ansible facts cache
+        Returns:
+            Dictionary of secrets
+        """
+        secrets_file = self.project_root / "projects" / project_name / "secrets.yml"
 
-    Returns:
-        str: Complete ansible-playbook command
-    """
-    # Generate extra vars from project config
-    extra_vars_dict = generate_ansible_extra_vars(
-        project_config, env_vars, project_root
-    )
+        if not secrets_file.exists():
+            return {}
 
-    # Add enabled_addons if specified (for --addon flag)
-    if enabled_addons:
-        extra_vars_dict["enabled_addons"] = enabled_addons
+        try:
+            from cli.secret_manager import SecretManager
 
-    # Convert to JSON string for --extra-vars (with custom serializer for datetime)
-    extra_vars_json = json.dumps(extra_vars_dict, default=json_serializer)
-    # Escape single quotes for shell
-    extra_vars_json = extra_vars_json.replace("'", "'\\''")
+            secret_mgr = SecretManager(self.project_root, project_name)
+            secrets_data = secret_mgr.load_secrets()
+            return secrets_data.to_dict().get("secrets", {})
+        except Exception:
+            return {}
 
-    # Build tags string
-    tags_str = f"--tags {tags}" if tags else ""
+    def build_command(
+        self,
+        extra_vars: AnsibleExtraVars,
+        options: AnsibleCommandOptions,
+    ) -> str:
+        """
+        Build complete Ansible playbook command.
 
-    # Add --ask-become-pass if needed (for first-time setup before passwordless sudo is configured)
-    become_pass_str = "--ask-become-pass" if ask_become_pass else ""
+        Args:
+            extra_vars: Extra variables for Ansible
+            options: Command options
 
-    # Add --flush-cache if force flag is set (forces re-run of all tasks)
-    force_str = "--flush-cache" if force else ""
+        Returns:
+            Complete ansible-playbook command string
+        """
+        # Convert extra vars to JSON
+        extra_vars_dict = extra_vars.to_dict()
+        extra_vars_json = AnsibleSerializer.serialize(extra_vars_dict)
+        # Escape single quotes for shell
+        extra_vars_json = extra_vars_json.replace("'", "'\\''")
 
-    # Use project-specific inventory file if project_name is provided
-    if not project_name:
-        project_name = extra_vars_dict.get("project_name", "dev")
-    inventory_file = f"inventories/{project_name}.ini"
+        # Build command parts
+        tags_str = f"--tags {options.tags}" if options.tags else ""
+        become_pass_str = "--ask-become-pass" if options.ask_become_pass else ""
+        force_str = "--flush-cache" if options.force else ""
 
-    # Get SSH private key path from environment or use default
-    import os
-
-    ssh_key_path = os.path.expanduser(
-        os.environ.get("SSH_KEY_PATH", "~/.ssh/superdeploy_deploy")
-    )
-    private_key_str = (
-        f"--private-key {ssh_key_path}" if os.path.exists(ssh_key_path) else ""
-    )
-
-    # Determine which playbook to use
-    # orchestrator -> orchestrator.yml
-    # project -> project.yml (playbook filename stays project.yml)
-    # default -> site.yml (legacy, for backward compatibility)
-    if playbook is None:
-        if project_name == "orchestrator":
-            playbook = "orchestrator.yml"
-        elif project_name:
-            playbook = "project.yml"  # Playbook filename is still project.yml
+        # Determine inventory file
+        if options.inventory_file:
+            inventory_file = options.inventory_file
         else:
-            playbook = "site.yml"
+            inventory_file = f"inventories/{extra_vars.project_name}.ini"
 
-    # Use venv ansible-playbook (not system Ansible!)
-    import sys
-    from pathlib import Path
+        # Determine private key path
+        if options.private_key_path:
+            private_key_path = options.private_key_path
+        else:
+            import os
 
-    venv_bin = Path(sys.executable).parent
-    ansible_playbook_path = venv_bin / "ansible-playbook"
+            private_key_path = os.path.expanduser(
+                os.environ.get("SSH_KEY_PATH", "~/.ssh/superdeploy_deploy")
+            )
 
-    # Fallback to system ansible-playbook if venv one doesn't exist
-    if not ansible_playbook_path.exists():
-        ansible_playbook_path = "ansible-playbook"
+        private_key_str = (
+            f"--private-key {private_key_path}"
+            if Path(private_key_path).exists()
+            else ""
+        )
 
-    # Build the command
-    cmd = f"""
-cd {ansible_dir} && \\
-SUPERDEPLOY_ROOT={project_root} {ansible_playbook_path} -i {inventory_file} playbooks/{playbook} {tags_str} {become_pass_str} {force_str} {private_key_str} \\
+        # Determine playbook
+        playbook = self._determine_playbook(extra_vars.project_name, options.playbook)
+
+        # Get ansible-playbook path from venv
+        ansible_playbook_path = self._get_ansible_playbook_path()
+
+        # Build the command
+        cmd = f"""
+cd {self.ansible_dir} && \\
+SUPERDEPLOY_ROOT={self.project_root} {ansible_playbook_path} -i {inventory_file} playbooks/{playbook} {tags_str} {become_pass_str} {force_str} {private_key_str} \\
   --extra-vars '{extra_vars_json}'
 """
 
-    return cmd.strip()
+        return cmd.strip()
+
+    def _determine_playbook(self, project_name: str, playbook: Optional[str]) -> str:
+        """
+        Determine which playbook to use.
+
+        Args:
+            project_name: Name of the project
+            playbook: Optional explicit playbook name
+
+        Returns:
+            Playbook filename
+        """
+        if playbook:
+            return playbook
+
+        if project_name == "orchestrator":
+            return "orchestrator.yml"
+        elif project_name:
+            return "project.yml"
+        else:
+            return "site.yml"
+
+    def _get_ansible_playbook_path(self) -> str:
+        """
+        Get path to ansible-playbook executable.
+
+        Returns:
+            Path to ansible-playbook (venv or system)
+        """
+        venv_bin = Path(sys.executable).parent
+        ansible_playbook_path = venv_bin / "ansible-playbook"
+
+        # Fallback to system ansible-playbook if venv one doesn't exist
+        if not ansible_playbook_path.exists():
+            return "ansible-playbook"
+
+        return str(ansible_playbook_path)
+
+
+# Legacy function for backwards compatibility
+def build_ansible_command(
+    ansible_dir: Path,
+    project_root: Path,
+    project_config: Dict[str, Any],
+    env_vars: Dict[str, str],
+    tags: Optional[str] = None,
+    project_name: Optional[str] = None,
+    ask_become_pass: bool = False,
+    enabled_addons: Optional[List[str]] = None,
+    playbook: Optional[str] = None,
+    force: bool = False,
+) -> str:
+    """Build Ansible command (legacy)."""
+    manager = AnsibleManager(project_root, ansible_dir)
+
+    if not project_name:
+        project_name = project_config.get("project_name", "dev")
+
+    extra_vars = manager.generate_extra_vars(
+        project_config=project_config,
+        project_name=project_name,
+        env_vars=env_vars,
+        enabled_addons=enabled_addons,
+    )
+
+    options = AnsibleCommandOptions(
+        tags=tags,
+        ask_become_pass=ask_become_pass,
+        force=force,
+        playbook=playbook,
+    )
+
+    return manager.build_command(extra_vars, options)

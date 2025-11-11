@@ -239,7 +239,7 @@ Status: {"FAILED" if self.has_errors else "SUCCESS"}
         """Context manager entry"""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, _exc_tb):
         """Context manager exit"""
         if exc_type is not None and exc_type != SystemExit:
             # Log unhandled exception (but not SystemExit - that's expected)

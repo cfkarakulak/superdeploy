@@ -1,21 +1,23 @@
 version: '3.8'
 
 services:
-  {{ addon_name }}:
+  {{ service_name }}:
     image: mongo:{{ version }}
-    container_name: {{ project_name }}-{{ addon_name }}
+    container_name: {{ container_name }}
     restart: always
+    env_file:
+      - .env
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD}
-      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE}
+      MONGO_INITDB_ROOT_USERNAME: ${USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${PASSWORD}
+      MONGO_INITDB_DATABASE: ${DATABASE}
     volumes:
-      - {{ addon_name }}-data:/data/db
-      - {{ addon_name }}-config:/data/configdb
+      - mongodb-data:/data/db
+      - mongodb-config:/data/configdb
     networks:
       - {{ project_name }}-network
     ports:
-      - "0.0.0.0:27017:27017"   # MongoDB (internal network + SSH tunnel)
+      - "0.0.0.0:${PORT}:27017"   # MongoDB (instance-specific port)
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
       test: ["CMD-SHELL", "{{ healthcheck.command }}"]
@@ -24,7 +26,7 @@ services:
       retries: {{ healthcheck.retries }}
       start_period: {{ healthcheck.start_period }}
 {% endif %}
-    # RESOURCE LIMITS: MongoDB can be memory-intensive
+    # RESOURCE LIMITS (Plan: {{ resources.plan | default('standard') }})
     deploy:
       resources:
         limits:
@@ -34,17 +36,25 @@ services:
           memory: {{ resources.memory_reservation | default('512M') }}
           cpus: '{{ resources.cpu_reservation | default('0.5') }}'
     labels:
+      # Monitoring
       - "prometheus.scrape=true"
       - "prometheus.port={{ monitoring.metrics_port | default(9090) }}"
       - "prometheus.path=/metrics"
+      # Project & service info
       - "project={{ project_name }}"
-      - "service={{ addon_name }}"
+      - "service={{ service_name }}"
+      # Addon instance metadata
+      - "addon.type=mongodb"
+      - "addon.instance={{ instance_name }}"
+      - "addon.full_name={{ instance_full_name }}"
+      - "addon.category={{ instance_category }}"
+      - "addon.plan={{ resources.plan | default('standard') }}"
 
 volumes:
-  {{ addon_name }}-data:
-    name: {{ project_name }}-{{ addon_name }}-data
-  {{ addon_name }}-config:
-    name: {{ project_name }}-{{ addon_name }}-config
+  mongodb-data:
+    name: {{ volume_name }}
+  mongodb-config:
+    name: {{ project_name }}-mongodb-{{ instance_name }}-config
 
 networks:
   {{ project_name }}-network:

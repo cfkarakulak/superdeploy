@@ -2,78 +2,132 @@
 
 import click
 import getpass
+from dataclasses import dataclass
+from typing import Dict, List, Set
 from rich.table import Table
 from rich.panel import Panel
+
 from cli.base import BaseCommand
+from cli.secret_manager import SecretManager
 
 
-def get_addon_prefixes(project, project_root):
-    """
-    Get environment variable prefixes from addon metadata.
+@dataclass
+class EnvCategorization:
+    """Environment variable categorization."""
 
-    Args:
-        project (str): Project name
-        project_root: Path to project root
+    infra_keys: Set[str]
+    app_keys: Set[str]
 
-    Returns:
-        list: List of environment variable prefixes
-    """
-    from cli.core.addon_loader import AddonLoader
+    def get_category(self, key: str) -> str:
+        """Get category for a given key."""
+        if key in self.infra_keys:
+            return "infra"
+        elif key in self.app_keys:
+            return "app"
+        else:
+            return "other"
 
-    try:
-        addons_dir = project_root / "addons"
-        addon_loader = AddonLoader(addons_dir)
 
-        # Load project config to get enabled addons
+class EnvVarHelper:
+    """Helper class for environment variable operations."""
+
+    # Default categorization
+    DEFAULT_INFRA_KEYS = {
+        "GCP_PROJECT_ID",
+        "GCP_REGION",
+        "SSH_KEY_PATH",
+        "SSH_USER",
+        "CORE_EXTERNAL_IP",
+        "CORE_INTERNAL_IP",
+        "SCRAPE_EXTERNAL_IP",
+        "SCRAPE_INTERNAL_IP",
+        "PROXY_EXTERNAL_IP",
+        "PROXY_INTERNAL_IP",
+        "DOCKER_USERNAME",
+        "DOCKER_TOKEN",
+        "GITHUB_TOKEN",
+        "VM_MACHINE_TYPE",
+        "VM_DISK_SIZE",
+        "VM_IMAGE",
+    }
+
+    DEFAULT_APP_KEYS = {
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_DB",
+        "RABBITMQ_USER",
+        "RABBITMQ_PASSWORD",
+        "REDIS_PASSWORD",
+        "API_SECRET_KEY",
+        "GRAFANA_ADMIN_USER",
+        "GRAFANA_ADMIN_PASSWORD",
+        "ALERT_EMAIL",
+    }
+
+    SENSITIVE_KEYWORDS = {"PASSWORD", "TOKEN", "SECRET", "KEY", "PAT"}
+
+    @classmethod
+    def get_addon_prefixes(cls, project: str, project_root) -> List[str]:
+        """Get environment variable prefixes from addon metadata."""
+        from cli.core.addon_loader import AddonLoader
         from cli.services.config_service import ConfigService
 
-        config_service = ConfigService(project_root)
-        project_config = config_service.load_project_config(project)
+        try:
+            addons_dir = project_root / "addons"
+            addon_loader = AddonLoader(addons_dir)
+            config_service = ConfigService(project_root)
+            project_config = config_service.load_project_config(project)
+            addons = addon_loader.load_addons_for_project(project_config.raw_config)
 
-        # Load addons
-        addons = addon_loader.load_addons_for_project(project_config.raw_config)
+            # Extract prefixes from env var names
+            prefixes = set()
+            for addon_name, addon in addons.items():
+                for var_name in addon.get_env_var_names():
+                    prefix = var_name.split("_")[0]
+                    prefixes.add(prefix)
 
-        # Extract prefixes from env var names
-        prefixes = set()
-        for addon_name, addon in addons.items():
-            for var_name in addon.get_env_var_names():
-                # Extract prefix (e.g., "POSTGRES_HOST" -> "POSTGRES")
-                prefix = var_name.split("_")[0]
-                prefixes.add(prefix)
+            return list(prefixes)
+        except Exception:
+            # Fallback to common addon prefixes
+            return ["POSTGRES", "RABBITMQ", "REDIS", "MONGODB", "ELASTICSEARCH"]
 
-        # Only addon prefixes - no hardcoded app-specific prefixes
-        return list(prefixes)
-    except Exception:
-        # Fallback to common addon prefixes if loading fails
-        return ["POSTGRES", "RABBITMQ", "REDIS", "MONGODB", "ELASTICSEARCH"]
+    @classmethod
+    def mask_value(cls, key: str, value: str) -> str:
+        """Mask a sensitive value."""
+        if any(keyword in key.upper() for keyword in cls.SENSITIVE_KEYWORDS):
+            if len(value) > 8:
+                return f"{value[:4]}...{value[-4:]}"
+            else:
+                return "***"
+        else:
+            # Truncate long values
+            return value[:60] + "..." if len(value) > 60 else value
 
+    @classmethod
+    def verify_password(cls, env_vars: Dict[str, str], console) -> bool:
+        """Verify user identity with password challenge."""
+        expected_token = env_vars.get("GITHUB_TOKEN", "")
 
-def verify_password(env_vars, console):
-    """Verify user identity with password challenge"""
-    # Use GITHUB_TOKEN as verification (secure and already in secrets.yml)
-    expected_token = env_vars.get("GITHUB_TOKEN", "")
+        if not expected_token or expected_token in ["", "your-github-token"]:
+            console.print("[red]❌ GITHUB_TOKEN not configured in secrets.yml[/red]")
+            console.print("[yellow]Set a valid GITHUB_TOKEN to use --no-mask[/yellow]")
+            return False
 
-    if not expected_token or expected_token in ["", "your-github-token"]:
-        console.print("[red]❌ GITHUB_TOKEN not configured in secrets.yml[/red]")
-        console.print("[yellow]Set a valid GITHUB_TOKEN to use --no-mask[/yellow]")
-        return False
-
-    console.print(
-        Panel(
-            "[yellow]⚠️  Sensitive data access[/yellow]\n\n"
-            "[white]Enter your GITHUB_TOKEN (from secrets.yml):[/white]",
-            border_style="yellow",
+        console.print(
+            Panel(
+                "[yellow]⚠️  Sensitive data access[/yellow]\n\n"
+                "[white]Enter your GITHUB_TOKEN (from secrets.yml):[/white]",
+                border_style="yellow",
+            )
         )
-    )
 
-    password = getpass.getpass("Token: ")
+        password = getpass.getpass("Token: ")
 
-    # Verify token matches
-    if password.strip() != expected_token.strip():
-        console.print("[red]❌ Access denied - Token mismatch[/red]")
-        return False
+        if password.strip() != expected_token.strip():
+            console.print("[red]❌ Access denied - Token mismatch[/red]")
+            return False
 
-    return True
+        return True
 
 
 class EnvListCommand(BaseCommand):
@@ -102,111 +156,17 @@ class EnvListCommand(BaseCommand):
             },
         )
 
-        # Load from orchestrator secrets.yml (shared secrets)
-        # This command is for global env, not project-specific
-        from cli.secret_manager import SecretManager
-
-        # Get first project or use default
-        projects_dir = self.project_root / "projects"
-        projects = [p.name for p in projects_dir.iterdir() if p.is_dir()]
-        if not projects:
-            self.console.print("[red]❌ No projects found[/red]")
-            raise SystemExit(1)
-        secret_mgr = SecretManager(self.project_root, projects[0])
-        secrets_data = secret_mgr.load_secrets()
-        env_vars = secrets_data.get("secrets", {}).get("shared", {})
+        # Get first project
+        projects = self._get_projects()
+        env_vars = self._load_env_vars(projects[0])
 
         # Verification for unmasked view
         if self.no_mask:
-            if not verify_password(env_vars, self.console):
+            if not EnvVarHelper.verify_password(env_vars, self.console):
                 raise SystemExit(1)
 
-        # Create table
-        table = Table(
-            title="Environment Variables",
-            show_header=True,
-            header_style="bold cyan",
-            title_justify="left",
-            padding=(0, 1),
-        )
-        table.add_column("Key", style="cyan", no_wrap=True)
-        table.add_column("Value", style="green")
-        table.add_column("Category", style="dim")
-
-        # Categorize vars
-        infra_keys = [
-            "GCP_PROJECT_ID",
-            "GCP_REGION",
-            "SSH_KEY_PATH",
-            "SSH_USER",
-            "CORE_EXTERNAL_IP",
-            "CORE_INTERNAL_IP",
-            "SCRAPE_EXTERNAL_IP",
-            "SCRAPE_INTERNAL_IP",
-            "PROXY_EXTERNAL_IP",
-            "PROXY_INTERNAL_IP",
-            "DOCKER_USERNAME",
-            "DOCKER_TOKEN",
-            "GITHUB_TOKEN",
-            "VM_MACHINE_TYPE",
-            "VM_DISK_SIZE",
-            "VM_IMAGE",
-        ]
-
-        app_keys = [
-            "POSTGRES_USER",
-            "POSTGRES_PASSWORD",
-            "POSTGRES_DB",
-            "RABBITMQ_USER",
-            "RABBITMQ_PASSWORD",
-            "REDIS_PASSWORD",
-            "API_SECRET_KEY",
-            "GRAFANA_ADMIN_USER",
-            "GRAFANA_ADMIN_PASSWORD",
-            "ALERT_EMAIL",
-        ]
-
-        # Filter logic
-        for key, value in sorted(env_vars.items()):
-            # Convert value to string (handles int ports, etc.)
-            value = str(value)
-
-            # Category determination
-            if key in infra_keys:
-                category = "infra"
-            elif key in app_keys:
-                category = "app"
-            else:
-                category = "other"
-
-            # Filter by --all flag
-            if not self.show_all and category == "infra":
-                continue
-
-            # Filter by --app flag
-            if self.app:
-                app_related = get_addon_prefixes(projects[0], self.project_root)
-                if not any(prefix in key for prefix in app_related):
-                    continue
-
-            # Mask sensitive values
-            if self.no_mask:
-                display_value = value
-            else:
-                sensitive_keywords = ["PASSWORD", "TOKEN", "SECRET", "KEY", "PAT"]
-                if any(keyword in key.upper() for keyword in sensitive_keywords):
-                    if len(value) > 8:
-                        display_value = f"{value[:4]}...{value[-4:]}"
-                    else:
-                        display_value = "***"
-                else:
-                    # Truncate long values
-                    display_value = value[:60] + "..." if len(value) > 60 else value
-
-            # Add row
-            table.add_row(key, display_value, category)
-
-        # Print table
+        # Build and display table
+        table = self._build_table(env_vars, projects[0])
         self.console.print("\n")
         self.console.print(table)
 
@@ -221,9 +181,84 @@ class EnvListCommand(BaseCommand):
                 "\n[dim]💡 Tip: Use --no-mask to see full values (requires verification)[/dim]"
             )
 
+    def _get_projects(self) -> List[str]:
+        """Get list of projects."""
+        projects_dir = self.project_root / "projects"
+        projects = [p.name for p in projects_dir.iterdir() if p.is_dir()]
+        if not projects:
+            self.console.print("[red]❌ No projects found[/red]")
+            raise SystemExit(1)
+        return projects
+
+    def _load_env_vars(self, project_name: str) -> Dict[str, str]:
+        """Load environment variables from secrets."""
+        secret_mgr = SecretManager(self.project_root, project_name)
+        secrets_data = secret_mgr.load_secrets()
+        return secrets_data.get("secrets", {}).get("shared", {})
+
+    def _build_table(self, env_vars: Dict[str, str], project_name: str) -> Table:
+        """Build environment variables table."""
+        table = Table(
+            title="Environment Variables",
+            show_header=True,
+            header_style="bold cyan",
+            title_justify="left",
+            padding=(0, 1),
+        )
+        table.add_column("Key", style="cyan", no_wrap=True)
+        table.add_column("Value", style="green")
+        table.add_column("Category", style="dim")
+
+        # Create categorization
+        categorization = EnvCategorization(
+            infra_keys=EnvVarHelper.DEFAULT_INFRA_KEYS,
+            app_keys=EnvVarHelper.DEFAULT_APP_KEYS,
+        )
+
+        # Filter and add rows
+        for key, value in sorted(env_vars.items()):
+            value = str(value)
+            category = categorization.get_category(key)
+
+            # Filter by --all flag
+            if not self.show_all and category == "infra":
+                continue
+
+            # Filter by --app flag
+            if self.app:
+                app_related = EnvVarHelper.get_addon_prefixes(
+                    project_name, self.project_root
+                )
+                if not any(prefix in key for prefix in app_related):
+                    continue
+
+            # Mask or display value
+            display_value = (
+                value if self.no_mask else EnvVarHelper.mask_value(key, value)
+            )
+
+            table.add_row(key, display_value, category)
+
+        return table
+
 
 class EnvCheckCommand(BaseCommand):
     """Check environment configuration health."""
+
+    # Required environment variables
+    REQUIRED_VARS = [
+        "GCP_PROJECT_ID",
+        "GCP_REGION",
+        "SSH_KEY_PATH",
+        "DOCKER_USERNAME",
+        "GITHUB_TOKEN",
+        "POSTGRES_PASSWORD",
+        "RABBITMQ_PASSWORD",
+        "API_SECRET_KEY",
+    ]
+
+    # Placeholder values to detect
+    PLACEHOLDER_VALUES = {"your-project-id", "your-token", "your-username"}
 
     def execute(self) -> None:
         """Execute env:check command."""
@@ -232,47 +267,56 @@ class EnvCheckCommand(BaseCommand):
             subtitle="Validating configuration and security",
         )
 
-        # Load from orchestrator secrets.yml (shared secrets)
-        from cli.secret_manager import SecretManager
+        # Load environment variables
+        projects = self._get_projects()
+        env_vars = self._load_env_vars(projects[0])
 
-        # Get first project or use default
+        # Run checks
+        issues, warnings = self._check_environment(env_vars)
+
+        # Display results
+        self._display_results(issues, warnings, len(env_vars))
+
+    def _get_projects(self) -> List[str]:
+        """Get list of projects."""
         projects_dir = self.project_root / "projects"
         projects = [p.name for p in projects_dir.iterdir() if p.is_dir()]
         if not projects:
             self.console.print("[red]❌ No projects found[/red]")
             raise SystemExit(1)
-        secret_mgr = SecretManager(self.project_root, projects[0])
-        secrets_data = secret_mgr.load_secrets()
-        env_vars = secrets_data.get("secrets", {}).get("shared", {})
+        return projects
 
+    def _load_env_vars(self, project_name: str) -> Dict[str, str]:
+        """Load environment variables from secrets."""
+        secret_mgr = SecretManager(self.project_root, project_name)
+        secrets_data = secret_mgr.load_secrets()
+        return secrets_data.get("secrets", {}).get("shared", {})
+
+    def _check_environment(
+        self, env_vars: Dict[str, str]
+    ) -> tuple[List[str], List[str]]:
+        """Check environment variables for issues."""
         issues = []
         warnings = []
 
-        # Check required vars
-        required = [
-            "GCP_PROJECT_ID",
-            "GCP_REGION",
-            "SSH_KEY_PATH",
-            "DOCKER_USERNAME",
-            "GITHUB_TOKEN",
-            "POSTGRES_PASSWORD",
-            "RABBITMQ_PASSWORD",
-            "API_SECRET_KEY",
-        ]
-
-        for key in required:
+        for key in self.REQUIRED_VARS:
             value = str(env_vars.get(key, ""))
 
             if not value:
                 issues.append(f"❌ {key}: Not set")
-            elif value in ["your-project-id", "your-token", "your-username"]:
+            elif value in self.PLACEHOLDER_VALUES:
                 issues.append(f"❌ {key}: Still has placeholder value")
-            elif "PASSWORD" in key or "SECRET" in key or "TOKEN" in key:
+            elif any(kw in key for kw in ["PASSWORD", "SECRET", "TOKEN"]):
                 # Check password strength
                 if len(value) < 16:
                     warnings.append(f"⚠️  {key}: Short password (< 16 chars)")
 
-        # Print results
+        return issues, warnings
+
+    def _display_results(
+        self, issues: List[str], warnings: List[str], total_vars: int
+    ) -> None:
+        """Display check results."""
         if issues:
             self.console.print("\n[red]Issues found:[/red]")
             for issue in issues:
@@ -290,7 +334,7 @@ class EnvCheckCommand(BaseCommand):
 
         # Summary
         self.console.print("\n[cyan]Summary:[/cyan]")
-        self.console.print(f"  Total vars: {len(env_vars)}")
+        self.console.print(f"  Total vars: {total_vars}")
         self.console.print(f"  Issues: {len(issues)}")
         self.console.print(f"  Warnings: {len(warnings)}")
 

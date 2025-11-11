@@ -1,36 +1,36 @@
-"""Secret management with hierarchy support"""
+"""
+Secret Management
+
+Modern secret manager using domain models for type-safe secret handling.
+"""
 
 import yaml
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict
+
+from cli.models.secrets import SecretConfig
+from cli.exceptions import SecretError
 
 
-class SecretManager:
-    """Manages secrets with shared + app-specific hierarchy"""
+class SecretFormatter:
+    """Formats secret configuration for human-readable YAML output."""
 
-    def __init__(self, project_root: Path, project_name: str):
-        self.project_root = project_root
-        self.project_name = project_name
-        self.secrets_file = project_root / "projects" / project_name / "secrets.yml"
+    @staticmethod
+    def format(config: SecretConfig) -> str:
+        """
+        Format secret configuration as human-readable YAML.
 
-    def load_secrets(self) -> Dict[str, Any]:
-        """Load secrets.yml"""
-        if not self.secrets_file.exists():
-            return {}
+        Args:
+            config: Secret configuration to format
 
-        with open(self.secrets_file, "r") as f:
-            return yaml.safe_load(f) or {}
-
-    def save_secrets(self, secrets: Dict[str, Any]):
-        """Save secrets to secrets.yml with proper formatting"""
-        self.secrets_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Build formatted YAML manually for better readability
+        Returns:
+            Formatted YAML string
+        """
         lines = []
 
         # Header
         lines.append("# " + "=" * 77)
-        lines.append(f"# {self.project_name.upper()} - Secrets Configuration")
+        lines.append(f"# {config.project_name.upper()} - Secrets Configuration")
         lines.append("# " + "=" * 77)
         lines.append("# WARNING: This file contains sensitive information")
         lines.append("# Keep this file secure and never commit to version control")
@@ -43,80 +43,75 @@ class SecretManager:
         lines.append("# " + "=" * 77)
         lines.append("secrets:")
 
-        secrets_data = secrets.get("secrets", {})
-
         # Shared secrets
-        if "shared" in secrets_data:
+        lines.append("")
+        lines.append(
+            "  # ---------------------------------------------------------------------------"
+        )
+        lines.append("  # Shared Secrets (available to all applications)")
+        lines.append(
+            "  # ---------------------------------------------------------------------------"
+        )
+        lines.append("  shared:")
+
+        if config.shared.values:
+            # Group by category for better readability
+            db_keys = [k for k in config.shared.values if k.startswith("POSTGRES_")]
+            mq_keys = [k for k in config.shared.values if k.startswith("RABBITMQ_")]
+            docker_keys = [k for k in config.shared.values if k.startswith("DOCKER_")]
+            other_keys = [
+                k
+                for k in config.shared.values
+                if not any(
+                    k.startswith(p) for p in ["POSTGRES_", "RABBITMQ_", "DOCKER_"]
+                )
+            ]
+
+            if db_keys:
+                lines.append("")
+                lines.append("    # Database Configuration")
+                for key in sorted(db_keys):
+                    lines.append(f"    {key}: {config.shared.values[key]}")
+
+            if mq_keys:
+                lines.append("")
+                lines.append("    # Message Queue Configuration")
+                for key in sorted(mq_keys):
+                    lines.append(f"    {key}: {config.shared.values[key]}")
+
+            if docker_keys:
+                lines.append("")
+                lines.append("    # Docker Registry Configuration")
+                for key in sorted(docker_keys):
+                    lines.append(f"    {key}: {config.shared.values[key]}")
+
+            if other_keys:
+                lines.append("")
+                lines.append("    # Other Shared Secrets")
+                for key in sorted(other_keys):
+                    lines.append(f"    {key}: {config.shared.values[key]}")
+        else:
+            lines.append("    {}")
+
+        # App-specific secrets
+        for app_name, app_secrets in config.apps.items():
             lines.append("")
             lines.append(
                 "  # ---------------------------------------------------------------------------"
             )
-            lines.append("  # Shared Secrets (available to all applications)")
+            lines.append(f"  # {app_name.upper()} - Application-specific secrets")
             lines.append(
                 "  # ---------------------------------------------------------------------------"
             )
-            lines.append("  shared:")
-            shared = secrets_data["shared"]
-            if shared:
-                # Group by category for better readability
-                db_keys = [k for k in shared if k.startswith("POSTGRES_")]
-                mq_keys = [k for k in shared if k.startswith("RABBITMQ_")]
-                docker_keys = [k for k in shared if k.startswith("DOCKER_")]
-                other_keys = [
-                    k
-                    for k in shared
-                    if not any(
-                        k.startswith(p) for p in ["POSTGRES_", "RABBITMQ_", "DOCKER_"]
-                    )
-                ]
-
-                if db_keys:
-                    lines.append("")
-                    lines.append("    # Database Configuration")
-                    for key in sorted(db_keys):
-                        lines.append(f"    {key}: {shared[key]}")
-
-                if mq_keys:
-                    lines.append("")
-                    lines.append("    # Message Queue Configuration")
-                    for key in sorted(mq_keys):
-                        lines.append(f"    {key}: {shared[key]}")
-
-                if docker_keys:
-                    lines.append("")
-                    lines.append("    # Docker Registry Configuration")
-                    for key in sorted(docker_keys):
-                        lines.append(f"    {key}: {shared[key]}")
-
-                if other_keys:
-                    lines.append("")
-                    lines.append("    # Other Shared Secrets")
-                    for key in sorted(other_keys):
-                        lines.append(f"    {key}: {shared[key]}")
+            lines.append(f"  {app_name}:")
+            if app_secrets.values:
+                for key, value in sorted(app_secrets.values.items()):
+                    lines.append(f"    {key}: {value}")
             else:
-                lines.append("    {}")
-
-        # App-specific secrets
-        for app_name in secrets_data:
-            if app_name != "shared":
-                lines.append("")
-                lines.append(
-                    "  # ---------------------------------------------------------------------------"
-                )
-                lines.append(f"  # {app_name.upper()} - Application-specific secrets")
-                lines.append(
-                    "  # ---------------------------------------------------------------------------"
-                )
-                lines.append(f"  {app_name}:")
-                app_secrets = secrets_data[app_name]
-                if app_secrets:
-                    for key, value in sorted(app_secrets.items()):
-                        lines.append(f"    {key}: {value}")
-                else:
-                    lines.append("    # No app-specific secrets")
+                lines.append("    # No app-specific secrets")
 
         # Environment aliases section
-        if "env_aliases" in secrets:
+        if config.env_aliases:
             lines.append("")
             lines.append("# " + "=" * 77)
             lines.append("# Environment Variable Aliases")
@@ -130,11 +125,9 @@ class SecretManager:
             lines.append("# " + "=" * 77)
             lines.append("env_aliases:")
 
-            env_aliases = secrets["env_aliases"]
-            for app_name in env_aliases:
+            for app_name, aliases in config.env_aliases.items():
                 lines.append("")
                 lines.append(f"  {app_name}:")
-                aliases = env_aliases[app_name]
                 if aliases:
                     for alias_key, alias_value in sorted(aliases.items()):
                         lines.append(f"    {alias_key}: {alias_value}")
@@ -142,61 +135,133 @@ class SecretManager:
                     lines.append("    # No aliases needed")
 
         lines.append("")
+        return "\n".join(lines)
 
-        # Write formatted content
-        with open(self.secrets_file, "w") as f:
-            f.write("\n".join(lines))
 
-        # Set restrictive permissions
-        self.secrets_file.chmod(0o600)
+class SecretManager:
+    """
+    Manages project secrets using type-safe domain models.
+
+    Responsibilities:
+    - Load/save secret configuration
+    - Merge shared and app-specific secrets
+    - Handle environment variable aliases
+    - Maintain secret hierarchy
+    """
+
+    def __init__(self, project_root: Path, project_name: str):
+        """
+        Initialize secret manager.
+
+        Args:
+            project_root: Path to superdeploy root directory
+            project_name: Name of the project
+        """
+        self.project_root = project_root
+        self.project_name = project_name
+        self.secrets_file = project_root / "projects" / project_name / "secrets.yml"
+        self.formatter = SecretFormatter()
+
+    def load_secrets(self) -> SecretConfig:
+        """
+        Load secret configuration from file.
+
+        Returns:
+            SecretConfig object (empty if file doesn't exist)
+        """
+        if not self.secrets_file.exists():
+            return SecretConfig(project_name=self.project_name)
+
+        try:
+            with open(self.secrets_file, "r") as f:
+                data = yaml.safe_load(f) or {}
+            return SecretConfig.from_dict(self.project_name, data)
+        except Exception as e:
+            raise SecretError(
+                "Failed to load secrets file",
+                context=f"File: {self.secrets_file}, Error: {str(e)}",
+            )
+
+    def save_secrets(self, config: SecretConfig) -> None:
+        """
+        Save secret configuration to file.
+
+        Args:
+            config: Secret configuration to save
+        """
+        self.secrets_file.parent.mkdir(parents=True, exist_ok=True)
+        formatted_content = self.formatter.format(config)
+
+        try:
+            with open(self.secrets_file, "w") as f:
+                f.write(formatted_content)
+            # Set restrictive permissions
+            self.secrets_file.chmod(0o600)
+        except Exception as e:
+            raise SecretError(
+                "Failed to save secrets file",
+                context=f"File: {self.secrets_file}, Error: {str(e)}",
+            )
 
     def get_app_secrets(self, app_name: str) -> Dict[str, str]:
         """
-        Get merged secrets for specific app
+        Get merged secrets for specific app.
 
         Merges:
         - secrets.shared (all apps)
         - secrets.{app_name} (app-specific)
         - env_aliases.{app_name} (variable name mappings)
 
+        Args:
+            app_name: Name of the application
+
         Returns:
-            Dict of environment variables for the app
+            Dictionary of environment variables for the app
         """
-        all_secrets = self.load_secrets()
+        config = self.load_secrets()
+        return config.get_merged_secrets(app_name)
 
-        # Get structure
-        secrets_section = all_secrets.get("secrets", {})
-        env_aliases_section = all_secrets.get("env_aliases", {})
+    def get_shared_secrets(self) -> Dict[str, str]:
+        """
+        Get shared secrets available to all apps.
 
-        # Merge shared + app-specific
-        merged = {}
+        Returns:
+            Dictionary of shared environment variables
+        """
+        config = self.load_secrets()
+        return config.shared.values.copy()
 
-        # 1. Add shared secrets
-        shared = secrets_section.get("shared", {})
-        if shared:
-            merged.update(shared)
+    def set_shared_secret(self, key: str, value: str) -> None:
+        """
+        Set a shared secret value.
 
-        # 2. Add app-specific secrets (overrides shared if duplicate)
-        app_specific = secrets_section.get(app_name, {})
-        if app_specific:
-            merged.update(app_specific)
+        Args:
+            key: Secret key name
+            value: Secret value
+        """
+        config = self.load_secrets()
+        config.shared.set(key, value)
+        self.save_secrets(config)
 
-        # 3. Add env_aliases for this app (maps variable names)
-        # Example: DB_HOST: POSTGRES_HOST → DB_HOST=postgres
-        app_aliases = env_aliases_section.get(app_name, {})
-        if app_aliases:
-            for alias_key, alias_value in app_aliases.items():
-                # If alias_value is a reference to another variable (uppercase with underscore)
-                if (
-                    isinstance(alias_value, str)
-                    and alias_value.isupper()
-                    and "_" in alias_value
-                ):
-                    # Look up the actual value from merged secrets
-                    if alias_value in merged:
-                        merged[alias_key] = merged[alias_value]
-                else:
-                    # It's a static value
-                    merged[alias_key] = alias_value
+    def set_app_secret(self, app_name: str, key: str, value: str) -> None:
+        """
+        Set an app-specific secret value.
 
-        return merged
+        Args:
+            app_name: Name of the application
+            key: Secret key name
+            value: Secret value
+        """
+        config = self.load_secrets()
+        app_secrets = config.get_app_secrets(app_name)
+        app_secrets.set(key, value)
+        self.save_secrets(config)
+
+    def has_secrets(self) -> bool:
+        """
+        Check if secrets file exists.
+
+        Returns:
+            True if secrets file exists
+        """
+        return self.secrets_file.exists()

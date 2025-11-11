@@ -1,32 +1,62 @@
 name: elasticsearch
 description: Elasticsearch search and analytics engine
 version: "8.11.0"
-category: database
+category: search
 
-env_vars:
-  - name: ELASTICSEARCH_HOST
-    description: Elasticsearch hostname
-    default: "${CORE_INTERNAL_IP}"
-    required: true
-    secret: false
+# Resource plans (small/standard/large/xlarge)
+plans:
+  small:
+    memory: 512M
+    cpu: 0.5
+    disk: 10G
+    heap_size: 256m
+    description: "For development/small indices"
     
-  - name: ELASTICSEARCH_PORT
-    description: Elasticsearch port
-    default: "9200"
-    required: true
-    secret: false
+  standard:
+    memory: 1G
+    cpu: 1.0
+    disk: 20G
+    heap_size: 512m
+    description: "For production search"
     
-  - name: ELASTICSEARCH_USER
-    description: Elasticsearch username
+  large:
+    memory: 2G
+    cpu: 2.0
+    disk: 50G
+    heap_size: 1g
+    description: "For large indices"
+    
+  xlarge:
+    memory: 4G
+    cpu: 4.0
+    disk: 100G
+    heap_size: 2g
+    description: "For enterprise search"
+
+# Environment variable template (uses {INSTANCE} placeholder)
+env_template:
+  - name: "{INSTANCE}_URL"
+    description: "Full Elasticsearch URL"
+    format: "http://{HOST}:{PORT}"
+    
+  - name: "{INSTANCE}_HOST"
+    description: "Elasticsearch hostname"
+    
+  - name: "{INSTANCE}_PORT"
+    description: "Elasticsearch port"
+    
+  - name: "{INSTANCE}_USER"
+    description: "Elasticsearch username"
     default: "elastic"
-    required: true
-    secret: false
     
-  - name: ELASTICSEARCH_PASSWORD
-    description: Elasticsearch password
-    required: true
+  - name: "{INSTANCE}_PASSWORD"
+    description: "Elasticsearch password"
     secret: true
-    generate: true
+
+# Port allocation strategy
+port_allocation:
+  base_port: 9200
+  increment: 1  # Second instance: 9201, Third: 9202
 
 healthcheck:
   command: "curl -f http://localhost:9200/_cluster/health || exit 1"

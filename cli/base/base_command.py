@@ -163,14 +163,38 @@ class BaseCommand(ABC):
         try:
             self.execute(**kwargs)
         except KeyboardInterrupt:
-            self.print_warning("Interrupted by user")
+            self.console.print("\n[yellow]⚠️  Operation cancelled by user[/yellow]")
             if self.logger:
                 self.console.print(
                     f"\n[dim]Logs saved to:[/dim] {self.logger.log_path}\n"
                 )
-            raise SystemExit(0)
+            raise SystemExit(130)
         except SystemExit:
             raise
+        except FileNotFoundError as e:
+            self.console.print(f"\n[bold red]✗ File not found:[/bold red] {e}\n")
+            if self.logger:
+                self.logger.log_error(f"File not found: {e}")
+                self.console.print(f"[dim]Logs saved to:[/dim] {self.logger.log_path}\n")
+            raise SystemExit(1)
+        except PermissionError as e:
+            self.console.print(f"\n[bold red]✗ Permission denied:[/bold red] {e}\n")
+            self.console.print("[dim]Try running with appropriate permissions[/dim]\n")
+            if self.logger:
+                self.logger.log_error(f"Permission error: {e}")
+                self.console.print(f"[dim]Logs saved to:[/dim] {self.logger.log_path}\n")
+            raise SystemExit(1)
+        except ValueError as e:
+            self.console.print(f"\n[bold red]✗ Invalid value:[/bold red] {e}\n")
+            if self.logger:
+                self.logger.log_error(f"Value error: {e}")
+                self.console.print(f"[dim]Logs saved to:[/dim] {self.logger.log_path}\n")
+            raise SystemExit(1)
         except Exception as e:
-            self.handle_error(e)
+            # Generic error handling
+            error_type = type(e).__name__
+            self.console.print(f"\n[bold red]✗ {error_type}:[/bold red] {e}\n")
+            if self.logger:
+                self.logger.log_error(f"{error_type}: {e}")
+                self.console.print(f"[dim]Logs saved to:[/dim] {self.logger.log_path}\n")
             raise SystemExit(1)

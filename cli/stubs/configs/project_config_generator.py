@@ -115,6 +115,18 @@ def generate_project_config(
     yml_lines.append("# " + "=" * 77)
     yml_lines.append("# Application Services")
     yml_lines.append("# " + "=" * 77)
+    yml_lines.append("# Each app can specify:")
+    yml_lines.append(
+        "#   type: Application type (python, nextjs) - optional, auto-detected"
+    )
+    yml_lines.append("#   replicas: Number of container instances (default: 1)")
+    yml_lines.append("#   path: Path to application source code")
+    yml_lines.append("#   vm: VM role to deploy to")
+    yml_lines.append("#   port: HTTP port for the application (optional for workers)")
+    yml_lines.append("#   domain: Custom domain (optional)")
+    yml_lines.append("#   addons: List of addon connections")
+    yml_lines.append("#   hooks: Post-deployment commands (optional)")
+    yml_lines.append("# " + "=" * 77)
     yml_lines.append(
         yaml.dump(
             {"apps": project_config["apps"]},

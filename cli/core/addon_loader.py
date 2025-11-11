@@ -102,7 +102,7 @@ class AddonLoader:
             project_config: Project configuration dictionary
 
         Returns:
-            Dictionary mapping addon names to Addon instances
+            Dictionary mapping addon types to Addon instances (metadata templates)
 
         Raises:
             AddonNotFoundError: If any required addon is not found
@@ -110,7 +110,7 @@ class AddonLoader:
         """
         addons = {}
 
-        # Get addon names from infrastructure section
+        # Get addon names from infrastructure section (legacy, if present)
         # Skip non-addon keys like 'vm_config'
         infrastructure = project_config.get("infrastructure", {})
         non_addon_keys = {"vm_config"}  # These are config, not addons
@@ -119,11 +119,29 @@ class AddonLoader:
                 addon = self.load_addon(service_name)
                 addons[service_name] = addon
 
-        # Get addon names from addons section
+        # Get addon types from new nested addons section
+        # Format: addons: {databases: {primary: {type: postgres, ...}}}
         addon_configs = project_config.get("addons", {})
-        for service_name in addon_configs.keys():
-            addon = self.load_addon(service_name)
-            addons[service_name] = addon
+
+        # Extract unique addon types from all instances
+        addon_types = set()
+        for category, instances in addon_configs.items():
+            if isinstance(instances, dict):
+                for instance_name, instance_config in instances.items():
+                    if isinstance(instance_config, dict):
+                        addon_type = instance_config.get("type")
+                        if addon_type:
+                            addon_types.add(addon_type)
+            else:
+                # Legacy format: flat dict {postgres: {...}, rabbitmq: {...}}
+                # Treat category as addon type
+                addon_types.add(category)
+
+        # Load metadata template for each unique addon type
+        for addon_type in addon_types:
+            if addon_type not in addons:  # Don't reload if already loaded
+                addon = self.load_addon(addon_type)
+                addons[addon_type] = addon
 
         # Resolve dependencies
         addons = self._resolve_dependencies(addons)

@@ -1,0 +1,33 @@
+---
+# Single Addon Deployment Playbook
+# Deploys ONE addon instance at a time for clean output hierarchy
+#
+# Usage:
+#   ansible-playbook addon-single.yml -e addon_instance='{"full_name":"databases.primary",...}'
+
+- name: "Deploy Addon Instance"
+  hosts: "{{ target_hosts | default('all:!orchestrator') }}"
+  become: yes
+  gather_facts: no
+  vars:
+    # Addon instance passed from Python (single addon)
+    # addon_instance: defined in extra-vars
+    # project_name: defined in extra-vars
+    # project_config: defined in extra-vars
+    
+    # Addon paths
+    addons_base_path: "/opt/superdeploy/projects/{{ project_name }}/addons"
+    addons_source_path: "{{ playbook_dir }}/../../../addons"
+    
+    # Base system vars (required for file ownership)
+    superdeploy_user: "superdeploy"
+    superdeploy_group: "superdeploy"
+  
+  tasks:
+    - name: Deploy addon instance tasks
+      include_tasks: ../roles/orchestration/addon-deployer/tasks/deploy-addon-instance.yml
+      vars:
+        # Set current_addon for the included tasks
+        # addon_instance comes from env_vars passed by Python
+        current_addon: "{{ addon_instance }}"
+

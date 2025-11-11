@@ -100,6 +100,8 @@ class ValidationEngine:
         errors.extend(self._validate_vm_config(project_config))
         errors.extend(self._validate_addon_names(project_config, available_addons))
         errors.extend(self._validate_addon_configs(project_config))
+        errors.extend(self._validate_app_types(project_config))
+        errors.extend(self._validate_app_replicas(project_config))
         errors.extend(self._validate_subnet_conflicts(project_config, project_name))
         errors.extend(self._validate_port_conflicts(project_config, project_name))
         errors.extend(self._validate_ip_conflicts(project_config))
@@ -364,6 +366,119 @@ class ValidationEngine:
                                 f"Port for addon '{addon_name}' must be a valid port number, "
                                 f"got '{port_value}'"
                             ),
+                        )
+                    )
+
+        return errors
+
+    def _validate_app_types(self, project_config: dict) -> List[ValidationError]:
+        """
+        Validate application type fields if specified.
+
+        Args:
+            project_config: Project configuration dictionary
+
+        Returns:
+            List of validation errors
+        """
+        errors = []
+
+        # Import here to avoid circular dependency
+        from cli.core.app_type_registry import app_type_registry
+
+        # Get apps config
+        apps = project_config.get("apps", {})
+        if not isinstance(apps, dict):
+            # Will be caught by other validators
+            return errors
+
+        # Validate each app's type field (if present)
+        for app_name, app_config in apps.items():
+            if not isinstance(app_config, dict):
+                continue
+
+            # Type field is optional - only validate if present
+            if "type" in app_config:
+                app_type = app_config["type"]
+
+                # Validate type is a string
+                if not isinstance(app_type, str):
+                    errors.append(
+                        ValidationError(
+                            error_type="invalid_app_type",
+                            message=f"App '{app_name}' has invalid type: must be a string, got {type(app_type).__name__}",
+                        )
+                    )
+                    continue
+
+                # Validate type is supported
+                try:
+                    app_type_registry.get(app_type)
+                except ValueError:
+                    supported_types = ", ".join(app_type_registry.list_types())
+                    errors.append(
+                        ValidationError(
+                            error_type="unsupported_app_type",
+                            message=f"App '{app_name}' has unsupported type '{app_type}'. Supported types: {supported_types}",
+                        )
+                    )
+
+        return errors
+
+    def _validate_app_replicas(self, project_config: dict) -> List[ValidationError]:
+        """
+        Validate application replicas field if specified.
+
+        Args:
+            project_config: Project configuration dictionary
+
+        Returns:
+            List of validation errors
+        """
+        errors = []
+
+        # Get apps config
+        apps = project_config.get("apps", {})
+        if not isinstance(apps, dict):
+            # Will be caught by other validators
+            return errors
+
+        # Validate each app's replicas field (if present)
+        for app_name, app_config in apps.items():
+            if not isinstance(app_config, dict):
+                continue
+
+            # Replicas field is optional
+            if "replicas" in app_config:
+                replicas = app_config["replicas"]
+
+                # Validate replicas is an integer
+                if not isinstance(replicas, int):
+                    errors.append(
+                        ValidationError(
+                            error_type="invalid_replicas",
+                            message=f"App '{app_name}' has invalid replicas: must be an integer, got {type(replicas).__name__}",
+                        )
+                    )
+                    continue
+
+                # Validate replicas is positive
+                if replicas < 1:
+                    errors.append(
+                        ValidationError(
+                            error_type="invalid_replicas",
+                            message=f"App '{app_name}' has invalid replicas: must be at least 1, got {replicas}",
+                        )
+                    )
+                    continue
+
+                # Warn if replicas > 10 (resource warning)
+                if replicas > 10:
+                    errors.append(
+                        ValidationError(
+                            error_type="high_replicas",
+                            message=f"App '{app_name}' has {replicas} replicas. Consider scaling VMs if resource constrained.",
+                            severity="warning",
                         )
                     )
 

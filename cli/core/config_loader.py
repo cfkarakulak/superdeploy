@@ -32,6 +32,8 @@ class AppConfig:
     path: str
     vm: str
     port: int
+    replicas: int = 1
+    type: str = "web"  # "web" or "worker" - auto-detected if not specified
 
 
 class ProjectConfig:
@@ -401,7 +403,7 @@ class ConfigLoader:
         if not config_file.exists():
             raise FileNotFoundError(
                 f"Project configuration not found: {config_file}\n"
-                f"Run 'superdeploy init -p {project_name}' to create it."
+                f"Run 'superdeploy {project_name}:init' to create it."
             )
 
         with open(config_file, "r") as f:
