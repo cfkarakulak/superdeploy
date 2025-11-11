@@ -48,22 +48,28 @@ class SecretIPUpdater:
         if not secrets_data:
             return
 
-        shared_secrets = secrets_data.shared.values
-        if not shared_secrets:
-            return
-
         # Get core VM internal IP
         core_internal_ip = self._get_core_internal_ip(env)
         if not core_internal_ip:
             return
 
-        # Update service hosts
-        updated = self._update_service_hosts(
-            secrets_data, shared_secrets, core_internal_ip, logger
-        )
+        updated = False
+
+        # Update shared secrets (legacy)
+        shared_secrets = secrets_data.shared.values
+        if shared_secrets:
+            updated |= self._update_service_hosts(
+                secrets_data, shared_secrets, core_internal_ip, logger
+            )
+
+        # Update addon secrets (new architecture)
+        if secrets_data.addons:
+            updated |= self._update_addon_hosts(
+                secrets_data, core_internal_ip, logger
+            )
 
         if updated:
-            self.secret_mgr.save_secrets(secrets_data.to_dict())
+            self.secret_mgr.save_secrets(secrets_data)
             logger.log("  [dim]✓ secrets.yml updated with VM internal IPs[/dim]")
 
     def _get_core_internal_ip(self, env: Dict[str, Any]) -> Optional[str]:
@@ -120,5 +126,55 @@ class SecretIPUpdater:
                     logger.log(
                         f"  [dim]✓ Updated {service_name} host: {old_value} → {core_internal_ip}[/dim]"
                     )
+
+        return updated
+
+    def _update_addon_hosts(
+        self, secrets_data: Any, core_internal_ip: str, logger
+    ) -> bool:
+        """
+        Update addon HOST credentials with core VM internal IP.
+
+        For addons like postgres/rabbitmq deployed on core VM, update their HOST
+        to core VM internal IP for cross-VM communication.
+
+        Args:
+            secrets_data: Secrets data object
+            core_internal_ip: Core VM internal IP
+            logger: Logger instance
+
+        Returns:
+            True if any updates were made
+        """
+        updated = False
+
+        # Addon types that should use core VM IP
+        core_addon_types = ["postgres", "rabbitmq", "mongodb", "redis", "elasticsearch"]
+
+        for addon_type in core_addon_types:
+            if addon_type not in secrets_data.addons:
+                continue
+
+            addon_instances = secrets_data.addons[addon_type]
+
+            for instance_name, credentials in addon_instances.items():
+                if "HOST" in credentials:
+                    current_host = credentials["HOST"]
+
+                    # Update if not already core IP and not empty
+                    if current_host and current_host != core_internal_ip:
+                        old_value = current_host
+                        credentials["HOST"] = core_internal_ip
+                        updated = True
+                        logger.log(
+                            f"  [dim]✓ Updated {addon_type}.{instance_name}.HOST: {old_value} → {core_internal_ip}[/dim]"
+                        )
+                    elif not current_host:
+                        # If empty, set to core IP
+                        credentials["HOST"] = core_internal_ip
+                        updated = True
+                        logger.log(
+                            f"  [dim]✓ Set {addon_type}.{instance_name}.HOST → {core_internal_ip}[/dim]"
+                        )
 
         return updated

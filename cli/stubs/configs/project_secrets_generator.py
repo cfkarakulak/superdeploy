@@ -196,8 +196,8 @@ def generate_project_secrets(
                     yml_lines.append(f"        USER: {project_name}_user")
                     yml_lines.append(f"        PASSWORD: {_generate_password()}")
                     yml_lines.append(f"        DATABASE: {project_name}_db")
-                    # HOST is container name in Docker network
-                    yml_lines.append(f"        HOST: {project_name}_{addon_type}_{instance_name}")
+                    # HOST will be auto-filled with VM internal IP by SecretIPUpdater
+                    yml_lines.append("        HOST: ''")
                     # Auto-allocate port (5432, 5433, 5434, ...)
                     port = base_ports.get(addon_type, 5432) + port_counters[addon_type]
                     yml_lines.append(f"        PORT: '{port}'")
@@ -207,8 +207,8 @@ def generate_project_secrets(
                     yml_lines.append(f"        USER: {project_name}_user")
                     yml_lines.append(f"        PASSWORD: {_generate_password()}")
                     yml_lines.append("        VHOST: /")
-                    # HOST is container name in Docker network
-                    yml_lines.append(f"        HOST: {project_name}_{addon_type}_{instance_name}")
+                    # HOST will be auto-filled with VM internal IP by SecretIPUpdater
+                    yml_lines.append("        HOST: ''")
                     # Auto-allocate ports (5672, 5673, ...)
                     port = base_ports.get(addon_type, 5672) + port_counters[addon_type]
                     mgmt_port = 15672 + port_counters[addon_type]
@@ -218,8 +218,8 @@ def generate_project_secrets(
 
                 elif addon_type == "redis":
                     yml_lines.append(f"        PASSWORD: {_generate_password()}")
-                    # HOST is container name in Docker network
-                    yml_lines.append(f"        HOST: {project_name}_{addon_type}_{instance_name}")
+                    # HOST will be auto-filled with VM internal IP by SecretIPUpdater
+                    yml_lines.append("        HOST: ''")
                     port = base_ports.get(addon_type, 6379) + port_counters[addon_type]
                     yml_lines.append(f"        PORT: '{port}'")
                     port_counters[addon_type] += 1
@@ -229,8 +229,8 @@ def generate_project_secrets(
                     yml_lines.append(f"        PASSWORD: {_generate_password()}")
                     yml_lines.append(f"        DATABASE: {project_name}_db")
                     yml_lines.append(f"        ROOT_PASSWORD: {_generate_password()}")
-                    # HOST is container name in Docker network
-                    yml_lines.append(f"        HOST: {project_name}_{addon_type}_{instance_name}")
+                    # HOST will be auto-filled with VM internal IP by SecretIPUpdater
+                    yml_lines.append("        HOST: ''")
                     port = base_ports.get(addon_type, 27017) + port_counters[addon_type]
                     yml_lines.append(f"        PORT: '{port}'")
                     port_counters[addon_type] += 1
@@ -238,8 +238,8 @@ def generate_project_secrets(
                 elif addon_type == "elasticsearch":
                     yml_lines.append("        USER: elastic")
                     yml_lines.append(f"        PASSWORD: {_generate_password()}")
-                    # HOST is container name in Docker network
-                    yml_lines.append(f"        HOST: {project_name}_{addon_type}_{instance_name}")
+                    # HOST will be auto-filled with VM internal IP by SecretIPUpdater
+                    yml_lines.append("        HOST: ''")
                     port = base_ports.get(addon_type, 9200) + port_counters[addon_type]
                     yml_lines.append(f"        PORT: '{port}'")
                     port_counters[addon_type] += 1
