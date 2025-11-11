@@ -277,6 +277,20 @@ jobs:
       
       - name: Run deployment hooks
         run: |
+          # Post-deployment hooks run after successful deployment
+          # Configure in projects/{{ project }}/config.yml:
+          #
+          # apps:
+          #   {{ app }}:
+          #     hooks:
+          #       after_deploy:
+          #         - python craft migrate              # Run database migrations
+          #         - python craft cache:clear          # Clear application cache
+          #         - python craft queue:restart        # Restart queue workers
+          #
+          # Hooks run inside the container using docker compose exec
+          # If any hook fails, deployment is marked as failed
+          
           cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}
           
           if [ ! -f config.yml ]; then

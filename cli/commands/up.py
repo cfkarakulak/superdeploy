@@ -803,6 +803,25 @@ def _deploy_project_internal(
                         "options": addon_config.get("options", {}),
                     }
 
+                    # Determine target VM for addon
+                    # Infrastructure addons (databases, queues, proxy) → core VMs
+                    # Custom addons can specify vm in config
+                    addon_vm = addon_config.get("vm")
+                    if not addon_vm:
+                        # Default mapping for infrastructure addons
+                        if category in ["databases", "queues", "proxy", "cache", "search"]:
+                            addon_vm = "core"
+                        else:
+                            addon_vm = "all"  # Custom addons on all VMs by default
+                    
+                    # Map VM selection to Ansible host pattern
+                    if addon_vm == "core":
+                        target_hosts = "core:!orchestrator"
+                    elif addon_vm == "app":
+                        target_hosts = "app:!orchestrator"
+                    else:
+                        target_hosts = "all:!orchestrator"
+                    
                     # Build addon-specific env vars (these get passed through to Ansible via custom_vars)
                     addon_env_vars = ansible_env_vars.copy()
                     addon_env_vars["addon_instance"] = addon_instance_dict
@@ -815,7 +834,7 @@ def _deploy_project_internal(
                     addon_env_vars["addons_source_path"] = str(
                         project_root / "shared" / "ansible" / "../../addons"
                     )
-                    addon_env_vars["target_hosts"] = "all:!orchestrator"
+                    addon_env_vars["target_hosts"] = target_hosts
 
                     addon_cmd = build_ansible_command(
                         ansible_dir=ansible_dir,

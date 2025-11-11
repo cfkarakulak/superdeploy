@@ -273,6 +273,20 @@ jobs:
       
       - name: Run deployment hooks
         run: |
+          # Post-deployment hooks run after successful deployment
+          # Configure in projects/{{ project }}/config.yml:
+          #
+          # apps:
+          #   {{ app }}:
+          #     hooks:
+          #       after_deploy:
+          #         - npx prisma migrate deploy         # Run Prisma migrations
+          #         - npm run db:seed                   # Seed database (optional)
+          #         - npm run cache:clear               # Clear Next.js cache
+          #
+          # Hooks run inside the container using docker compose exec
+          # If any hook fails, deployment is marked as failed
+          
           cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}
           
           if [ ! -f config.yml ]; then
