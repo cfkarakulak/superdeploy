@@ -32,6 +32,7 @@ addons:
       version: 15-alpine
       plan: standard
       port: 5432
+      vm: core
       options: {}
   queues:
     main:
@@ -40,6 +41,7 @@ addons:
       plan: standard
       port: 5672
       management_port: 15672
+      vm: core
       options: {}
   proxy:
     main:
@@ -49,6 +51,7 @@ addons:
       http_port: 80
       https_port: 443
       admin_port: 2019
+      vm: app
       options: {}
 apps:
   api:

@@ -131,6 +131,9 @@
     instance_full_name: "{{ addon_full_name }}"
     container_name: "{{ project_name }}_{{ addon_type }}_{{ addon_name }}"
     volume_name: "{{ project_name }}-{{ addon_type }}-{{ addon_name }}-data"
+    # Pass apps and vm_role for proxy addons (Caddy needs this for routing)
+    apps: "{{ apps | default({}) }}"
+    vm_role: "{{ vm_role | default('') }}"
   when: addon_ansible_file.stat.exists
 
 - name: "✓ {{ addon_full_name }} deployed → Container: {{ project_name }}_{{ addon_type }}_{{ addon_name }} • Port: {{ addon_instance_secrets.PORT | default('internal') }}"

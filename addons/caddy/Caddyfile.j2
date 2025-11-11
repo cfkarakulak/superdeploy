@@ -21,7 +21,7 @@
 # Each app on this VM gets its own domain block
 {% if apps is defined %}
 {% for app_name, app_config in apps.items() %}
-{% if app_config.get('vm') == vm_role %}
+{% if app_config.get('vm') == vm_role and app_config.get('port') %}
 
 # {{ app_name }} service
 {% if app_config.get('domain') %}
@@ -44,8 +44,8 @@
         respond "OK" 200
     }
     
-    # Proxy to {{ app_name }} service (Docker Compose automatic load balancing)
-    reverse_proxy {{ app_name }}:{{ app_config.get('port', 8000) }} {
+    # Proxy to {{ app_name }}-web service (process-based architecture)
+    reverse_proxy {{ app_name }}-web:{{ app_config.get('port', 8000) }} {
         # Docker Compose service discovery handles load balancing across replicas
         lb_policy round_robin
         lb_try_duration 5s
@@ -67,8 +67,8 @@
 {% else %}
 # Port-based routing (development - no domain yet)
 :{{ app_config.get('port', 8000) }} {
-    # Simple pass-through to app service (load balanced if replicas > 1)
-    reverse_proxy {{ app_name }}:{{ app_config.get('port', 8000) }}
+    # Simple pass-through to app-web service (load balanced if replicas > 1)
+    reverse_proxy {{ app_name }}-web:{{ app_config.get('port', 8000) }}
 }
 {% endif %}
 {% endif %}
