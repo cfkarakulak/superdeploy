@@ -217,7 +217,7 @@ class GenerateCommand(ProjectCommand):
                         default_cmd = f"python craft serve --host 0.0.0.0 --port {port}"
                         default_name = "web"
                     else:
-                        # Worker service
+                        # Worker service (no --tries parameter, not supported by all frameworks)
                         default_cmd = "python craft queue:work"
                         default_name = "worker"
                 else:
