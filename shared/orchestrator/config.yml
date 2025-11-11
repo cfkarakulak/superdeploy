@@ -10,7 +10,7 @@
 # =============================================================================
 project:
   name: orchestrator
-  ssl_email: cradexco@gmail.com
+  ssl_email: admin@example.com
 
 # =============================================================================
 # Cloud Provider Configuration
@@ -63,7 +63,7 @@ addons:
 
 # Grafana Configuration
 grafana:
-  domain: 'grafana.cheapa.io'
+  domain: ''
   port: 3000
   smtp_enabled: false
   smtp_host: ''
@@ -73,7 +73,7 @@ grafana:
 
 # Prometheus Configuration
 prometheus:
-  domain: 'prometheus.cheapa.io'
+  domain: ''
   port: 9090
   retention: 15d
 
@@ -81,7 +81,7 @@ prometheus:
 # Caddy Configuration (Reverse Proxy for HTTPS)
 # =============================================================================
 caddy:
-  enabled: true
+  enabled: false
   version: 2-alpine
   http_port: 80
   https_port: 443

@@ -24,6 +24,25 @@
     superdeploy_group: "superdeploy"
   
   tasks:
+    # Ensure Docker network exists before deploying addons
+    - name: Check if project Docker network exists
+      shell: "docker network inspect {{ project_name }}-network >/dev/null 2>&1"
+      register: network_exists
+      changed_when: false
+      failed_when: false
+      
+    - name: Create project Docker network if not exists
+      shell: |
+        docker network inspect {{ project_name }}-network >/dev/null 2>&1 || \
+        docker network create {{ project_name }}-network --subnet={{ project_config.network.docker_subnet | default('172.30.0.0/24') }}
+      become_user: "{{ superdeploy_user }}"
+      register: network_create
+      changed_when: "'already exists' not in network_create.stderr and network_create.rc == 0"
+      failed_when: 
+        - network_create.rc != 0
+        - "'already exists' not in network_create.stderr"
+      when: network_exists.rc != 0
+
     - name: Deploy addon instance tasks
       include_tasks: ../roles/orchestration/addon-deployer/tasks/deploy-addon-instance.yml
       vars:
