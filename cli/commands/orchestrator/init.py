@@ -155,6 +155,48 @@ class OrchestratorInitCommand(BaseCommand):
 
         logger.log(f"Config saved: {config_path.relative_to(project_root)}")
 
+        # Generate secrets.yml
+        logger.log("Generating secrets.yml...")
+        secrets_path = config_path.parent / "secrets.yml"
+        self._generate_secrets(secrets_path, project_root, logger)
+
+    def _generate_secrets(self, secrets_path: Path, project_root: Path, logger) -> None:
+        """Generate orchestrator secrets.yml."""
+        import secrets as py_secrets
+        import string
+
+        def generate_password(length=48):
+            alphabet = string.ascii_letters + string.digits + "-_"
+            return "".join(py_secrets.choice(alphabet) for _ in range(length))
+
+        grafana_password = generate_password()
+
+        secrets_content = f"""# =============================================================================
+# Orchestrator - Secrets Configuration
+# =============================================================================
+# WARNING: This file contains sensitive information
+# Keep this file secure and never commit to version control
+# =============================================================================
+#
+# Required Secrets:
+#   - GRAFANA_ADMIN_PASSWORD: Auto-generated on first deployment
+#
+# Optional Secrets (for email alerts):
+#   - SMTP_PASSWORD: Add if you want Grafana to send email alerts
+#
+# Note: GRAFANA_ADMIN_USER is configured in config.yml (default: 'admin')
+# =============================================================================
+
+secrets:
+  GRAFANA_ADMIN_PASSWORD: {grafana_password}
+  SMTP_PASSWORD: ''  # Optional: For email alerts
+"""
+
+        with open(secrets_path, "w") as f:
+            f.write(secrets_content)
+
+        logger.log(f"Secrets saved: {secrets_path.relative_to(project_root)}")
+
     def _display_next_steps(self) -> None:
         """Display next steps after initialization."""
         self.console.print("\n[white]Next steps:[/white]")

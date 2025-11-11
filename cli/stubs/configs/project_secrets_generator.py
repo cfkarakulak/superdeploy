@@ -166,8 +166,22 @@ def generate_project_secrets(
                 }
 
         # Write grouped by addon type (indented under secrets)
+        # Track port allocation per addon type
+        port_counters = {}
+        base_ports = {
+            "postgres": 5432,
+            "rabbitmq": 5672,
+            "redis": 6379,
+            "mongodb": 27017,
+            "elasticsearch": 9200,
+        }
+
         for addon_type in sorted(addons_by_type.keys()):
             yml_lines.append(f"    {addon_type}:")
+
+            # Initialize port counter for this addon type
+            if addon_type not in port_counters:
+                port_counters[addon_type] = 0
 
             for instance_name, instance_data in sorted(
                 addons_by_type[addon_type].items()
@@ -182,32 +196,70 @@ def generate_project_secrets(
                     yml_lines.append(f"        USER: {project_name}_user")
                     yml_lines.append(f"        PASSWORD: {_generate_password()}")
                     yml_lines.append(f"        DATABASE: {project_name}_db")
-                    yml_lines.append("        HOST: ''  # Auto-filled after deployment")
-                    yml_lines.append("        PORT: '5432'")
+                    yml_lines.append("        HOST: ''  # Auto-filled by deployment")
+                    # Auto-allocate port (5432, 5433, 5434, ...)
+                    port = base_ports.get(addon_type, 5432) + port_counters[addon_type]
+                    yml_lines.append(f"        PORT: '{port}'")
+                    port_counters[addon_type] += 1
 
                 elif addon_type == "rabbitmq":
                     yml_lines.append(f"        USER: {project_name}_user")
                     yml_lines.append(f"        PASSWORD: {_generate_password()}")
                     yml_lines.append("        VHOST: /")
-                    yml_lines.append("        HOST: ''  # Auto-filled after deployment")
-                    yml_lines.append("        PORT: '5672'")
-                    yml_lines.append("        MANAGEMENT_PORT: '15672'")
-
-                elif addon_type == "caddy":
-                    yml_lines.append("        HOST: ''  # Auto-filled after deployment")
-                    yml_lines.append("        HTTP_PORT: '80'")
-                    yml_lines.append("        HTTPS_PORT: '443'")
+                    yml_lines.append("        HOST: ''  # Auto-filled by deployment")
+                    # Auto-allocate ports (5672, 5673, ...)
+                    port = base_ports.get(addon_type, 5672) + port_counters[addon_type]
+                    mgmt_port = 15672 + port_counters[addon_type]
+                    yml_lines.append(f"        PORT: '{port}'")
+                    yml_lines.append(f"        MANAGEMENT_PORT: '{mgmt_port}'")
+                    port_counters[addon_type] += 1
 
                 elif addon_type == "redis":
                     yml_lines.append(f"        PASSWORD: {_generate_password()}")
-                    yml_lines.append("        HOST: ''  # Auto-filled after deployment")
-                    yml_lines.append("        PORT: '6379'")
+                    yml_lines.append("        HOST: ''  # Auto-filled by deployment")
+                    port = base_ports.get(addon_type, 6379) + port_counters[addon_type]
+                    yml_lines.append(f"        PORT: '{port}'")
+                    port_counters[addon_type] += 1
 
-                else:
-                    # Generic addon
+                elif addon_type == "mongodb":
                     yml_lines.append(f"        USER: {project_name}_user")
                     yml_lines.append(f"        PASSWORD: {_generate_password()}")
-                    yml_lines.append("        HOST: ''  # Auto-filled after deployment")
+                    yml_lines.append(f"        DATABASE: {project_name}_db")
+                    yml_lines.append(f"        ROOT_PASSWORD: {_generate_password()}")
+                    yml_lines.append("        HOST: ''  # Auto-filled by deployment")
+                    port = base_ports.get(addon_type, 27017) + port_counters[addon_type]
+                    yml_lines.append(f"        PORT: '{port}'")
+                    port_counters[addon_type] += 1
+
+                elif addon_type == "elasticsearch":
+                    yml_lines.append("        USER: elastic")
+                    yml_lines.append(f"        PASSWORD: {_generate_password()}")
+                    yml_lines.append("        HOST: ''  # Auto-filled by deployment")
+                    port = base_ports.get(addon_type, 9200) + port_counters[addon_type]
+                    yml_lines.append(f"        PORT: '{port}'")
+                    port_counters[addon_type] += 1
+
+                elif addon_type == "caddy":
+                    yml_lines.append("        HOST: ''  # Auto-filled by deployment")
+                    port_http = 80 + (port_counters.get(addon_type, 0) * 10)
+                    port_https = 443 + (port_counters.get(addon_type, 0) * 10)
+                    yml_lines.append(f"        HTTP_PORT: '{port_http}'")
+                    yml_lines.append(f"        HTTPS_PORT: '{port_https}'")
+                    yml_lines.append("        ADMIN_PORT: '2019'")
+                    port_counters[addon_type] = port_counters.get(addon_type, 0) + 1
+
+                elif addon_type == "monitoring":
+                    # Monitoring uses flat secrets (see orchestrator/secrets.yml)
+                    yml_lines.append(
+                        "        # Monitoring credentials in orchestrator/secrets.yml"
+                    )
+
+                else:
+                    # Generic addon (assume user/password pattern)
+                    yml_lines.append(f"        USER: {project_name}_user")
+                    yml_lines.append(f"        PASSWORD: {_generate_password()}")
+                    yml_lines.append("        HOST: ''  # Auto-filled by deployment")
+                    yml_lines.append("        PORT: ''  # Set manually")
 
                 yml_lines.append("")
     else:

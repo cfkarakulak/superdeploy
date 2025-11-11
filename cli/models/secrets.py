@@ -65,7 +65,9 @@ class SecretConfig:
 
     project_name: str
     shared: SharedSecrets = field(default_factory=SharedSecrets)
-    addons: Dict[str, Dict[str, Dict[str, str]]] = field(default_factory=dict)  # addons.{type}.{name}.{credential}
+    addons: Dict[str, Dict[str, Dict[str, str]]] = field(
+        default_factory=dict
+    )  # addons.{type}.{name}.{credential}
     apps: Dict[str, AppSecrets] = field(default_factory=dict)
     env_aliases: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
@@ -148,11 +150,20 @@ class SecretConfig:
         # Extract shared secrets
         shared = SharedSecrets(values=secrets_data.get("shared", {}))
 
+        # Extract addon credentials
+        addons = secrets_data.get("addons", {})
+
         # Extract app-specific secrets
         apps: Dict[str, AppSecrets] = {}
         for key, value in secrets_data.items():
-            if key != "shared" and isinstance(value, dict):
+            if key not in ["shared", "addons", "apps"] and isinstance(value, dict):
                 apps[key] = AppSecrets(app_name=key, values=value)
+
+        # Also check for explicit "apps" key
+        if "apps" in secrets_data:
+            for app_name, app_values in secrets_data["apps"].items():
+                if isinstance(app_values, dict):
+                    apps[app_name] = AppSecrets(app_name=app_name, values=app_values)
 
         # Extract env aliases
         env_aliases = data.get("env_aliases", {})
@@ -160,6 +171,7 @@ class SecretConfig:
         return cls(
             project_name=project_name,
             shared=shared,
+            addons=addons,
             apps=apps,
             env_aliases=env_aliases,
         )

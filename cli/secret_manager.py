@@ -38,20 +38,9 @@ class SecretFormatter:
         lines.append("")
 
         # Secrets section
-        lines.append("# " + "=" * 77)
-        lines.append("# Application Secrets")
-        lines.append("# " + "=" * 77)
         lines.append("secrets:")
 
         # Shared secrets
-        lines.append("")
-        lines.append(
-            "  # ---------------------------------------------------------------------------"
-        )
-        lines.append("  # Shared Secrets (available to all applications)")
-        lines.append(
-            "  # ---------------------------------------------------------------------------"
-        )
         lines.append("  shared:")
 
         if config.shared.values:
@@ -93,46 +82,61 @@ class SecretFormatter:
         else:
             lines.append("    {}")
 
+        # Addon credentials
+        lines.append("")
+        lines.append("  # " + "=" * 75)
+        lines.append("  # Addon Instance Credentials")
+        lines.append("  # " + "=" * 75)
+        lines.append("  addons:")
+
+        if config.addons:
+            for addon_type in sorted(config.addons.keys()):
+                lines.append(f"    {addon_type}:")
+                for instance_name in sorted(config.addons[addon_type].keys()):
+                    lines.append(f"      {instance_name}:")
+                    instance_creds = config.addons[addon_type][instance_name]
+                    for key in sorted(instance_creds.keys()):
+                        value = instance_creds[key]
+                        lines.append(f"        {key}: {value}")
+                    lines.append("")
+        else:
+            lines.append("    {}")
+
         # App-specific secrets
-        for app_name, app_secrets in config.apps.items():
-            lines.append("")
-            lines.append(
-                "  # ---------------------------------------------------------------------------"
-            )
-            lines.append(f"  # {app_name.upper()} - Application-specific secrets")
-            lines.append(
-                "  # ---------------------------------------------------------------------------"
-            )
-            lines.append(f"  {app_name}:")
-            if app_secrets.values:
-                for key, value in sorted(app_secrets.values.items()):
-                    lines.append(f"    {key}: {value}")
-            else:
-                lines.append("    # No app-specific secrets")
+        lines.append("")
+        lines.append("  # " + "=" * 75)
+        lines.append("  # Application-Specific Secrets")
+        lines.append("  # " + "=" * 75)
+        lines.append("  apps:")
+        if config.apps:
+            for app_name, app_secrets in config.apps.items():
+                lines.append(f"    {app_name}:")
+                if app_secrets.values:
+                    for key, value in sorted(app_secrets.values.items()):
+                        lines.append(f"      {key}: {value}")
+                else:
+                    lines.append("      {}")
+                lines.append("")
+        else:
+            lines.append("    {}")
 
         # Environment aliases section
+        lines.append("# " + "=" * 77)
+        lines.append("# Environment Variable Aliases")
+        lines.append("# " + "=" * 77)
+        lines.append("env_aliases:")
         if config.env_aliases:
-            lines.append("")
-            lines.append("# " + "=" * 77)
-            lines.append("# Environment Variable Aliases")
-            lines.append("# " + "=" * 77)
-            lines.append(
-                "# Maps addon environment variables to application-expected names"
-            )
-            lines.append(
-                "# Example: DB_HOST: POSTGRES_HOST → DB_HOST gets value from POSTGRES_HOST"
-            )
-            lines.append("# " + "=" * 77)
-            lines.append("env_aliases:")
-
             for app_name, aliases in config.env_aliases.items():
-                lines.append("")
                 lines.append(f"  {app_name}:")
                 if aliases:
                     for alias_key, alias_value in sorted(aliases.items()):
                         lines.append(f"    {alias_key}: {alias_value}")
                 else:
-                    lines.append("    # No aliases needed")
+                    lines.append("    {}")
+                lines.append("")
+        else:
+            for app_name in config.apps.keys():
+                lines.append(f"  {app_name}: {{}}")
 
         lines.append("")
         return "\n".join(lines)

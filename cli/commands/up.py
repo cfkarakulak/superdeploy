@@ -671,7 +671,14 @@ def _deploy_project_internal(
 
             secret_mgr = SecretManager(project_root, project)
             all_secrets = secret_mgr.load_secrets()
-            ansible_vars["project_secrets"] = all_secrets.to_dict().get("secrets", {})
+            # Pass full secrets structure (including addons) for addon env variables
+            # Read secrets.yml directly to get full structure
+            import yaml
+
+            secrets_file = project_root / "projects" / project / "secrets.yml"
+            with open(secrets_file) as f:
+                secrets_dict = yaml.safe_load(f)
+            ansible_vars["project_secrets"] = secrets_dict
             ansible_vars["env_aliases"] = all_secrets.env_aliases
 
             ansible_env_vars = {"superdeploy_root": str(project_root)}
@@ -962,17 +969,11 @@ def _deploy_project_internal(
     logger.log("")
     logger.log("🔐 Project Credentials")
 
-    # PostgreSQL
-    postgres_host = env.get("POSTGRES_HOST") or project_config_obj.raw_config.get(
-        "addons", {}
-    ).get("postgres", {}).get("host", "postgres")
-    postgres_user = env.get("POSTGRES_USER") or project_config_obj.raw_config.get(
-        "addons", {}
-    ).get("postgres", {}).get("user", f"{project}_user")
+    # PostgreSQL (from env vars set by addon deployment)
+    postgres_host = env.get("POSTGRES_HOST", "")
+    postgres_user = env.get("POSTGRES_USER", "")
     postgres_pass = env.get("POSTGRES_PASSWORD", "")
-    postgres_db = env.get("POSTGRES_DB") or project_config_obj.raw_config.get(
-        "addons", {}
-    ).get("postgres", {}).get("database", f"{project}_db")
+    postgres_db = env.get("POSTGRES_DB", "")
 
     if postgres_pass:
         logger.log("")
@@ -982,17 +983,9 @@ def _deploy_project_internal(
         logger.log(f"    Username: {postgres_user}")
         logger.log(f"    Password: {postgres_pass}")
 
-    # RabbitMQ
-    rabbitmq_host = env.get("RABBITMQ_HOST") or project_config_obj.raw_config.get(
-        "addons", {}
-    ).get("rabbitmq", {}).get("host", "rabbitmq")
-    rabbitmq_user = (
-        env.get("RABBITMQ_USER")
-        or env.get("RABBITMQ_DEFAULT_USER")
-        or project_config_obj.raw_config.get("addons", {})
-        .get("rabbitmq", {})
-        .get("user", f"{project}_user")
-    )
+    # RabbitMQ (from env vars set by addon deployment)
+    rabbitmq_host = env.get("RABBITMQ_HOST", "")
+    rabbitmq_user = env.get("RABBITMQ_USER") or env.get("RABBITMQ_DEFAULT_USER", "")
     rabbitmq_pass = env.get("RABBITMQ_PASSWORD") or env.get("RABBITMQ_DEFAULT_PASS", "")
 
     # Find core VM IP for RabbitMQ management UI

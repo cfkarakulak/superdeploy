@@ -2,14 +2,14 @@ version: '3.8'
 
 services:
   {{ service_name }}:
-    image: mongo:{{ version }}
+    image: mongo:${VERSION}
     container_name: {{ container_name }}
     restart: always
     env_file:
       - .env
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${USER}
-      MONGO_INITDB_ROOT_PASSWORD: ${PASSWORD}
+      MONGO_INITDB_ROOT_PASSWORD: ${ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: ${DATABASE}
     volumes:
       - mongodb-data:/data/db

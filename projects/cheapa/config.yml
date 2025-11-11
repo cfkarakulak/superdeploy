@@ -9,7 +9,7 @@
 project:
   name: cheapa
   description: cheapa project
-  created_at: '2025-11-11T16:23:41.272616'
+  created_at: '2025-11-11T18:35:08.465874'
   ssl_email: admin@cheapa.io
 
 # =============================================================================
@@ -43,15 +43,38 @@ vms:
     services: []
 
 # =============================================================================
-# Addons Configuration
+# Addons Configuration (NEW FORMAT)
+# =============================================================================
+# Format: addons.{CATEGORY}.{INSTANCE_NAME}
+# Example: addons.databases.primary
 # =============================================================================
 addons:
-  rabbitmq:
-    version: 3.12-management-alpine
-  postgres:
-    version: 15-alpine
-  caddy:
-    version: 2-alpine
+  databases:
+    primary:
+      type: postgres
+      version: 15-alpine
+      plan: standard
+      port: 5432
+      options: {}
+      
+  queues:
+    main:
+      type: rabbitmq
+      version: 3.12-management-alpine
+      plan: standard
+      port: 5672
+      management_port: 15672
+      options: {}
+      
+  proxy:
+    main:
+      type: caddy
+      version: 2-alpine
+      plan: standard
+      http_port: 80
+      https_port: 443
+      admin_port: 2019
+      options: {}
 
 # =============================================================================
 # Application Services

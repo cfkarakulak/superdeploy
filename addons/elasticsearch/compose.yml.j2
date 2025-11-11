@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   {{ service_name }}:
-    image: elasticsearch:{{ version }}
+    image: elasticsearch:${VERSION}
     container_name: {{ container_name }}
     restart: always
     env_file:

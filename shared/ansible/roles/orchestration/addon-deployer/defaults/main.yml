@@ -20,6 +20,9 @@ addon_configs: {}
 # Project secrets (should be provided from .env)
 project_secrets: {}
 
+# Network configuration
+network_subnet: "172.30.0.0/24"  # Default subnet for project Docker network
+
 # Timeout for health checks (seconds)
 addon_health_check_timeout: 300
 addon_health_check_retries: 30

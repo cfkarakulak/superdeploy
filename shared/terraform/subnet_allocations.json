@@ -2,5 +2,7 @@
   "vpc_subnets": {
     "cheapa": "10.1.0.0/16"
   },
-  "docker_subnets": {}
+  "docker_subnets": {
+    "orchestrator": "172.20.0.0/24"
+  }
 }

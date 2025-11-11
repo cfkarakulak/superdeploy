@@ -209,11 +209,11 @@
 
 - name: Set permissions for user on virtual host
   shell: |
-    docker exec {{ container_name }} rabbitmqctl set_permissions -p / {{ USER }} ".*" ".*" ".*"
+    docker exec {{ container_name }} rabbitmqctl set_permissions -p / {{ addon_env_vars.RABBITMQ_DEFAULT_USER }} ".*" ".*" ".*"
   changed_when: false
   failed_when: false
 
-- name: "🐰  RabbitMQ ready → AMQP: {{ PORT | default(5672) }} • Management: {{ MANAGEMENT_PORT | default(15672) }} • VHost: / • User: {{ USER }}"
+- name: "🐰  RabbitMQ ready → AMQP: {{ addon_env_vars.PORT | default(5672) }} • Management: {{ addon_env_vars.MANAGEMENT_PORT | default(15672) }} • VHost: / • User: {{ addon_env_vars.RABBITMQ_DEFAULT_USER }}"
   set_fact:
     _rabbitmq_ready: true
   changed_when: false

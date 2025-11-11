@@ -75,82 +75,69 @@
   loop: "{{ app_ports | default([]) | unique }}"
   when: app_ports is defined and app_ports | length > 0
 
-- name: Collect addon ports from project configuration
+- name: Initialize addon ports list
   set_fact:
     addon_ports: []
-  when: project_config is defined
+  when: project_name is defined
 
-- name: Add PostgreSQL port if enabled
+- name: Collect ports from each addon category
   set_fact:
-    addon_ports: "{{ addon_ports + [project_config.addons.postgres.port | default(5432)] }}"
+    addon_ports: "{{ addon_ports | default([]) + (category_ports | from_yaml) }}"
+  vars:
+    category_name: "{{ category_item.key }}"
+    category_instances: "{{ category_item.value }}"
+    category_ports: |
+      {% set ports = [] %}
+      {% for instance_name, instance_config in category_instances.items() %}
+        {% if instance_config.port is defined and instance_config.port | int > 0 %}
+          {% set _ = ports.append(instance_config.port | int) %}
+        {% endif %}
+        {% if instance_config.management_port is defined and instance_config.management_port | int > 0 %}
+          {% set _ = ports.append(instance_config.management_port | int) %}
+        {% endif %}
+        {% if instance_config.http_port is defined and instance_config.http_port | int > 0 %}
+          {% set _ = ports.append(instance_config.http_port | int) %}
+        {% endif %}
+        {% if instance_config.https_port is defined and instance_config.https_port | int > 0 %}
+          {% set _ = ports.append(instance_config.https_port | int) %}
+        {% endif %}
+        {% if instance_config.admin_port is defined and instance_config.admin_port | int > 0 %}
+          {% set _ = ports.append(instance_config.admin_port | int) %}
+        {% endif %}
+      {% endfor %}
+      {{ ports }}
+  loop: "{{ full_project_config.addons | default({}) | dict2items }}"
+  loop_control:
+    loop_var: category_item
+    label: "{{ category_item.key }}"
   when: 
-    - project_config is defined
-    - project_config.addons is defined
-    - project_config.addons.postgres is defined
-    - project_config.addons.postgres.port is defined
+    - project_name is defined
+    - full_project_config is defined
+    - full_project_config.addons is defined
 
-- name: Add Redis port if enabled
+- name: Flatten and deduplicate addon ports
   set_fact:
-    addon_ports: "{{ addon_ports + [project_config.addons.redis.port | default(6379)] }}"
+    addon_ports: "{{ addon_ports | default([]) | flatten | unique | sort }}"
   when: 
-    - project_config is defined
-    - project_config.addons is defined
-    - project_config.addons.redis is defined
-    - project_config.addons.redis.port is defined
+    - project_name is defined
+    - addon_ports is defined
 
-- name: Add RabbitMQ port if enabled (ONLY if explicitly configured)
-  set_fact:
-    addon_ports: "{{ addon_ports + [project_config.addons.rabbitmq.port | default(5672)] }}"
-  when: 
-    - project_config is defined
-    - project_config.addons is defined
-    - project_config.addons.rabbitmq is defined
-    - project_config.addons.rabbitmq.port is defined
-    - project_config.addons.rabbitmq.expose | default(false)
+- name: Display collected addon ports for firewall
+  debug:
+    msg: "Addon ports to open: {{ addon_ports | default([]) | join(', ') if addon_ports | default([]) | length > 0 else 'none' }}"
+  when: project_name is defined
 
-- name: Add RabbitMQ management port if enabled (ONLY if explicitly configured)
-  set_fact:
-    addon_ports: "{{ addon_ports + [project_config.addons.rabbitmq.management_port | default(15672)] }}"
-  when: 
-    - project_config is defined
-    - project_config.addons is defined
-    - project_config.addons.rabbitmq is defined
-    - project_config.addons.rabbitmq.management_port is defined
-    - project_config.addons.rabbitmq.expose | default(false)
-
-- name: Add MongoDB port if enabled
-  set_fact:
-    addon_ports: "{{ addon_ports + [project_config.addons.mongodb.port | default(27017)] }}"
-  when: 
-    - project_config is defined
-    - project_config.addons is defined
-    - project_config.addons.mongodb is defined
-    - project_config.addons.mongodb.port is defined
-
-- name: Add Prometheus port if monitoring enabled
-  set_fact:
-    addon_ports: "{{ addon_ports + [project_config.monitoring.prometheus_port | default(9090)] }}"
-  when: 
-    - project_config is defined
-    - project_config.monitoring is defined
-    - project_config.monitoring.prometheus_port is defined
-
-- name: Add Grafana port (monitoring always enabled)
-  set_fact:
-    addon_ports: "{{ addon_ports + [project_config.monitoring.grafana_port | default(3000)] }}"
-  when: 
-    - project_config is defined
-    - project_config.monitoring is defined
-    - project_config.monitoring.grafana_port is defined
-
-- name: Allow addon ports
+- name: Allow addon ports in firewall
   ufw:
     rule: allow
     port: "{{ item }}"
     proto: tcp
     comment: "Addon service port"
-  loop: "{{ addon_ports }}"
-  when: addon_ports is defined and addon_ports | length > 0
+  loop: "{{ addon_ports | default([]) }}"
+  when: 
+    - project_name is defined
+    - addon_ports is defined
+    - addon_ports | length > 0
 
 - name: Allow additional ports from configuration
   ufw:

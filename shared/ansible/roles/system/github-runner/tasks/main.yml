@@ -48,7 +48,7 @@
     url: "https://api.github.com/orgs/{{ github_org }}/actions/runners"
     method: GET
     headers:
-      Authorization: "Bearer {{ project_secrets.shared.GITHUB_TOKEN }}"
+      Authorization: "Bearer {{ project_secrets.secrets.shared.GITHUB_TOKEN }}"
       Accept: "application/vnd.github+json"
     status_code: 200
     return_content: yes
@@ -82,7 +82,7 @@
     - name: Remove runner from GitHub API if offline
       command: >
         ./config.sh remove
-        --token {{ project_secrets.shared.GITHUB_TOKEN }}
+        --token {{ project_secrets.secrets.shared.GITHUB_TOKEN }}
       args:
         chdir: /opt/github-runner
       become_user: "{{ superdeploy_user }}"
@@ -163,7 +163,7 @@
     url: "https://api.github.com/orgs/{{ github_org }}/actions/runners/registration-token"
     method: POST
     headers:
-      Authorization: "Bearer {{ project_secrets.shared.GITHUB_TOKEN }}"
+      Authorization: "Bearer {{ project_secrets.secrets.shared.GITHUB_TOKEN }}"
       Accept: "application/vnd.github+json"
       X-GitHub-Api-Version: "2022-11-28"
     status_code: 201

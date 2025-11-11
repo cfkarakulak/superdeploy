@@ -63,7 +63,7 @@ addons:
 
 # Grafana Configuration
 grafana:
-  domain: ''
+  domain: 'grafana.cheapa.io'
   port: 3000
   smtp_enabled: false
   smtp_host: ''
@@ -73,7 +73,7 @@ grafana:
 
 # Prometheus Configuration
 prometheus:
-  domain: ''
+  domain: 'prometheus.cheapa.io'
   port: 9090
   retention: 15d
 
@@ -81,7 +81,7 @@ prometheus:
 # Caddy Configuration (Reverse Proxy for HTTPS)
 # =============================================================================
 caddy:
-  enabled: false
+  enabled: true
   version: 2-alpine
   http_port: 80
   https_port: 443

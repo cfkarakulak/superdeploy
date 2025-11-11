@@ -125,17 +125,23 @@ class AddonsInfoCommand(ProjectCommand):
         secret_mgr = SecretManager(self.project_root, self.project_name)
         secrets = secret_mgr.load_secrets()
 
+        # Get connection details from secrets structure
         addon_secrets = (
-            secrets.get("addons", {}).get(instance.type, {}).get(instance_name, {})
+            secrets.get("secrets", {}).get("addons", {}).get(instance.type, {}).get(instance_name, {})
         )
 
-        if addon_secrets:
+        if addon_secrets or config.get("addons", {}).get(category, {}).get(instance_name):
             self.console.print("\n[bold]Connection Details[/bold]")
-            host = addon_secrets.get("HOST")
-            port = addon_secrets.get("PORT")
-
-            self.console.print(f"  Host: {host}")
-            self.console.print(f"  Port: {port}")
+            
+            # HOST is determined at runtime (VM IP)
+            # For now, show that it will be auto-configured
+            self.console.print(f"  Host: [dim](auto-configured on deployment)[/dim]")
+            
+            # PORT comes from config.yml
+            instance_config = config.get("addons", {}).get(category, {}).get(instance_name, {})
+            port = instance_config.get("port") or instance_config.get("http_port")
+            if port:
+                self.console.print(f"  Port: {port}")
 
             # Type-specific details
             if instance.type == "postgres":
@@ -143,18 +149,19 @@ class AddonsInfoCommand(ProjectCommand):
                 password = addon_secrets.get("PASSWORD")
                 database = addon_secrets.get("DATABASE")
 
-                # Masked password
-                masked_password = (
-                    password[:4] + "***" + password[-4:] if password else "***"
-                )
+                if user:
+                    # Masked password
+                    masked_password = (
+                        password[:4] + "***" + password[-4:] if password else "***"
+                    )
 
-                self.console.print(f"  User: {user}")
-                self.console.print(f"  Password: {masked_password}")
-                self.console.print(f"  Database: {database}")
-                self.console.print("\n  [dim]Connection URL:[/dim]")
-                self.console.print(
-                    f"    postgresql://{user}:{masked_password}@{host}:{port}/{database}"
-                )
+                    self.console.print(f"  User: {user}")
+                    self.console.print(f"  Password: {masked_password}")
+                    self.console.print(f"  Database: {database}")
+                    self.console.print("\n  [dim]Connection URL (use $HOST at runtime):[/dim]")
+                    self.console.print(
+                        f"    postgresql://{user}:{masked_password}@$HOST:{port}/{database}"
+                    )
 
             elif instance.type == "redis":
                 password = addon_secrets.get("PASSWORD", "")
@@ -165,30 +172,38 @@ class AddonsInfoCommand(ProjectCommand):
                         else "***"
                     )
                     self.console.print(f"  Password: {masked_password}")
-                    self.console.print("\n  [dim]Connection URL:[/dim]")
+                    self.console.print("\n  [dim]Connection URL (use $HOST at runtime):[/dim]")
                     self.console.print(
-                        f"    redis://default:{masked_password}@{host}:{port}"
+                        f"    redis://default:{masked_password}@$HOST:{port}"
                     )
                 else:
-                    self.console.print("\n  [dim]Connection URL:[/dim]")
-                    self.console.print(f"    redis://{host}:{port}")
+                    self.console.print("\n  [dim]Connection URL (use $HOST at runtime):[/dim]")
+                    self.console.print(f"    redis://$HOST:{port}")
 
             elif instance.type == "rabbitmq":
                 user = addon_secrets.get("USER")
                 password = addon_secrets.get("PASSWORD")
                 vhost = addon_secrets.get("VHOST", "/")
 
-                masked_password = (
-                    password[:4] + "***" + password[-4:] if password else "***"
-                )
+                if user:
+                    masked_password = (
+                        password[:4] + "***" + password[-4:] if password else "***"
+                    )
 
-                self.console.print(f"  User: {user}")
-                self.console.print(f"  Password: {masked_password}")
-                self.console.print(f"  VHost: {vhost}")
-                self.console.print("\n  [dim]Connection URL:[/dim]")
-                self.console.print(
-                    f"    amqp://{user}:{masked_password}@{host}:{port}{vhost}"
-                )
+                    self.console.print(f"  User: {user}")
+                    self.console.print(f"  Password: {masked_password}")
+                    self.console.print(f"  VHost: {vhost}")
+                    
+                    # Show both AMQP and Management URLs
+                    management_port = instance_config.get("management_port")
+                    self.console.print("\n  [dim]Connection URLs (use $HOST at runtime):[/dim]")
+                    self.console.print(
+                        f"    AMQP:       amqp://{user}:{masked_password}@$HOST:{port}{vhost}"
+                    )
+                    if management_port:
+                        self.console.print(
+                            f"    Management: http://$HOST:{management_port}"
+                        )
 
         # Attachments
         apps_config = config.get("apps", {})
@@ -287,12 +302,30 @@ class AddonsAddCommand(ProjectCommand):
             )
             return
 
-        # Add addon
-        config["addons"][category][self.name] = {
+        # Determine default ports based on addon type
+        port_map = {
+            "postgres": {"port": 5432},
+            "redis": {"port": 6379},
+            "rabbitmq": {"port": 5672, "management_port": 15672},
+            "mongodb": {"port": 27017},
+            "elasticsearch": {"port": 9200},
+            "caddy": {"http_port": 80, "https_port": 443, "admin_port": 2019},
+        }
+        
+        # Add addon with port configuration
+        addon_config = {
             "type": self.addon_type,
             "version": version,
             "plan": self.plan,
         }
+        
+        # Add type-specific ports
+        if self.addon_type in port_map:
+            addon_config.update(port_map[self.addon_type])
+        
+        addon_config["options"] = {}
+        
+        config["addons"][category][self.name] = addon_config
 
         # Save config
         with open(config_path, "w") as f:

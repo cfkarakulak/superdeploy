@@ -30,12 +30,27 @@ class AnsibleTreeRenderer:
         self.task_start_time = None  # Track when current task started (time.time())
         self.last_line_timestamp = None  # Not used for stdout (only for log parsing)
 
+        # Sub-play context tracking for indented subtasks
+        self.in_subplay_context = False
+        self.subplay_tasks: List[str] = []  # Track subtasks under current sub-play
+
+        # Track task execution counts for deduplication
+        self.task_count = {}  # task_name -> count
+        self.task_times = {}  # task_name -> list of times
+        self.current_task_name = None  # Track current executing task
+
+        # Track play execution counts for deduplication
+        self.play_printed = set()  # Track which plays have been printed
+        self.play_execution_count = {}  # play_name -> count of executions
+        self.last_printed_play = None  # Track last printed play for updates
+
         # ANSI color codes (matching old style)
         self.COLOR_ORANGE = "\033[38;5;214m"
         self.COLOR_GREEN = "\033[32m"
         self.COLOR_CYAN = "\033[36m"
         self.COLOR_WHITE = "\033[37m"
         self.COLOR_GRAY = "\033[2m"
+        self.COLOR_DIM_CYAN = "\033[2;36m"  # Dim cyan for timing
         self.COLOR_SKIPPED = (
             "\033[2;38;5;183m"  # Dim light purple/pink for skipped tasks
         )
@@ -145,11 +160,24 @@ class AnsibleTreeRenderer:
             # Flush any pending task before new play
             self._flush_pending_task()
 
+            # Exit sub-play context when new play starts
+            if self.in_subplay_context:
+                self.in_subplay_context = False
+                self.subplay_tasks = []
+
             play_name = re.sub(r"PLAY \[(.*?)\].*", r"\1", line)
             if play_name and play_name.strip():
+                # Track play execution count
+                if play_name not in self.play_execution_count:
+                    self.play_execution_count[play_name] = 0
+                self.play_execution_count[play_name] += 1
+
                 # Hide "Deploy Addon Instance" play (addons shown as sub-plays)
                 if play_name != "Deploy Addon Instance":
-                    self._print_play(play_name)
+                    # Only print play once (first time)
+                    if play_name not in self.play_printed:
+                        self._print_play(play_name)
+                        self.play_printed.add(play_name)
                 self.current_play = play_name
                 self.current_tasks = []
                 self.indent_level = 0
@@ -163,6 +191,9 @@ class AnsibleTreeRenderer:
             task_name = re.sub(r"TASK \[(.*?)\].*", r"\1", line)
             task_name = self._clean_task_name(task_name)
 
+            # Store current task name for count tracking
+            self.current_task_name = task_name
+
             # Save task start time for timing calculation (use time.time())
             self.task_start_time = time.time()
 
@@ -172,6 +203,9 @@ class AnsibleTreeRenderer:
                 self._print_sub_play(task_name)
                 self.current_sub_play = task_name
                 self.task_printed.add(task_name)
+                # Enter sub-play context for indented subtasks
+                self.in_subplay_context = True
+                self.subplay_tasks = []
             elif self.should_show_task(task_name):
                 self.current_tasks.append(task_name)
             return
@@ -206,6 +240,15 @@ class AnsibleTreeRenderer:
 
             # Flush previous pending task (if any) before handling new result
             self._flush_pending_task()
+
+            # Increment task count for this execution
+            if self.current_task_name:
+                if self.current_task_name not in self.task_count:
+                    self.task_count[self.current_task_name] = 0
+                    self.task_times[self.current_task_name] = []
+                self.task_count[self.current_task_name] += 1
+                if self.last_task_time:
+                    self.task_times[self.current_task_name].append(self.last_task_time)
 
             # Handle task result
             # Check both result_type AND is_skipped flag
@@ -246,6 +289,9 @@ class AnsibleTreeRenderer:
 
     def _print_play(self, play_name: str) -> None:
         """Print play header with tree connector."""
+        # Note: Count will be updated in finalize() if needed
+        # For now, just print the play name (first occurrence only)
+
         # Always use └── for plays (root level of tree)
         connector = "└──"
         icon = f"{self.COLOR_ORANGE}▶{self.COLOR_RESET}"
@@ -287,15 +333,34 @@ class AnsibleTreeRenderer:
         else:
             status_colored = status
 
-        # Build timing string (dim/gray color for timing, like task names)
-        timing_str = f" {self.COLOR_GRAY}({time}){self.COLOR_RESET}" if time else ""
+        # Get task execution count and build count string
+        count = self.task_count.get(task_name, 1)
+        count_str = f" - {count}x" if count > 1 else ""
 
-        # Build tree structure - use ├── for tasks under play
+        # Build timing string (dim cyan color for timing)
+        # Use the last recorded time, or average if multiple
+        if time:
+            timing_str = f" {self.COLOR_DIM_CYAN}({time}){self.COLOR_RESET}"
+        elif task_name in self.task_times and self.task_times[task_name]:
+            # Use the last time recorded
+            last_time = self.task_times[task_name][-1]
+            timing_str = f" {self.COLOR_DIM_CYAN}({last_time}){self.COLOR_RESET}"
+        else:
+            timing_str = ""
+
+        # Build tree structure - no indentation, all tasks at same level
+        indent = ""
+
+        # Track subtasks if in subplay context
+        if self.in_subplay_context:
+            self.subplay_tasks.append(task_name)
+
+        # Always use ├── connector (└── will be used for last subtask on finalize)
         connector = "├──"
 
         # Print with proper formatting (task name in dim/gray)
         print(
-            f"{connector} {status_colored} {self.COLOR_GRAY}{task_name}{self.COLOR_RESET}{timing_str}",
+            f"{connector} {status_colored} {self.COLOR_GRAY}{task_name}{count_str}{self.COLOR_RESET}{timing_str}",
             flush=True,
         )
 

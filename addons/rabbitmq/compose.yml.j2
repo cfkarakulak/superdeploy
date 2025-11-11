@@ -2,23 +2,19 @@ version: '3.8'
 
 services:
   {{ service_name }}:
-    image: rabbitmq:{{ version }}
+    image: rabbitmq:${VERSION}
     container_name: {{ container_name }}
     restart: always
     hostname: {{ container_name }}
     env_file:
       - .env
-    environment:
-      RABBITMQ_DEFAULT_USER: ${USER}
-      RABBITMQ_DEFAULT_PASS: ${PASSWORD}
-      RABBITMQ_DEFAULT_VHOST: ${VHOST}
     volumes:
       - {{ volume_name }}:/var/lib/rabbitmq
     networks:
       - {{ project_name }}-network
     ports:
-      - "0.0.0.0:{{ PORT }}:5672"   # AMQP (instance-specific port)
-      - "0.0.0.0:{{ PORT | int + 10000 }}:15672" # Management UI (port + 10000)
+      - "0.0.0.0:${PORT}:5672"   # AMQP (instance-specific port)
+      - "0.0.0.0:${MANAGEMENT_PORT}:15672" # Management UI
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
       test: ["CMD-SHELL", "{{ healthcheck.command }}"]

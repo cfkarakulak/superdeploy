@@ -363,18 +363,12 @@ class SyncCommand(ProjectCommand):
 
             # Repository-level secrets (Docker, orchestrator, etc.)
             repo_secrets = {
-                "DOCKER_REGISTRY": all_secrets.get("secrets", {})
-                .get("shared", {})
-                .get("DOCKER_REGISTRY", "docker.io"),
-                "DOCKER_ORG": all_secrets.get("secrets", {})
-                .get("shared", {})
-                .get("DOCKER_ORG"),
-                "DOCKER_USERNAME": all_secrets.get("secrets", {})
-                .get("shared", {})
-                .get("DOCKER_USERNAME"),
-                "DOCKER_TOKEN": all_secrets.get("secrets", {})
-                .get("shared", {})
-                .get("DOCKER_TOKEN"),
+                "DOCKER_REGISTRY": all_secrets.shared.get(
+                    "DOCKER_REGISTRY", "docker.io"
+                ),
+                "DOCKER_ORG": all_secrets.shared.get("DOCKER_ORG"),
+                "DOCKER_USERNAME": all_secrets.shared.get("DOCKER_USERNAME"),
+                "DOCKER_TOKEN": all_secrets.shared.get("DOCKER_TOKEN"),
             }
 
             # Remove None values

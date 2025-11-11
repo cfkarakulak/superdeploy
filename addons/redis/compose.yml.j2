@@ -2,14 +2,14 @@ version: '3.8'
 
 services:
   {{ service_name }}:
-    image: redis:{{ version }}
+    image: redis:${VERSION}
     container_name: {{ container_name }}
     restart: always
     env_file:
       - .env
-    command: redis-server --requirepass ${PASSWORD} --appendonly yes
+    command: redis-server --requirepass $PASSWORD --appendonly yes
     environment:
-      REDIS_PASSWORD: ${PASSWORD}
+      REDIS_PASSWORD: $PASSWORD
     volumes:
       - redis-data:/data
     networks:

@@ -13,16 +13,31 @@
 
 - name: Process each environment variable definition
   set_fact:
-    addon_env_vars: "{{ addon_env_vars | combine({item.key: processed_value}) }}"
+    addon_env_vars: "{{ addon_env_vars | combine({env_var_name: processed_value}) }}"
   vars:
     var_def: "{{ item.value }}"
+    # Use env_name if defined (for short names like USER, PASSWORD), otherwise use the key
+    env_var_name: "{{ var_def.env_name | default(item.key) }}"
     # Determine the value based on source priority: secrets > project config > defaults
     processed_value: >-
       {%- if var_def.source == 'secret' and var_def.from_secrets is defined -%}
-        {%- if project_secrets.secrets is defined -%}
-          {{ project_secrets.secrets.get(var_def.from_secrets, '') }}
-        {%- elif project_secrets.shared is defined -%}
-          {{ project_secrets.shared.get(var_def.from_secrets, '') }}
+        {%- set secret_key = var_def.from_secrets -%}
+        {%- set secret_value = '' -%}
+        {%- if project_secrets.secrets is defined and project_secrets.secrets.addons is defined and project_secrets.secrets.addons[addon_type] is defined and project_secrets.secrets.addons[addon_type][addon_name] is defined and project_secrets.secrets.addons[addon_type][addon_name][secret_key] is defined -%}
+          {%- set secret_value = project_secrets.secrets.addons[addon_type][addon_name][secret_key] | string | trim -%}
+        {%- elif project_secrets.secrets is defined and project_secrets.secrets[secret_key] is defined -%}
+          {%- set secret_value = project_secrets.secrets[secret_key] | string | trim -%}
+        {%- elif project_secrets.secrets is defined and project_secrets.secrets.shared is defined and project_secrets.secrets.shared[secret_key] is defined -%}
+          {%- set secret_value = project_secrets.secrets.shared[secret_key] | string | trim -%}
+        {%- endif -%}
+        {%- if secret_value != '' -%}
+          {{ secret_value }}
+        {%- elif var_def.from_ansible is defined -%}
+          {{ hostvars[inventory_hostname][var_def.from_ansible] | default(var_def.default | default('')) }}
+        {%- elif var_def.default is defined -%}
+          {{ var_def.default }}
+        {%- elif var_def.required | default(false) -%}
+          MISSING_REQUIRED_{{ item.key }}
         {%- else -%}
           
         {%- endif -%}
@@ -60,12 +75,13 @@
 - name: Validate required environment variables
   assert:
     that:
-      - addon_env_vars[item.key] is defined
-      - (addon_env_vars[item.key] is string and addon_env_vars[item.key] | length > 0) or (addon_env_vars[item.key] is not string)
-      - not (addon_env_vars[item.key] | string).startswith('MISSING_REQUIRED_')
+      - addon_env_vars[item.value.env_name | default(item.key)] is defined
+      - (addon_env_vars[item.value.env_name | default(item.key)] is string and addon_env_vars[item.value.env_name | default(item.key)] | length > 0) or (addon_env_vars[item.value.env_name | default(item.key)] is not string)
+      - not (addon_env_vars[item.value.env_name | default(item.key)] | string).startswith('MISSING_REQUIRED_')
     fail_msg: |
       [ADDON-DEPLOYER] ERROR: Missing required environment variable for {{ addon_name }}
         - Variable: {{ item.key }}
+        - Env Name: {{ item.value.env_name | default(item.key) }}
         - Description: {{ item.value.description | default('No description') }}
         - Source: {{ item.value.source | default('unknown') }}
         - Expected path: {{ item.value.from_project | default('N/A') }}
@@ -99,7 +115,7 @@
 
 - name: Generate .env file for addon
   template:
-    src: env-file.j2
+    src: "{{ playbook_dir }}/../roles/orchestration/addon-deployer/templates/env-file.j2"
     dest: "{{ addon_deployment_path }}/.env"
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"

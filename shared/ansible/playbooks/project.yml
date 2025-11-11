@@ -36,6 +36,9 @@
   vars:
     # Skip firewall reconfiguration on orchestrator during project deployments
     skip_firewall_reset: "{{ 'orchestrator' in group_names and project_name is defined }}"
+    # Pass full project config for addon port firewall configuration
+    # Note: project_config from Python contains nested structure, extract raw_config
+    full_project_config: "{{ project_config.project_config if (project_config is defined and project_config.project_config is defined) else {} }}"
 
 - name: Install and Configure Docker
   hosts: all:!orchestrator
@@ -90,7 +93,7 @@
         url: "https://api.github.com/orgs/{{ github_org }}/actions/runners"
         method: GET
         headers:
-          Authorization: "Bearer {{ project_secrets.shared.GITHUB_TOKEN }}"
+          Authorization: "Bearer {{ project_secrets.secrets.shared.GITHUB_TOKEN }}"
           Accept: "application/vnd.github+json"
         status_code: 200
         return_content: yes
@@ -164,6 +167,8 @@
         addon_configs: "{{ addon_configs }}"
         # NO DEFAULT - fail fast if project_secrets is not defined
         project_secrets: "{{ project_secrets }}"
+        # Network configuration
+        network_subnet: "{{ project_config.network.docker_subnet | default('172.30.0.0/24') }}"
   tags:
     - addons
     - infrastructure

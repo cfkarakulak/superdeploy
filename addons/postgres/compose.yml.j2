@@ -2,24 +2,20 @@ version: '3.8'
 
 services:
   {{ service_name }}:
-    image: postgres:{{ version }}
+    image: postgres:${VERSION}
     container_name: {{ container_name }}
     restart: always
     env_file:
       - .env
-    environment:
-      POSTGRES_USER: ${USER}
-      POSTGRES_PASSWORD: ${PASSWORD}
-      POSTGRES_DB: ${DATABASE}
     volumes:
       - {{ volume_name }}:/var/lib/postgresql/data
     networks:
       - {{ project_name }}-network
     ports:
-      - "0.0.0.0:{{ PORT }}:5432"   # Instance-specific port
+      - "0.0.0.0:${PORT}:5432"   # Instance-specific port
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
-      test: ["CMD-SHELL", "{{ healthcheck.command | replace('${POSTGRES_USER}', '${USER}') | replace('${POSTGRES_DB}', '${DATABASE}') }}"]
+      test: ["CMD-SHELL", "{{ healthcheck.command }}"]
       interval: {{ healthcheck.interval }}
       timeout: {{ healthcheck.timeout }}
       retries: {{ healthcheck.retries }}
