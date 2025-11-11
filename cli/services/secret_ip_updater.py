@@ -64,9 +64,7 @@ class SecretIPUpdater:
 
         # Update addon secrets (new architecture)
         if secrets_data.addons:
-            updated |= self._update_addon_hosts(
-                secrets_data, core_internal_ip, logger
-            )
+            updated |= self._update_addon_hosts(secrets_data, core_internal_ip, logger)
 
         if updated:
             self.secret_mgr.save_secrets(secrets_data)

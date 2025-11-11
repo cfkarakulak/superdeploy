@@ -199,7 +199,7 @@ class GenerateCommand(ProjectCommand):
             type_source = "explicit" if "type" in app_config else "detected"
             self.console.print(f"  Type: {app_type} [dim]({type_source})[/dim]")
 
-            # 2. Create .superdeploy marker (multi-process mode)
+            # 2. Create superdeploy marker (multi-process mode)
             vm_role = app_config.get("vm", "app")
 
             # Get processes from config or create default
@@ -285,7 +285,7 @@ class GenerateCommand(ProjectCommand):
         self.console.print(f"   [red]superdeploy {self.project_name}:up[/red]")
         self.console.print("\n2. Commit to app repos:")
         self.console.print("   [dim]cd <app-repo>[/dim]")
-        self.console.print("   [dim]git add .superdeploy .github/[/dim]")
+        self.console.print("   [dim]git add superdeploy .github/[/dim]")
         self.console.print('   [dim]git commit -m "Add SuperDeploy config"[/dim]')
         self.console.print("   [dim]git push origin production[/dim]")
         self.console.print("\n3. GitHub Actions will automatically deploy!")

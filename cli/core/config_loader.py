@@ -198,7 +198,7 @@ class ProjectConfig:
             from pathlib import Path
 
             app_path_obj = Path(app_path).expanduser().resolve()
-            marker_file = app_path_obj / ".superdeploy"
+            marker_file = app_path_obj / "superdeploy"
 
             if marker_file.exists():
                 try:

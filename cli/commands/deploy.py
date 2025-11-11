@@ -327,10 +327,10 @@ class DeployCommand(ProjectCommand):
             raise DeploymentError(f"App path not found: {app_path}")
 
         # Verify marker file
-        marker_file = app_path / ".superdeploy"
+        marker_file = app_path / "superdeploy"
         if not marker_file.exists():
             raise DeploymentError(
-                f"No .superdeploy marker found. Run 'superdeploy {self.project_name}:generate' first"
+                f"No superdeploy marker found. Run 'superdeploy {self.project_name}:generate' first"
             )
 
         # Build Docker image configuration

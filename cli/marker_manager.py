@@ -1,7 +1,7 @@
 """
 Marker File Management
 
-Manages .superdeploy marker files for app tracking and identification.
+Manages superdeploy marker files for app tracking and identification.
 
 The marker file supports Heroku Procfile-like process definitions with a clean,
 minimal syntax. Processes can use Dockerfile commands by default or override them.
@@ -61,7 +61,7 @@ class ProcessDefinition:
 @dataclass
 class AppMarker:
     """
-    Represents .superdeploy marker file content.
+    Represents superdeploy marker file content.
 
     Multi-process support (Heroku Procfile-like).
     Each process has command, port, replicas, etc.
@@ -144,13 +144,13 @@ class AppMarker:
 
 class MarkerManager:
     """
-    Manages .superdeploy marker files in app repositories.
+    Manages superdeploy marker files in app repositories.
 
     Marker files identify apps to SuperDeploy and contain minimal metadata
     for deployment routing and execution.
     """
 
-    MARKER_FILENAME = ".superdeploy"
+    MARKER_FILENAME = "superdeploy"
 
     @staticmethod
     def create_marker(
@@ -161,7 +161,7 @@ class MarkerManager:
         processes: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Path:
         """
-        Create .superdeploy marker file in app directory.
+        Create superdeploy marker file in app directory.
 
         Args:
             app_path: Path to application directory
@@ -218,7 +218,7 @@ class MarkerManager:
     @staticmethod
     def load_marker(app_path: Path) -> Optional[AppMarker]:
         """
-        Load .superdeploy marker from app directory.
+        Load superdeploy marker from app directory.
 
         Args:
             app_path: Path to application directory
@@ -247,7 +247,7 @@ class MarkerManager:
     @staticmethod
     def has_marker(app_path: Path) -> bool:
         """
-        Check if app directory has .superdeploy marker file.
+        Check if app directory has superdeploy marker file.
 
         Args:
             app_path: Path to application directory
@@ -276,7 +276,7 @@ class MarkerManager:
 
         if marker is None:
             raise ConfigurationError(
-                "No .superdeploy marker found",
+                "No superdeploy marker found",
                 context=f"Path: {app_path}",
             )
 
