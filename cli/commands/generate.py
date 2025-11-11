@@ -225,7 +225,10 @@ class GenerateCommand(ProjectCommand):
                     default_cmd = "npm start" if port else "python main.py"
                     default_name = "web" if port else "worker"
 
-                processes = {default_name: {"command": default_cmd, "replicas": 1}}
+                process_def = {"command": default_cmd, "replicas": 1}
+                if port:
+                    process_def["port"] = port
+                processes = {default_name: process_def}
 
                 self.console.print(
                     f"  [dim]Using default process: {default_name} (replicas: 1)[/dim]"

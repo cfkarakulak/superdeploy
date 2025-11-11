@@ -727,6 +727,9 @@ def _deploy_project_internal(
                 logger, title="Configuring Services", verbose=verbose
             )
 
+            # Track last runner for summary (default to main runner)
+            last_runner = runner
+
             # Deploy addons separately for clean output (each addon as main-level play)
             deploy_addons_separately = "addons" in ansible_tags
 
@@ -853,8 +856,7 @@ def _deploy_project_internal(
             # Add summary to tree (use the last runner that was actually executed)
             if last_runner and last_runner.tree_renderer:
                 last_runner.tree_renderer.add_summary_task(
-                    "Services configured",
-                    "Services configured successfully"
+                    "Services configured", "Services configured successfully"
                 )
 
             # Update state: Mark deployment complete (VMs running, Ansible succeeded)
