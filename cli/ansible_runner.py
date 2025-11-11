@@ -36,6 +36,7 @@ class AnsibleRunner:
         self.logger = logger
         self.title = title
         self.verbose = verbose
+        self.tree_renderer = None  # Will be set during run()
 
     def run(self, ansible_cmd: str, cwd: Path) -> int:
         """
@@ -154,7 +155,7 @@ class AnsibleRunner:
             Exit code
         """
         # Initialize tree renderer (no Rich needed - uses ANSI codes)
-        tree_renderer = AnsibleTreeRenderer()
+        self.tree_renderer = AnsibleTreeRenderer()
 
         # NON-VERBOSE MODE: Capture and display with custom tree rendering
         process = subprocess.Popen(
@@ -195,7 +196,7 @@ class AnsibleRunner:
                     pass
 
                 # Process line through tree renderer
-                tree_renderer.process_line(line_stripped)
+                self.tree_renderer.process_line(line_stripped)
 
         # Close selector
         sel.close()
@@ -211,10 +212,10 @@ class AnsibleRunner:
                     except (BlockingIOError, OSError):
                         pass
                     # Process remaining lines
-                    tree_renderer.process_line(line_stripped)
+                    self.tree_renderer.process_line(line_stripped)
 
         # Finalize tree rendering
-        tree_renderer.finalize()
+        self.tree_renderer.finalize()
 
         returncode = process.wait()
         return returncode

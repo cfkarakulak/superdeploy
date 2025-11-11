@@ -768,6 +768,7 @@ def _deploy_project_internal(
                         raise SystemExit(1)
 
                 # Deploy each addon separately for clean tree output
+                last_runner = runner  # Track the last runner used
                 for addon_name in addons_to_deploy:
                     # Parse addon (e.g., "databases.primary")
                     parts = addon_name.split(".")
@@ -830,6 +831,7 @@ def _deploy_project_internal(
                         logger, title=f"Deploy {addon_name}", verbose=verbose
                     )
                     result_returncode = addon_runner.run(addon_cmd, cwd=project_root)
+                    last_runner = addon_runner  # Track the last addon runner
 
                     if result_returncode != 0:
                         logger.log_error(f"Addon {addon_name} deployment failed")
@@ -848,9 +850,12 @@ def _deploy_project_internal(
                     )
                     raise SystemExit(1)
 
-            console.print("[green]✓ Services configured[/green]")
-
-            logger.success("Services configured successfully")
+            # Add summary to tree (use the last runner that was actually executed)
+            if last_runner and last_runner.tree_renderer:
+                last_runner.tree_renderer.add_summary_task(
+                    "Services configured",
+                    "Services configured successfully"
+                )
 
             # Update state: Mark deployment complete (VMs running, Ansible succeeded)
             from cli.state_manager import StateManager

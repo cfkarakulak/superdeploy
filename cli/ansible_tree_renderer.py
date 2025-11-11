@@ -364,6 +364,29 @@ class AnsibleTreeRenderer:
             flush=True,
         )
 
+    def add_summary_task(self, message: str, substatus: str = "") -> None:
+        """
+        Add a final summary task to the tree (after all Ansible tasks complete).
+        
+        Args:
+            message: Main summary message (e.g., "Services configured")
+            substatus: Optional sub-message (e.g., "Services configured successfully")
+        """
+        # Use └── (last connector) for final summary
+        status_colored = f"{self.COLOR_GREEN}✓{self.COLOR_RESET}"
+        
+        print(
+            f"└── {status_colored} {self.COLOR_GRAY}{message}{self.COLOR_RESET}",
+            flush=True,
+        )
+        
+        # If substatus provided, print it as indented subtask
+        if substatus:
+            print(
+                f"    └── {status_colored} {self.COLOR_GRAY}{substatus}{self.COLOR_RESET}",
+                flush=True,
+            )
+
     def finalize(self) -> None:
         """Finalize rendering (flush any remaining tasks)."""
         # Flush any pending task first

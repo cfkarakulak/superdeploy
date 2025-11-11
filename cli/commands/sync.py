@@ -361,7 +361,7 @@ class SyncCommand(ProjectCommand):
 
                 self.console.print()
 
-            # Repository-level secrets (Docker, orchestrator, etc.)
+            # Repository-level secrets (Docker, GitHub, orchestrator, etc.)
             repo_secrets = {
                 "DOCKER_REGISTRY": all_secrets.shared.get(
                     "DOCKER_REGISTRY", "docker.io"
@@ -369,6 +369,8 @@ class SyncCommand(ProjectCommand):
                 "DOCKER_ORG": all_secrets.shared.get("DOCKER_ORG"),
                 "DOCKER_USERNAME": all_secrets.shared.get("DOCKER_USERNAME"),
                 "DOCKER_TOKEN": all_secrets.shared.get("DOCKER_TOKEN"),
+                "PRIVATE_REPO_TOKEN": all_secrets.shared.get("PRIVATE_REPO_TOKEN"),
+                "GITHUB_TOKEN": all_secrets.shared.get("GITHUB_TOKEN"),
             }
 
             # Remove None values

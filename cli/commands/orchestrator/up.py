@@ -492,9 +492,11 @@ ansible_python_interpreter=/usr/bin/python3
         )
         raise SystemExit(1)
 
-    console.print("[green]✓ Orchestrator configured[/green]")
-
-    logger.success("Services configured successfully")
+    # Add summary to tree
+    if runner.tree_renderer:
+        runner.tree_renderer.add_summary_task(
+            "Orchestrator configured", "Services configured successfully"
+        )
 
     # Mark deployment as complete (Ansible succeeded)
     orch_config.mark_deployed(
