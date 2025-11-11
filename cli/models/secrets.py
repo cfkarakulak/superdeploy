@@ -104,15 +104,30 @@ class SecretConfig:
         # 3. Add env aliases for this app
         app_aliases = self.env_aliases.get(app_name, {})
         for alias_key, alias_value in app_aliases.items():
-            # If it's a reference to another variable (UPPERCASE with _)
-            if (
-                isinstance(alias_value, str)
-                and alias_value.isupper()
-                and "_" in alias_value
-            ):
-                # Look up the actual value
-                if alias_value in merged:
-                    merged[alias_key] = merged[alias_value]
+            if not isinstance(alias_value, str):
+                merged[alias_key] = alias_value
+                continue
+
+            # Check if it's a reference to addon secret (format: addon_type.instance.CREDENTIAL)
+            if "." in alias_value:
+                parts = alias_value.split(".")
+                if len(parts) == 3:
+                    # Format: addon_type.instance_name.credential (e.g., postgres.primary.HOST)
+                    addon_type, instance_name, credential = parts
+                    # Look up in addons secrets: self.addons[type][instance][credential]
+                    if (
+                        addon_type in self.addons
+                        and instance_name in self.addons[addon_type]
+                        and credential in self.addons[addon_type][instance_name]
+                    ):
+                        merged[alias_key] = self.addons[addon_type][instance_name][
+                            credential
+                        ]
+                        continue
+
+            # Check if it's a reference to another variable (already in merged)
+            if alias_value in merged:
+                merged[alias_key] = merged[alias_value]
             else:
                 # It's a static value
                 merged[alias_key] = alias_value

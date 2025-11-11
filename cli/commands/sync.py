@@ -429,14 +429,15 @@ class SyncCommand(ProjectCommand):
                     f"  [dim]⚠️  No .env file found at {env_file_path}[/dim]"
                 )
 
-            # Get app-specific secrets from secrets.yml
-            app_secrets = secret_mgr.get_app_secrets(app_name)
+            # Get app secrets from secrets.yml (includes shared + app-specific + env_aliases)
+            # Note: get_app_secrets() internally calls get_merged_secrets() which resolves aliases
+            app_secrets_dict = secret_mgr.get_app_secrets(app_name)
             self.console.print(
-                f"  [dim]🔐 Read {len(app_secrets)} secrets from secrets.yml[/dim]"
+                f"  [dim]🔐 Read {len(app_secrets_dict)} secrets from secrets.yml (with aliases)[/dim]"
             )
 
-            # MERGE: local .env as base, secrets.yml overrides
-            merged_env = {**local_env, **app_secrets}
+            # MERGE: secrets.yml as base, local .env overrides
+            merged_env = {**app_secrets_dict, **local_env}
             self.console.print(
                 f"  [dim]🔀 Merged total: {len(merged_env)} variables[/dim]"
             )
