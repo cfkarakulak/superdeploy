@@ -89,17 +89,15 @@
   ignore_errors: yes
 
 - name: Create project Docker network
-  docker_network:
-    name: "{{ project_name }}-network"
-    driver: bridge
-    ipam_config:
-      - subnet: "{{ network_subnet }}"
-    state: present
+  shell: |
+    docker network inspect {{ project_name }}-network >/dev/null 2>&1 || \
+    docker network create {{ project_name }}-network --subnet={{ network_subnet }}
   become_user: "{{ superdeploy_user }}"
   register: network_create
+  changed_when: "'already exists' not in network_create.stderr and network_create.rc == 0"
   failed_when: 
-    - network_create.failed
-    - "'already exists' not in network_create.msg | default('')"
+    - network_create.rc != 0
+    - "'already exists' not in network_create.stderr"
 
 - name: "Parse addon instances from project config"
   include_tasks: parse-addon-instances.yml
