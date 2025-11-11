@@ -45,6 +45,16 @@ network:
   docker_subnet: 172.20.0.0/24
 
 # =============================================================================
+# Addons Configuration
+# =============================================================================
+addons:
+  monitoring:
+    main:
+      type: monitoring
+      version: latest
+      plan: standard
+
+# =============================================================================
 # Monitoring Configuration (Global - All Projects)
 # =============================================================================
 # Grafana and Prometheus run on orchestrator VM and monitor ALL projects
@@ -53,7 +63,7 @@ network:
 
 # Grafana Configuration
 grafana:
-  domain: 'grafana.cheapa.io'
+  domain: ''
   port: 3000
   smtp_enabled: false
   smtp_host: ''
@@ -63,7 +73,7 @@ grafana:
 
 # Prometheus Configuration
 prometheus:
-  domain: 'prometheus.cheapa.io'
+  domain: ''
   port: 9090
   retention: 15d
 
@@ -71,7 +81,7 @@ prometheus:
 # Caddy Configuration (Reverse Proxy for HTTPS)
 # =============================================================================
 caddy:
-  enabled: true
+  enabled: false
   version: 2-alpine
   http_port: 80
   https_port: 443

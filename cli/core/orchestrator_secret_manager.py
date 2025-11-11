@@ -22,7 +22,7 @@ class OrchestratorSecretManager:
             return yaml.safe_load(f) or {}
 
     def save_secrets(self, secrets: Dict[str, Any]):
-        """Save secrets to secrets.yml with nice formatting"""
+        """Save secrets to secrets.yml with nice formatting (flat structure)"""
         self.secrets_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Build formatted YAML manually for better readability
@@ -33,6 +33,20 @@ class OrchestratorSecretManager:
         lines.append("# WARNING: This file contains sensitive information")
         lines.append("# Keep this file secure and never commit to version control")
         lines.append("# " + "=" * 77)
+        lines.append("#")
+        lines.append("# Required Secrets:")
+        lines.append("#   - GRAFANA_ADMIN_PASSWORD: Auto-generated on first deployment")
+        lines.append("#")
+        lines.append("# Optional Secrets (for email alerts):")
+        lines.append(
+            "#   - SMTP_PASSWORD: Add if you want Grafana to send email alerts"
+        )
+        lines.append("#")
+        lines.append(
+            "# Note: GRAFANA_ADMIN_USER is configured in config.yml (default: 'admin')"
+        )
+        lines.append("# Note: Monitoring addon reads from flat secrets (not nested)")
+        lines.append("# " + "=" * 77)
         lines.append("")
         lines.append("secrets:")
 
@@ -41,9 +55,8 @@ class OrchestratorSecretManager:
             for key, value in sorted(secrets_data.items()):
                 lines.append(f"  {key}: {value}")
         else:
-            lines.append("  # No secrets configured yet")
-
-        lines.append("")
+            lines.append("  GRAFANA_ADMIN_PASSWORD: ''  # Will be auto-generated")
+            lines.append("  SMTP_PASSWORD: ''  # Optional")
 
         # Write formatted content
         with open(self.secrets_file, "w") as f:

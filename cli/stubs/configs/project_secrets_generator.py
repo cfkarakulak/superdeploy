@@ -1,15 +1,54 @@
-"""Project secrets.yml template generator"""
+"""Project secrets.yml template generator with addon support"""
+
+import secrets
+import string
+
+
+def _generate_password(length: int = 43) -> str:
+    """Generate a secure random password."""
+    alphabet = string.ascii_letters + string.digits + "_-"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def generate_project_secrets(
     project_name: str,
     app_names: list,
-    postgres_password: str,
-    rabbitmq_password: str,
+    addons: dict = None,
+    **kwargs,  # postgres_password, rabbitmq_password for backward compat
 ) -> str:
-    """Generate formatted project secrets.yml content"""
+    """
+    Generate formatted project secrets.yml content with addon support.
 
+    Args:
+        project_name: Project name
+        app_names: List of app names
+        addons: Dict of addons from config.yml (new format)
+        **kwargs: Legacy parameters (ignored)
+    """
     yml_lines = []
+    addons = addons or {}
+
+    # Check if orchestrator is already deployed and get its IP
+    orchestrator_ip = ""
+    try:
+        from pathlib import Path
+
+        # Assume we're in cli/stubs/configs/, go up to superdeploy root
+        current_file = Path(__file__).resolve()
+        superdeploy_root = current_file.parent.parent.parent.parent
+        orchestrator_state_file = (
+            superdeploy_root / "shared" / "orchestrator" / "state.yml"
+        )
+
+        if orchestrator_state_file.exists():
+            import yaml
+
+            with open(orchestrator_state_file, "r") as f:
+                state = yaml.safe_load(f) or {}
+                orchestrator_ip = state.get("orchestrator_ip", "")
+    except Exception:
+        # If anything fails, just leave it empty (safe fallback)
+        pass
 
     # Header
     yml_lines.append("# " + "=" * 77)
@@ -31,36 +70,24 @@ def generate_project_secrets(
     yml_lines.append("# Shared Secrets")
     yml_lines.append("# " + "=" * 77)
     yml_lines.append("# Available to all applications in this project")
+    yml_lines.append("# Format: secrets.shared.KEY_NAME")
     yml_lines.append("# " + "=" * 77)
     yml_lines.append("secrets:")
     yml_lines.append("  shared:")
     yml_lines.append("    # " + "-" * 73)
-    yml_lines.append("    # Database Configuration (Auto-generated)")
-    yml_lines.append("    # " + "-" * 73)
-    yml_lines.append(
-        "    POSTGRES_HOST: ''    # Auto-filled with VM internal IP after 'superdeploy project:up'"
-    )
-    yml_lines.append("    POSTGRES_PORT: '5432'")
-    yml_lines.append(f"    POSTGRES_USER: {project_name}_user")
-    yml_lines.append(f"    POSTGRES_PASSWORD: {postgres_password}")
-    yml_lines.append(f"    POSTGRES_DB: {project_name}_db")
-    yml_lines.append("")
-    yml_lines.append("    # " + "-" * 73)
-    yml_lines.append("    # Message Queue Configuration (Auto-generated)")
-    yml_lines.append("    # " + "-" * 73)
-    yml_lines.append(
-        "    RABBITMQ_HOST: ''    # Auto-filled with VM internal IP after 'superdeploy project:up'"
-    )
-    yml_lines.append("    RABBITMQ_PORT: '5672'")
-    yml_lines.append(f"    RABBITMQ_USER: {project_name}_user")
-    yml_lines.append(f"    RABBITMQ_PASSWORD: {rabbitmq_password}")
-    yml_lines.append("")
-    yml_lines.append("    # " + "-" * 73)
     yml_lines.append("    # Infrastructure")
     yml_lines.append("    # " + "-" * 73)
-    yml_lines.append(
-        "    ORCHESTRATOR_IP: ''  # Auto-filled after 'superdeploy orchestrator:up'"
-    )
+
+    # Auto-fill orchestrator IP if available
+    if orchestrator_ip:
+        yml_lines.append(
+            f"    ORCHESTRATOR_IP: '{orchestrator_ip}'  # Auto-filled from orchestrator deployment"
+        )
+    else:
+        yml_lines.append(
+            "    ORCHESTRATOR_IP: ''  # Auto-filled after 'superdeploy orchestrator:up'"
+        )
+
     yml_lines.append("")
     yml_lines.append("    # " + "-" * 73)
     yml_lines.append("    # Docker Registry Credentials")
@@ -113,15 +140,91 @@ def generate_project_secrets(
     yml_lines.append("    #   Used by GitHub Actions to checkout private repositories")
     yml_lines.append("")
 
-    # App-Specific Secrets Section
+    # Addon Secrets Section (UNDER secrets!)
+    yml_lines.append("")
+    yml_lines.append("  # " + "=" * 75)
+    yml_lines.append("  # Addon Instance Credentials")
+    yml_lines.append("  # " + "=" * 75)
+    yml_lines.append("  # Format: secrets.addons.{ADDON_TYPE}.{INSTANCE_NAME}")
+    yml_lines.append(
+        "  # Example: secrets.addons.postgres.primary (NOT databases.primary)"
+    )
+    yml_lines.append("  # " + "=" * 75)
+    yml_lines.append("  addons:")
+
+    if addons:
+        # Group instances by addon type
+        addons_by_type = {}
+        for category, instances in addons.items():
+            for instance_name, instance_config in instances.items():
+                addon_type = instance_config.get("type", "")
+                if addon_type not in addons_by_type:
+                    addons_by_type[addon_type] = {}
+                addons_by_type[addon_type][instance_name] = {
+                    "category": category,
+                    "config": instance_config,
+                }
+
+        # Write grouped by addon type (indented under secrets)
+        for addon_type in sorted(addons_by_type.keys()):
+            yml_lines.append(f"    {addon_type}:")
+
+            for instance_name, instance_data in sorted(
+                addons_by_type[addon_type].items()
+            ):
+                category = instance_data["category"]
+                full_name = f"{category}.{instance_name}"
+
+                yml_lines.append(f"      {instance_name}:")
+
+                # Generate credentials based on addon type (UPPERCASE keys!)
+                if addon_type == "postgres":
+                    yml_lines.append(f"        USER: {project_name}_user")
+                    yml_lines.append(f"        PASSWORD: {_generate_password()}")
+                    yml_lines.append(f"        DATABASE: {project_name}_db")
+                    yml_lines.append("        HOST: ''  # Auto-filled after deployment")
+                    yml_lines.append("        PORT: '5432'")
+
+                elif addon_type == "rabbitmq":
+                    yml_lines.append(f"        USER: {project_name}_user")
+                    yml_lines.append(f"        PASSWORD: {_generate_password()}")
+                    yml_lines.append("        VHOST: /")
+                    yml_lines.append("        HOST: ''  # Auto-filled after deployment")
+                    yml_lines.append("        PORT: '5672'")
+                    yml_lines.append("        MANAGEMENT_PORT: '15672'")
+
+                elif addon_type == "caddy":
+                    yml_lines.append("        HOST: ''  # Auto-filled after deployment")
+                    yml_lines.append("        HTTP_PORT: '80'")
+                    yml_lines.append("        HTTPS_PORT: '443'")
+
+                elif addon_type == "redis":
+                    yml_lines.append(f"        PASSWORD: {_generate_password()}")
+                    yml_lines.append("        HOST: ''  # Auto-filled after deployment")
+                    yml_lines.append("        PORT: '6379'")
+
+                else:
+                    # Generic addon
+                    yml_lines.append(f"        USER: {project_name}_user")
+                    yml_lines.append(f"        PASSWORD: {_generate_password()}")
+                    yml_lines.append("        HOST: ''  # Auto-filled after deployment")
+
+                yml_lines.append("")
+    else:
+        yml_lines.append("    # No addons configured")
+        yml_lines.append("    # Add addon instances in config.yml first")
+        yml_lines.append("")
+
+    # App-Specific Secrets Section (UNDER secrets!)
     yml_lines.append("  # " + "=" * 75)
     yml_lines.append("  # Application-Specific Secrets")
     yml_lines.append("  # " + "=" * 75)
-    yml_lines.append("  # Add secrets that are only needed by specific applications")
-    yml_lines.append("  # Example: API_KEY: 'xyz123', STRIPE_SECRET: 'sk_test_...'")
+    yml_lines.append("  # Format: secrets.apps.{APP_NAME}.KEY_NAME")
+    yml_lines.append("  # Example: secrets.apps.api.JWT_SECRET")
     yml_lines.append("  # " + "=" * 75)
+    yml_lines.append("  apps:")
     for app_name in app_names:
-        yml_lines.append(f"  {app_name}: {{}}")
+        yml_lines.append(f"    {app_name}: {{}}")
     yml_lines.append("")
 
     # Environment Aliases Section
@@ -132,28 +235,29 @@ def generate_project_secrets(
     yml_lines.append("# " + "=" * 77)
     yml_lines.append("#")
     yml_lines.append("# Format:")
-    yml_lines.append("#   ALIAS_NAME: SECRET_NAME")
+    yml_lines.append("#   ALIAS_NAME: SECRET_PATH")
     yml_lines.append("#")
     yml_lines.append("# Rules:")
-    yml_lines.append(
-        "#   - UPPERCASE value = reference to secret (e.g., DB_HOST: POSTGRES_HOST)"
-    )
-    yml_lines.append(
-        "#   - lowercase/mixed = static value (e.g., API_URL: http://10.1.0.2:8000)"
-    )
+    yml_lines.append("#   - Uppercase reference: addons.databases.primary.user")
+    yml_lines.append("#   - Static value: http://10.1.0.2:8000")
     yml_lines.append("#")
     yml_lines.append("# Examples:")
     yml_lines.append("#")
-    yml_lines.append("#   Python/Cara Framework:")
-    yml_lines.append("#     DB_HOST: POSTGRES_HOST")
-    yml_lines.append("#     DB_PORT: POSTGRES_PORT")
-    yml_lines.append("#     DB_USERNAME: POSTGRES_USER")
-    yml_lines.append("#     DB_PASSWORD: POSTGRES_PASSWORD")
-    yml_lines.append("#     DB_DATABASE: POSTGRES_DB")
+    yml_lines.append("#   Python/Cara Framework (using addon references):")
+    yml_lines.append("#     DB_HOST: addons.databases.primary.host")
+    yml_lines.append("#     DB_PORT: addons.databases.primary.port")
+    yml_lines.append("#     DB_USERNAME: addons.databases.primary.user")
+    yml_lines.append("#     DB_PASSWORD: addons.databases.primary.password")
+    yml_lines.append("#     DB_DATABASE: addons.databases.primary.database")
+    yml_lines.append("#")
+    yml_lines.append("#     RABBITMQ_HOST: addons.queues.main.host")
+    yml_lines.append("#     RABBITMQ_PORT: addons.queues.main.port")
+    yml_lines.append("#     RABBITMQ_USER: addons.queues.main.user")
+    yml_lines.append("#     RABBITMQ_PASSWORD: addons.queues.main.password")
     yml_lines.append("#")
     yml_lines.append("#   Next.js:")
     yml_lines.append("#     NEXT_PUBLIC_API_URL: http://10.1.0.2:8000")
-    yml_lines.append("#     DATABASE_URL: POSTGRES_HOST")
+    yml_lines.append("#     DATABASE_URL: addons.databases.primary.host")
     yml_lines.append("# " + "=" * 77)
     yml_lines.append("env_aliases:")
     for app_name in app_names:
