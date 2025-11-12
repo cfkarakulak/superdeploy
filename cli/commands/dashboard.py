@@ -7,15 +7,9 @@ import time
 from pathlib import Path
 
 
-@click.group()
-def dashboard():
-    """Dashboard management commands."""
-    pass
-
-
-@dashboard.command()
-def run():
-    """Run the dashboard server."""
+@click.command(name="dashboard:start")
+def dashboard_start():
+    """Start the dashboard server."""
     dashboard_dir = Path(__file__).parent.parent.parent / "dashboard"
 
     click.echo("🚀 Starting SuperDeploy Dashboard...")
@@ -44,7 +38,10 @@ def run():
             return
 
     # Start FastAPI backend in background
-    click.echo("🔧 Starting backend on port 6001...")
+    click.echo("🔧 Starting backend on port 8401...")
+    click.echo("📋 Backend logs:")
+    click.echo("-" * 60)
+
     backend_proc = subprocess.Popen(
         [
             sys.executable,
@@ -54,38 +51,46 @@ def run():
             "--host",
             "127.0.0.1",
             "--port",
-            "6001",
+            "8401",
             "--reload",
         ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        # Don't capture output - let it print to terminal
+        stdout=None,
+        stderr=None,
     )
 
     # Give backend time to start
-    time.sleep(2)
+    click.echo("-" * 60)
+    click.echo("⏳ Waiting for backend to start...")
+    time.sleep(3)
 
     # Check if backend started successfully
     if backend_proc.poll() is not None:
         click.echo("❌ Backend failed to start")
+        click.echo("💡 Check the error messages above for details")
         return
 
     # Start Next.js frontend
-    click.echo("🎨 Starting frontend on port 6000...")
+    click.echo("\n🎨 Starting frontend on port 8400...")
+    click.echo("📋 Frontend logs:")
+    click.echo("-" * 60)
+
     frontend_proc = subprocess.Popen(
-        ["npm", "run", "dev", "--", "-p", "6000"],
+        ["npm", "run", "dev", "--", "-p", "8400"],
         cwd=frontend_dir,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        # Don't capture output - let it print to terminal
+        stdout=None,
+        stderr=None,
     )
 
     click.echo("\n✅ Dashboard running!")
-    click.echo("   Frontend: http://localhost:6000")
-    click.echo("   Backend:  http://localhost:6001")
+    click.echo("   Frontend: http://localhost:8400")
+    click.echo("   Backend:  http://localhost:8401")
     click.echo("\n   Press Ctrl+C to stop")
 
     # Open browser
     try:
-        subprocess.run(["open", "http://localhost:6000"], check=False)
+        subprocess.run(["open", "http://localhost:8400"], check=False)
     except:
         pass
 

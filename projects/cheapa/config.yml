@@ -62,6 +62,9 @@ apps:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/services
     vm: app
     port: null
+    env:
+      # Public Amazon SP-API credentials (not secrets)
+      LWA_APP_ID: amzn1.application-oa2-client.a8c015b7378a45008b7a0d0db46a45ef
   storefront:
     path: /Users/cfkarakulak/Desktop/cheapa.io/code/storefront
     vm: app

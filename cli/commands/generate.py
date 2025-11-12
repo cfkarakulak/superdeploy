@@ -24,6 +24,7 @@ class WorkflowConfig:
     app_type: str
     secret_keys: list[str]  # List of secret keys for dynamic injection
     repo_org: str
+    docker_org: str
 
 
 class WorkflowGenerator:
@@ -106,6 +107,7 @@ class WorkflowGenerator:
             vm_role=config.vm_role,
             secret_keys=config.secret_keys,  # Pass as list
             repo_org=config.repo_org,
+            docker_org=config.docker_org,
         )
 
 
@@ -275,6 +277,7 @@ class GenerateCommand(ProjectCommand):
                 app_type=app_type,
                 secret_keys=secret_keys,  # Send as list instead of pre-rendered block
                 repo_org=config.get("github", {}).get("organization", "GITHUB_ORG"),
+                docker_org=config.get("docker", {}).get("organization", "DOCKER_ORG"),
             )
 
             github_workflow = WorkflowGenerator.generate_workflow(workflow_config)

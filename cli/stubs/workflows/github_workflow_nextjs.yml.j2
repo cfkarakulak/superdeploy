@@ -28,9 +28,9 @@ jobs:
       - name: Read app configuration
         id: config
         run: |
-          PROJECT=$(grep "^project:" superdeploy | cut -d: -f2 | xargs)
-          APP=$(grep "^app:" superdeploy | cut -d: -f2 | xargs)
-          VM_ROLE=$(grep "^vm:" superdeploy | cut -d: -f2 | xargs)
+          PROJECT=$(grep "^project:" .superdeploy | cut -d: -f2 | xargs)
+          APP=$(grep "^app:" .superdeploy | cut -d: -f2 | xargs)
+          VM_ROLE=$(grep "^vm:" .superdeploy | cut -d: -f2 | xargs)
 {% raw %}          echo "project=$PROJECT" >> $GITHUB_OUTPUT
           echo "app=$APP" >> $GITHUB_OUTPUT
           echo "vm_role=$VM_ROLE" >> $GITHUB_OUTPUT
@@ -41,8 +41,8 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
+          username: {% raw %}${{ vars.DOCKER_USERNAME }}{% endraw %}
+          password: {% raw %}${{ secrets.DOCKER_TOKEN }}{% endraw %}
       
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -50,10 +50,10 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest
-            ${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
-          cache-from: type=registry,ref=${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache,mode=max
+            {% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:latest
+            {% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:{% raw %}${{ github.sha }}{% endraw %}
+          cache-from: type=registry,ref={% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:buildcache
+          cache-to: type=registry,ref={% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:buildcache,mode=max
 
   deploy:
     needs: build
@@ -82,101 +82,35 @@ jobs:
           
           echo "✅ Correct VM for project: $RUNNER_PROJECT"
       
-      - name: Create .env from GitHub Environment Secrets
-        env:
-          SECRETS_JSON: ${{ toJSON(secrets) }}
+      - name: Create .env from merged secrets
         run: |
-          APP_NAME="${{ needs.build.outputs.app }}"
-          PROJECT="${{ needs.build.outputs.project }}"
-          ENV_DIR="/opt/superdeploy/projects/$PROJECT/data/$APP_NAME"
+{% raw %}          APP_NAME="${{ needs.build.outputs.app }}"{% endraw %}
+          ENV_DIR="/opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}/data/$APP_NAME"
+{% raw %}          
+          echo "📝 Creating .env from ${APP_NAME^^}_ENV_JSON..."{% endraw %}          
+          # GitHub Actions cannot dynamically access secrets
+          # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
+          case "$APP_NAME" in
+            {{ app }})
+{{ secret_var_line }}
+              ;;
+            *)
+              echo "❌ App '$APP_NAME' not configured in workflow"
+              exit 1
+              ;;
+          esac
+{% raw %}          
+          # Convert JSON to .env format
+          echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
           
-          echo "📝 Creating .env from GitHub secrets..."
+          # Write to VM directory
           sudo mkdir -p "$ENV_DIR"
-          
-          # Get all secrets from GitHub and convert to .env format
-          echo "$SECRETS_JSON" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
-          
           sudo cp /tmp/final.env "$ENV_DIR/.env"
           sudo chown superdeploy:superdeploy "$ENV_DIR/.env"
           sudo chmod 600 "$ENV_DIR/.env"
           
           echo "✅ Environment file created at $ENV_DIR/.env"
           echo "📊 Total variables: $(wc -l < "$ENV_DIR/.env")"
-      
-      - name: Update docker-compose.yml from marker file
-        run: |
-          APP_NAME="${{ needs.build.outputs.app }}"
-          PROJECT="${{ needs.build.outputs.project }}"
-          COMPOSE_FILE="/opt/superdeploy/projects/$PROJECT/compose/docker-compose.yml"
-          
-          echo "🔄 Updating docker-compose.yml for $APP_NAME from marker..."
-          
-          # Create Python script to update compose file
-          cat > /tmp/update_compose.py << 'PYTHON_SCRIPT'
-import yaml
-import sys
-
-app_name = sys.argv[1]
-compose_file = sys.argv[2]
-marker_file = sys.argv[3]
-
-try:
-    # Read marker file
-    with open(marker_file, 'r') as f:
-        marker = yaml.safe_load(f)
-    
-    # Read existing docker-compose.yml
-    with open(compose_file, 'r') as f:
-        compose = yaml.safe_load(f)
-    
-    # Update each process service with marker data
-    for process_name, process_config in marker.items():
-        if process_name in ['project', 'app', 'vm']:
-            continue
-        
-        service_name = f"{app_name}-{process_name}"
-        
-        if service_name in compose.get('services', {}):
-            service = compose['services'][service_name]
-            
-            # Update replicas
-            if 'deploy' not in service:
-                service['deploy'] = {}
-            service['deploy']['replicas'] = process_config.get('replicas', 1)
-            
-            # Update port mapping based on replicas
-            replicas = process_config.get('replicas', 1)
-            port = process_config.get('port')
-            
-            if port:
-                # Remove old port/expose config
-                service.pop('ports', None)
-                service.pop('expose', None)
-                
-                # Apply new config based on replicas
-                if replicas > 1:
-                    # Multiple replicas: internal only
-                    service['expose'] = [str(port)]
-                else:
-                    # Single replica: external + internal
-                    service['ports'] = [f"{port}:{port}"]
-            
-            print(f"✅ Updated {service_name}: replicas={replicas}, port={port}")
-    
-    # Write updated compose file
-    with open(compose_file, 'w') as f:
-        yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
-    
-    print(f"✅ docker-compose.yml updated for {app_name}")
-    
-except Exception as e:
-    print(f"⚠️  Failed to update compose: {e}")
-    print(f"⚠️  Will use existing compose file")
-    sys.exit(0)  # Don't fail deployment
-PYTHON_SCRIPT
-          
-          # Run script with sudo
-          sudo python3 /tmp/update_compose.py "$APP_NAME" "$COMPOSE_FILE" "superdeploy"
       
       - name: Deploy application (zero-downtime with replicas)
         run: |
@@ -207,11 +141,11 @@ PYTHON_SCRIPT
           echo "🔍 Detected services: $SERVICES"
           
           echo "🚀 Starting zero-downtime deployment with replicas..."
-          
+{% endraw %}          
           # Pull new image first (same image for all processes)
           echo "📦 Step 1/3: Pulling new image..."
-          docker pull ${{ secrets.DOCKER_ORG }}/${APP_NAME}:latest
-          
+          docker pull {% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/${APP_NAME}:latest
+{% raw %}          
           # Deploy all process services with Docker Compose rolling update
           echo "🚀 Step 2/3: Deploying all processes (rolling update)..."
           # Docker Compose automatically:

@@ -17,6 +17,13 @@ services:
       - "${HTTP_PORT}:80"
       - "${HTTPS_PORT}:443"
       - "${ADMIN_PORT}:2019"
+{% if apps is defined %}
+{% for app_name, app_config in apps.items() %}
+{% if app_config.get('vm') == vm_role and app_config.get('port') and not app_config.get('domain') %}
+      - "{{ app_config.get('port') }}:{{ app_config.get('port') }}"
+{% endif %}
+{% endfor %}
+{% endif %}
     networks:
       - {{ project_name }}-network
 {% if healthcheck and healthcheck.interval is defined %}

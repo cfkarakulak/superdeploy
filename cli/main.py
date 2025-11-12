@@ -85,7 +85,6 @@ from cli.commands import (
     promote,
     subnets,
     tunnel,
-    dashboard,
 )
 from cli.commands.ps import ps
 
@@ -108,6 +107,7 @@ from cli.commands.orchestrator import (
     orchestrator_down,
     orchestrator_status,
 )
+from cli.commands.dashboard import dashboard_start
 from cli.commands.project import projects_deploy
 from cli.commands.validate import validate_addons
 from cli.commands.addons import (
@@ -119,6 +119,7 @@ from cli.commands.addons import (
     addons_attach,
     addons_detach,
 )
+from cli.commands.vars import vars_clear, vars_sync, sync
 
 console = Console()
 
@@ -262,7 +263,7 @@ class NamespacedGroup(click.RichGroup):
                 "plan",
                 "generate",
                 "status",
-                "sync",
+                "sync",  # Keep for backward compatibility
                 "validate",
                 "scale",
                 "metrics",
@@ -276,11 +277,11 @@ class NamespacedGroup(click.RichGroup):
                     plan,
                     generate,
                     status,
-                    sync,
                     scale,
                     metrics,
                 )
                 from cli.commands.validate import validate_project
+                from cli.commands.vars import sync as vars_sync_module
 
                 command_map = {
                     "up": up.up,
@@ -288,7 +289,7 @@ class NamespacedGroup(click.RichGroup):
                     "plan": plan.plan,
                     "generate": generate.generate,
                     "status": status.status,
-                    "sync": sync.sync,
+                    "sync": vars_sync_module.sync,  # Backward compatibility
                     "validate": validate_project,
                     "scale": scale.scale,
                     "metrics": metrics.metrics,
@@ -422,8 +423,12 @@ cli.add_command(orchestrator_down)
 cli.add_command(orchestrator_status)
 cli.add_command(subnets.subnets)
 cli.add_command(tunnel.tunnel)
+# Register vars commands (GitHub secrets & variables management)
+cli.add_command(vars_clear)
+cli.add_command(vars_sync)
+cli.add_command(sync)  # Keep for backward compatibility (deprecated)
 # Register dashboard commands
-cli.add_command(dashboard.dashboard)
+cli.add_command(dashboard_start)
 
 
 @handle_cli_errors

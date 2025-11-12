@@ -1,4 +1,4 @@
-"""SuperDeploy CLI - Sync command (GitHub secrets automation)"""
+"""SuperDeploy CLI - Vars command (GitHub secrets & variables management)"""
 
 import click
 import subprocess
@@ -241,22 +241,101 @@ def remove_github_env_secrets(repo, environment, secret_names, console):
     return success_count, fail_count
 
 
-class SyncCommand(ProjectCommand):
+class VarsClearCommand(ProjectCommand):
+    """Clear ALL GitHub secrets and variables."""
+
+    def __init__(
+        self,
+        project_name: str,
+        environment: str = "production",
+        verbose: bool = False,
+    ):
+        super().__init__(project_name, verbose=verbose)
+        self.environment = environment
+
+    def execute(self) -> None:
+        """Execute vars:clear command."""
+        self.show_header(
+            title=f"Clear GitHub Secrets ({self.environment})",
+            project=self.project_name,
+            subtitle="Remove all secrets and variables",
+        )
+
+        # Load config
+        try:
+            project_config = self.config_service.load_project_config(self.project_name)
+        except (FileNotFoundError, ValueError) as e:
+            self.console.print(f"[red]❌ {e}[/red]")
+            return
+
+        config = project_config.raw_config
+
+        # Get GitHub organization from config
+        github_org = config.get("github", {}).get("organization")
+        if not github_org:
+            self.console.print("[red]❌ GitHub organization not configured![/red]")
+            return
+
+        # Check gh CLI
+        try:
+            subprocess.run(["gh", "--version"], check=True, capture_output=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            self.console.print("[red]❌ gh CLI not found![/red]")
+            self.console.print("Install: https://cli.github.com/")
+            return
+
+        self.console.print(
+            "\n[bold cyan]🧹 Clearing GitHub Secrets & Variables[/bold cyan]\n"
+        )
+
+        # Process each app
+        for app_name, app_config in config.get("apps", {}).items():
+            repo = f"{github_org}/{app_name}"
+            self.console.print(f"[yellow]📦 {repo}[/yellow]")
+
+            # Clear repository secrets
+            repo_secrets = list_github_repo_secrets(repo, self.console)
+            if repo_secrets:
+                self.console.print(f"  Found {len(repo_secrets)} repository secrets")
+                success, fail = remove_github_repo_secrets(
+                    repo, repo_secrets, self.console
+                )
+                self.console.print(
+                    f"  [dim]→ {success} repo secrets removed, {fail} failed[/dim]"
+                )
+
+            # Clear environment secrets
+            env_secrets = list_github_env_secrets(repo, self.environment, self.console)
+            if env_secrets:
+                self.console.print(
+                    f"  Found {len(env_secrets)} {self.environment} environment secrets"
+                )
+                success, fail = remove_github_env_secrets(
+                    repo, self.environment, env_secrets, self.console
+                )
+                self.console.print(
+                    f"  [dim]→ {success} {self.environment} secrets removed, {fail} failed[/dim]"
+                )
+
+            self.console.print()
+
+        self.console.print("\n[green]✅ Clear complete![/green]")
+
+
+class VarsSyncCommand(ProjectCommand):
     """Sync ALL secrets to GitHub."""
 
     def __init__(
         self,
         project_name: str,
-        clear: bool = False,
         environment: str = "production",
         verbose: bool = False,
     ):
         super().__init__(project_name, verbose=verbose)
-        self.clear = clear
         self.environment = environment
 
     def execute(self) -> None:
-        """Execute sync command."""
+        """Execute vars:sync command."""
         self.show_header(
             title=f"Sync Secrets to GitHub ({self.environment})",
             project=self.project_name,
@@ -326,8 +405,8 @@ class SyncCommand(ProjectCommand):
             repo = f"{github_org}/{app_name}"
             self.console.print(f"[cyan]{repo}:[/cyan]")
 
-            # Clear existing secrets if --clear flag is provided
-            if self.clear:
+            # Note: Use vars:clear to remove all secrets before syncing
+            if False:  # Clearing is now a separate command
                 self.console.print(
                     "  [yellow]🧹 Clearing ALL existing secrets...[/yellow]"
                 )
@@ -361,13 +440,9 @@ class SyncCommand(ProjectCommand):
 
                 self.console.print()
 
-            # Repository-level secrets (Docker, GitHub, orchestrator, etc.)
+            # Repository-level secrets (Docker credentials only - not registry/org/username which are public)
+            # Note: DOCKER_REGISTRY, DOCKER_ORG, and DOCKER_USERNAME are moved to workflow vars to avoid GitHub secret masking
             repo_secrets = {
-                "DOCKER_REGISTRY": all_secrets.shared.get(
-                    "DOCKER_REGISTRY", "docker.io"
-                ),
-                "DOCKER_ORG": all_secrets.shared.get("DOCKER_ORG"),
-                "DOCKER_USERNAME": all_secrets.shared.get("DOCKER_USERNAME"),
                 "DOCKER_TOKEN": all_secrets.shared.get("DOCKER_TOKEN"),
                 "PRIVATE_REPO_TOKEN": all_secrets.shared.get("PRIVATE_REPO_TOKEN"),
                 "GITHUB_TOKEN": all_secrets.shared.get("GITHUB_TOKEN"),
@@ -391,8 +466,8 @@ class SyncCommand(ProjectCommand):
                 f"[cyan]App Environment: {app_name} ({self.environment})[/cyan]"
             )
 
-            # Clear existing environment secrets if --clear flag is provided
-            if self.clear:
+            # Note: Use vars:clear to remove all secrets before syncing
+            if False:  # Clearing is now a separate command
                 self.console.print(
                     f"  [yellow]🧹 Clearing environment secrets ({self.environment})...[/yellow]"
                 )
@@ -476,8 +551,12 @@ class SyncCommand(ProjectCommand):
         )
 
 
-@click.command(name="sync")
-@click.option("--clear", is_flag=True, help="Clear all existing secrets before syncing")
+# ============================================================================
+# Click Command Wrappers
+# ============================================================================
+
+
+@click.command(name="vars:clear")
 @click.option(
     "-e",
     "--env",
@@ -486,7 +565,35 @@ class SyncCommand(ProjectCommand):
     help="Target environment (production/staging)",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def sync(project, clear, environment, verbose):
+def vars_clear(project, environment, verbose):
+    """
+    Clear ALL GitHub secrets and variables
+
+    This will remove:
+    - All repository secrets
+    - All environment secrets (for specified environment)
+
+    Requirements:
+    - gh CLI installed and authenticated
+
+    Examples:
+        superdeploy cheapa:vars:clear                # Clear production
+        superdeploy cheapa:vars:clear -e staging     # Clear staging
+    """
+    cmd = VarsClearCommand(project, environment=environment, verbose=verbose)
+    cmd.run()
+
+
+@click.command(name="vars:sync")
+@click.option(
+    "-e",
+    "--env",
+    "environment",
+    default="production",
+    help="Target environment (production/staging)",
+)
+@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
+def vars_sync(project, environment, verbose):
     """
     Sync ALL secrets to GitHub
 
@@ -498,15 +605,47 @@ def sync(project, clear, environment, verbose):
     - secrets.yml file in project directory
     - GitHub Environments created (production/staging)
 
-    Options:
-    - --clear: Remove all existing secrets before syncing new ones
-    - -e, --env: Target environment (production or staging, default: production)
+    Note: Use vars:clear first if you want to remove old secrets
 
     Examples:
-        superdeploy cheapa:sync                    # Sync to production
-        superdeploy cheapa:sync -e staging         # Sync to staging
-        superdeploy cheapa:sync --clear            # Clear & sync production
-        superdeploy cheapa:sync -e staging --clear # Clear & sync staging
+        superdeploy cheapa:vars:sync                    # Sync to production
+        superdeploy cheapa:vars:sync -e staging         # Sync to staging
     """
-    cmd = SyncCommand(project, clear=clear, environment=environment, verbose=verbose)
+    cmd = VarsSyncCommand(project, environment=environment, verbose=verbose)
+    cmd.run()
+
+
+# Keep backward compatibility with old sync command
+@click.command(name="sync")
+@click.option("--clear", is_flag=True, help="DEPRECATED: Use vars:clear instead")
+@click.option(
+    "-e",
+    "--env",
+    "environment",
+    default="production",
+    help="Target environment (production/staging)",
+)
+@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
+def sync(project, clear, environment, verbose):
+    """
+    [DEPRECATED] Use vars:sync instead
+
+    This command is kept for backward compatibility.
+    Use: superdeploy cheapa:vars:sync
+    """
+    from rich.console import Console
+
+    console = Console()
+    console.print(
+        "\n[yellow]⚠️  'sync' is deprecated. Use 'vars:sync' instead.[/yellow]\n"
+    )
+
+    if clear:
+        console.print("[yellow]Running vars:clear first...[/yellow]\n")
+        cmd = VarsClearCommand(project, environment=environment, verbose=verbose)
+        cmd.run()
+        console.print()
+
+    console.print("[yellow]Running vars:sync...[/yellow]\n")
+    cmd = VarsSyncCommand(project, environment=environment, verbose=verbose)
     cmd.run()
