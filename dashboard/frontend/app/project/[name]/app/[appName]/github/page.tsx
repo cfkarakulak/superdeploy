@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ExternalLink } from "lucide-react";
+import AppHeader from "@/components/AppHeader";
+import PageHeader from "@/components/PageHeader";
 
 interface WorkflowRun {
   id: number;
@@ -16,6 +18,11 @@ interface WorkflowRun {
   head_sha: string;
   run_number: number;
   html_url: string;
+}
+
+interface AppInfo {
+  repo: string;
+  owner: string;
 }
 
 // Breadcrumb Skeleton
@@ -64,7 +71,7 @@ const WorkflowRunCardSkeleton = () => (
 
 // Full Page Skeleton
 const GitHubPageSkeleton = () => (
-  <div className="max-w-[960px] mx-auto py-8 px-6">
+  <div>
     <BreadcrumbSkeleton />
     <GitHubHeaderSkeleton />
     <div className="space-y-4">
@@ -77,14 +84,29 @@ const GitHubPageSkeleton = () => (
 
 export default function AppGitHubPage() {
   const params = useParams();
+  const router = useRouter();
   const projectName = params?.name as string;
   const appName = params?.appName as string;
 
   const [workflows, setWorkflows] = useState<WorkflowRun[]>([]);
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const fetchAppInfo = async () => {
+      try {
+        const response = await fetch(`http://localhost:8401/api/apps/${projectName}/list`);
+        const data = await response.json();
+        const app = data.apps.find((a: any) => a.name === appName);
+        if (app) {
+          setAppInfo({ repo: app.repo || app.name, owner: app.owner || 'cheapaio' });
+        }
+      } catch (err) {
+        console.error("Failed to fetch app info:", err);
+      }
+    };
+
     const fetchWorkflows = async () => {
       try {
         const response = await fetch(
@@ -103,86 +125,52 @@ export default function AppGitHubPage() {
     };
 
     if (projectName && appName) {
+      fetchAppInfo();
       fetchWorkflows();
       const interval = setInterval(fetchWorkflows, 30000);
       return () => clearInterval(interval);
     }
   }, [projectName, appName]);
 
-  if (loading) {
-    return <GitHubPageSkeleton />;
-  }
-
   return (
-    <div className="max-w-[960px] mx-auto py-8 px-6">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-3 mb-6">
-        <Link href={`/project/${projectName}/app/${appName}`} className="text-gray-500 hover:text-gray-900">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <Link href="/" className="hover:text-gray-900">
-            Projects
-          </Link>
-          <span>/</span>
-          <Link href={`/project/${projectName}`} className="hover:text-gray-900">
-            {projectName}
-          </Link>
-          <span>/</span>
-          <Link
-            href={`/project/${projectName}/app/${appName}`}
-            className="hover:text-gray-900"
-          >
-            {appName}
-          </Link>
-          <span>/</span>
-          <span className="text-gray-900 font-medium">GitHub</span>
-        </div>
-      </div>
-
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold mb-2">GitHub Actions</h1>
-        <p className="text-gray-600">
-          Deployment history and workflow runs for {appName}
-        </p>
-      </div>
-
-      {/* Repository Link */}
-      <div className="bg-white shadow-sm rounded-lg p-4 mb-6">
-        <a
-          href={`https://github.com/cheapa-io/${appName}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-blue-600 hover:underline"
-        >
-          github.com/cheapa-io/{appName}
-        </a>
-      </div>
+    <div>
+      <AppHeader />
+      
+      {loading ? (
+        <GitHubPageSkeleton />
+      ) : (
+        <>
+          <PageHeader
+            breadcrumb={{
+              label: "GitHub",
+              href: `/project/${projectName}/app/${appName}/github`
+            }}
+            title="Workflow Runs"
+            description={`Automated CI/CD pipelines and GitHub Actions for ${appName}`}
+          />
 
       {/* Workflow Runs */}
       {error ? (
-        <div className="bg-red-50 rounded-lg p-4 shadow-sm">
-          <p className="text-red-800">{error}</p>
+        <div className="alert alert-error">
+          <p><strong>Error:</strong> {error}</p>
+          <p className="text-[13px] mt-2">Make sure GITHUB_TOKEN is set in secrets and the repository exists.</p>
         </div>
       ) : workflows.length === 0 ? (
-        <div className="bg-white shadow-sm rounded-lg p-8 text-center text-gray-600">
+        <div className="bg-white rounded-[16px] p-[20px] text-center text-[#525252] shadow-[0_0_0_1px_rgba(11,26,38,0.06),0_4px_12px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.04)]">
           No workflow runs found
         </div>
       ) : (
         <div className="space-y-3">
           {workflows.map((run) => (
-            <a
+            <div
               key={run.id}
-              href={run.html_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block bg-white shadow-sm rounded-lg p-4 hover:shadow-md transition-shadow"
+              onClick={() => router.push(`/project/${projectName}/app/${appName}/github/${run.id}`)}
+              className="block bg-white rounded-[16px] p-[20px] shadow-[0_0_0_1px_rgba(11,26,38,0.06),0_4px_12px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_2px_6px_rgba(0,0,0,0.08)] cursor-pointer transition-all"
             >
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-3">
                   <span
-                    className={`px-2 py-1 rounded text-xs font-medium ${
+                    className={`px-2.5 py-1 rounded-full text-[11px]  uppercase ${
                       run.conclusion === "success"
                         ? "bg-green-100 text-green-800"
                         : run.conclusion === "failure"
@@ -195,21 +183,32 @@ export default function AppGitHubPage() {
                     {run.conclusion || run.status}
                   </span>
                   <div>
-                    <div className="font-medium">{run.name}</div>
-                    <div className="text-sm text-gray-600">
-                      #{run.run_number} • {run.head_branch} •{" "}
-                      {run.head_sha.substring(0, 7)}
+                    <div className="text-[15px]  text-[#0a0a0a]">{run.name}</div>
+                    <div className="text-[13px] text-[#8b8b8b] mt-0.5">
+                      #{run.run_number} • {run.head_branch} • {run.head_sha.substring(0, 7)}
                     </div>
                   </div>
                 </div>
-                <div className="text-sm text-gray-500">
-                  {new Date(run.created_at).toLocaleString()}
-                </div>
+                <a
+                  href={run.html_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-[#8b8b8b] hover:text-[#0a0a0a]"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </a>
               </div>
-            </a>
+              <div className="text-[13px] text-[#8b8b8b]">
+                {new Date(run.created_at).toLocaleString()}
+              </div>
+            </div>
           ))}
         </div>
+      )}
+        </>
       )}
     </div>
   );
 }
+

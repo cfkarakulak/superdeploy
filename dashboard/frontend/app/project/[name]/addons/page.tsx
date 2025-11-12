@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import SimpleHeader from "@/components/SimpleHeader";
+import PageHeader from "@/components/PageHeader";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
@@ -66,7 +68,7 @@ const AddonCardSkeleton = () => (
 
 // Full Page Skeleton
 const AddonsPageSkeleton = () => (
-  <div className="max-w-[960px] mx-auto py-8 px-6">
+  <div>
     <BreadcrumbSkeleton />
     <AddonsHeaderSkeleton />
     <div className="grid gap-4">
@@ -112,7 +114,7 @@ export default function AddonsPage() {
 
   if (error) {
     return (
-      <div className="max-w-[960px] mx-auto py-8 px-6">
+      <div>
         <div className="bg-red-50 rounded-lg p-4 shadow-sm">
           <p className="text-red-800">Error: {error}</p>
         </div>
@@ -121,56 +123,43 @@ export default function AddonsPage() {
   }
 
   return (
-    <div className="max-w-[960px] mx-auto py-8 px-6">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-3 mb-6">
-        <Link href={`/project/${projectName}`} className="text-gray-500 hover:text-gray-900">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <Link href="/" className="hover:text-gray-900">
-            Projects
-          </Link>
-          <span>/</span>
-          <Link href={`/project/${projectName}`} className="hover:text-gray-900">
-            {projectName}
-          </Link>
-          <span>/</span>
-          <span className="text-gray-900 font-medium">Addons</span>
-        </div>
-      </div>
-
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold mb-2">Addons</h1>
-        <p className="text-gray-600">
-          Installed database, cache, and queue services
-        </p>
-      </div>
+    <div>
+      <SimpleHeader />
+      
+      <PageHeader
+        breadcrumbs={[
+          { label: "Projects", href: "/" },
+          { label: projectName, href: `/project/${projectName}` },
+          { label: "Add-ons", href: `/project/${projectName}/addons` }
+        ]}
+        title="Add-ons"
+        description="Manage database, cache, queue services and other infrastructure add-ons"
+      />
 
       {addons.length === 0 ? (
-        <div className="bg-white shadow-sm rounded-lg p-8 text-center">
-          <p className="text-gray-600">No addons installed yet</p>
+        <div className="bg-white rounded-[16px] p-[20px] text-center shadow-[0_0_0_1px_rgba(11,26,38,0.06),0_4px_12px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.04)]">
+          <p className="text-[15px] text-[#525252]">No add-ons installed yet</p>
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="space-y-4">
           {addons.map((addon) => (
             <div
               key={addon.reference}
-              className="bg-white rounded-lg p-6 shadow-sm"
+              className="bg-white rounded-[16px] p-[20px] shadow-[0_0_0_1px_rgba(11,26,38,0.06),0_4px_12px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.04)]"
             >
-              <div className="flex items-start justify-between mb-4">
+              <div className="flex items-start justify-between mb-5">
                 <div>
-                  <h3 className="text-xl font-bold mb-1">{addon.name}</h3>
-                  <div className="flex items-center gap-3 text-sm">
-                    <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs font-medium">
+                  <h3 className="text-[20px] font-semibold text-[#0a0a0a] mb-2">{addon.name}</h3>
+                  <div className="flex items-center gap-3">
+                    <span className="px-2.5 py-1 bg-[#e0e7ff] text-[#4f46e5] rounded text-[12px] ">
                       {addon.type}
                     </span>
-                    <span className="text-gray-600">Plan: {addon.plan}</span>
+                    <span className="text-[13px] text-[#525252]">Plan: {addon.plan}</span>
                     <span
-                      className={`px-2 py-1 rounded text-xs font-medium ${
+                      className={`px-2.5 py-1 rounded text-[12px]  ${
                         addon.status === "running"
-                          ? "bg-green-100 text-green-800"
-                          : "bg-gray-100 text-gray-800"
+                          ? "bg-[#dcfce7] text-[#16a34a]"
+                          : "bg-[#ebebeb] text-[#525252]"
                       }`}
                     >
                       {addon.status}
@@ -180,11 +169,11 @@ export default function AddonsPage() {
               </div>
 
               <div>
-                <h4 className="text-sm font-semibold mb-2">
+                <h4 className="text-[13px]  text-[#525252] mb-3">
                   Attached Apps ({addon.attachments.length})
                 </h4>
                 {addon.attachments.length === 0 ? (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-[13px] text-[#8b8b8b]">
                     Not attached to any apps yet
                   </p>
                 ) : (
@@ -192,11 +181,11 @@ export default function AddonsPage() {
                     {addon.attachments.map((attachment, idx) => (
                       <span
                         key={idx}
-                        className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium"
+                        className="px-3 py-1 bg-[#dbeafe] text-[#2563eb] rounded-full text-[12px] "
                       >
                         {attachment.app_name}
                         {attachment.as_prefix && (
-                          <span className="ml-1 text-blue-600">
+                          <span className="ml-1">
                             (as {attachment.as_prefix})
                           </span>
                         )}

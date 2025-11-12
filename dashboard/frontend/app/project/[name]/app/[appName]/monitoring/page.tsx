@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import AppHeader from "@/components/AppHeader";
+import PageHeader from "@/components/PageHeader";
+import { Button } from "@/components";
 
 interface Container {
   id: string;
@@ -73,7 +76,7 @@ const ContainerCardSkeleton = () => (
 
 // Full Page Skeleton
 const MonitoringPageSkeleton = () => (
-  <div className="max-w-[960px] mx-auto py-8 px-6">
+  <div>
     <BreadcrumbSkeleton />
     <MonitoringHeaderSkeleton />
     <div className="space-y-4">
@@ -140,36 +143,20 @@ export default function AppMonitoringPage() {
   }
 
   return (
-    <div className="max-w-[960px] mx-auto py-8 px-6">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-3 mb-6">
-        <Link href={`/project/${projectName}/app/${appName}`} className="text-gray-500 hover:text-gray-900">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <Link href="/" className="hover:text-gray-900">
-            Projects
-          </Link>
-          <span>/</span>
-          <Link href={`/project/${projectName}`} className="hover:text-gray-900">
-            {projectName}
-          </Link>
-          <span>/</span>
-          <Link
-            href={`/project/${projectName}/app/${appName}`}
-            className="hover:text-gray-900"
-          >
-            {appName}
-          </Link>
-          <span>/</span>
-          <span className="text-gray-900 font-medium">Monitoring</span>
-        </div>
-      </div>
-
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold mb-2">Container Monitoring</h1>
-        <p className="text-gray-600">Real-time container metrics and logs</p>
-      </div>
+    <div>
+      <AppHeader />
+      
+      <PageHeader
+        breadcrumbs={[
+          { label: "Projects", href: "/" },
+          { label: projectName, href: `/project/${projectName}` },
+          { label: "Apps", href: `/project/${projectName}` },
+          { label: appName, href: `/project/${projectName}/app/${appName}` },
+          { label: "Monitoring", href: `/project/${projectName}/app/${appName}/monitoring` }
+        ]}
+        title="Container Monitoring"
+        description={`Real-time container metrics, resource usage, and logs for ${appName}`}
+      />
 
       {containers.length === 0 ? (
         <div className="bg-white shadow-sm rounded-lg p-8 text-center text-gray-600">
@@ -195,7 +182,7 @@ export default function AppMonitoringPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span
-                    className={`px-3 py-1 rounded text-xs font-medium ${
+                    className={`px-3 py-1 rounded text-xs  ${
                       container.state === "running"
                         ? "bg-green-100 text-green-800"
                         : container.state === "exited"
@@ -205,12 +192,13 @@ export default function AppMonitoringPage() {
                   >
                     {container.state}
                   </span>
-                  <button
+                  <Button
                     onClick={() => handleRestart(container.name)}
-                    className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 text-sm"
+                    size="sm"
+                    className="!bg-[#ff6b35] !text-[#15291f] hover:!bg-[#ff5722]"
                   >
                     Restart
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>

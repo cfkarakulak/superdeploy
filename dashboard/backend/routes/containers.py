@@ -25,7 +25,7 @@ async def list_containers(project_name: str):
 
     Returns container info with status, metrics, and health.
     """
-    from dashboard.backend.services.ssh_service import SSHConnectionPool
+    from services.ssh_service import SSHConnectionPool
 
     ssh_pool = SSHConnectionPool(PROJECT_ROOT)
 
@@ -94,7 +94,7 @@ async def get_container_metrics(project_name: str, container_name: str):
 
     Returns CPU, memory, network stats.
     """
-    from dashboard.backend.services.ssh_service import SSHConnectionPool
+    from services.ssh_service import SSHConnectionPool
 
     ssh_pool = SSHConnectionPool(PROJECT_ROOT)
 
@@ -172,7 +172,7 @@ async def stream_container_logs(
         container_name: Name of the container
         tail: Number of lines to show from history
     """
-    from dashboard.backend.services.ssh_service import SSHConnectionPool
+    from services.ssh_service import SSHConnectionPool
 
     async def event_generator():
         ssh_pool = SSHConnectionPool(PROJECT_ROOT)
@@ -238,7 +238,7 @@ async def restart_container(project_name: str, container_name: str):
 
     Returns success message and container status.
     """
-    from dashboard.backend.services.ssh_service import SSHConnectionPool
+    from services.ssh_service import SSHConnectionPool
 
     ssh_pool = SSHConnectionPool(PROJECT_ROOT)
 
@@ -297,7 +297,7 @@ async def restart_all_containers(project_name: str):
 
     Useful for applying configuration changes.
     """
-    from dashboard.backend.services.ssh_service import SSHConnectionPool
+    from services.ssh_service import SSHConnectionPool
 
     ssh_pool = SSHConnectionPool(PROJECT_ROOT)
 

@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from pydantic import BaseModel
-from dashboard.backend.database import get_db
-from dashboard.backend.models import Environment
+from database import get_db
+from models import Environment
 
 router = APIRouter(tags=["environments"])
 

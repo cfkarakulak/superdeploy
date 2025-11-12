@@ -33,7 +33,7 @@ class CommandRequest(BaseModel):
 @router.post("/init")
 async def init_project(request: InitProjectRequest):
     """Initialize a new project."""
-    from dashboard.backend.services.cli_executor import CLIExecutor
+    from services.cli_executor import CLIExecutor
 
     executor = CLIExecutor(PROJECT_ROOT)
 
@@ -54,7 +54,7 @@ async def init_project(request: InitProjectRequest):
 @router.post("/generate")
 async def generate_deployment_files(request: CommandRequest):
     """Generate deployment files for a project."""
-    from dashboard.backend.services.cli_executor import CLIExecutor
+    from services.cli_executor import CLIExecutor
 
     executor = CLIExecutor(PROJECT_ROOT)
 
@@ -68,7 +68,7 @@ async def generate_deployment_files(request: CommandRequest):
 @router.post("/deploy")
 async def deploy_project(request: CommandRequest):
     """Deploy a project."""
-    from dashboard.backend.services.cli_executor import CLIExecutor
+    from services.cli_executor import CLIExecutor
 
     executor = CLIExecutor(PROJECT_ROOT)
 
@@ -82,7 +82,7 @@ async def deploy_project(request: CommandRequest):
 @router.post("/destroy")
 async def destroy_project(request: CommandRequest):
     """Destroy a project."""
-    from dashboard.backend.services.cli_executor import CLIExecutor
+    from services.cli_executor import CLIExecutor
 
     executor = CLIExecutor(PROJECT_ROOT)
 
@@ -96,7 +96,7 @@ async def destroy_project(request: CommandRequest):
 @router.post("/status")
 async def get_project_status(request: CommandRequest):
     """Get project status."""
-    from dashboard.backend.services.cli_executor import CLIExecutor
+    from services.cli_executor import CLIExecutor
 
     executor = CLIExecutor(PROJECT_ROOT)
 
@@ -110,7 +110,7 @@ async def get_project_status(request: CommandRequest):
 @router.get("/available-projects")
 async def get_available_projects():
     """Get list of available projects."""
-    from dashboard.backend.services.cli_executor import CLIExecutor
+    from services.cli_executor import CLIExecutor
 
     executor = CLIExecutor(PROJECT_ROOT)
     projects = executor.get_available_projects()

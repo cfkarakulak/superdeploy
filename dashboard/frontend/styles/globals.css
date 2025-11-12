@@ -42,8 +42,14 @@
   font-display: swap;
 }
 
+body {
+  /* font-family: 'Yandex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; */
+
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+}
+
 @theme {
-  --font-sans: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, "Helvetica Neue", Arial, 'Yandex Sans', sans-serif;
+  --font-sans: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, "Helvetica Neue", Arial, sans-serif;
 
   /* Link Design Colors - Exact Match */
   --color-background: #ffffff;
@@ -86,7 +92,6 @@
   --shadow-sm: 0 0 0 1px rgba(0,0,0,.08);
   --shadow-md: 0 2px 4px rgba(0,0,0,.08);
   --shadow-lg: 0 4px 8px rgba(0,0,0,.12);
-  --shadow-focus: 0 0 0 3px rgba(0,133,69,0.1);
   
   /* Border Radius - Link Style */
   --radius-sm: 4px;
@@ -354,6 +359,67 @@
     }
   }
 
+  /* Distance variables for animations */
+  .distance-4 {
+    --distance: 4px;
+  }
+  .distance-8 {
+    --distance: 8px;
+  }
+  .distance-12 {
+    --distance: 12px;
+  }
+  .distance-16 {
+    --distance: 16px;
+  }
+  .distance--4 {
+    --distance: -4px;
+  }
+  .distance--8 {
+    --distance: -8px;
+  }
+  .distance--12 {
+    --distance: -12px;
+  }
+  .distance--16 {
+    --distance: -16px;
+  }
+
+  /* Shadow utilities */
+  .shadow-sheet {
+    box-shadow: 0px 20px 60px rgba(0, 0, 0, 0.14);
+  }
+
+  /* Fade animations for Radix UI */
+  .animate-in {
+    animation-name: fadeIn;
+    animation-duration: 200ms;
+    animation-timing-function: ease;
+  }
+
+  .animate-out {
+    animation-name: fadeOut;
+    animation-duration: 200ms;
+    animation-timing-function: ease;
+  }
+
+  .fade-in-0 {
+    animation: fadeIn 200ms ease;
+  }
+
+  .fade-out-0 {
+    animation: fadeOut 200ms ease;
+  }
+
+  @keyframes fadeOut {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
   /* Professional skeleton shimmer (horizontal wave) */
   @keyframes skeleton-wave {
     0% {
@@ -415,4 +481,51 @@
   .distance--4 {
     --distance: var(--distance--4);
   }
+}
+
+/* Yandex-style Alert Boxes */
+.alert {
+  padding: 16px 20px;
+  border-radius: 8px;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.alert-error {
+  background-color: #ffebe6;
+  border-left: 4px solid #df1b41;
+  color: #c41635;
+}
+
+.alert-success {
+  background-color: #e6f4ea;
+  border-left: 4px solid #008545;
+  color: #006635;
+}
+
+.alert-info {
+  background-color: #e3f2fd;
+  border-left: 4px solid #1976d2;
+  color: #0d47a1;
+}
+
+.alert-warning {
+  background-color: #fff3e0;
+  border-left: 4px solid #f57c00;
+  color: #e65100;
+}
+
+/* Remove only focus rings (not box-shadows) */
+*:focus,
+*:focus-visible {
+  outline: none !important;
+}
+
+/* Remove focus rings from specific elements */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: none !important;
 }

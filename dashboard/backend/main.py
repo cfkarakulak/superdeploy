@@ -20,7 +20,7 @@ app.add_middleware(
 )
 
 # Include routers
-from dashboard.backend.routes import (
+from routes import (
     projects,
     secrets,
     environments,
@@ -52,8 +52,8 @@ def root():
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup."""
-    from dashboard.backend.database import init_db, SessionLocal
-    from dashboard.backend.models import Project, Environment
+    from database import init_db, SessionLocal
+    from models import Project, Environment
     from pathlib import Path
 
     try:

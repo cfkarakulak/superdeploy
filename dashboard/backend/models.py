@@ -13,7 +13,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from dashboard.backend.database import Base
+from database import Base
 
 
 class Project(Base):
@@ -23,6 +23,7 @@ class Project(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)
+    domain = Column(String(200), nullable=True)  # e.g., "cheapa.io"
     cloud_provider = Column(String(50), default="gcp")
     cloud_region = Column(String(100), default="us-central1")
     cloud_zone = Column(String(100), default="us-central1-a")
@@ -134,6 +135,8 @@ class App(Base):
     processes = Column(
         JSON, nullable=True
     )  # {"web": {"command": "...", "replicas": 1}}
+    repo = Column(String(255), nullable=True)  # GitHub repo name
+    owner = Column(String(255), nullable=True)  # GitHub owner/organization
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="apps")

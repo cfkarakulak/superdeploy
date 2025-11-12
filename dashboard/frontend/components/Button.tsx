@@ -19,68 +19,60 @@ function Button({
   ...props
 }: ButtonProps) {
   const baseClasses = cn(
-    "inline-flex items-center justify-center font-medium",
-    "transition-all duration-200 ease-in-out",
-    "focus-visible:outline-none",
+    "inline-flex items-center justify-center",
+    "focus-visible:outline-none focus-visible:ring-0",
     "disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed",
-    "active:scale-[0.97]",
     "-webkit-tap-highlight-color-transparent",
-    "hover:-translate-y-[1px]",
-    "active:translate-y-0"
+    "relative",
+    "overflow-hidden",
+    "border-0",
+    "cursor-pointer",
+    "select-none"
   );
 
   const sizeClasses = {
-    sm: "h-9 px-4 text-sm",
-    md: "h-11 px-6 text-base",
-    lg: "h-12 px-8 text-base",
+    sm: "h-[46px] px-[20px] py-[12px] text-[14px] font-semibold",
+    md: "h-[46px] px-[20px] py-[12px] text-[14px] font-semibold",
+    lg: "h-[46px] px-[20px] py-[12px] text-[14px] font-semibold",
   };
 
   const radiusClasses = {
-    sm: "rounded",
-    md: "rounded-md",
-    lg: "rounded-lg",
+    sm: "rounded-[12px]",
+    md: "rounded-[12px]",
+    lg: "rounded-[12px]",
   };
 
   const variants = {
     default: cn(
-      "bg-primary text-primary-foreground",
-      "hover:bg-[#006635]",
-      "shadow-[0_0_0_1px_rgba(0,0,0,.03),0_1px_0_rgba(0,0,0,.05)]",
-      "hover:shadow-[0_0_0_1px_rgba(0,0,0,.03),0_2px_4px_rgba(0,0,0,.08)]",
-      "focus-visible:shadow-[0_0_0_3px_rgba(0,133,69,0.1)]"
+      "bg-[#00d66f] text-[#15291f]",
+      "hover:bg-[#00c263]",
+      "transition-all duration-150 ease-in-out"
     ),
     secondary: cn(
-      "bg-secondary text-secondary-foreground",
-      "hover:bg-[#e6e6e6]",
-      "border border-border",
-      "shadow-[0_0_0_1px_rgba(0,0,0,.08)]",
-      "hover:shadow-[0_0_0_1px_rgba(0,0,0,.08),0_2px_4px_rgba(0,0,0,.08)]",
-      "focus-visible:shadow-[0_0_0_3px_rgba(0,0,0,0.05)]"
+      "bg-[#f7f7f7] text-[#15291f]",
+      "hover:bg-[#ebebeb]",
+      "border border-[#e3e8ee]",
+      "transition-all duration-150 ease-in-out"
     ),
     outline: cn(
-      "border border-primary text-primary bg-transparent",
-      "hover:bg-primary hover:text-primary-foreground",
-      "shadow-[0_0_0_1px_rgba(0,0,0,.08)]",
-      "focus-visible:shadow-[0_0_0_3px_rgba(0,133,69,0.1)]"
+      "border border-[#00d66f] text-[#00d66f] bg-transparent",
+      "hover:bg-[#00d66f] hover:text-[#15291f]",
+      "transition-all duration-150 ease-in-out"
     ),
     ghost: cn(
-      "text-foreground bg-transparent",
-      "hover:bg-muted",
-      "focus-visible:shadow-[0_0_0_3px_rgba(0,0,0,0.05)]"
+      "text-[#525252] bg-transparent",
+      "hover:bg-[#f7f7f7]",
+      "transition-all duration-150 ease-in-out"
     ),
     destructive: cn(
-      "bg-destructive text-destructive-foreground",
+      "bg-[#df1b41] text-white",
       "hover:bg-[#c41635]",
-      "shadow-[0_0_0_1px_rgba(0,0,0,.03),0_1px_0_rgba(0,0,0,.05)]",
-      "hover:shadow-[0_0_0_1px_rgba(0,0,0,.03),0_2px_4px_rgba(0,0,0,.08)]",
-      "focus-visible:shadow-[0_0_0_3px_rgba(223,27,65,0.15)]"
+      "transition-all duration-150 ease-in-out"
     ),
     success: cn(
-      "bg-success text-success-foreground",
-      "hover:bg-[#006635]",
-      "shadow-[0_0_0_1px_rgba(0,0,0,.03),0_1px_0_rgba(0,0,0,.05)]",
-      "hover:shadow-[0_0_0_1px_rgba(0,0,0,.03),0_2px_4px_rgba(0,0,0,.08)]",
-      "focus-visible:shadow-[0_0_0_3px_rgba(0,133,69,0.1)]"
+      "bg-[#00d66f] text-[#15291f]",
+      "hover:bg-[#00c263]",
+      "transition-all duration-150 ease-in-out"
     ),
   };
 

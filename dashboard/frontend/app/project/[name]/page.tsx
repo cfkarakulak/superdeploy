@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { Package, Database, ChevronRight } from "lucide-react";
+import SimpleHeader from "@/components/SimpleHeader";
+import PageHeader from "@/components/PageHeader";
 
 interface App {
   name: string;
@@ -75,7 +77,7 @@ const AddonsCardSkeleton = () => (
 
 // Full Page Skeleton
 const ProjectPageSkeleton = () => (
-  <div className="max-w-[960px] mx-auto py-8 px-6">
+  <div>
     <BreadcrumbSkeleton />
     <ProjectHeaderSkeleton />
 
@@ -135,90 +137,89 @@ export default function ProjectPage() {
   }
 
   return (
-    <div className="max-w-[960px] mx-auto py-8 px-6">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-3 mb-6">
-        <Link href="/" className="text-gray-500 hover:text-gray-900">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <Link href="/" className="hover:text-gray-900">
-            Projects
-          </Link>
-          <span>/</span>
-          <span className="text-gray-900 font-medium">{projectName}</span>
-        </div>
-      </div>
-
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold mb-2">{projectName}</h1>
-        <p className="text-gray-600">Project dashboard</p>
-      </div>
+    <div>
+      <SimpleHeader />
+      
+      <PageHeader
+        breadcrumbs={[
+          { label: "Projects", href: "/" },
+          { label: projectName, href: `/project/${projectName}` }
+        ]}
+        title={projectName}
+        description="Manage applications, add-ons, and infrastructure for your project"
+      />
 
       {/* Applications */}
-      <div className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">Applications</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {apps.map((app) => (
-            <Link
-              key={app.name}
-              href={`/project/${projectName}/app/${app.name}`}
-              className="bg-white shadow-sm rounded-lg p-6 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded flex items-center justify-center text-white font-bold">
-                  {app.name[0].toUpperCase()}
+      <div className="mb-10">
+        <h2 className="text-[17px] font-semibold text-[#0a0a0a] mb-4">Applications</h2>
+        {apps.length > 0 ? (
+          <div className="space-y-3">
+            {apps.map((app) => (
+              <Link
+                key={app.name}
+                href={`/project/${projectName}/app/${app.name}`}
+                className="block bg-white rounded-[16px] p-[20px] hover:bg-[#f7f7f7] transition-all shadow-[0_0_0_1px_rgba(11,26,38,0.06),0_4px_12px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_2px_6px_rgba(0,0,0,0.08)]"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-[#f7f7f7] rounded flex items-center justify-center">
+                    <Package className="w-5 h-5 text-[#008545]" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-[17px] font-semibold text-[#0a0a0a]">{app.name}</h3>
+                    {app.domain && (
+                      <p className="text-[13px] text-[#8b8b8b]">{app.domain}</p>
+                    )}
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-[#8b8b8b]" />
                 </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-lg">{app.name}</h3>
-                  {app.domain && (
-                    <p className="text-sm text-gray-500">{app.domain}</p>
-                  )}
-                </div>
-                <span className="text-gray-400">→</span>
-              </div>
-            </Link>
-          ))}
-        </div>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-white rounded-[16px] p-[20px] text-center shadow-[0_0_0_1px_rgba(11,26,38,0.06),0_4px_12px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.04)]">
+            <p className="text-[15px] text-[#525252]">No applications yet</p>
+          </div>
+        )}
       </div>
 
-      {/* Addons */}
+      {/* Addons Summary */}
       <div>
-        <h2 className="text-xl font-semibold mb-4">Addons</h2>
+        <h2 className="text-[17px] font-semibold text-[#0a0a0a] mb-4">Add-ons</h2>
         <Link
           href={`/project/${projectName}/addons`}
-          className="block bg-white shadow-sm rounded-lg p-6 hover:shadow-md transition-shadow"
+          className="block bg-[#f7f7f7] rounded-lg p-5 hover:bg-[#ebebeb] transition-all shadow-[0_0_0_1px_rgba(0,0,0,0.08)] hover:shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
         >
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-purple-600 rounded flex items-center justify-center text-white font-bold">
-                A
+              <div className="w-10 h-10 bg-[#f7f7f7] rounded flex items-center justify-center">
+                <Database className="w-5 h-5 text-[#6366f1]" />
               </div>
               <div>
-                <h3 className="font-semibold text-lg">Addons</h3>
-                <p className="text-sm text-gray-500">
-                  {addons.length} addon{addons.length !== 1 ? "s" : ""} installed
+                <h3 className="text-[17px] font-semibold text-[#0a0a0a]">View all add-ons</h3>
+                <p className="text-[13px] text-[#8b8b8b]">
+                  {addons.length} add-on{addons.length !== 1 ? "s" : ""} installed
                 </p>
               </div>
             </div>
-            <span className="text-gray-400">→</span>
+            <ChevronRight className="w-5 h-5 text-[#8b8b8b]" />
           </div>
-          <div className="flex flex-wrap gap-2">
-            {addons.slice(0, 5).map((addon) => (
-              <span
-                key={addon.reference}
-                className="px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-medium"
-              >
-                {addon.name} ({addon.type})
-              </span>
-            ))}
-            {addons.length > 5 && (
-              <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
-                +{addons.length - 5} more
-              </span>
-            )}
-          </div>
+          {addons.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {addons.slice(0, 5).map((addon) => (
+                <span
+                  key={addon.reference}
+                  className="px-3 py-1 bg-[#e0e7ff] text-[#4f46e5] rounded-full text-[12px] "
+                >
+                  {addon.name}
+                </span>
+              ))}
+              {addons.length > 5 && (
+                <span className="px-3 py-1 bg-[#ebebeb] text-[#525252] rounded-full text-[12px] ">
+                  +{addons.length - 5} more
+                </span>
+              )}
+            </div>
+          )}
         </Link>
       </div>
     </div>
