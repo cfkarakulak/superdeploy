@@ -107,6 +107,79 @@ jobs:
           echo "✅ Environment file created at $ENV_DIR/.env"
           echo "📊 Total variables: $(wc -l < "$ENV_DIR/.env")"{% endraw %}
       
+      - name: Update docker-compose.yml from marker file
+        run: |
+{% raw %}          APP_NAME="${{ needs.build.outputs.app }}"
+          PROJECT="${{ needs.build.outputs.project }}"
+          COMPOSE_FILE="/opt/superdeploy/projects/$PROJECT/compose/docker-compose.yml"
+          
+          echo "🔄 Updating docker-compose.yml for $APP_NAME from marker..."
+          
+          # Parse marker file and update compose (Python inline)
+          python3 << 'PYTHON_SCRIPT'
+import yaml
+import sys
+import os
+
+app_name = os.environ['APP_NAME']
+compose_file = os.environ['COMPOSE_FILE']
+
+try:
+    # Read marker file (from checked out repo)
+    with open('superdeploy', 'r') as f:
+        marker = yaml.safe_load(f)
+    
+    # Read existing docker-compose.yml
+    with open(compose_file, 'r') as f:
+        compose = yaml.safe_load(f)
+    
+    # Update each process service with marker data
+    for process_name, process_config in marker.items():
+        if process_name in ['project', 'app', 'vm']:
+            continue
+        
+        service_name = f"{app_name}-{process_name}"
+        
+        if service_name in compose.get('services', {}):
+            service = compose['services'][service_name]
+            
+            # Update replicas
+            if 'deploy' not in service:
+                service['deploy'] = {}
+            service['deploy']['replicas'] = process_config.get('replicas', 1)
+            
+            # Update port mapping based on replicas
+            replicas = process_config.get('replicas', 1)
+            port = process_config.get('port')
+            
+            if port:
+                # Remove old port/expose config
+                service.pop('ports', None)
+                service.pop('expose', None)
+                
+                # Apply new config based on replicas
+                if replicas > 1:
+                    # Multiple replicas: internal only
+                    service['expose'] = [str(port)]
+                else:
+                    # Single replica: external + internal
+                    service['ports'] = [f"{port}:{port}"]
+            
+            print(f"✅ Updated {service_name}: replicas={replicas}, port={port}")
+    
+    # Write updated compose file
+    with open(compose_file, 'w') as f:
+        yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
+    
+    print(f"✅ docker-compose.yml updated for {app_name}")
+    
+except Exception as e:
+    print(f"⚠️  Failed to update compose: {e}")
+    print(f"⚠️  Will use existing compose file")
+    sys.exit(0)  # Don't fail deployment
+PYTHON_SCRIPT
+          {% endraw %}
+      
       - name: Deploy application (zero-downtime with replicas)
         run: |
           cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}/compose
