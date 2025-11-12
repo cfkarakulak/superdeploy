@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from pydantic import BaseModel
-from cli.dashboard.backend.database import get_db
-from cli.dashboard.backend.models import Secret
+from dashboard.backend.database import get_db
+from dashboard.backend.models import Secret
 
 router = APIRouter(tags=["secrets"])
 
@@ -27,7 +27,7 @@ class SecretResponse(BaseModel):
     app: str
     key: str
     value: str
-    
+
     class Config:
         from_attributes = True
 
@@ -52,15 +52,21 @@ def get_secret(secret_id: int, db: Session = Depends(get_db)):
 def create_secret(secret: SecretCreate, db: Session = Depends(get_db)):
     """Create a new secret."""
     # Check if secret already exists
-    existing = db.query(Secret).filter(
-        Secret.environment_id == secret.environment_id,
-        Secret.app == secret.app,
-        Secret.key == secret.key
-    ).first()
-    
+    existing = (
+        db.query(Secret)
+        .filter(
+            Secret.environment_id == secret.environment_id,
+            Secret.app == secret.app,
+            Secret.key == secret.key,
+        )
+        .first()
+    )
+
     if existing:
-        raise HTTPException(status_code=400, detail="Secret with this key already exists")
-    
+        raise HTTPException(
+            status_code=400, detail="Secret with this key already exists"
+        )
+
     db_secret = Secret(**secret.dict())
     db.add(db_secret)
     db.commit()
@@ -69,12 +75,14 @@ def create_secret(secret: SecretCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{secret_id}", response_model=SecretResponse)
-def update_secret(secret_id: int, secret_update: SecretUpdate, db: Session = Depends(get_db)):
+def update_secret(
+    secret_id: int, secret_update: SecretUpdate, db: Session = Depends(get_db)
+):
     """Update a secret value."""
     db_secret = db.query(Secret).filter(Secret.id == secret_id).first()
     if not db_secret:
         raise HTTPException(status_code=404, detail="Secret not found")
-    
+
     db_secret.value = secret_update.value
     db.commit()
     db.refresh(db_secret)
@@ -87,8 +95,7 @@ def delete_secret(secret_id: int, db: Session = Depends(get_db)):
     db_secret = db.query(Secret).filter(Secret.id == secret_id).first()
     if not db_secret:
         raise HTTPException(status_code=404, detail="Secret not found")
-    
+
     db.delete(db_secret)
     db.commit()
     return {"ok": True}
-

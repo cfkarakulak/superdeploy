@@ -85,6 +85,7 @@ from cli.commands import (
     promote,
     subnets,
     tunnel,
+    dashboard,
 )
 from cli.commands.ps import ps
 
@@ -421,6 +422,8 @@ cli.add_command(orchestrator_down)
 cli.add_command(orchestrator_status)
 cli.add_command(subnets.subnets)
 cli.add_command(tunnel.tunnel)
+# Register dashboard commands
+cli.add_command(dashboard.dashboard)
 
 
 @handle_cli_errors

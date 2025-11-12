@@ -19,6 +19,40 @@
 
 # Main configuration - subdomain-based routing
 # Each app on this VM gets its own domain block
+
+# Port 80 catch-all with path-based routing (when no domains configured)
+# Fallback for development/testing with IP-only access
+{% set has_any_domain = namespace(value=false) %}
+{% if apps is defined %}
+{% for app_name, app_config in apps.items() %}
+{% if app_config.get('vm') == vm_role and app_config.get('domain') %}
+{% set has_any_domain.value = true %}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if not has_any_domain.value and apps is defined %}
+:80 {
+{% for app_name, app_config in apps.items() %}
+{% if app_config.get('vm') == vm_role and app_config.get('port') %}
+    # {{ app_name }} routing
+    handle /{{ app_name }}* {
+        reverse_proxy {{ app_name }}-web:{{ app_config.get('port', 8000) }}
+    }
+{% endif %}
+{% endfor %}
+    
+    # Default: route to first web app (storefront or first available)
+{% for app_name, app_config in apps.items() %}
+{% if app_config.get('vm') == vm_role and app_config.get('port') and 'storefront' in app_name %}
+    handle {
+        reverse_proxy {{ app_name }}-web:{{ app_config.get('port', 3000) }}
+    }
+{% endif %}
+{% endfor %}
+}
+{% endif %}
+
 {% if apps is defined %}
 {% for app_name, app_config in apps.items() %}
 {% if app_config.get('vm') == vm_role and app_config.get('port') %}

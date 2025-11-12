@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from pydantic import BaseModel
-from cli.dashboard.backend.database import get_db
-from cli.dashboard.backend.models import Project, Environment
+from dashboard.backend.database import get_db
+from dashboard.backend.models import Project, Environment
 
 router = APIRouter(tags=["projects"])
 
@@ -17,7 +17,7 @@ class ProjectCreate(BaseModel):
 class ProjectResponse(BaseModel):
     id: int
     name: str
-    
+
     class Config:
         from_attributes = True
 
@@ -36,17 +36,17 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     existing = db.query(Project).filter(Project.name == project.name).first()
     if existing:
         raise HTTPException(status_code=400, detail="Project already exists")
-    
+
     # Create project
     db_project = Project(name=project.name)
     db.add(db_project)
     db.flush()
-    
+
     # Create default environments
     for env_name in ["production", "staging", "review"]:
         env = Environment(name=env_name, project_id=db_project.id)
         db.add(env)
-    
+
     db.commit()
     db.refresh(db_project)
     return db_project
@@ -67,8 +67,7 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     db.delete(project)
     db.commit()
     return {"ok": True}
-

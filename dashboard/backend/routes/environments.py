@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from pydantic import BaseModel
-from cli.dashboard.backend.database import get_db
-from cli.dashboard.backend.models import Environment
+from dashboard.backend.database import get_db
+from dashboard.backend.models import Environment
 
 router = APIRouter(tags=["environments"])
 
@@ -14,7 +14,7 @@ class EnvironmentResponse(BaseModel):
     id: int
     name: str
     project_id: int
-    
+
     class Config:
         from_attributes = True
 
@@ -22,7 +22,9 @@ class EnvironmentResponse(BaseModel):
 @router.get("/project/{project_id}", response_model=List[EnvironmentResponse])
 def list_environments(project_id: int, db: Session = Depends(get_db)):
     """List all environments for a project."""
-    environments = db.query(Environment).filter(Environment.project_id == project_id).all()
+    environments = (
+        db.query(Environment).filter(Environment.project_id == project_id).all()
+    )
     return environments
 
 
@@ -33,4 +35,3 @@ def get_environment(environment_id: int, db: Session = Depends(get_db)):
     if not environment:
         raise HTTPException(status_code=404, detail="Environment not found")
     return environment
-

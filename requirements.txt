@@ -20,3 +20,8 @@ mitogen>=0.3.4
 # Note: Will be auto-installed with ansible, but specify version for docker_compose_v2
 # Install manually: ansible-galaxy collection install community.docker:>=5.0.0
 
+# DASHBOARD: Local web UI for secrets management
+fastapi>=0.104.0
+uvicorn>=0.24.0
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0

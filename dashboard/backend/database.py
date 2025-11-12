@@ -23,6 +23,4 @@ def get_db():
 
 def init_db():
     """Initialize database tables."""
-    from cli.dashboard.backend.models import Project, Environment, Secret
     Base.metadata.create_all(bind=engine)
-

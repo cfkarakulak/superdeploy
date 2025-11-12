@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 
-const API_URL = 'http://localhost:8000'
+const API_URL = 'http://localhost:6001'
 
 interface Project {
   id: number
