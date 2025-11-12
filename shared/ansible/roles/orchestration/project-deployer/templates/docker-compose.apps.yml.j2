@@ -11,8 +11,15 @@ services:
     image: {{ docker.registry | default('docker.io') }}/{{ docker.organization }}/{{ app_name }}:latest
     command: {{ process_config.command }}
 {% if process_config.port is defined %}
+{% if (process_config.replicas | default(1)) > 1 %}
+    # Multiple replicas: expose internally only (load balanced by proxy)
+    expose:
+      - "{{ process_config.port }}"
+{% else %}
+    # Single replica: expose externally
     ports:
       - "{{ process_config.port }}:{{ process_config.port }}"
+{% endif %}
 {% endif %}
     environment:
       - PROJECT_NAME={{ project_name }}
