@@ -35,7 +35,7 @@ addons:
       vm: core
       options: {}
   queues:
-    main:
+    primary:
       type: rabbitmq
       version: 3.12-management-alpine
       plan: standard
@@ -44,7 +44,7 @@ addons:
       vm: core
       options: {}
   proxy:
-    main:
+    primary:
       type: caddy
       version: 2-alpine
       plan: standard
