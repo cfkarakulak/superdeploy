@@ -177,8 +177,7 @@ except Exception as e:
     print(f"⚠️  Failed to update compose: {e}")
     print(f"⚠️  Will use existing compose file")
     sys.exit(0)  # Don't fail deployment
-PYTHON_SCRIPT
-          {% endraw %}
+PYTHON_SCRIPT{% endraw %}
       
       - name: Deploy application (zero-downtime with replicas)
         run: |

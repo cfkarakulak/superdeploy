@@ -174,7 +174,7 @@ except Exception as e:
     print(f"⚠️  Will use existing compose file")
     sys.exit(0)  # Don't fail deployment
 PYTHON_SCRIPT
-          
+      
       - name: Deploy application (zero-downtime with replicas)
         run: |
           cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}/compose
