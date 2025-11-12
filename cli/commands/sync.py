@@ -453,14 +453,12 @@ class SyncCommand(ProjectCommand):
                 k: v for k, v in merged_env.items() if k not in docker_keys
             }
 
-            # Create ONLY {APP}_ENV_JSON (no individual secrets)
-            env_json_secret = {
-                f"{app_name.upper()}_ENV_JSON": json.dumps(env_secret_dict)
-            }
-
-            # Set the merged environment as ENVIRONMENT SECRET (JSON only)
+            # Set each secret individually (for easy management in GitHub UI)
+            self.console.print(
+                f"  [dim]Setting {len(env_secret_dict)} individual secrets...[/dim]"
+            )
             success, fail = set_github_env_secrets(
-                repo, self.environment, env_json_secret, self.console
+                repo, self.environment, env_secret_dict, self.console
             )
             self.console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
 

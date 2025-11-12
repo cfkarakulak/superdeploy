@@ -22,7 +22,7 @@ class WorkflowConfig:
     app: str
     vm_role: str
     app_type: str
-    secret_var_line: str
+    secret_env_block: str
     repo_org: str
 
 
@@ -104,7 +104,7 @@ class WorkflowGenerator:
             app=config.app,
             app_name=config.app,
             vm_role=config.vm_role,
-            secret_var_line=config.secret_var_line,
+            secret_env_block=config.secret_env_block,
             repo_org=config.repo_org,
         )
 
@@ -258,15 +258,19 @@ class GenerateCommand(ProjectCommand):
             secret_count = len(app_secrets)
             self.console.print(f"  Secrets: {secret_count}")
 
-            # 4. Generate GitHub workflow
-            secret_var_line = f"              SECRET_VALUE='${{{{ secrets.{app_name.upper()}_ENV_JSON }}}}'"
+            # 4. Generate GitHub workflow with dynamic secret injection
+            # Create env block with all app secrets (for easy GitHub UI management)
+            secret_env_lines = []
+            for secret_key in sorted(app_secrets.keys()):
+                secret_env_lines.append(f"          {secret_key}: ${{{{ secrets.{secret_key} }}}}")
+            secret_env_block = "\n".join(secret_env_lines)
 
             workflow_config = WorkflowConfig(
                 project=self.project_name,
                 app=app_name,
                 vm_role=vm_role,
                 app_type=app_type,
-                secret_var_line=secret_var_line,
+                secret_env_block=secret_env_block,
                 repo_org=config.get("github", {}).get("organization", "GITHUB_ORG"),
             )
 
