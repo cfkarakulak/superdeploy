@@ -115,18 +115,18 @@ jobs:
           
           echo "🔄 Updating docker-compose.yml for $APP_NAME from marker..."
           
-          # Parse marker file and update compose (Python inline)
-          python3 << 'PYTHON_SCRIPT'
+          # Create Python script to update compose file
+          cat > /tmp/update_compose.py << 'PYTHON_SCRIPT'
 import yaml
 import sys
-import os
 
-app_name = os.environ['APP_NAME']
-compose_file = os.environ['COMPOSE_FILE']
+app_name = sys.argv[1]
+compose_file = sys.argv[2]
+marker_file = sys.argv[3]
 
 try:
-    # Read marker file (from checked out repo)
-    with open('superdeploy', 'r') as f:
+    # Read marker file
+    with open(marker_file, 'r') as f:
         marker = yaml.safe_load(f)
     
     # Read existing docker-compose.yml
@@ -177,7 +177,10 @@ except Exception as e:
     print(f"⚠️  Failed to update compose: {e}")
     print(f"⚠️  Will use existing compose file")
     sys.exit(0)  # Don't fail deployment
-PYTHON_SCRIPT{% endraw %}
+PYTHON_SCRIPT
+          
+          # Run script with sudo
+          sudo python3 /tmp/update_compose.py "$APP_NAME" "$COMPOSE_FILE" "superdeploy"{% endraw %}
       
       - name: Deploy application (zero-downtime with replicas)
         run: |
