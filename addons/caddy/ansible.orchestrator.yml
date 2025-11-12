@@ -101,7 +101,7 @@
     state: present
     pull: "always"
     recreate: "always"
-    remove_orphans: true
+    remove_orphans: false  # Don't remove other addons on same network
   become_user: "{{ superdeploy_user }}"
   register: caddy_compose_result
 

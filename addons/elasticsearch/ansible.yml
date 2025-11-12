@@ -146,7 +146,7 @@
     state: present
     pull: "always"
     recreate: "always"
-    remove_orphans: true
+    remove_orphans: false  # Don't remove other addons on same network
   become: yes
 
 - name: Wait for {{ instance_name }} to be ready

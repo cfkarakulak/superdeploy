@@ -160,7 +160,7 @@
     state: present
     pull: "always"
     recreate: "always"
-    remove_orphans: true
+    remove_orphans: false  # Don't remove other addons on same network
   become: yes
   register: mongodb_compose_result
 

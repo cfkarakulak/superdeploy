@@ -195,7 +195,7 @@
     state: present
     pull: "always"
     recreate: "always"
-    remove_orphans: true
+    remove_orphans: false  # Don't remove other addons on same network
     build: never
   become: yes
   register: caddy_compose_result
