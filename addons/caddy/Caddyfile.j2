@@ -32,6 +32,7 @@
 {% endif %}
 
 {% if not has_any_domain.value and apps is defined %}
+# Port 80 unified routing (when no domains)
 :80 {
 {% for app_name, app_config in apps.items() %}
 {% if app_config.get('vm') == vm_role and app_config.get('port') %}
@@ -51,6 +52,7 @@
 {% endif %}
 {% endfor %}
 }
+
 {% endif %}
 
 {% if apps is defined %}
