@@ -22,7 +22,7 @@ class WorkflowConfig:
     app: str
     vm_role: str
     app_type: str
-    secret_env_block: str
+    secret_keys: list[str]  # List of secret keys for dynamic injection
     repo_org: str
 
 
@@ -104,7 +104,7 @@ class WorkflowGenerator:
             app=config.app,
             app_name=config.app,
             vm_role=config.vm_role,
-            secret_env_block=config.secret_env_block,
+            secret_keys=config.secret_keys,  # Pass as list
             repo_org=config.repo_org,
         )
 
@@ -259,18 +259,19 @@ class GenerateCommand(ProjectCommand):
             self.console.print(f"  Secrets: {secret_count}")
 
             # 4. Generate GitHub workflow with dynamic secret injection
-            # Create env block with all app secrets (for easy GitHub UI management)
-            secret_env_lines = []
-            for secret_key in sorted(app_secrets.keys()):
-                secret_env_lines.append(f"          {secret_key}: ${{{{ secrets.{secret_key} }}}}")
-            secret_env_block = "\n".join(secret_env_lines)
+            # Send secret keys as list to avoid Jinja2 parsing issues
+            secret_keys = sorted(app_secrets.keys())
+            
+            # Debug: Print first 3 keys
+            if secret_keys:
+                self.console.print(f"  [dim]Sample secrets (first 3): {', '.join(secret_keys[:3])}[/dim]")
 
             workflow_config = WorkflowConfig(
                 project=self.project_name,
                 app=app_name,
                 vm_role=vm_role,
                 app_type=app_type,
-                secret_env_block=secret_env_block,
+                secret_keys=secret_keys,  # Send as list instead of pre-rendered block
                 repo_org=config.get("github", {}).get("organization", "GITHUB_ORG"),
             )
 
