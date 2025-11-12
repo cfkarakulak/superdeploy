@@ -83,6 +83,8 @@ jobs:
           echo "✅ Correct VM for project: $RUNNER_PROJECT"
       
       - name: Create .env from GitHub Environment Secrets
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
         run: |
           APP_NAME="${{ needs.build.outputs.app }}"
           PROJECT="${{ needs.build.outputs.project }}"
@@ -92,9 +94,7 @@ jobs:
           sudo mkdir -p "$ENV_DIR"
           
           # Get all secrets from GitHub and convert to .env format
-          cat <<'SECRETS_EOF' | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
-${{ toJSON(secrets) }}
-SECRETS_EOF
+          echo "$SECRETS_JSON" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
           
           sudo cp /tmp/final.env "$ENV_DIR/.env"
           sudo chown superdeploy:superdeploy "$ENV_DIR/.env"

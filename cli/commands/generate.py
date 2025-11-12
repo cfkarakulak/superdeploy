@@ -261,10 +261,12 @@ class GenerateCommand(ProjectCommand):
             # 4. Generate GitHub workflow with dynamic secret injection
             # Send secret keys as list to avoid Jinja2 parsing issues
             secret_keys = sorted(app_secrets.keys())
-            
+
             # Debug: Print first 3 keys
             if secret_keys:
-                self.console.print(f"  [dim]Sample secrets (first 3): {', '.join(secret_keys[:3])}[/dim]")
+                self.console.print(
+                    f"  [dim]Sample secrets (first 3): {', '.join(secret_keys[:3])}[/dim]"
+                )
 
             workflow_config = WorkflowConfig(
                 project=self.project_name,
