@@ -58,6 +58,7 @@
   tags:
     - system
     - monitoring-agent
+    - project  # Also run during project deployments to ensure cAdvisor is always present
     - foundation
 
 - name: Setup GitHub Runner on project VMs

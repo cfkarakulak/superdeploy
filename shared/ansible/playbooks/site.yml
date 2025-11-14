@@ -62,6 +62,7 @@
     - system
     - monitoring-agent
     - foundation
+    - project  # Also run during project deployments to ensure cAdvisor is always present
 
 - name: Setup GitHub Runner on project VMs
   hosts: all:!orchestrator
