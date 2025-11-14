@@ -268,7 +268,7 @@ async def get_project_vms_metrics(project_name: str):
 async def get_app_container_metrics(project_name: str, app_name: str):
     """
     Get cAdvisor container metrics for an app.
-    
+
     Returns detailed container-level metrics:
     - CPU usage per container
     - Memory usage per container
@@ -276,13 +276,13 @@ async def get_app_container_metrics(project_name: str, app_name: str):
     - Filesystem I/O per container
     """
     db = SessionLocal()
-    
+
     try:
         # Verify project exists
         project = db.query(Project).filter(Project.name == project_name).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
-        
+
         # Get app
         app = (
             db.query(App)
@@ -291,14 +291,14 @@ async def get_app_container_metrics(project_name: str, app_name: str):
         )
         if not app:
             raise HTTPException(status_code=404, detail="App not found")
-        
+
         # Get orchestrator VM for Prometheus
         orchestrator_project = (
             db.query(Project).filter(Project.name == "orchestrator").first()
         )
         if not orchestrator_project:
             raise HTTPException(status_code=500, detail="Orchestrator not found")
-        
+
         orchestrator_vm = (
             db.query(VM)
             .filter(VM.project_id == orchestrator_project.id, VM.name == "orchestrator")
@@ -306,68 +306,71 @@ async def get_app_container_metrics(project_name: str, app_name: str):
         )
         if not orchestrator_vm or not orchestrator_vm.external_ip:
             raise HTTPException(status_code=500, detail="Orchestrator VM not found")
-        
+
         prometheus_url = f"http://{orchestrator_vm.external_ip}:9090"
-        
+
         # Query cAdvisor metrics for Docker containers (systemd cgroup paths)
         # Filter: only docker-*.scope containers (not root, not system services)
         queries = {
-            "cpu_usage": f'rate(container_cpu_usage_seconds_total{{id=~"/system.slice/docker-.*\\\\.scope"}}[5m]) * 100',
-            "memory_usage": f'container_memory_usage_bytes{{id=~"/system.slice/docker-.*\\\\.scope"}}',
-            "memory_limit": f'container_spec_memory_limit_bytes{{id=~"/system.slice/docker-.*\\\\.scope"}}',
-            "network_rx": f'rate(container_network_receive_bytes_total{{id=~"/system.slice/docker-.*\\\\.scope"}}[5m])',
-            "network_tx": f'rate(container_network_transmit_bytes_total{{id=~"/system.slice/docker-.*\\\\.scope"}}[5m])',
-            "fs_reads": f'rate(container_fs_reads_bytes_total{{id=~"/system.slice/docker-.*\\\\.scope"}}[5m])',
-            "fs_writes": f'rate(container_fs_writes_bytes_total{{id=~"/system.slice/docker-.*\\\\.scope"}}[5m])',
+            "cpu_usage": 'rate(container_cpu_usage_seconds_total{id=~"/system.slice/docker-.*\\\\.scope"}[5m]) * 100',
+            "memory_usage": 'container_memory_usage_bytes{id=~"/system.slice/docker-.*\\\\.scope"}',
+            "memory_limit": 'container_spec_memory_limit_bytes{id=~"/system.slice/docker-.*\\\\.scope"}',
+            "network_rx": 'rate(container_network_receive_bytes_total{id=~"/system.slice/docker-.*\\\\.scope"}[5m])',
+            "network_tx": 'rate(container_network_transmit_bytes_total{id=~"/system.slice/docker-.*\\\\.scope"}[5m])',
+            "fs_reads": 'rate(container_fs_reads_bytes_total{id=~"/system.slice/docker-.*\\\\.scope"}[5m])',
+            "fs_writes": 'rate(container_fs_writes_bytes_total{id=~"/system.slice/docker-.*\\\\.scope"}[5m])',
         }
-        
+
         # Execute queries
         results = {}
         async with httpx.AsyncClient(timeout=5.0) as client:
             for key, query in queries.items():
                 try:
                     response = await client.get(
-                        f"{prometheus_url}/api/v1/query",
-                        params={"query": query}
+                        f"{prometheus_url}/api/v1/query", params={"query": query}
                     )
-                    
+
                     if response.status_code == 200:
                         data = response.json()
                         result = data.get("data", {}).get("result", [])
                         results[key] = result
                     else:
                         results[key] = []
-                        
+
                 except Exception as e:
                     print(f"Container metrics query error ({key}): {e}")
                     results[key] = []
-        
+
         # Helper to extract container name from systemd cgroup path
         def get_container_name(container_id: str) -> str:
             """Extract container hash from systemd cgroup path"""
             # /system.slice/docker-HASH.scope -> HASH (first 12 chars)
-            if 'docker-' in container_id:
-                hash_part = container_id.split('docker-')[1].split('.scope')[0]
+            if "docker-" in container_id:
+                hash_part = container_id.split("docker-")[1].split(".scope")[0]
                 return hash_part[:12]  # Docker short ID
             return container_id
-        
+
         # Process results into container-specific metrics
         containers = {}
-        
+
         for result in results.get("cpu_usage", []):
             container_id = result.get("metric", {}).get("id", "unknown")
             container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
-            containers[container_name]["cpu_percent"] = float(result.get("value", [None, "0"])[1])
-        
+            containers[container_name]["cpu_percent"] = float(
+                result.get("value", [None, "0"])[1]
+            )
+
         for result in results.get("memory_usage", []):
             container_id = result.get("metric", {}).get("id", "unknown")
             container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
-            containers[container_name]["memory_bytes"] = int(float(result.get("value", [None, "0"])[1]))
-        
+            containers[container_name]["memory_bytes"] = int(
+                float(result.get("value", [None, "0"])[1])
+            )
+
         for result in results.get("memory_limit", []):
             container_id = result.get("metric", {}).get("id", "unknown")
             container_name = get_container_name(container_id)
@@ -379,45 +382,52 @@ async def get_app_container_metrics(project_name: str, app_name: str):
                 containers[container_name]["memory_percent"] = (
                     containers[container_name]["memory_bytes"] / limit * 100
                 )
-        
+
         for result in results.get("network_rx", []):
             container_id = result.get("metric", {}).get("id", "unknown")
             container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
-            containers[container_name]["network_rx_bytes_per_sec"] = float(result.get("value", [None, "0"])[1])
-        
+            containers[container_name]["network_rx_bytes_per_sec"] = float(
+                result.get("value", [None, "0"])[1]
+            )
+
         for result in results.get("network_tx", []):
             container_id = result.get("metric", {}).get("id", "unknown")
             container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
-            containers[container_name]["network_tx_bytes_per_sec"] = float(result.get("value", [None, "0"])[1])
-        
+            containers[container_name]["network_tx_bytes_per_sec"] = float(
+                result.get("value", [None, "0"])[1]
+            )
+
         for result in results.get("fs_reads", []):
             container_id = result.get("metric", {}).get("id", "unknown")
             container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
-            containers[container_name]["fs_read_bytes_per_sec"] = float(result.get("value", [None, "0"])[1])
-        
+            containers[container_name]["fs_read_bytes_per_sec"] = float(
+                result.get("value", [None, "0"])[1]
+            )
+
         for result in results.get("fs_writes", []):
             container_id = result.get("metric", {}).get("id", "unknown")
             container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
-            containers[container_name]["fs_write_bytes_per_sec"] = float(result.get("value", [None, "0"])[1])
-        
+            containers[container_name]["fs_write_bytes_per_sec"] = float(
+                result.get("value", [None, "0"])[1]
+            )
+
         return {
             "app": app_name,
             "project": project_name,
             "prometheus_url": prometheus_url,
             "containers": [
-                {"name": name, **metrics}
-                for name, metrics in containers.items()
-            ]
+                {"name": name, **metrics} for name, metrics in containers.items()
+            ],
         }
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -428,7 +438,7 @@ async def get_app_container_metrics(project_name: str, app_name: str):
 async def get_app_application_metrics(project_name: str, app_name: str):
     """
     Get application-level metrics from PrometheusMiddleware.
-    
+
     Returns:
     - HTTP request rate (requests per second)
     - HTTP request latency (p50, p95, p99)
@@ -436,13 +446,13 @@ async def get_app_application_metrics(project_name: str, app_name: str):
     - Active requests (in-progress)
     """
     db = SessionLocal()
-    
+
     try:
         # Verify project exists
         project = db.query(Project).filter(Project.name == project_name).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
-        
+
         # Get app
         app = (
             db.query(App)
@@ -451,12 +461,12 @@ async def get_app_application_metrics(project_name: str, app_name: str):
         )
         if not app:
             raise HTTPException(status_code=404, detail="App not found")
-        
+
         # Get VM name from app
         vm_name = app.vm
         if not vm_name:
             raise HTTPException(status_code=404, detail="App has no VM assigned")
-        
+
         # Get VM from database
         vm = (
             db.query(VM).filter(VM.project_id == project.id, VM.name == vm_name).first()
@@ -465,16 +475,16 @@ async def get_app_application_metrics(project_name: str, app_name: str):
             raise HTTPException(
                 status_code=404, detail=f"VM '{vm_name}' not found or has no IP"
             )
-        
+
         vm_ip = vm.external_ip
-        
+
         # Get orchestrator VM for Prometheus
         orchestrator_project = (
             db.query(Project).filter(Project.name == "orchestrator").first()
         )
         if not orchestrator_project:
             raise HTTPException(status_code=500, detail="Orchestrator not found")
-        
+
         orchestrator_vm = (
             db.query(VM)
             .filter(VM.project_id == orchestrator_project.id, VM.name == "orchestrator")
@@ -482,27 +492,27 @@ async def get_app_application_metrics(project_name: str, app_name: str):
         )
         if not orchestrator_vm or not orchestrator_vm.external_ip:
             raise HTTPException(status_code=500, detail="Orchestrator VM not found")
-        
+
         prometheus_url = f"http://{orchestrator_vm.external_ip}:9090"
-        
+
         # Application metrics queries (from PrometheusMiddleware)
         instance_filter = f'instance=~".*{vm_ip}.*"'
-        
+
         queries = {
-            "request_rate": f'sum(rate(app_http_requests_total{{{instance_filter}}}[5m]))',
+            "request_rate": f"sum(rate(app_http_requests_total{{{instance_filter}}}[5m]))",
             "error_rate": f'sum(rate(app_http_requests_total{{status=~"5..",{instance_filter}}}[5m]))',
-            "latency_p50": f'histogram_quantile(0.50, sum(rate(app_http_request_duration_seconds_bucket{{{instance_filter}}}[5m])) by (le))',
-            "latency_p95": f'histogram_quantile(0.95, sum(rate(app_http_request_duration_seconds_bucket{{{instance_filter}}}[5m])) by (le))',
-            "latency_p99": f'histogram_quantile(0.99, sum(rate(app_http_request_duration_seconds_bucket{{{instance_filter}}}[5m])) by (le))',
-            "active_requests": f'sum(app_http_requests_in_progress{{{instance_filter}}})',
+            "latency_p50": f"histogram_quantile(0.50, sum(rate(app_http_request_duration_seconds_bucket{{{instance_filter}}}[5m])) by (le))",
+            "latency_p95": f"histogram_quantile(0.95, sum(rate(app_http_request_duration_seconds_bucket{{{instance_filter}}}[5m])) by (le))",
+            "latency_p99": f"histogram_quantile(0.99, sum(rate(app_http_request_duration_seconds_bucket{{{instance_filter}}}[5m])) by (le))",
+            "active_requests": f"sum(app_http_requests_in_progress{{{instance_filter}}})",
         }
-        
+
         # Execute queries in parallel
         results = await asyncio.gather(
             *[query_prometheus(prometheus_url, q) for q in queries.values()],
             return_exceptions=True,
         )
-        
+
         # Map results
         metrics = {}
         for (key, _), result in zip(queries.items(), results):
@@ -510,7 +520,7 @@ async def get_app_application_metrics(project_name: str, app_name: str):
                 metrics[key] = 0.0
             else:
                 metrics[key] = result
-        
+
         return {
             "app": app_name,
             "project": project_name,
@@ -520,17 +530,22 @@ async def get_app_application_metrics(project_name: str, app_name: str):
                 "request_rate_per_sec": round(metrics.get("request_rate", 0.0), 2),
                 "error_rate_per_sec": round(metrics.get("error_rate", 0.0), 2),
                 "error_percentage": round(
-                    (metrics.get("error_rate", 0.0) / metrics.get("request_rate", 1.0) * 100)
-                    if metrics.get("request_rate", 0.0) > 0 else 0.0,
-                    2
+                    (
+                        metrics.get("error_rate", 0.0)
+                        / metrics.get("request_rate", 1.0)
+                        * 100
+                    )
+                    if metrics.get("request_rate", 0.0) > 0
+                    else 0.0,
+                    2,
                 ),
                 "latency_p50_ms": round(metrics.get("latency_p50", 0.0) * 1000, 1),
                 "latency_p95_ms": round(metrics.get("latency_p95", 0.0) * 1000, 1),
                 "latency_p99_ms": round(metrics.get("latency_p99", 0.0) * 1000, 1),
                 "active_requests": int(metrics.get("active_requests", 0)),
-            }
+            },
         }
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
