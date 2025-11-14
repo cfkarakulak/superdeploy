@@ -21,10 +21,11 @@
     monitoring_targets: "{{ monitoring_targets | default([]) + [hostvars[groups[item.value.vm][0]].ansible_host + ':' + ((item.value.internal_port | default(item.value.port)) | string)] }}"
   loop: "{{ apps | dict2items }}"
   when: 
-    - (item.value.port is defined or item.value.internal_port is defined)
     - item.value.vm is defined
     - groups[item.value.vm] is defined
     - groups[item.value.vm] | length > 0
+    - (item.value.port is defined and item.value.port != None) or (item.value.internal_port is defined and item.value.internal_port != None)
+    - (item.value.internal_port | default(item.value.port) | default(None)) != None
 
 - name: Set app port fact for monitoring
   set_fact:

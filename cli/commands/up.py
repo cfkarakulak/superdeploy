@@ -20,7 +20,6 @@ class DeploymentOptions:
 
     skip_terraform: bool = False
     skip_ansible: bool = False
-    skip_sync: bool = False
     skip: Tuple[str, ...] = ()
     addon: Optional[str] = None
     tags: Optional[str] = None
@@ -43,7 +42,6 @@ class UpCommand(ProjectCommand):
         project_name: str,
         skip_terraform: bool = False,
         skip_ansible: bool = False,
-        skip_sync: bool = False,
         skip: tuple = (),
         addon: str = None,
         tags: str = None,
@@ -55,7 +53,6 @@ class UpCommand(ProjectCommand):
         super().__init__(project_name, verbose=verbose)
         self.skip_terraform = skip_terraform
         self.skip_ansible = skip_ansible
-        self.skip_sync = skip_sync
         self.skip = skip
         self.addon = addon
         self.tags = tags
@@ -242,8 +239,7 @@ class UpCommand(ProjectCommand):
                         )
 
                     if not changes["needs_sync"]:
-                        self.skip_sync = True
-                        logger.log("  [dim]⏭ Skipping sync (no new secrets)[/dim]")
+                        logger.log("  [dim]⏭ No secret changes detected[/dim]")
 
                     # Auto-generate workflows if needed
                     if changes["needs_generate"]:
@@ -301,7 +297,6 @@ class UpCommand(ProjectCommand):
             self.project_name,
             self.skip_terraform,
             self.skip_ansible,
-            self.skip_sync,
             self.skip,
             self.addon,
             self.tags,
@@ -335,7 +330,6 @@ def _deploy_project_internal(
     project,
     skip_terraform,
     skip_ansible,
-    skip_sync,
     skip,
     addon,
     tags,
@@ -914,50 +908,9 @@ def _deploy_project_internal(
     else:
         logger.step("Skipping Ansible (--skip-ansible)")
 
-    # Phase 4: Code Deployment
-    if not skip_sync:
-        logger.step("[4/4] Code Deployment")
-
-    # Sync secrets to GitHub
-    if not skip_sync and not skip_ansible:
-        logger.log("Syncing secrets to GitHub...")
-        try:
-            # Call sync command programmatically
-            # Note: CliRunner with namespace commands doesn't work well
-            # Use subprocess to call the actual CLI with namespace syntax
-            import sys
-
-            sync_cmd = [
-                sys.executable,
-                "-m",
-                "cli.main",
-                f"{project}:vars:sync",
-            ]
-
-            try:
-                result = subprocess.run(
-                    sync_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                )
-
-                if result.returncode == 0:
-                    logger.log("✓ Secrets synced to GitHub")
-                else:
-                    logger.warning("⚠ Secret sync had issues:")
-                    if result.stderr:
-                        clean_stderr = strip_ansi_codes(result.stderr)
-                        for line in clean_stderr.split("\n")[:5]:
-                            if line.strip():
-                                logger.warning(f"  {line}")
-            except subprocess.TimeoutExpired:
-                logger.warning("⚠ Secret sync timed out")
-            except Exception as e:
-                logger.warning(f"⚠ Secret sync failed: {e}")
-        except Exception as e:
-            logger.log_error(f"Failed to sync secrets: {e}")
-            logger.warning("Continuing deployment without secret sync")
+    # Phase 4: Code Deployment - Manual sync required
+    # Note: Secret sync removed from automatic deployment due to timeout issues
+    # User must manually run: superdeploy {project}:vars:sync
 
     # env already loaded at the beginning from secrets.yml
 
@@ -1175,6 +1128,15 @@ def _deploy_project_internal(
                             f"   • [cyan]{app_name}:[/cyan] [dim](worker - no public endpoint)[/dim]"
                         )
 
+        # Important next step: Secret sync
+        console.print(
+            "\n[bold yellow]⚠️  IMPORTANT: Sync secrets to GitHub[/bold yellow]"
+        )
+        console.print(f"   Run: [bold cyan]superdeploy {project}:vars:sync[/bold cyan]")
+        console.print(
+            "   [dim]This syncs your secrets to GitHub for CI/CD workflows[/dim]"
+        )
+
         console.print("\n" + "=" * 80)
         console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
         console.print(
@@ -1186,7 +1148,6 @@ def _deploy_project_internal(
 @click.command()
 @click.option("--skip-terraform", is_flag=True, help="Skip Terraform provisioning")
 @click.option("--skip-ansible", is_flag=True, help="Skip Ansible configuration")
-@click.option("--skip-sync", is_flag=True, help="Skip automatic GitHub secrets sync")
 @click.option("--skip", multiple=True, help="Skip specific addon(s) during deployment")
 @click.option("--addon", help="Deploy only specific addon(s), comma-separated")
 @click.option("--tags", help="Run only specific Ansible tags")
@@ -1198,7 +1159,6 @@ def up(
     project,
     skip_terraform,
     skip_ansible,
-    skip_sync,
     skip,
     addon,
     tags,
@@ -1212,7 +1172,6 @@ def up(
         project_name=project,
         skip_terraform=skip_terraform,
         skip_ansible=skip_ansible,
-        skip_sync=skip_sync,
         skip=skip,
         addon=addon,
         tags=tags,

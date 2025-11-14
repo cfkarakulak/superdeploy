@@ -179,6 +179,66 @@
           - "Note: Ensure Prometheus is configured to scrape this endpoint"
   when: prometheus_endpoint is defined and prometheus_endpoint != ''
 
+- name: Check if Docker is installed
+  command: which docker
+  register: docker_installed
+  changed_when: false
+  failed_when: false
+
+- name: Deploy cAdvisor for container metrics (if Docker is installed)
+  block:
+    - name: Pull cAdvisor image
+      docker_image:
+        name: gcr.io/cadvisor/cadvisor
+        tag: latest
+        source: pull
+        state: present
+      retries: 3
+      delay: 5
+
+    - name: Run cAdvisor container
+      docker_container:
+        name: "superdeploy-cadvisor"
+        image: gcr.io/cadvisor/cadvisor:latest
+        state: started
+        restart_policy: always
+        privileged: true
+        ports:
+          - "8080:8080"
+        volumes:
+          - /:/rootfs:ro
+          - /var/run:/var/run:ro
+          - /sys:/sys:ro
+          - /var/lib/docker/:/var/lib/docker:ro
+          - /dev/disk/:/dev/disk:ro
+        command:
+          - '--housekeeping_interval=10s'
+          - '--docker_only=true'
+          - '--store_container_labels=false'
+          - '--disable_metrics=disk,diskIO,tcp,udp,percpu,sched,process'
+        labels:
+          managed_by: "superdeploy"
+          service: "cadvisor"
+          project: "{{ project_name | default('system') }}"
+
+    - name: Wait for cAdvisor to be ready
+      uri:
+        url: "http://localhost:8080/healthz"
+        status_code: 200
+      register: cadvisor_health
+      until: cadvisor_health.status == 200
+      retries: 10
+      delay: 2
+      ignore_errors: yes
+
+    - name: Display cAdvisor status
+      debug:
+        msg:
+          - "✅ cAdvisor installed and running"
+          - "Container metrics endpoint: http://{{ ansible_host }}:8080/metrics"
+          - "Health check: http://{{ ansible_host }}:8080/healthz"
+  when: docker_installed.rc == 0
+
 - name: Display node_exporter status
   debug:
     msg:
@@ -189,3 +249,4 @@
       - "Prometheus endpoint: {{ prometheus_endpoint | default('Not configured') }}"
       - "Project: {{ project_name | default('N/A') }}"
       - "Monitoring: {{ 'Configured ✓' if (prometheus_endpoint is defined and prometheus_endpoint != '') else 'Not configured' }}"
+      - "cAdvisor: {{ 'Running ✓' if docker_installed.rc == 0 else 'Docker not installed' }}"

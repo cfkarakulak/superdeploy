@@ -40,10 +40,10 @@ scrape_configs:
           service: 'grafana'
           component: 'monitoring'
 
-  # cAdvisor - Orchestrator container metrics
+  # cAdvisor - Orchestrator container metrics (system-level service on host)
   - job_name: 'cadvisor-orchestrator'
     static_configs:
-      - targets: ['cadvisor:8080']
+      - targets: ['host.docker.internal:8080']
         labels:
           service: 'cadvisor'
           component: 'monitoring'
