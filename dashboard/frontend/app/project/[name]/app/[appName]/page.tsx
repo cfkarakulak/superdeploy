@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { AppHeader, PageHeader } from "@/components";
-import { Cpu, MemoryStick, HardDrive, Container, Clock, Activity } from "lucide-react";
+import { Cpu, MemoryStick, HardDrive, Container, Clock, Activity, Zap, TrendingUp, AlertCircle } from "lucide-react";
 
 interface AppMetrics {
   cpu_usage: number;
@@ -20,6 +20,25 @@ interface MetricsResponse {
   metrics: AppMetrics;
 }
 
+interface ContainerMetrics {
+  name: string;
+  cpu_percent?: number;
+  memory_bytes?: number;
+  memory_percent?: number;
+  network_rx_bytes_per_sec?: number;
+  network_tx_bytes_per_sec?: number;
+}
+
+interface ApplicationMetrics {
+  request_rate_per_sec: number;
+  error_rate_per_sec: number;
+  error_percentage: number;
+  latency_p50_ms: number;
+  latency_p95_ms: number;
+  latency_p99_ms: number;
+  active_requests: number;
+}
+
 export default function AppOverviewPage() {
   const params = useParams();
   const projectName = params?.name as string;
@@ -27,23 +46,44 @@ export default function AppOverviewPage() {
 
   const [metrics, setMetrics] = useState<AppMetrics | null>(null);
   const [vmIp, setVmIp] = useState<string>("");
+  const [containers, setContainers] = useState<ContainerMetrics[]>([]);
+  const [appMetrics, setAppMetrics] = useState<ApplicationMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchMetrics = async () => {
+    const fetchAllMetrics = async () => {
       try {
-        const response = await fetch(
+        // Fetch VM metrics
+        const vmResponse = await fetch(
           `http://localhost:8401/api/metrics/${projectName}/${appName}/metrics`
         );
         
-        if (!response.ok) {
-          throw new Error("Failed to fetch metrics");
+        if (vmResponse.ok) {
+          const vmData: MetricsResponse = await vmResponse.json();
+          setMetrics(vmData.metrics);
+          setVmIp(vmData.vm_ip);
         }
+
+        // Fetch container metrics (cAdvisor)
+        const containerResponse = await fetch(
+          `http://localhost:8401/api/metrics/${projectName}/${appName}/containers`
+        );
         
-        const data: MetricsResponse = await response.json();
-        setMetrics(data.metrics);
-        setVmIp(data.vm_ip);
+        if (containerResponse.ok) {
+          const containerData = await containerResponse.json();
+          setContainers(containerData.containers || []);
+        }
+
+        // Fetch application metrics (PrometheusMiddleware)
+        const appResponse = await fetch(
+          `http://localhost:8401/api/metrics/${projectName}/${appName}/application`
+        );
+        
+        if (appResponse.ok) {
+          const appData = await appResponse.json();
+          setAppMetrics(appData.metrics);
+        }
       } catch (err) {
         console.error("Failed to fetch metrics:", err);
         setError(err instanceof Error ? err.message : "Unknown error");
@@ -53,10 +93,10 @@ export default function AppOverviewPage() {
     };
 
     if (projectName && appName) {
-      fetchMetrics();
+      fetchAllMetrics();
       
       // Refresh metrics every 10 seconds
-      const interval = setInterval(fetchMetrics, 10000);
+      const interval = setInterval(fetchAllMetrics, 10000);
       return () => clearInterval(interval);
     }
   }, [projectName, appName]);
@@ -340,6 +380,145 @@ export default function AppOverviewPage() {
             </div>
           </div>
         </div>
+
+        {/* Application Metrics (PrometheusMiddleware) */}
+        {appMetrics && (
+          <div className="mt-8">
+            <h2 className="text-[16px] font-semibold text-[#0a0a0a] mb-4 flex items-center gap-2">
+              <Zap className="w-5 h-5 text-purple-600" />
+              Application Metrics
+              <span className="text-[12px] font-normal text-[#8b8b8b]">(HTTP Requests)</span>
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Request Rate */}
+              <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 bg-purple-50 rounded-lg">
+                    <TrendingUp className="w-4 h-4 text-purple-600" />
+                  </div>
+                  <h3 className="text-[13px] text-[#8b8b8b] font-light">Request Rate</h3>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[28px] font-semibold text-[#0a0a0a]">
+                    {appMetrics.request_rate_per_sec.toFixed(1)}
+                  </span>
+                  <span className="text-[14px] text-[#8b8b8b]">req/s</span>
+                </div>
+              </div>
+
+              {/* Error Rate */}
+              <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 bg-red-50 rounded-lg">
+                    <AlertCircle className="w-4 h-4 text-red-600" />
+                  </div>
+                  <h3 className="text-[13px] text-[#8b8b8b] font-light">Error Rate</h3>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[28px] font-semibold text-[#0a0a0a]">
+                    {appMetrics.error_percentage.toFixed(1)}
+                  </span>
+                  <span className="text-[14px] text-[#8b8b8b]">%</span>
+                </div>
+                <div className="mt-2 text-[11px] text-[#8b8b8b]">
+                  {appMetrics.error_rate_per_sec.toFixed(2)} errors/s
+                </div>
+              </div>
+
+              {/* Latency P50 */}
+              <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 bg-blue-50 rounded-lg">
+                    <Clock className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <h3 className="text-[13px] text-[#8b8b8b] font-light">Latency (p50)</h3>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[28px] font-semibold text-[#0a0a0a]">
+                    {appMetrics.latency_p50_ms.toFixed(0)}
+                  </span>
+                  <span className="text-[14px] text-[#8b8b8b]">ms</span>
+                </div>
+                <div className="mt-2 text-[11px] text-[#8b8b8b]">
+                  p95: {appMetrics.latency_p95_ms.toFixed(0)}ms | p99: {appMetrics.latency_p99_ms.toFixed(0)}ms
+                </div>
+              </div>
+
+              {/* Active Requests */}
+              <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 bg-green-50 rounded-lg">
+                    <Activity className="w-4 h-4 text-green-600" />
+                  </div>
+                  <h3 className="text-[13px] text-[#8b8b8b] font-light">Active Requests</h3>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[28px] font-semibold text-[#0a0a0a]">
+                    {appMetrics.active_requests}
+                  </span>
+                  <span className="text-[14px] text-[#8b8b8b]">in-flight</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Container Metrics (cAdvisor) */}
+        {containers.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-[16px] font-semibold text-[#0a0a0a] mb-4 flex items-center gap-2">
+              <Container className="w-5 h-5 text-teal-600" />
+              Container Metrics
+              <span className="text-[12px] font-normal text-[#8b8b8b]">({containers.length} containers)</span>
+            </h2>
+            <div className="grid grid-cols-1 gap-4">
+              {containers.map((container, idx) => (
+                <div key={idx} className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-teal-50 rounded-lg">
+                        <Container className="w-4 h-4 text-teal-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-[14px] font-medium text-[#0a0a0a]">{container.name}</h3>
+                        <p className="text-[11px] text-[#8b8b8b]">Container Metrics</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <p className="text-[11px] text-[#8b8b8b] mb-1">CPU</p>
+                      <p className="text-[16px] font-semibold text-[#0a0a0a]">
+                        {container.cpu_percent?.toFixed(1) || 0}%
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-[#8b8b8b] mb-1">Memory</p>
+                      <p className="text-[16px] font-semibold text-[#0a0a0a]">
+                        {container.memory_percent?.toFixed(1) || 0}%
+                      </p>
+                      <p className="text-[10px] text-[#8b8b8b]">
+                        {((container.memory_bytes || 0) / 1024 / 1024).toFixed(0)} MB
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-[#8b8b8b] mb-1">Network RX</p>
+                      <p className="text-[16px] font-semibold text-[#0a0a0a]">
+                        {((container.network_rx_bytes_per_sec || 0) / 1024).toFixed(1)} KB/s
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-[#8b8b8b] mb-1">Network TX</p>
+                      <p className="text-[16px] font-semibold text-[#0a0a0a]">
+                        {((container.network_tx_bytes_per_sec || 0) / 1024).toFixed(1)} KB/s
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Auto-refresh notice */}
         <div className="mt-6 text-center text-[12px] text-[#8b8b8b]">
