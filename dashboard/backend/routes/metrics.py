@@ -311,14 +311,15 @@ async def get_app_container_metrics(project_name: str, app_name: str):
 
         # Query cAdvisor metrics for Docker containers (systemd cgroup paths)
         # Filter: only docker-*.scope containers (not root, not system services)
+        # Include container_label_com_docker_compose_service to get service names
         queries = {
-            "cpu_usage": 'rate(container_cpu_usage_seconds_total{id=~"/system.slice/docker-.*\\\\.scope"}[5m]) * 100',
-            "memory_usage": 'container_memory_usage_bytes{id=~"/system.slice/docker-.*\\\\.scope"}',
-            "memory_limit": 'container_spec_memory_limit_bytes{id=~"/system.slice/docker-.*\\\\.scope"}',
-            "network_rx": 'rate(container_network_receive_bytes_total{id=~"/system.slice/docker-.*\\\\.scope"}[5m])',
-            "network_tx": 'rate(container_network_transmit_bytes_total{id=~"/system.slice/docker-.*\\\\.scope"}[5m])',
-            "fs_reads": 'rate(container_fs_reads_bytes_total{id=~"/system.slice/docker-.*\\\\.scope"}[5m])',
-            "fs_writes": 'rate(container_fs_writes_bytes_total{id=~"/system.slice/docker-.*\\\\.scope"}[5m])',
+            "cpu_usage": 'rate(container_cpu_usage_seconds_total{id=~"/system.slice/docker-.*\\\\.scope",name!=""}[5m]) * 100',
+            "memory_usage": 'container_memory_usage_bytes{id=~"/system.slice/docker-.*\\\\.scope",name!=""}',
+            "memory_limit": 'container_spec_memory_limit_bytes{id=~"/system.slice/docker-.*\\\\.scope",name!=""}',
+            "network_rx": 'rate(container_network_receive_bytes_total{id=~"/system.slice/docker-.*\\\\.scope",name!=""}[5m])',
+            "network_tx": 'rate(container_network_transmit_bytes_total{id=~"/system.slice/docker-.*\\\\.scope",name!=""}[5m])',
+            "fs_reads": 'rate(container_fs_reads_bytes_total{id=~"/system.slice/docker-.*\\\\.scope",name!=""}[5m])',
+            "fs_writes": 'rate(container_fs_writes_bytes_total{id=~"/system.slice/docker-.*\\\\.scope",name!=""}[5m])',
         }
 
         # Execute queries
@@ -341,27 +342,49 @@ async def get_app_container_metrics(project_name: str, app_name: str):
                     print(f"Container metrics query error ({key}): {e}")
                     results[key] = []
 
-        # Helper to extract container name from systemd cgroup path
-        def get_container_name(container_id: str, container_name_label: str = "") -> str:
-            """Extract readable container name from labels or fallback to hash"""
-            # Try to use container_name label first (e.g., "api-web-1")
-            if container_name_label and container_name_label != "":
-                return container_name_label
-            
-            # Fallback: /system.slice/docker-HASH.scope -> HASH (first 12 chars)
+        # Helper to extract container name from cAdvisor metrics
+        def get_container_name(metric: dict) -> str:
+            """Extract readable container name from cAdvisor metric labels"""
+            # Priority 1: Docker Compose service name (e.g., "api-web")
+            compose_service = metric.get(
+                "container_label_com_docker_compose_service", ""
+            )
+            if compose_service:
+                # Get replica number if available
+                replica = metric.get(
+                    "container_label_com_docker_compose_container_number", ""
+                )
+                if replica:
+                    return f"{compose_service}-{replica}"
+                return compose_service
+
+            # Priority 2: Container name from cAdvisor (e.g., "api-web-1")
+            container_name = metric.get("name", "")
+            if container_name and container_name != "":
+                return container_name
+
+            # Priority 3: Image name (e.g., "api:latest" -> "api")
+            image = metric.get("image", "")
+            if image:
+                # Extract image name without tag
+                image_name = image.split(":")[0].split("/")[-1]
+                if image_name:
+                    return image_name
+
+            # Fallback: container ID from systemd path
+            container_id = metric.get("id", "")
             if "docker-" in container_id:
                 hash_part = container_id.split("docker-")[1].split(".scope")[0]
                 return hash_part[:12]  # Docker short ID
-            return container_id
+
+            return "unknown"
 
         # Process results into container-specific metrics
         containers = {}
 
         for result in results.get("cpu_usage", []):
             metric = result.get("metric", {})
-            container_id = metric.get("id", "unknown")
-            container_name_label = metric.get("name", "")  # Get container name from cAdvisor
-            container_name = get_container_name(container_id, container_name_label)
+            container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["cpu_percent"] = float(
@@ -370,9 +393,7 @@ async def get_app_container_metrics(project_name: str, app_name: str):
 
         for result in results.get("memory_usage", []):
             metric = result.get("metric", {})
-            container_id = metric.get("id", "unknown")
-            container_name_label = metric.get("name", "")
-            container_name = get_container_name(container_id, container_name_label)
+            container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["memory_bytes"] = int(
@@ -381,9 +402,7 @@ async def get_app_container_metrics(project_name: str, app_name: str):
 
         for result in results.get("memory_limit", []):
             metric = result.get("metric", {})
-            container_id = metric.get("id", "unknown")
-            container_name_label = metric.get("name", "")
-            container_name = get_container_name(container_id, container_name_label)
+            container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
             limit = int(float(result.get("value", [None, "0"])[1]))
@@ -395,9 +414,7 @@ async def get_app_container_metrics(project_name: str, app_name: str):
 
         for result in results.get("network_rx", []):
             metric = result.get("metric", {})
-            container_id = metric.get("id", "unknown")
-            container_name_label = metric.get("name", "")
-            container_name = get_container_name(container_id, container_name_label)
+            container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["network_rx_bytes_per_sec"] = float(
@@ -406,9 +423,7 @@ async def get_app_container_metrics(project_name: str, app_name: str):
 
         for result in results.get("network_tx", []):
             metric = result.get("metric", {})
-            container_id = metric.get("id", "unknown")
-            container_name_label = metric.get("name", "")
-            container_name = get_container_name(container_id, container_name_label)
+            container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["network_tx_bytes_per_sec"] = float(
@@ -417,9 +432,7 @@ async def get_app_container_metrics(project_name: str, app_name: str):
 
         for result in results.get("fs_reads", []):
             metric = result.get("metric", {})
-            container_id = metric.get("id", "unknown")
-            container_name_label = metric.get("name", "")
-            container_name = get_container_name(container_id, container_name_label)
+            container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["fs_read_bytes_per_sec"] = float(
@@ -428,9 +441,7 @@ async def get_app_container_metrics(project_name: str, app_name: str):
 
         for result in results.get("fs_writes", []):
             metric = result.get("metric", {})
-            container_id = metric.get("id", "unknown")
-            container_name_label = metric.get("name", "")
-            container_name = get_container_name(container_id, container_name_label)
+            container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["fs_write_bytes_per_sec"] = float(

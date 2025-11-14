@@ -14,13 +14,12 @@ def get_github_token(project_name: str) -> str:
     db = SessionLocal()
     try:
         setting = db.query(Setting).filter(Setting.key == "github_token").first()
-        
+
         if not setting or not setting.value:
             raise HTTPException(
-                status_code=404,
-                detail="GitHub token not found in settings"
+                status_code=404, detail="GitHub token not found in settings"
             )
-        
+
         return setting.value
 
     finally:

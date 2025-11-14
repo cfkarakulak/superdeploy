@@ -288,7 +288,7 @@ async def startup_event():
         traceback.print_exc()
 
 
-def start_server(port: int = 8000, host: str = "127.0.0.1"):
+def start_server(port: int = 8401, host: str = "127.0.0.1"):
     """Start the FastAPI server."""
     uvicorn.run(app, host=host, port=port, log_level="info")
 

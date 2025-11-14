@@ -59,7 +59,7 @@ export default function DeployPage() {
     try {
       setLoading(true);
       const response = await fetch(
-        `http://localhost:8000/api/apps/${projectName}/${appName}/releases`
+        `http://localhost:8401/api/apps/${projectName}/${appName}/releases`
       );
       if (!response.ok) throw new Error("Failed to fetch releases");
       const data = await response.json();
