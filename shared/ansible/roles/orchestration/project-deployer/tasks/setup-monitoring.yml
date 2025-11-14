@@ -130,6 +130,32 @@
     - monitoring_targets is defined
     - monitoring_targets | length > 0
 
+- name: Generate cAdvisor targets for file-based service discovery
+  copy:
+    content: |
+      [
+        {
+          "targets": [
+      {% for vm in vm_monitoring_list %}
+            "{{ vm.external_ip }}:8080"{{ "," if not loop.last else "" }}
+      {% endfor %}
+          ],
+          "labels": {
+            "project": "{{ project_name }}",
+            "environment": "{{ project_config.environment | default('production') }}",
+            "service": "cadvisor"
+          }
+        }
+      ]
+    dest: "/opt/superdeploy/shared/monitoring/targets.d/{{ project_name }}-cadvisor.json"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0644'
+  delegate_to: "{{ orchestrator_host }}"
+  when: 
+    - vm_monitoring_list is defined
+    - vm_monitoring_list | length > 0
+
 - name: Note - Prometheus will auto-discover targets from projects.d
   debug:
     msg: "✅ Project monitoring config created. Prometheus will auto-discover targets from /opt/superdeploy/shared/monitoring/projects.d/"

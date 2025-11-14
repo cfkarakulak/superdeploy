@@ -342,7 +342,7 @@ jobs:
           
           # Append to releases array for this app (keep last 5)
           UPDATED_RELEASES=$(sudo cat "$RELEASES_FILE" | jq --argjson release "$NEW_RELEASE" --arg app "$APP_NAME" '
-            .[$app] = ((.[$app] // []) + [$release]) | .[-5:]
+            .[$app] = ((.[$app] // []) + [$release])[-5:]
           ')
           
           echo "$UPDATED_RELEASES" | sudo tee "$RELEASES_FILE" > /dev/null

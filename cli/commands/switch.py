@@ -198,7 +198,7 @@ NEW_RELEASE=$(jq -n --arg ver "$CURRENT_VERSION" --arg deployed "$DEPLOYED_AT" -
 
 # Append to releases array for this app (keep last 5)
 UPDATED_RELEASES=$(cat "$RELEASES_FILE" | jq --argjson release "$NEW_RELEASE" --arg app "{self.app_name}" '
-    .[$app] = ((.[$app] // []) + [$release]) | .[-5:]
+    .[$app] = ((.[$app] // []) + [$release])[-5:]
 ')
 
 echo "$UPDATED_RELEASES" | sudo tee "$RELEASES_FILE" > /dev/null
