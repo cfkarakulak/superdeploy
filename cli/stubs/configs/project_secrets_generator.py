@@ -119,25 +119,21 @@ def generate_project_secrets(
     yml_lines.append("    # GitHub Integration (REQUIRED)")
     yml_lines.append("    # " + "-" * 73)
     yml_lines.append(
-        "    # GitHub Personal Access Token for CI/CD and runner management"
+        "    # GitHub Personal Access Token for CI/CD and private repo access"
     )
     yml_lines.append("    # Get token from: https://github.com/settings/tokens")
     yml_lines.append(
-        "    # Required scopes: repo, workflow, admin:org (manage_runners)"
+        "    # Required scopes: repo, workflow, packages, admin:org (manage_runners)"
     )
     yml_lines.append(
         "    GITHUB_TOKEN: ''           # GitHub Personal Access Token (REQUIRED)"
     )
     yml_lines.append("    #   This token is used to:")
-    yml_lines.append("    #   - Push code to private repositories")
+    yml_lines.append("    #   - Checkout private repositories (e.g., commons)")
+    yml_lines.append("    #   - Push code to repositories")
     yml_lines.append("    #   - Trigger GitHub Actions workflows")
-    yml_lines.append("    #   - Auto-generate runner registration tokens via API")
-    yml_lines.append("")
-    yml_lines.append(
-        "    PRIVATE_REPO_TOKEN: ''     # GitHub PAT for private repo access in workflows"
-    )
-    yml_lines.append("    #   Required scope: repo (full control of private repos)")
-    yml_lines.append("    #   Used by GitHub Actions to checkout private repositories")
+    yml_lines.append("    #   - Manage self-hosted runners")
+    yml_lines.append("    #   - Access private packages")
     yml_lines.append("")
 
     # Addon Secrets Section (UNDER secrets!)

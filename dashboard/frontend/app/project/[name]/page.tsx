@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Package, Database, ChevronRight } from "lucide-react";
-import SimpleHeader from "@/components/SimpleHeader";
+import AppHeader from "@/components/AppHeader";
 import PageHeader from "@/components/PageHeader";
 
 interface App {
@@ -42,21 +42,21 @@ const ProjectHeaderSkeleton = () => (
 
 // App Card Skeleton
 const AppCardSkeleton = () => (
-  <div className="bg-white shadow-sm rounded-lg p-6">
+  <div className="bg-white shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)] rounded-lg p-6">
     <div className="flex items-center gap-3">
       <div className="w-10 h-10 bg-[#e3e8ee] rounded skeleton-animated" />
       <div className="flex-1 space-y-2">
         <div className="w-[120px] h-[20px] bg-[#e3e8ee] rounded-md skeleton-animated" />
         <div className="w-[180px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
       </div>
-      <div className="w-6 h-6 bg-[#e3e8ee] rounded skeleton-animated" />
+      <div className="w-4 h-4 bg-[#e3e8ee] rounded skeleton-animated" />
     </div>
   </div>
 );
 
 // Addons Card Skeleton
 const AddonsCardSkeleton = () => (
-  <div className="bg-white shadow-sm rounded-lg p-6">
+  <div className="bg-white shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)] rounded-lg p-6">
     <div className="flex items-center justify-between mb-4">
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 bg-[#e3e8ee] rounded skeleton-animated" />
@@ -65,7 +65,7 @@ const AddonsCardSkeleton = () => (
           <div className="w-[140px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
         </div>
       </div>
-      <div className="w-6 h-6 bg-[#e3e8ee] rounded skeleton-animated" />
+      <div className="w-4 h-4 bg-[#e3e8ee] rounded skeleton-animated" />
     </div>
     <div className="flex flex-wrap gap-2">
       {Array.from({ length: 3 }, (_, i) => (
@@ -138,16 +138,16 @@ export default function ProjectPage() {
 
   return (
     <div>
-      <SimpleHeader />
+      <AppHeader />
       
-      <PageHeader
-        breadcrumbs={[
-          { label: "Projects", href: "/" },
-          { label: projectName, href: `/project/${projectName}` }
-        ]}
-        title={projectName}
-        description="Manage applications, add-ons, and infrastructure for your project"
-      />
+        <PageHeader
+          breadcrumb={{
+            label: "Projects",
+            href: "/"
+          }}
+          title={projectName}
+          description="Manage applications, add-ons, and infrastructure for your project"
+        />
 
       {/* Applications */}
       <div className="mb-10">
@@ -158,7 +158,7 @@ export default function ProjectPage() {
               <Link
                 key={app.name}
                 href={`/project/${projectName}/app/${app.name}`}
-                className="block bg-white rounded-[16px] p-[20px] hover:bg-[#f7f7f7] transition-all shadow-[0_0_0_1px_rgba(11,26,38,0.06),0_4px_12px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_2px_6px_rgba(0,0,0,0.08)]"
+                className="block bg-white rounded-[16px] p-[20px] hover:bg-[#f7f7f7] transition-all shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]"
               >
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 bg-[#f7f7f7] rounded flex items-center justify-center">
@@ -176,8 +176,8 @@ export default function ProjectPage() {
             ))}
           </div>
         ) : (
-          <div className="bg-white rounded-[16px] p-[20px] text-center shadow-[0_0_0_1px_rgba(11,26,38,0.06),0_4px_12px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.04)]">
-            <p className="text-[15px] text-[#525252]">No applications yet</p>
+          <div className="bg-white rounded-[16px] p-[20px] text-center shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+            <p className="text-[15px] text-[#8b8b8b]">No applications yet</p>
           </div>
         )}
       </div>
@@ -196,12 +196,12 @@ export default function ProjectPage() {
               </div>
               <div>
                 <h3 className="text-[17px] font-semibold text-[#0a0a0a]">View all add-ons</h3>
-                <p className="text-[13px] text-[#8b8b8b]">
+                <p className="text-[13px] text-[#69707e]">
                   {addons.length} add-on{addons.length !== 1 ? "s" : ""} installed
                 </p>
               </div>
             </div>
-            <ChevronRight className="w-5 h-5 text-[#8b8b8b]" />
+            <ChevronRight className="w-5 h-5 text-[#69707e]" />
           </div>
           {addons.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -214,7 +214,7 @@ export default function ProjectPage() {
                 </span>
               ))}
               {addons.length > 5 && (
-                <span className="px-3 py-1 bg-[#ebebeb] text-[#525252] rounded-full text-[12px] ">
+                <span className="px-3 py-1 bg-[#ebebeb] text-[#69707e] rounded-full text-[12px] ">
                   +{addons.length - 5} more
                 </span>
               )}

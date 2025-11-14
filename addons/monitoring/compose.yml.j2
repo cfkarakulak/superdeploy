@@ -15,6 +15,7 @@ services:
       - prometheus-data:/prometheus
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - /opt/superdeploy/shared/monitoring/targets.d:/opt/superdeploy/shared/monitoring/targets.d:ro
     networks:
       - monitoring-network
     ports:

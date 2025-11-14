@@ -205,8 +205,15 @@ class LogsCommand(ProjectCommand):
         vm_service = self.ensure_vm_service()
         ssh_service = vm_service.get_ssh_service()
 
-        # Container name (use underscore, not dash)
-        container_name = f"{self.project_name}_{self.options.app_name}"
+        # Find the actual container name (Docker Compose uses dash separator and adds -1 suffix)
+        # Try multiple formats: project-app-1, project-app, project_app
+        container_name = self._find_container(ssh_service, vm_ip)
+
+        if not container_name:
+            raise Exception(
+                f"Container not found for {self.project_name}/{self.options.app_name}. "
+                f"Make sure the app is running."
+            )
 
         try:
             self.console.print("[dim]→ Streaming logs... Press Ctrl+C to stop[/dim]\n")
@@ -226,6 +233,28 @@ class LogsCommand(ProjectCommand):
         except Exception as e:
             self.handle_error(e, "Failed to fetch logs")
             raise SystemExit(1)
+
+    def _find_container(self, ssh_service, vm_ip: str) -> Optional[str]:
+        """
+        Find container by Superdeploy labels.
+
+        Uses Superdeploy custom labels to find the exact container:
+        - com.superdeploy.project={project_name}
+        - com.superdeploy.app={app_name}
+        """
+        # Try to find by Superdeploy labels
+        cmd = (
+            f'docker ps --filter "label=com.superdeploy.project={self.project_name}" '
+            f'--filter "label=com.superdeploy.app={self.options.app_name}" '
+            '--format "{{.Names}}" | head -1'
+        )
+
+        result = ssh_service.execute_command(vm_ip, cmd)
+
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+
+        return None
 
     def _print_header(self) -> None:
         """Print logs header with filters."""

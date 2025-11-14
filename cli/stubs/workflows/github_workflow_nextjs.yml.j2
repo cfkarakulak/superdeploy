@@ -9,10 +9,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-{% raw %}      project: ${{ steps.config.outputs.project }}
-      app: ${{ steps.config.outputs.app }}
-      vm_role: ${{ steps.config.outputs.vm_role }}
-{% endraw %}    
+      project: {% raw %}${{ steps.config.outputs.project }}{% endraw %}
+      app: {% raw %}${{ steps.config.outputs.app }}{% endraw %}
+      vm_role: {% raw %}${{ steps.config.outputs.vm_role }}{% endraw %}    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -57,12 +56,12 @@ jobs:
 
   deploy:
     needs: build
-    environment: ${{ github.ref_name }}
+    environment: {% raw %}${{ github.ref_name }}{% endraw %}
     runs-on: 
       - self-hosted
       - superdeploy
-      - ${{ needs.build.outputs.project }}
-      - ${{ needs.build.outputs.vm_role }}
+      - {% raw %}${{ needs.build.outputs.project }}{% endraw %}
+      - {% raw %}${{ needs.build.outputs.vm_role }}{% endraw %}
     
     steps:
       - name: Validate runner
@@ -75,8 +74,8 @@ jobs:
           fi
           
           RUNNER_PROJECT=$(cat /opt/superdeploy/.project)
-          if [ "$RUNNER_PROJECT" != "${{ needs.build.outputs.project }}" ]; then
-            echo "❌ ERROR: Wrong project! Expected ${{ needs.build.outputs.project }}, got $RUNNER_PROJECT"
+          if [ "$RUNNER_PROJECT" != "{% raw %}${{ needs.build.outputs.project }}{% endraw %}" ]; then
+            echo "❌ ERROR: Wrong project! Expected {% raw %}${{ needs.build.outputs.project }}{% endraw %}, got $RUNNER_PROJECT"
             exit 1
           fi
           
@@ -84,10 +83,10 @@ jobs:
       
       - name: Create .env from merged secrets
         run: |
-{% raw %}          APP_NAME="${{ needs.build.outputs.app }}"{% endraw %}
+          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
           ENV_DIR="/opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}/data/$APP_NAME"
-{% raw %}          
-          echo "📝 Creating .env from ${APP_NAME^^}_ENV_JSON..."{% endraw %}          
+          
+          echo "📝 Creating .env from ${APP_NAME^^}_ENV_JSON..."          
           # GitHub Actions cannot dynamically access secrets
           # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
           case "$APP_NAME" in
@@ -114,9 +113,9 @@ jobs:
       
       - name: Deploy application (zero-downtime with replicas)
         run: |
-          cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}/compose
+          cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}/compose
           
-          APP_NAME="${{ needs.build.outputs.app }}"
+          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
           
           # Check if any process services exist for this app (pattern: app-*)
           if ! grep -q "^  ${APP_NAME}-" docker-compose.yml; then
@@ -141,11 +140,11 @@ jobs:
           echo "🔍 Detected services: $SERVICES"
           
           echo "🚀 Starting zero-downtime deployment with replicas..."
-{% endraw %}          
+          
           # Pull new image first (same image for all processes)
           echo "📦 Step 1/3: Pulling new image..."
           docker pull {% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/${APP_NAME}:latest
-{% raw %}          
+          
           # Deploy all process services with Docker Compose rolling update
           echo "🚀 Step 2/3: Deploying all processes (rolling update)..."
           # Docker Compose automatically:
@@ -166,8 +165,8 @@ jobs:
           TOTAL_RUNNING=0
           TOTAL_EXPECTED=0
           for service in $SERVICES; do
-            RUNNING=$(docker compose ps $service --status running --format '{{.Name}}' 2>/dev/null | wc -l)
-            EXPECTED=$(docker compose ps $service --format '{{.Name}}' 2>/dev/null | wc -l)
+            RUNNING=$(docker compose ps $service --status running --format '{% raw %}{{.Name}}{% endraw %}' 2>/dev/null | wc -l)
+            EXPECTED=$(docker compose ps $service --format '{% raw %}{{.Name}}{% endraw %}' 2>/dev/null | wc -l)
             TOTAL_RUNNING=$((TOTAL_RUNNING + RUNNING))
             TOTAL_EXPECTED=$((TOTAL_EXPECTED + EXPECTED))
             echo "  $service: $RUNNING/$EXPECTED replicas running"
@@ -178,7 +177,7 @@ jobs:
             
             # Show logs from first service
             FIRST_SERVICE=$(echo $SERVICES | awk '{print $1}')
-            FIRST_CONTAINER=$(docker compose ps $FIRST_SERVICE --format '{{.Name}}' 2>/dev/null | head -1)
+            FIRST_CONTAINER=$(docker compose ps $FIRST_SERVICE --format '{% raw %}{{.Name}}{% endraw %}' 2>/dev/null | head -1)
             if [ -n "$FIRST_CONTAINER" ]; then
               echo ""
               echo "📋 Recent logs from $FIRST_CONTAINER:"
@@ -200,24 +199,24 @@ jobs:
       
       - name: Calculate and update version
         run: |
-          PROJECT_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}"
-          VERSION_FILE="$PROJECT_DIR/versions.json"
-          APP_NAME="${{ needs.build.outputs.app }}"
+          PROJECT_DIR="/opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}"
+          RELEASES_FILE="$PROJECT_DIR/releases.json"
+          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
           
-          # Initialize versions.json if it doesn't exist
+          # Initialize releases.json if it doesn't exist
           sudo mkdir -p "$PROJECT_DIR"
-          if [ ! -f "$VERSION_FILE" ]; then
-            echo "{}" | sudo tee "$VERSION_FILE" > /dev/null
-            sudo chown superdeploy:superdeploy "$VERSION_FILE"
-            sudo chmod 644 "$VERSION_FILE"
+          if [ ! -f "$RELEASES_FILE" ]; then
+            echo "{}" | sudo tee "$RELEASES_FILE" > /dev/null
+            sudo chown superdeploy:superdeploy "$RELEASES_FILE"
+            sudo chmod 644 "$RELEASES_FILE"
           fi
           
-          # Get current version for this app
-          CURRENT_VERSION=$(sudo cat "$VERSION_FILE" | jq -r --arg app "$APP_NAME" '.[$app].version // "0.0.0"')
+          # Get current version from last release
+          CURRENT_VERSION=$(sudo cat "$RELEASES_FILE" | jq -r --arg app "$APP_NAME" '.[$app][-1].version // "0.0.0"')
           echo "Current version: $CURRENT_VERSION"
           
           # Determine version bump type from commit message
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          COMMIT_MSG="{% raw %}${{ github.event.head_commit.message }}{% endraw %}"
           
           if echo "$COMMIT_MSG" | grep -qiE '^\[major\]|^breaking:'; then
             BUMP_TYPE="major"
@@ -253,22 +252,26 @@ jobs:
           echo "New version: $NEW_VERSION"
           echo "📌 Updating version: $APP_NAME v$NEW_VERSION"
           
-          # Update version for this app
-          UPDATED_JSON=$(sudo cat "$VERSION_FILE" | jq --arg app "$APP_NAME" --arg ver "$NEW_VERSION" --arg deployed "$DEPLOYED_AT" --arg sha "${{ github.sha }}" --arg actor "${{ github.actor }}" --arg branch "${{ github.ref_name }}" '
-            .[$app] = {
-              "version": $ver,
-              "deployed_at": $deployed,
-              "git_sha": $sha,
-              "deployed_by": $actor,
-              "branch": $branch
-            }
+          # Create new release entry
+          NEW_RELEASE=$(jq -n --arg ver "$NEW_VERSION" --arg deployed "$DEPLOYED_AT" --arg sha "{% raw %}${{ github.sha }}{% endraw %}" --arg actor "{% raw %}${{ github.actor }}{% endraw %}" --arg branch "{% raw %}${{ github.ref_name }}{% endraw %}" --arg commit "{% raw %}${{ github.event.head_commit.message }}{% endraw %}" '{
+            version: $ver,
+            deployed_at: $deployed,
+            git_sha: $sha,
+            deployed_by: $actor,
+            branch: $branch,
+            commit_message: $commit
+          }')
+          
+          # Append to releases array for this app (keep last 5)
+          UPDATED_RELEASES=$(sudo cat "$RELEASES_FILE" | jq --argjson release "$NEW_RELEASE" --arg app "$APP_NAME" '
+            .[$app] = ((.[$app] // []) + [$release]) | .[-5:]
           ')
           
-          echo "$UPDATED_JSON" | sudo tee "$VERSION_FILE" > /dev/null
-          sudo chown superdeploy:superdeploy "$VERSION_FILE"
-          sudo chmod 644 "$VERSION_FILE"
+          echo "$UPDATED_RELEASES" | sudo tee "$RELEASES_FILE" > /dev/null
+          sudo chown superdeploy:superdeploy "$RELEASES_FILE"
+          sudo chmod 644 "$RELEASES_FILE"
           
-          echo "✅ Version tracked: v$NEW_VERSION"
+          echo "✅ Version tracked: v$NEW_VERSION (release history updated)"
       
       - name: Run deployment hooks
         run: |
@@ -286,14 +289,14 @@ jobs:
           # Hooks run inside the container using docker compose exec
           # If any hook fails, deployment is marked as failed
           
-          cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}
+          cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}
           
           if [ ! -f config.yml ]; then
             echo "⏭️  No config.yml found, skipping hooks"
             exit 0
           fi
           
-          APP_NAME="${{ needs.build.outputs.app }}"
+          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
           
           cat > /tmp/read_hooks.py <<'PYEOF'
           import yaml
@@ -316,11 +319,11 @@ jobs:
           HOOKS=$(APP_NAME="$APP_NAME" python3 /tmp/read_hooks.py)
           
           if [ -z "$HOOKS" ]; then
-            echo "⏭️  No post-deployment hooks configured for ${{ needs.build.outputs.app }}"
+            echo "⏭️  No post-deployment hooks configured for {% raw %}${{ needs.build.outputs.app }}{% endraw %}"
             exit 0
           fi
           
-          echo "🔧 Running post-deployment hooks for ${{ needs.build.outputs.app }}..."
+          echo "🔧 Running post-deployment hooks for {% raw %}${{ needs.build.outputs.app }}{% endraw %}..."
           cd compose
           
           # Find first web or release process service for running hooks
@@ -352,5 +355,4 @@ jobs:
           fi
           
           echo "✅ Post-deployment hooks completed"
-{% endraw %}
 

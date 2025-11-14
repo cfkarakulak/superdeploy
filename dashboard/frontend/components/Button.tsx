@@ -31,21 +31,21 @@ function Button({
   );
 
   const sizeClasses = {
-    sm: "h-[46px] px-[20px] py-[12px] text-[14px] font-semibold",
-    md: "h-[46px] px-[20px] py-[12px] text-[14px] font-semibold",
-    lg: "h-[46px] px-[20px] py-[12px] text-[14px] font-semibold",
+    sm: "h-[56px] px-[20px] py-[12px] text-[15px] font-semibold",
+    md: "h-[56px] px-[20px] py-[12px] text-[15px] font-semibold",
+    lg: "h-[56px] px-[20px] py-[12px] text-[15px] font-semibold",
   };
 
   const radiusClasses = {
-    sm: "rounded-[12px]",
-    md: "rounded-[12px]",
-    lg: "rounded-[12px]",
+    sm: "rounded-[20px]",
+    md: "rounded-[20px]",
+    lg: "rounded-[20px]",
   };
 
   const variants = {
     default: cn(
-      "bg-[#00d66f] text-[#15291f]",
-      "hover:bg-[#00c263]",
+      "bg-[#292933] text-[#fff]",
+      "hover:bg-[#222]",
       "transition-all duration-150 ease-in-out"
     ),
     secondary: cn(

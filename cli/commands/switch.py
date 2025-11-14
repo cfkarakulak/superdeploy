@@ -171,20 +171,40 @@ else
     fi
 fi
 
-# Update versions.json
-VERSIONS_FILE="/opt/superdeploy/projects/{self.project_name}/versions.json"
-if [ -f "$VERSIONS_FILE" ]; then
-    DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    UPDATED_JSON=$(cat "$VERSIONS_FILE" | jq --arg app "{self.app_name}" --arg sha "{self.git_sha}" --arg deployed "$DEPLOYED_AT" '
-        .[$app].git_sha = $sha |
-        .[$app].deployed_at = $deployed |
-        .[$app].deployed_by = "switch" |
-        .[$app].branch = "manual"
-    ')
-    echo "$UPDATED_JSON" | sudo tee "$VERSIONS_FILE" > /dev/null
-    sudo chown superdeploy:superdeploy "$VERSIONS_FILE"
-    echo "📝 Version tracking updated"
+# Update release tracking
+PROJECT_DIR="/opt/superdeploy/projects/{self.project_name}"
+RELEASES_FILE="$PROJECT_DIR/releases.json"
+DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Get current version from releases.json (last release)
+CURRENT_VERSION="0.0.0"
+if [ -f "$RELEASES_FILE" ]; then
+    CURRENT_VERSION=$(cat "$RELEASES_FILE" | jq -r --arg app "{self.app_name}" '.[$app][-1].version // "0.0.0"')
 fi
+
+# Update releases.json (add to history)
+if [ ! -f "$RELEASES_FILE" ]; then
+    echo '{{}}' | sudo tee "$RELEASES_FILE" > /dev/null
+fi
+
+NEW_RELEASE=$(jq -n --arg ver "$CURRENT_VERSION" --arg deployed "$DEPLOYED_AT" --arg sha "{self.git_sha}" --arg commit "Manual switch to {self.git_sha[:7]}" '{{
+    version: $ver,
+    deployed_at: $deployed,
+    git_sha: $sha,
+    deployed_by: "manual-switch",
+    branch: "manual",
+    commit_message: $commit
+}}')
+
+# Append to releases array for this app (keep last 5)
+UPDATED_RELEASES=$(cat "$RELEASES_FILE" | jq --argjson release "$NEW_RELEASE" --arg app "{self.app_name}" '
+    .[$app] = ((.[$app] // []) + [$release]) | .[-5:]
+')
+
+echo "$UPDATED_RELEASES" | sudo tee "$RELEASES_FILE" > /dev/null
+sudo chown superdeploy:superdeploy "$RELEASES_FILE"
+
+echo "📝 Version tracking updated (releases.json)"
 
 # Cleanup old images
 docker image prune -f > /dev/null 2>&1
@@ -275,7 +295,7 @@ def releases_switch(project, app, git_sha, force, verbose):
     ✅ Zero-downtime switching (new starts before old stops)
     ✅ Automatic health checks (waits for healthy status)
     ✅ Automatic rollback on failure (no downtime if switch fails)
-    ✅ Version tracking (updates versions.json)
+    ✅ Version tracking (updates releases.json)
     ✅ Unlimited versions (all Git SHAs on Docker Hub)
 
     \b

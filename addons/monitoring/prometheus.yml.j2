@@ -40,6 +40,18 @@ scrape_configs:
           service: 'grafana'
           component: 'monitoring'
 
+  # Project node exporters (file-based service discovery)
+  # Each project creates its own file in /opt/superdeploy/shared/monitoring/targets.d/
+  - job_name: 'project-nodes'
+    file_sd_configs:
+      - files:
+          - '/opt/superdeploy/shared/monitoring/targets.d/*-nodes.json'
+        refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [__meta_filepath]
+        regex: '.*/([^/]+)-nodes\.json'
+        target_label: project
+
 {% for project in projects %}
   # Project: {{ project.name }}
   - job_name: '{{ project.name }}-services'
@@ -71,7 +83,19 @@ scrape_configs:
         replacement: '${1}'
 
   # Project: {{ project.name }} - Node Exporter (if enabled)
-{% if project.node_exporter_enabled | default(false) and project.host is defined %}
+{% if project.node_exporter_enabled | default(false) %}
+{% if project.vms is defined %}
+{% for vm_name, vm_ip in project.vms.items() %}
+  - job_name: '{{ project.name }}-node-{{ vm_name }}'
+    static_configs:
+      - targets: ['{{ vm_ip }}:9100']
+        labels:
+          project: '{{ project.name }}'
+          environment: '{{ project.environment | default("production") }}'
+          vm: '{{ vm_name }}'
+          service: 'node-exporter'
+{% endfor %}
+{% elif project.host is defined %}
   - job_name: '{{ project.name }}-node'
     static_configs:
       - targets: ['{{ project.host }}:9100']
@@ -80,6 +104,7 @@ scrape_configs:
           environment: '{{ project.environment | default("production") }}'
           vm: '{{ project.vm | default("core") }}'
           service: 'node-exporter'
+{% endif %}
 {% endif %}
 
   # Project: {{ project.name }} - Docker metrics (if enabled)

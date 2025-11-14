@@ -21,6 +21,4 @@ network_subnet: "172.30.0.0/24"  # Avoid Docker's default 172.17-172.29 range
 # Docker compose project name
 compose_project_name: "{{ project_name }}"
 
-# Monitoring configuration
-monitoring_enabled: false
-prometheus_endpoint: ""
+# Monitoring is always enabled - no toggle needed

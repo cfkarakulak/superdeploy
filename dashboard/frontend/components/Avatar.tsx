@@ -37,7 +37,7 @@ export const Avatar: React.FC<AvatarProps> = ({ nameOrEmail }) => {
 
   return (
     <div
-      className="flex size-5 rounded-md items-center justify-center text-[11px] text-white select-none"
+      className="flex size-4.5 rounded-[6px] items-center justify-center text-[10px] text-white select-none"
       style={{ backgroundColor }}
     >
       {initial}

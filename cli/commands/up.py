@@ -2,6 +2,7 @@
 
 import click
 import subprocess
+import re
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, List, Tuple
@@ -26,6 +27,12 @@ class DeploymentOptions:
     preserve_ip: bool = False
     force: bool = False
     dry_run: bool = False
+
+
+def strip_ansi_codes(text: str) -> str:
+    """Remove ANSI color codes from text."""
+    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    return ansi_escape.sub("", text)
 
 
 class UpCommand(ProjectCommand):
@@ -809,11 +816,17 @@ def _deploy_project_internal(
                     addon_vm = addon_config.get("vm")
                     if not addon_vm:
                         # Default mapping for infrastructure addons
-                        if category in ["databases", "queues", "proxy", "cache", "search"]:
+                        if category in [
+                            "databases",
+                            "queues",
+                            "proxy",
+                            "cache",
+                            "search",
+                        ]:
                             addon_vm = "core"
                         else:
                             addon_vm = "all"  # Custom addons on all VMs by default
-                    
+
                     # Map VM selection to Ansible host pattern
                     if addon_vm == "core":
                         target_hosts = "core:!orchestrator"
@@ -821,7 +834,7 @@ def _deploy_project_internal(
                         target_hosts = "app:!orchestrator"
                     else:
                         target_hosts = "all:!orchestrator"
-                    
+
                     # Build addon-specific env vars (these get passed through to Ansible via custom_vars)
                     addon_env_vars = ansible_env_vars.copy()
                     addon_env_vars["addon_instance"] = addon_instance_dict
@@ -918,7 +931,7 @@ def _deploy_project_internal(
                 sys.executable,
                 "-m",
                 "cli.main",
-                f"{project}:sync",
+                f"{project}:vars:sync",
             ]
 
             try:
@@ -934,7 +947,8 @@ def _deploy_project_internal(
                 else:
                     logger.warning("⚠ Secret sync had issues:")
                     if result.stderr:
-                        for line in result.stderr.split("\n")[:5]:
+                        clean_stderr = strip_ansi_codes(result.stderr)
+                        for line in clean_stderr.split("\n")[:5]:
                             if line.strip():
                                 logger.warning(f"  {line}")
             except subprocess.TimeoutExpired:

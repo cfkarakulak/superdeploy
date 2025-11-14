@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import SimpleHeader from "@/components/SimpleHeader";
+import AppHeader from "@/components/AppHeader";
 import PageHeader from "@/components/PageHeader";
 import { Button, Input } from "@/components";
 
@@ -12,15 +12,13 @@ export default function AddonDetailPage() {
 
   return (
     <div>
-      <SimpleHeader />
+      <AppHeader />
       
       <PageHeader
-        breadcrumbs={[
-          { label: "Projects", href: "/" },
-          { label: projectName, href: `/project/${projectName}` },
-          { label: "Add-ons", href: `/project/${projectName}/addons` },
-          { label: reference, href: `/project/${projectName}/addons/${reference}` }
-        ]}
+        breadcrumb={{
+          label: "Add-ons",
+          href: `/project/${projectName}/addons`
+        }}
         title={reference}
         description="Add-on connection details, resource usage, and management options"
       />
@@ -61,7 +59,7 @@ export default function AddonDetailPage() {
           <div className="space-y-4">
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-[13px] text-[#525252]">CPU</span>
+                <span className="text-[13px] text-[#8b8b8b]">CPU</span>
                 <span className="text-[13px]  text-[#0a0a0a]">12%</span>
               </div>
               <div className="w-full bg-[#f7f7f7] rounded-full h-2">
@@ -70,7 +68,7 @@ export default function AddonDetailPage() {
             </div>
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-[13px] text-[#525252]">Memory</span>
+                <span className="text-[13px] text-[#8b8b8b]">Memory</span>
                 <span className="text-[13px]  text-[#0a0a0a]">45%</span>
               </div>
               <div className="w-full bg-[#f7f7f7] rounded-full h-2">
@@ -79,7 +77,7 @@ export default function AddonDetailPage() {
             </div>
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-[13px] text-[#525252]">Storage</span>
+                <span className="text-[13px] text-[#8b8b8b]">Storage</span>
                 <span className="text-[13px]  text-[#0a0a0a]">23%</span>
               </div>
               <div className="w-full bg-[#f7f7f7] rounded-full h-2">

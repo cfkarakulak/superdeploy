@@ -16,6 +16,19 @@ from datetime import datetime
 from database import Base
 
 
+class Setting(Base):
+    """Application settings model."""
+
+    __tablename__ = "settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    value = Column(Text, nullable=True)
+    encrypted = Column(Integer, default=0)  # 0 = plain, 1 = encrypted
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Project(Base):
     """Project model."""
 
@@ -23,6 +36,8 @@ class Project(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)
+    gcp_project_id = Column(String(200), nullable=True)  # GCP Project ID
+    github_org = Column(String(100), nullable=True)  # GitHub organization
     domain = Column(String(200), nullable=True)  # e.g., "cheapa.io"
     cloud_provider = Column(String(50), default="gcp")
     cloud_region = Column(String(100), default="us-central1")
@@ -119,6 +134,25 @@ class MetricsCache(Base):
     project = relationship("Project")
 
 
+class VM(Base):
+    """Virtual Machine model."""
+
+    __tablename__ = "vms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
+    name = Column(String(100), nullable=False, index=True)  # core, app
+    external_ip = Column(String(50), nullable=True)
+    internal_ip = Column(String(50), nullable=True)
+    machine_type = Column(String(50), nullable=True)  # e2-medium
+    status = Column(String(50), default="running")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    project = relationship("Project")
+
+    __table_args__ = (UniqueConstraint("project_id", "name", name="uix_project_vm"),)
+
+
 class App(Base):
     """Application model."""
 
@@ -128,7 +162,7 @@ class App(Base):
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
     name = Column(String(100), nullable=False, index=True)
     type = Column(String(50), nullable=False)  # web, worker, cron
-    vm = Column(String(100), nullable=True)
+    vm = Column(String(100), nullable=True)  # VM name reference (not FK for simplicity)
     domain = Column(String(255), nullable=True)
     port = Column(Integer, nullable=True)
     dockerfile_path = Column(String(255), nullable=True)
@@ -154,6 +188,8 @@ class Addon(Base):
     name = Column(String(100), nullable=False, index=True)
     type = Column(String(50), nullable=False)  # postgres, redis, rabbitmq, etc
     category = Column(String(50), nullable=False)  # databases, caches, queues
+    version = Column(String(50), nullable=True)  # e.g., "15-alpine", "7-alpine"
+    vm = Column(String(100), nullable=True)  # VM name reference
     plan = Column(String(50), default="standard")
     status = Column(String(50), default="running")
     credentials = Column(JSON, nullable=True)  # Stored credentials

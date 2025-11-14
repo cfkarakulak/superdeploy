@@ -171,7 +171,7 @@ def _deploy_orchestrator(
             current_hash = orch_config.state_manager._calculate_config_hash()
 
             if current_hash == last_hash:
-                logger.success("✓ No changes detected. Infrastructure is up to date.")
+                logger.success("No changes detected. Infrastructure is up to date.")
                 logger.log("")
                 logger.log("Current state:")
                 logger.log(f"  • VM deployed: {is_deployed}")

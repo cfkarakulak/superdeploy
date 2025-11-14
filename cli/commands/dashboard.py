@@ -42,18 +42,20 @@ def dashboard_start():
     click.echo("📋 Backend logs:")
     click.echo("-" * 60)
 
+    backend_dir = dashboard_dir / "backend"
     backend_proc = subprocess.Popen(
         [
             sys.executable,
             "-m",
             "uvicorn",
-            "dashboard.backend.main:app",
+            "main:app",
             "--host",
             "127.0.0.1",
             "--port",
             "8401",
             "--reload",
         ],
+        cwd=backend_dir,
         # Don't capture output - let it print to terminal
         stdout=None,
         stderr=None,

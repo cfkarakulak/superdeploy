@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: {{ repo_org }}/commons
-          token: {% raw %}${{ secrets.PRIVATE_REPO_TOKEN }}{% endraw %}
+          token: {% raw %}${{ secrets.GITHUB_TOKEN }}{% endraw %}
           path: commons
       
       - name: Read app configuration
@@ -278,19 +278,19 @@ jobs:
       - name: Calculate and update version
         run: |
           PROJECT_DIR="/opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}"
-          VERSION_FILE="$PROJECT_DIR/versions.json"
+          RELEASES_FILE="$PROJECT_DIR/releases.json"
           APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
           
-          # Initialize versions.json if it doesn't exist
+          # Initialize releases.json if it doesn't exist
           sudo mkdir -p "$PROJECT_DIR"
-          if [ ! -f "$VERSION_FILE" ]; then
-            echo "{}" | sudo tee "$VERSION_FILE" > /dev/null
-            sudo chown superdeploy:superdeploy "$VERSION_FILE"
-            sudo chmod 644 "$VERSION_FILE"
+          if [ ! -f "$RELEASES_FILE" ]; then
+            echo "{}" | sudo tee "$RELEASES_FILE" > /dev/null
+            sudo chown superdeploy:superdeploy "$RELEASES_FILE"
+            sudo chmod 644 "$RELEASES_FILE"
           fi
           
-          # Get current version for this app
-          CURRENT_VERSION=$(sudo cat "$VERSION_FILE" | jq -r --arg app "$APP_NAME" '.[$app].version // "0.0.0"')
+          # Get current version from last release
+          CURRENT_VERSION=$(sudo cat "$RELEASES_FILE" | jq -r --arg app "$APP_NAME" '.[$app][-1].version // "0.0.0"')
           echo "Current version: $CURRENT_VERSION"
           
           # Determine version bump type from commit message
@@ -330,22 +330,26 @@ jobs:
           echo "New version: $NEW_VERSION"
           echo "📌 Updating version: $APP_NAME v$NEW_VERSION"
           
-          # Update version for this app
-          UPDATED_JSON=$(sudo cat "$VERSION_FILE" | jq --arg app "$APP_NAME" --arg ver "$NEW_VERSION" --arg deployed "$DEPLOYED_AT" --arg sha "{% raw %}${{ github.sha }}{% endraw %}" --arg actor "{% raw %}${{ github.actor }}{% endraw %}" --arg branch "{% raw %}${{ github.ref_name }}{% endraw %}" '
-            .[$app] = {
-              "version": $ver,
-              "deployed_at": $deployed,
-              "git_sha": $sha,
-              "deployed_by": $actor,
-              "branch": $branch
-            }
+          # Create new release entry
+          NEW_RELEASE=$(jq -n --arg ver "$NEW_VERSION" --arg deployed "$DEPLOYED_AT" --arg sha "{% raw %}${{ github.sha }}{% endraw %}" --arg actor "{% raw %}${{ github.actor }}{% endraw %}" --arg branch "{% raw %}${{ github.ref_name }}{% endraw %}" --arg commit "{% raw %}${{ github.event.head_commit.message }}{% endraw %}" '{
+            version: $ver,
+            deployed_at: $deployed,
+            git_sha: $sha,
+            deployed_by: $actor,
+            branch: $branch,
+            commit_message: $commit
+          }')
+          
+          # Append to releases array for this app (keep last 5)
+          UPDATED_RELEASES=$(sudo cat "$RELEASES_FILE" | jq --argjson release "$NEW_RELEASE" --arg app "$APP_NAME" '
+            .[$app] = ((.[$app] // []) + [$release]) | .[-5:]
           ')
           
-          echo "$UPDATED_JSON" | sudo tee "$VERSION_FILE" > /dev/null
-          sudo chown superdeploy:superdeploy "$VERSION_FILE"
-          sudo chmod 644 "$VERSION_FILE"
+          echo "$UPDATED_RELEASES" | sudo tee "$RELEASES_FILE" > /dev/null
+          sudo chown superdeploy:superdeploy "$RELEASES_FILE"
+          sudo chmod 644 "$RELEASES_FILE"
           
-          echo "✅ Version tracked: v$NEW_VERSION"
+          echo "✅ Version tracked: v$NEW_VERSION (release history updated)"
       
       - name: Run deployment hooks
         run: |

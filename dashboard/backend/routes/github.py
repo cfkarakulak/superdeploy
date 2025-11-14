@@ -97,12 +97,37 @@ async def get_repo_info(project_name: str, repo_name: str):
 async def get_repo_workflows(project_name: str, repo_name: str):
     """Get GitHub Actions workflow runs for a specific repo."""
     try:
+        from database import SessionLocal
+        from models import Project, App
+
         token = get_github_token(project_name)
-        owner, _ = get_github_repo(project_name)
+
+        # Get owner and repo from App table
+        db = SessionLocal()
+        try:
+            project = db.query(Project).filter(Project.name == project_name).first()
+            if not project:
+                raise HTTPException(status_code=404, detail="Project not found")
+
+            app = (
+                db.query(App)
+                .filter(App.project_id == project.id, App.name == repo_name)
+                .first()
+            )
+
+            if app and app.owner and app.repo:
+                owner = app.owner
+                repo = app.repo
+            else:
+                # Fallback
+                owner = "cheapaio"
+                repo = repo_name
+        finally:
+            db.close()
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"https://api.github.com/repos/{owner}/{repo_name}/actions/runs",
+                f"https://api.github.com/repos/{owner}/{repo}/actions/runs",
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/vnd.github.v3+json",
@@ -131,12 +156,36 @@ async def get_repo_workflows(project_name: str, repo_name: str):
 async def get_workflow_run(project_name: str, repo_name: str, run_id: int):
     """Get specific workflow run details."""
     try:
+        from database import SessionLocal
+        from models import Project, App
+
         token = get_github_token(project_name)
-        owner, _ = get_github_repo(project_name)
+
+        # Get owner and repo from App table
+        db = SessionLocal()
+        try:
+            project = db.query(Project).filter(Project.name == project_name).first()
+            if not project:
+                raise HTTPException(status_code=404, detail="Project not found")
+
+            app = (
+                db.query(App)
+                .filter(App.project_id == project.id, App.name == repo_name)
+                .first()
+            )
+
+            if app and app.owner and app.repo:
+                owner = app.owner
+                repo = app.repo
+            else:
+                owner = "cheapaio"
+                repo = repo_name
+        finally:
+            db.close()
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"https://api.github.com/repos/{owner}/{repo_name}/actions/runs/{run_id}",
+                f"https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}",
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/vnd.github.v3+json",
@@ -161,12 +210,36 @@ async def get_workflow_run(project_name: str, repo_name: str, run_id: int):
 async def get_workflow_run_jobs(project_name: str, repo_name: str, run_id: int):
     """Get jobs for a specific workflow run."""
     try:
+        from database import SessionLocal
+        from models import Project, App
+
         token = get_github_token(project_name)
-        owner, _ = get_github_repo(project_name)
+
+        # Get owner and repo from App table
+        db = SessionLocal()
+        try:
+            project = db.query(Project).filter(Project.name == project_name).first()
+            if not project:
+                raise HTTPException(status_code=404, detail="Project not found")
+
+            app = (
+                db.query(App)
+                .filter(App.project_id == project.id, App.name == repo_name)
+                .first()
+            )
+
+            if app and app.owner and app.repo:
+                owner = app.owner
+                repo = app.repo
+            else:
+                owner = "cheapaio"
+                repo = repo_name
+        finally:
+            db.close()
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"https://api.github.com/repos/{owner}/{repo_name}/actions/runs/{run_id}/jobs",
+                f"https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/jobs",
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/vnd.github.v3+json",

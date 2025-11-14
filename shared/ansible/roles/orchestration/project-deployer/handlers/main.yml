@@ -7,7 +7,7 @@
     method: POST
     status_code: 200
     timeout: 5
-  when: monitoring_enabled | default(false) | bool
+  delegate_to: "{{ orchestrator_host | default(hostvars[inventory_hostname].orchestrator_host) | default('localhost') }}"
   failed_when: false
   listen: reload prometheus
 

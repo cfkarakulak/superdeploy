@@ -38,12 +38,14 @@ class ReleasesCommand(ProjectCommand):
             vm_service = self.ensure_vm_service()
             ssh_service = vm_service.get_ssh_service()
 
-            # Read versions.json from VM
+            # Read releases.json from VM (last 5 deployments)
             result = ssh_service.execute_command(
                 vm_ip,
-                f"cat /opt/superdeploy/projects/{self.project_name}/versions.json 2>/dev/null || echo '{{}}'",
+                f"cat /opt/superdeploy/projects/{self.project_name}/releases.json 2>/dev/null || echo '{{}}'",
                 timeout=5,
             )
+
+            import json
 
             if result.returncode != 0 or not result.stdout.strip():
                 self.console.print("[yellow]⚠️  No deployment history found[/yellow]")
@@ -52,22 +54,25 @@ class ReleasesCommand(ProjectCommand):
                 )
                 return
 
-            import json
+            releases_data = json.loads(result.stdout)
 
-            versions_data = json.loads(result.stdout)
-
-            if self.app_name not in versions_data:
+            if self.app_name not in releases_data:
                 self.console.print(
                     f"[yellow]⚠️  No deployment history for {self.app_name}[/yellow]"
                 )
                 return
 
-            # Get deployment info
-            app_version = versions_data[self.app_name]
+            # Get releases array for this app
+            releases_list = releases_data[self.app_name]
+            if not isinstance(releases_list, list) or len(releases_list) == 0:
+                self.console.print(
+                    f"[yellow]⚠️  No deployment history for {self.app_name}[/yellow]"
+                )
+                return
 
             # Create deployment history table
             table = Table(
-                title=f"Current Deployment - {self.app_name}",
+                title=f"Deployment History - {self.app_name} (Last {min(len(releases_list), self.limit)} releases)",
                 show_header=True,
                 header_style="bold cyan",
                 padding=(0, 1),
@@ -79,21 +84,38 @@ class ReleasesCommand(ProjectCommand):
             table.add_column("Deployed At", style="dim")
             table.add_column("Branch", style="magenta")
 
-            # Current deployment
-            deployed_at = app_version.get("deployed_at", "-")
-            if "T" in deployed_at:
-                deployed_at = deployed_at.replace("T", " ").replace("Z", " UTC")
+            # Show releases (newest first)
+            for idx, release in enumerate(reversed(releases_list[-self.limit :])):
+                deployed_at = release.get("deployed_at", "-")
+                if "T" in deployed_at:
+                    deployed_at = deployed_at.replace("T", " ").replace("Z", " UTC")
 
-            table.add_row(
-                "● CURRENT",
-                app_version.get("version", "-"),
-                app_version.get("git_sha", "-")[:7],
-                app_version.get("deployed_by", "-"),
-                deployed_at,
-                app_version.get("branch", "-"),
-            )
+                # First one is CURRENT, rest are numbered
+                if idx == 0:
+                    status = "● CURRENT"
+                    style = "green"
+                else:
+                    status = f"  #{idx}"
+                    style = "dim"
+
+                table.add_row(
+                    status,
+                    release.get("version", "-"),
+                    release.get("git_sha", "-")[:7],
+                    release.get("deployed_by", "-"),
+                    deployed_at,
+                    release.get("branch", "-"),
+                    style=style if idx > 0 else None,
+                )
 
             self.console.print(table)
+
+            # Show commit messages if available
+            if releases_list and "commit_message" in releases_list[-1]:
+                self.console.print("\n[bold]Latest Commit:[/bold]")
+                latest_commit = releases_list[-1].get("commit_message", "")
+                if latest_commit and latest_commit != "-":
+                    self.console.print(f"  [dim]{latest_commit}[/dim]")
 
             logger.success(f"Deployment history retrieved for {self.app_name}")
 

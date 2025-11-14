@@ -119,7 +119,7 @@ from cli.commands.addons import (
     addons_attach,
     addons_detach,
 )
-from cli.commands.vars import vars_clear, vars_sync, sync
+from cli.commands.vars import vars_clear, vars_sync
 
 console = Console()
 
@@ -263,7 +263,6 @@ class NamespacedGroup(click.RichGroup):
                 "plan",
                 "generate",
                 "status",
-                "sync",  # Keep for backward compatibility
                 "validate",
                 "scale",
                 "metrics",
@@ -281,7 +280,6 @@ class NamespacedGroup(click.RichGroup):
                     metrics,
                 )
                 from cli.commands.validate import validate_project
-                from cli.commands.vars import sync as vars_sync_module
 
                 command_map = {
                     "up": up.up,
@@ -289,7 +287,6 @@ class NamespacedGroup(click.RichGroup):
                     "plan": plan.plan,
                     "generate": generate.generate,
                     "status": status.status,
-                    "sync": vars_sync_module.sync,  # Backward compatibility
                     "validate": validate_project,
                     "scale": scale.scale,
                     "metrics": metrics.metrics,
@@ -344,7 +341,7 @@ def cli(ctx: click.Context) -> None:
       superdeploy orchestrator:up   # Deploy monitoring (once)
       superdeploy myapp:init        # Create project
       superdeploy myapp:up          # Deploy project
-      superdeploy myapp:sync        # Sync secrets
+      superdeploy vars:sync         # Sync secrets to GitHub
 
     \b
     Daily Workflow:
@@ -361,7 +358,6 @@ def cli(ctx: click.Context) -> None:
       superdeploy <project>:plan            # Show deployment changes
       superdeploy <project>:config:set KEY=VAL # Set config variable
       superdeploy <project>:domains:add app.com # Add domain
-      superdeploy <project>:sync            # Sync secrets to GitHub
       superdeploy <project>:ps              # View app processes & replicas
       superdeploy <project>:scale web=3     # Scale app replicas
       superdeploy <project>:addons          # List addons
@@ -378,7 +374,7 @@ def cli(ctx: click.Context) -> None:
 # Register commands
 cli.add_command(init.init)
 # NOTE: Project-specific commands use namespaced syntax: <project>:command
-# Examples: cheapa:up, cheapa:generate, cheapa:sync, cheapa:validate, cheapa:status, etc.
+# Examples: cheapa:up, cheapa:down, cheapa:plan, cheapa:validate, cheapa:status, cheapa:metrics, etc.
 cli.add_command(logs.logs)
 cli.add_command(run_cmd.run)
 cli.add_command(deploy.deploy)
@@ -426,7 +422,6 @@ cli.add_command(tunnel.tunnel)
 # Register vars commands (GitHub secrets & variables management)
 cli.add_command(vars_clear)
 cli.add_command(vars_sync)
-cli.add_command(sync)  # Keep for backward compatibility (deprecated)
 # Register dashboard commands
 cli.add_command(dashboard_start)
 

@@ -5,9 +5,8 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Lock, ChevronDown } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import AppHeader from "@/components/AppHeader";
-import PageHeader from "@/components/PageHeader";
-import { Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components";
+import { AppHeader, PageHeader, Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, Table } from "@/components";
+import type { Item, TableColumn } from "@/components";
 
 interface Secret {
   key: string;
@@ -48,9 +47,9 @@ const InfoBoxSkeleton = () => (
 
 // Table Skeleton
 const SecretsTableSkeleton = () => (
-  <div className="bg-white rounded-lg overflow-hidden shadow-sm">
+  <div className="bg-white rounded-lg overflow-hidden shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
     <table className="w-full">
-      <thead className="bg-gray-50">
+      <thead className="bg-[#f7f7f7]">
         <tr>
           <th className="px-4 py-3 text-left">
             <div className="w-[60px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
@@ -63,9 +62,9 @@ const SecretsTableSkeleton = () => (
           </th>
         </tr>
       </thead>
-      <tbody className="divide-y divide-gray-100">
+      <tbody className="divide-y divide-[#e3e8ee]">
         {Array.from({ length: 4 }, (_, i) => (
-          <tr key={`config-var-skeleton-${i}`} className="hover:bg-gray-50">
+          <tr key={`config-var-skeleton-${i}`} className="hover:bg-[#f7f7f7]">
             <td className="px-4 py-3">
               <div className="w-[140px] h-[18px] bg-[#e3e8ee] rounded skeleton-animated" />
             </td>
@@ -108,7 +107,6 @@ export default function SecretsPage() {
   const [error, setError] = useState<string | null>(null);
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
-  const [showValues, setShowValues] = useState<Record<string, boolean>>({});
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingSecret, setEditingSecret] = useState<Secret | null>(null);
@@ -233,10 +231,6 @@ export default function SecretsPage() {
     }
   };
 
-  const toggleShowValue = (key: string) => {
-    setShowValues((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
   const maskValue = (value: string) => {
     return "•".repeat(Math.min(value.length, 20));
   };
@@ -252,118 +246,102 @@ export default function SecretsPage() {
           <p><strong>Error:</strong> {error}</p>
         </div>
       ) : (
-        <>
+        <div className="bg-white rounded-[16px] p-[20px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
           <PageHeader
             breadcrumb={{
-              label: "Config Vars",
-              href: `/project/${projectName}/app/${appName}/secrets/${appName}`
+              label: "Secrets",
+              href: `/project/${projectName}/app/${appName}`
             }}
             title="Environment Variables"
-            description={`Manage configuration and secrets for ${appName}`}
           />
 
-      {/* Environment Selector */}
-      <div className="mb-6 flex items-center gap-4">
-        <label className="text-[15px] text-[#0a0a0a]">Environment:</label>
-        <div className="min-w-[200px]">
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger className="flex h-11 w-full items-center justify-between bg-white px-4 py-3 text-[15px] text-[#0a0a0a] border border-[#e3e8ee] rounded-md hover:bg-[#f7f7f7] transition-colors cursor-pointer outline-none group">
-              <span className="capitalize">{selectedEnvironment}</span>
-              <ChevronDown className="w-4 h-4 text-[#8b8b8b] transition-transform duration-200 group-data-[state=open]:rotate-180" />
-            </DropdownMenu.Trigger>
+          {/* Environment Selector */}
+          <div className="mb-6 flex flex-col gap-1">
+            <label className="text-[11px] text-[#777] font-light tracking-[0.03em] block">Environment:</label>
+            <div className="min-w-[200px]">
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger className="bg-[#e5e8ee] relative flex h-9.5 w-auto items-center justify-between px-3 pr-8 py-2 text-[15px] text-[#0a0a0a] rounded-[10px] transition-colors cursor-pointer outline-none group">
+                  <span className="capitalize text-[14px] text-[#0a0a0a]">{selectedEnvironment}</span>
+                  <ChevronDown className="top-[13px] right-[10px] absolute w-4 h-4 text-[#8b8b8b] transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                </DropdownMenu.Trigger>
 
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                align="start"
-                className="min-w-[200px] bg-white rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.15)] p-1 animate-[slide-fade-in-vertical_0.2s_ease-out] distance-8"
-                sideOffset={5}
-              >
-                {[
-                  { value: 'production', label: 'Production' },
-                  { value: 'staging', label: 'Staging' },
-                  { value: 'review', label: 'Review' }
-                ].map((env) => (
-                  <DropdownMenu.Item
-                    key={env.value}
-                    onClick={() => setSelectedEnvironment(env.value)}
-                    className="flex items-center justify-between px-3 py-2 rounded hover:bg-[#f7f7f7] outline-none cursor-pointer"
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    align="start"
+                    className="min-w-[200px] bg-white rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.15)] p-1 animate-[slide-fade-in-vertical_0.2s_ease-out] distance-8"
+                    sideOffset={5}
                   >
-                    <span className="text-[14px] text-[#0a0a0a]">{env.label}</span>
-                    {selectedEnvironment === env.value && (
-                      <div className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
-                    )}
-                  </DropdownMenu.Item>
-                ))}
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
-        </div>
-      </div>
-
-      {/* Add New Button */}
-      <div className="mb-4">
-        <Button onClick={openAddModal}>
-          Add New Config Var
-        </Button>
-      </div>
-
-      {/* Secrets Table */}
-      <div className="bg-white rounded-[16px] overflow-hidden shadow-[0_0_0_1px_rgba(11,26,38,0.06),0_4px_12px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.04)]">
-        <table className="w-full">
-          <thead className="bg-[#f7f7f7]">
-            <tr>
-              <th className="px-4 py-3 text-left text-[11px] font-semibold text-[#525252] uppercase tracking-wider w-12">
-              </th>
-              <th className="px-4 py-3 text-left text-[11px] font-semibold text-[#525252] uppercase tracking-wider">
-                Key
-              </th>
-              <th className="px-4 py-3 text-left text-[11px] font-semibold text-[#525252] uppercase tracking-wider">
-                Value
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#e3e8ee]">
-            {configVars.map((configVar) => (
-              <tr 
-                key={configVar.key} 
-                onClick={() => configVar.editable && openEditModal(configVar)}
-                className={`${configVar.editable ? 'cursor-pointer hover:bg-[#f7f7f7]' : ''} transition-colors`}
-              >
-                <td className="px-4 py-3">
-                  <Lock className="w-4 h-4 text-[#8b8b8b]" />
-                </td>
-                <td className="px-4 py-3">
-                  <code className="text-[13px] font-mono text-[#0a0a0a]">{configVar.key}</code>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <code className="text-[13px] font-mono text-[#525252]">
-                      {showValues[configVar.key]
-                        ? configVar.value
-                        : maskValue(configVar.value)}
-                    </code>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleShowValue(configVar.key);
-                      }}
-                      className="text-[#8b8b8b] hover:text-[#0a0a0a] text-[11px]"
-                    >
-                      {showValues[configVar.key] ? "hide" : "show"}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {configVars.length === 0 && (
-          <div className="text-center py-8 text-[#8b8b8b] text-[15px]">
-            No config vars defined yet
+                    {[
+                      { value: 'production', label: 'Production' },
+                      { value: 'staging', label: 'Staging' },
+                      { value: 'review', label: 'Review' }
+                    ].map((env) => (
+                      <DropdownMenu.Item
+                        key={env.value}
+                        onClick={() => setSelectedEnvironment(env.value)}
+                        className="flex items-center justify-between px-3 py-2 rounded hover:bg-[#f7f7f7] outline-none cursor-pointer"
+                      >
+                        <span className="text-[14px] text-[#343a46]">{env.label}</span>
+                        {selectedEnvironment === env.value && (
+                          <div className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
+                        )}
+                      </DropdownMenu.Item>
+                    ))}
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* Add New Button */}
+          <div className="mb-4 hidden">
+            <Button onClick={openAddModal}>
+              Add New Config Var
+            </Button>
+          </div>
+
+          {/* Secrets Table */}
+          {configVars.length === 0 ? (
+            <div className="rounded-[10px] p-8 text-center text-[#8b8b8b] text-[15px]">
+              No config vars defined yet
+            </div>
+          ) : (
+            <Table
+              columns={[
+                {
+                  title: "Key",
+                  width: "300px",
+                  render: (item: Item) => (
+                    <div className="flex items-center gap-3">
+                      <Lock className="w-4 h-4 text-[#8b8b8b]" />
+                      <code className="text-[13px] font-mono text-[#0a0a0a]">{item.data.key}</code>
+                    </div>
+                  ),
+                },
+                {
+                  title: "Value",
+                  render: (item: Item) => (
+                    <code className="text-[13px] font-mono text-[#8b8b8b]">
+                      {maskValue(item.data.value)}
+                    </code>
+                  ),
+                },
+              ]}
+              data={configVars.map((configVar) => ({
+                id: configVar.key,
+                type: "secret",
+                data: configVar,
+              }))}
+              getRowKey={(item) => `secret-${item.id}`}
+              onRowClick={(item) => {
+                if (item.data.editable) {
+                  openEditModal(item.data);
+                }
+              }}
+            />
+          )}
+        </div>
+      )}
 
       {/* Add Modal */}
       <Dialog open={addModalOpen} onOpenChange={setAddModalOpen}>
@@ -454,8 +432,6 @@ export default function SecretsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-        </>
-      )}
     </div>
   );
 }

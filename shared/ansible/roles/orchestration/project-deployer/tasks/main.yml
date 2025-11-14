@@ -98,9 +98,17 @@
     apps: "{{ apps_for_this_vm }}"
   when: apps_for_this_vm | length > 0
 
-# Setup monitoring integration
-- name: Setup monitoring integration
+# Monitoring integration (always enabled)
+- name: Setup monitoring integration (runs once)
   include_tasks: setup-monitoring.yml
-  tags:
-    - project-monitoring
-  when: monitoring_enabled | default(false)
+  vars:
+    orchestrator_host: "{{ project_secrets.secrets.shared.ORCHESTRATOR_IP }}"
+    apps: "{{ project_config.apps }}"  # FULL project apps, not filtered
+  run_once: true
+  when:
+    - project_secrets is defined
+    - project_secrets.secrets is defined
+    - project_secrets.secrets.shared is defined
+    - project_secrets.secrets.shared.ORCHESTRATOR_IP is defined
+    - project_config is defined
+    - project_config.apps is defined

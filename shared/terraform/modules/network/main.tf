@@ -217,3 +217,22 @@ resource "google_compute_firewall" "allow_metrics_from_orchestrator" {
   description = "Allow Prometheus metrics collection from orchestrator"
 }
 
+# Firewall: Allow node_exporter metrics (port 9100)
+# Allows Prometheus (orchestrator) to scrape node metrics from project VMs
+resource "google_compute_firewall" "allow_node_exporter" {
+  name    = "${var.network_name}-allow-node-exporter"
+  network = google_compute_network.vpc.name
+  project = var.project_id
+
+  allow {
+    protocol = "tcp"
+    ports    = ["9100"]  # node_exporter
+  }
+
+  # Allow from orchestrator IP if provided, otherwise allow from anywhere (for testing)
+  source_ranges = var.orchestrator_ip != "" ? ["${var.orchestrator_ip}/32"] : ["0.0.0.0/0"]
+  target_tags   = var.vm_roles
+
+  description = "Allow node_exporter metrics (9100) for Prometheus monitoring"
+}
+

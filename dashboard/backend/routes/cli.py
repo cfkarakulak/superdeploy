@@ -21,6 +21,7 @@ class InitProjectRequest(BaseModel):
     github_org: str
     apps: Dict[str, Dict] = {}
     addons: Dict[str, Dict] = {}
+    secrets: Dict[str, str] = {}
 
 
 class CommandRequest(BaseModel):
@@ -45,6 +46,7 @@ async def init_project(request: InitProjectRequest):
             github_org=request.github_org,
             apps=request.apps,
             addons=request.addons,
+            secrets=request.secrets,
         ):
             yield line
 
@@ -65,9 +67,37 @@ async def generate_deployment_files(request: CommandRequest):
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
-@router.post("/deploy")
+@router.post("/up")
 async def deploy_project(request: CommandRequest):
-    """Deploy a project."""
+    """Deploy project infrastructure (superdeploy project:up)."""
+    from services.cli_executor import CLIExecutor
+
+    executor = CLIExecutor(PROJECT_ROOT)
+
+    async def generate():
+        async for line in executor.deploy_project(request.project_name):
+            yield line
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+
+@router.post("/sync")
+async def sync_secrets(request: CommandRequest):
+    """Sync secrets to GitHub (superdeploy project:sync)."""
+    from services.cli_executor import CLIExecutor
+
+    executor = CLIExecutor(PROJECT_ROOT)
+
+    async def generate():
+        async for line in executor.sync_secrets(request.project_name):
+            yield line
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+
+@router.post("/deploy")
+async def deploy_project_legacy(request: CommandRequest):
+    """Deploy a project (legacy endpoint, use /up instead)."""
     from services.cli_executor import CLIExecutor
 
     executor = CLIExecutor(PROJECT_ROOT)

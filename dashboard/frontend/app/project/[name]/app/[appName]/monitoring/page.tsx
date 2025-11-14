@@ -4,9 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import AppHeader from "@/components/AppHeader";
-import PageHeader from "@/components/PageHeader";
-import { Button } from "@/components";
+import { AppHeader, PageHeader, Button } from "@/components";
 
 interface Container {
   id: string;
@@ -45,7 +43,7 @@ const MonitoringHeaderSkeleton = () => (
 
 // Container Card Skeleton
 const ContainerCardSkeleton = () => (
-  <div className="bg-white rounded-lg p-5 shadow-sm">
+  <div className="bg-white rounded-lg p-5 shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
     <div className="flex items-center justify-between mb-4">
       <div className="flex-1">
         <div className="w-[220px] h-[20px] bg-[#e3e8ee] rounded-md mb-2 skeleton-animated" />
@@ -146,65 +144,64 @@ export default function AppMonitoringPage() {
     <div>
       <AppHeader />
       
-      <PageHeader
-        breadcrumbs={[
-          { label: "Projects", href: "/" },
-          { label: projectName, href: `/project/${projectName}` },
-          { label: "Apps", href: `/project/${projectName}` },
-          { label: appName, href: `/project/${projectName}/app/${appName}` },
-          { label: "Monitoring", href: `/project/${projectName}/app/${appName}/monitoring` }
-        ]}
-        title="Container Monitoring"
-        description={`Real-time container metrics, resource usage, and logs for ${appName}`}
-      />
+      <div className="bg-white rounded-[16px] p-[20px] pt-[25px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+            <PageHeader
+          breadcrumb={{
+            label: "Monitoring",
+            href: `/project/${projectName}/app/${appName}/monitoring`
+          }}
+          title="Container Monitoring"
+          description={`Real-time container metrics, resource usage, and logs for ${appName}`}
+        />
 
-      {containers.length === 0 ? (
-        <div className="bg-white shadow-sm rounded-lg p-8 text-center text-gray-600">
-          No containers running
-        </div>
-      ) : (
-        <div className="grid gap-4">
-          {containers.map((container) => (
-            <div
-              key={container.id}
-              className="bg-white rounded-lg p-6 shadow-sm"
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="text-lg font-bold mb-1">{container.name}</h3>
-                  <p className="text-sm text-gray-600">Image: {container.image}</p>
-                  {container.cpu_percent !== undefined && (
-                    <div className="flex gap-4 mt-2 text-sm">
-                      <span>CPU: {container.cpu_percent.toFixed(1)}%</span>
-                      <span>Memory: {container.memory_usage}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`px-3 py-1 rounded text-xs  ${
-                      container.state === "running"
-                        ? "bg-green-100 text-green-800"
-                        : container.state === "exited"
-                        ? "bg-red-100 text-red-800"
-                        : "bg-yellow-100 text-yellow-800"
-                    }`}
-                  >
-                    {container.state}
-                  </span>
-                  <Button
-                    onClick={() => handleRestart(container.name)}
-                    size="sm"
-                    className="!bg-[#ff6b35] !text-[#15291f] hover:!bg-[#ff5722]"
-                  >
-                    Restart
-                  </Button>
+        {containers.length === 0 ? (
+          <div className="text-center text-[#8b8b8b] py-8">
+            No containers running
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {containers.map((container) => (
+              <div
+                key={container.id}
+                className="bg-[#f9fafb] rounded-lg p-6 border border-[#e3e8ee]"
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold mb-1 text-[#0a0a0a]">{container.name}</h3>
+                    <p className="text-sm text-[#8b8b8b]">Image: {container.image}</p>
+                    {container.cpu_percent !== undefined && (
+                      <div className="flex gap-4 mt-2 text-sm text-[#0a0a0a]">
+                        <span>CPU: {container.cpu_percent.toFixed(1)}%</span>
+                        <span>Memory: {container.memory_usage}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`px-3 py-1 rounded text-xs  ${
+                        container.state === "running"
+                          ? "bg-green-100 text-green-800"
+                          : container.state === "exited"
+                          ? "bg-red-100 text-red-800"
+                          : "bg-yellow-100 text-yellow-800"
+                      }`}
+                    >
+                      {container.state}
+                    </span>
+                    <Button
+                      onClick={() => handleRestart(container.name)}
+                      size="sm"
+                      className="!bg-[#ff6b35] !text-[#15291f] hover:!bg-[#ff5722]"
+                    >
+                      Restart
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

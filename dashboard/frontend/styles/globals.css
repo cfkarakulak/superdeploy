@@ -112,12 +112,33 @@ body {
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    background-color: #f3f5f9;
     font-feature-settings: "rlig" 1, "calt" 1;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f3f5f9;
+  }
+
+  body::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  body::-webkit-scrollbar-track {
+    background: #f3f5f9;
+  }
+
+  body::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 5px;
+    border: 2px solid #f3f5f9;
+  }
+
+  body::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8;
   }
 
   /* Modern Input Styles */
-  input[type="text"],
+  input[type="text"]:not(.search-bar),
   input[type="email"],
   input[type="password"],
   input[type="number"],
@@ -131,7 +152,7 @@ body {
     box-shadow: var(--shadow-sm);
   }
 
-  input[type="text"]:focus,
+  input[type="text"]:not(.search-bar):focus,
   input[type="email"]:focus,
   input[type="password"]:focus,
   input[type="number"]:focus,
@@ -140,6 +161,55 @@ body {
     outline: none;
     border-color: var(--color-primary);
     box-shadow: var(--shadow-focus);
+  }
+  
+  /* Search bar specific styles - no border/shadow */
+  input.search-bar {
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+  }
+  
+  input.search-bar:focus {
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+  }
+  
+  /* Checkbox styles - receet.io style */
+  input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
+    background-color: #e5e9f2;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.15s ease;
+  }
+  
+  input[type="checkbox"]:checked {
+    background-color: var(--accent-color, #4f46e5);
+    border-color: var(--accent-color, #4f46e5);
+  }
+  
+  input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 2px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  
+  input[type="checkbox"]:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   input:disabled,
@@ -480,6 +550,135 @@ body {
   }
   .distance--4 {
     --distance: var(--distance--4);
+  }
+
+  /* Terminal/Log viewer styles - Override theme colors */
+  .terminal-container {
+    background-color: #f3f5f9;
+    color: #222;
+    font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+    max-height: 600px;
+    overflow-y: scroll;
+  }
+
+  /* Custom Scrollbar Styles - Modern & Clean */
+  .scrollbar-custom {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 4px;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8;
+  }
+
+  /* Dark scrollbar for terminal */
+  .scrollbar-dark {
+    scrollbar-width: thin;
+    scrollbar-color: #4a5568 transparent;
+  }
+
+  .scrollbar-dark::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-dark::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 4px;
+  }
+
+  .scrollbar-dark::-webkit-scrollbar-thumb {
+    background-color: #4a5568;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+  }
+
+  .scrollbar-dark::-webkit-scrollbar-thumb:hover {
+    background-color: #718096;
+  }
+
+  /* Thin scrollbar variant */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #e2e8f0 transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #e2e8f0;
+    border-radius: 2px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: #cbd5e1;
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Apply custom scrollbar to Radix UI dropdowns */
+  [data-radix-dropdown-content],
+  [role="menu"],
+  [data-radix-select-content] {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+
+  [data-radix-dropdown-content]::-webkit-scrollbar,
+  [role="menu"]::-webkit-scrollbar,
+  [data-radix-select-content]::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  [data-radix-dropdown-content]::-webkit-scrollbar-track,
+  [role="menu"]::-webkit-scrollbar-track,
+  [data-radix-select-content]::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  [data-radix-dropdown-content]::-webkit-scrollbar-thumb,
+  [role="menu"]::-webkit-scrollbar-thumb,
+  [data-radix-select-content]::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 3px;
+  }
+
+  [data-radix-dropdown-content]::-webkit-scrollbar-thumb:hover,
+  [role="menu"]::-webkit-scrollbar-thumb:hover,
+  [data-radix-select-content]::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8;
   }
 }
 

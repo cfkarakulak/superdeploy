@@ -440,11 +440,11 @@ class VarsSyncCommand(ProjectCommand):
 
                 self.console.print()
 
-            # Repository-level secrets (Docker credentials only - not registry/org/username which are public)
+            # Repository-level secrets (Docker + GitHub access)
             # Note: DOCKER_REGISTRY, DOCKER_ORG, and DOCKER_USERNAME are moved to workflow vars to avoid GitHub secret masking
+            # Note: GITHUB_TOKEN must have repo, workflow, packages, and read:org scopes for private repos
             repo_secrets = {
                 "DOCKER_TOKEN": all_secrets.shared.get("DOCKER_TOKEN"),
-                "PRIVATE_REPO_TOKEN": all_secrets.shared.get("PRIVATE_REPO_TOKEN"),
                 "GITHUB_TOKEN": all_secrets.shared.get("GITHUB_TOKEN"),
             }
 
@@ -611,41 +611,5 @@ def vars_sync(project, environment, verbose):
         superdeploy cheapa:vars:sync                    # Sync to production
         superdeploy cheapa:vars:sync -e staging         # Sync to staging
     """
-    cmd = VarsSyncCommand(project, environment=environment, verbose=verbose)
-    cmd.run()
-
-
-# Keep backward compatibility with old sync command
-@click.command(name="sync")
-@click.option("--clear", is_flag=True, help="DEPRECATED: Use vars:clear instead")
-@click.option(
-    "-e",
-    "--env",
-    "environment",
-    default="production",
-    help="Target environment (production/staging)",
-)
-@click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def sync(project, clear, environment, verbose):
-    """
-    [DEPRECATED] Use vars:sync instead
-
-    This command is kept for backward compatibility.
-    Use: superdeploy cheapa:vars:sync
-    """
-    from rich.console import Console
-
-    console = Console()
-    console.print(
-        "\n[yellow]⚠️  'sync' is deprecated. Use 'vars:sync' instead.[/yellow]\n"
-    )
-
-    if clear:
-        console.print("[yellow]Running vars:clear first...[/yellow]\n")
-        cmd = VarsClearCommand(project, environment=environment, verbose=verbose)
-        cmd.run()
-        console.print()
-
-    console.print("[yellow]Running vars:sync...[/yellow]\n")
     cmd = VarsSyncCommand(project, environment=environment, verbose=verbose)
     cmd.run()

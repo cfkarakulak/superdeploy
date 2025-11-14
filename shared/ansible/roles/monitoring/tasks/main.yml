@@ -20,9 +20,14 @@
     - "/opt/superdeploy/monitoring/grafana/provisioning/datasources"
     - "/opt/superdeploy/monitoring/grafana/provisioning/dashboards"
     - "/opt/superdeploy/monitoring/grafana/dashboards"
+    - "/opt/superdeploy/shared/monitoring"
+    - "/opt/superdeploy/shared/monitoring/projects.d"
+    - "/opt/superdeploy/shared/addons/monitoring"
+    - "/opt/superdeploy/scripts"
   tags:
     - monitoring
     - setup
+
 
 - name: Create monitoring network
   docker_network:

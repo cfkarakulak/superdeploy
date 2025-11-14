@@ -82,6 +82,7 @@ class CLIExecutor:
         github_org: str,
         apps: Dict[str, Dict],
         addons: Dict[str, Dict],
+        secrets: Dict[str, str] = {},
     ) -> AsyncIterator[str]:
         """
         Initialize a new project using CLI.
@@ -91,6 +92,7 @@ class CLIExecutor:
         # For now, we'll execute the init command non-interactively
         # by preparing the config files directly
         from cli.commands.init import ProjectInitializer, ProjectSetupConfig
+        import yaml
 
         try:
             yield (
@@ -131,9 +133,67 @@ class CLIExecutor:
                 + "\n"
             )
             app_names = list(apps.keys())
-            initializer.create_secrets_file(
+            secrets_file = initializer.create_secrets_file(
                 project_dir, project_name, app_names, addons
             )
+
+            # Update secrets.yml with user-provided secrets
+            if secrets:
+                yield (
+                    json.dumps(
+                        {
+                            "type": "output",
+                            "data": "🔑 Updating secrets with user credentials...",
+                        }
+                    )
+                    + "\n"
+                )
+
+                # Read existing secrets.yml
+                with open(secrets_file, "r") as f:
+                    secrets_data = yaml.safe_load(f)
+
+                # Update shared secrets
+                if "secrets" not in secrets_data:
+                    secrets_data["secrets"] = {}
+                if "shared" not in secrets_data["secrets"]:
+                    secrets_data["secrets"]["shared"] = {}
+
+                shared = secrets_data["secrets"]["shared"]
+
+                # Docker credentials
+                if secrets.get("docker_org"):
+                    shared["DOCKER_ORG"] = secrets["docker_org"]
+                if secrets.get("docker_username"):
+                    shared["DOCKER_USERNAME"] = secrets["docker_username"]
+                if secrets.get("docker_token"):
+                    shared["DOCKER_TOKEN"] = secrets["docker_token"]
+
+                # GitHub token
+                if secrets.get("github_token"):
+                    shared["GITHUB_TOKEN"] = secrets["github_token"]
+
+                # SMTP credentials (optional)
+                if secrets.get("smtp_host"):
+                    shared["SMTP_HOST"] = secrets["smtp_host"]
+                if secrets.get("smtp_port"):
+                    shared["SMTP_PORT"] = secrets["smtp_port"]
+                if secrets.get("smtp_user"):
+                    shared["SMTP_USER"] = secrets["smtp_user"]
+                if secrets.get("smtp_password"):
+                    shared["SMTP_PASSWORD"] = secrets["smtp_password"]
+
+                # Write updated secrets back
+                with open(secrets_file, "w") as f:
+                    yaml.dump(
+                        secrets_data, f, default_flow_style=False, sort_keys=False
+                    )
+
+                yield (
+                    json.dumps({"type": "output", "data": "✓ User credentials added"})
+                    + "\n"
+                )
+
             yield json.dumps({"type": "output", "data": "✓ Created secrets.yml"}) + "\n"
 
             addon_count = (
@@ -171,6 +231,12 @@ class CLIExecutor:
     async def deploy_project(self, project_name: str) -> AsyncIterator[str]:
         """Deploy project infrastructure."""
         command = f"{project_name}:up"
+        async for line in self.execute_command(command, stream=True):
+            yield line
+
+    async def sync_secrets(self, project_name: str) -> AsyncIterator[str]:
+        """Sync secrets to GitHub."""
+        command = f"{project_name}:sync"
         async for line in self.execute_command(command, stream=True):
             yield line
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import SimpleHeader from "@/components/SimpleHeader";
+import AppHeader from "@/components/AppHeader";
 import PageHeader from "@/components/PageHeader";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -124,28 +124,27 @@ export default function AddonsPage() {
 
   return (
     <div>
-      <SimpleHeader />
+      <AppHeader />
       
       <PageHeader
-        breadcrumbs={[
-          { label: "Projects", href: "/" },
-          { label: projectName, href: `/project/${projectName}` },
-          { label: "Add-ons", href: `/project/${projectName}/addons` }
-        ]}
+        breadcrumb={{
+          label: projectName,
+          href: `/project/${projectName}`
+        }}
         title="Add-ons"
         description="Manage database, cache, queue services and other infrastructure add-ons"
       />
 
       {addons.length === 0 ? (
-        <div className="bg-white rounded-[16px] p-[20px] text-center shadow-[0_0_0_1px_rgba(11,26,38,0.06),0_4px_12px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.04)]">
-          <p className="text-[15px] text-[#525252]">No add-ons installed yet</p>
+        <div className="bg-white rounded-[16px] p-[20px] text-center shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+          <p className="text-[15px] text-[#8b8b8b]">No add-ons installed yet</p>
         </div>
       ) : (
         <div className="space-y-4">
           {addons.map((addon) => (
             <div
               key={addon.reference}
-              className="bg-white rounded-[16px] p-[20px] shadow-[0_0_0_1px_rgba(11,26,38,0.06),0_4px_12px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.04)]"
+              className="bg-white rounded-[16px] p-[20px] pt-[25px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]"
             >
               <div className="flex items-start justify-between mb-5">
                 <div>
@@ -154,12 +153,12 @@ export default function AddonsPage() {
                     <span className="px-2.5 py-1 bg-[#e0e7ff] text-[#4f46e5] rounded text-[12px] ">
                       {addon.type}
                     </span>
-                    <span className="text-[13px] text-[#525252]">Plan: {addon.plan}</span>
+                    <span className="text-[13px] text-[#8b8b8b]">Plan: {addon.plan}</span>
                     <span
                       className={`px-2.5 py-1 rounded text-[12px]  ${
                         addon.status === "running"
                           ? "bg-[#dcfce7] text-[#16a34a]"
-                          : "bg-[#ebebeb] text-[#525252]"
+                          : "bg-[#ebebeb] text-[#8b8b8b]"
                       }`}
                     >
                       {addon.status}
@@ -169,7 +168,7 @@ export default function AddonsPage() {
               </div>
 
               <div>
-                <h4 className="text-[13px]  text-[#525252] mb-3">
+                <h4 className="text-[13px]  text-[#8b8b8b] mb-3">
                   Attached Apps ({addon.attachments.length})
                 </h4>
                 {addon.attachments.length === 0 ? (

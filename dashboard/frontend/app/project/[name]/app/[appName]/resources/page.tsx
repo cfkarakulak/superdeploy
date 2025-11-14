@@ -1,8 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import AppHeader from "@/components/AppHeader";
-import PageHeader from "@/components/PageHeader";
+import { AppHeader, PageHeader } from "@/components";
 
 export default function ResourcesPage() {
   const params = useParams();
@@ -13,27 +12,27 @@ export default function ResourcesPage() {
     <div>
       <AppHeader />
       
-      <PageHeader
-        breadcrumb={{
-          label: "Resources",
-          href: `/project/${projectName}/app/${appName}/resources`
-        }}
-        title="Dynos & Add-ons"
-        description={`Manage compute resources and scaling configuration for ${appName}`}
-      />
-
       {/* Single Card with Sections */}
-      <div className="bg-white rounded-[16px] p-[20px] shadow-[0_0_0_1px_rgba(11,26,38,0.06),0_4px_12px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.04)]">
+      <div className="bg-white rounded-[16px] p-[20px] pt-[25px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+            <PageHeader
+          breadcrumb={{
+            label: "Resources",
+            href: `/project/${projectName}/app/${appName}/resources`
+          }}
+          title="Dynos & Add-ons"
+          description={`Manage compute resources and scaling configuration for ${appName}`}
+        />
+
         <div className="mb-8">
           <h2 className="text-[17px] font-semibold text-[#0a0a0a] mb-4">Dynos</h2>
-          <p className="text-[15px] text-[#525252]">No dynos configured yet</p>
+          <p className="text-[15px] text-[#8b8b8b]">No dynos configured yet</p>
         </div>
 
         <div className="border-t border-[#e3e8ee] my-6"></div>
 
         <div>
           <h2 className="text-[17px] font-semibold text-[#0a0a0a] mb-4">Add-ons</h2>
-          <p className="text-[15px] text-[#525252]">No add-ons attached</p>
+          <p className="text-[15px] text-[#8b8b8b]">No add-ons attached</p>
         </div>
       </div>
     </div>

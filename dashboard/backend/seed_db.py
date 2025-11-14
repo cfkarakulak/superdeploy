@@ -8,16 +8,23 @@ Run this once to migrate from filesystem to database.
 from pathlib import Path
 import yaml
 from database import SessionLocal
-from models import Project, Environment, App, Addon, Secret
+from models import Project, Environment, App, Addon, Secret, VM
 
 
 def seed_database():
     """Seed database with projects, apps, addons from filesystem."""
+    from database import init_db
+
+    # Initialize database first
+    init_db()
+    print("✓ Database initialized\n")
+
     db = SessionLocal()
 
     try:
         project_root = Path(__file__).parent.parent.parent
         projects_dir = project_root / "projects"
+        orchestrator_dir = project_root / "shared" / "orchestrator"
 
         if not projects_dir.exists():
             print("❌ No projects directory found")
@@ -27,6 +34,83 @@ def seed_database():
         seeded_apps = 0
         seeded_addons = 0
         seeded_secrets = 0
+        seeded_vms = 0
+
+        # Seed orchestrator first (special case)
+        if orchestrator_dir.exists():
+            config_file = orchestrator_dir / "config.yml"
+            state_file = orchestrator_dir / "state.yml"
+
+            if config_file.exists() and state_file.exists():
+                print("\n🛰️  Processing orchestrator...")
+
+                with open(config_file, "r") as f:
+                    config = yaml.safe_load(f)
+
+                with open(state_file, "r") as f:
+                    state = yaml.safe_load(f)
+
+                # Check if orchestrator project exists
+                existing = (
+                    db.query(Project).filter(Project.name == "orchestrator").first()
+                )
+
+                if not existing:
+                    new_project = Project(
+                        name="orchestrator",
+                        domain=None,
+                        cloud_provider="gcp",
+                        cloud_region=config.get("gcp", {}).get("region", "us-central1"),
+                        cloud_zone=config.get("gcp", {}).get("zone", "us-central1-a"),
+                    )
+                    db.add(new_project)
+                    db.flush()
+
+                    # Create default environments
+                    for env_name in ["production", "staging", "review"]:
+                        env = Environment(name=env_name, project_id=new_project.id)
+                        db.add(env)
+
+                    db.commit()
+                    seeded_projects += 1
+                    print("  ✅ Orchestrator project created")
+                    project = new_project
+                else:
+                    print("  ⏭️  Orchestrator project exists")
+                    project = existing
+
+                # Seed orchestrator VM from state
+                vm_state = state.get("vm", {})
+                if vm_state:
+                    existing_vm = (
+                        db.query(VM)
+                        .filter(VM.project_id == project.id, VM.name == "orchestrator")
+                        .first()
+                    )
+
+                    if not existing_vm:
+                        new_vm = VM(
+                            project_id=project.id,
+                            name="orchestrator",
+                            external_ip=vm_state.get("external_ip"),
+                            internal_ip=None,
+                            machine_type=vm_state.get("machine_type"),
+                            status=vm_state.get("status", "running"),
+                        )
+                        db.add(new_vm)
+                        seeded_vms += 1
+                        print(
+                            f"    ✅ VM: orchestrator ({vm_state.get('external_ip')})"
+                        )
+                    else:
+                        # Update IP if changed
+                        external_ip = vm_state.get("external_ip")
+                        if external_ip and existing_vm.external_ip != external_ip:
+                            existing_vm.external_ip = external_ip
+                            existing_vm.status = vm_state.get("status", "running")
+                            print(f"    🔄 VM updated: orchestrator ({external_ip})")
+
+                db.commit()
 
         for project_dir in sorted(projects_dir.iterdir()):
             if not project_dir.is_dir() or project_dir.name.startswith("."):
@@ -49,8 +133,15 @@ def seed_database():
             if not existing:
                 # Create project
                 cloud_config = config.get("cloud", {})
+
+                # Set domain based on project name
+                domain = None
+                if project_name == "cheapa":
+                    domain = "cheapa.io"
+
                 new_project = Project(
                     name=project_name,
+                    domain=domain,
                     cloud_provider=cloud_config.get("provider", "gcp"),
                     cloud_region=cloud_config.get("region", "us-central1"),
                     cloud_zone=cloud_config.get("zone", "us-central1-a"),
@@ -70,6 +161,42 @@ def seed_database():
             else:
                 print("  ⏭️  Project exists")
                 project = existing
+
+            # Seed VMs from state.yml
+            state_file = project_dir / "state.yml"
+            if state_file.exists():
+                with open(state_file, "r") as f:
+                    state = yaml.safe_load(f)
+
+                vms_state = state.get("vms", {})
+                for vm_name, vm_config in vms_state.items():
+                    # Check if VM exists
+                    existing_vm = (
+                        db.query(VM)
+                        .filter(VM.project_id == project.id, VM.name == vm_name)
+                        .first()
+                    )
+
+                    if not existing_vm:
+                        new_vm = VM(
+                            project_id=project.id,
+                            name=vm_name,
+                            external_ip=vm_config.get("external_ip"),
+                            internal_ip=vm_config.get("internal_ip"),
+                            machine_type=vm_config.get("machine_type"),
+                            status=vm_config.get("status", "running"),
+                        )
+                        db.add(new_vm)
+                        seeded_vms += 1
+                        print(f"    ✅ VM: {vm_name} ({vm_config.get('external_ip')})")
+                    else:
+                        # Update IP if changed
+                        external_ip = vm_config.get("external_ip")
+                        if external_ip and existing_vm.external_ip != external_ip:
+                            existing_vm.external_ip = external_ip
+                            existing_vm.internal_ip = vm_config.get("internal_ip")
+                            existing_vm.status = vm_config.get("status", "running")
+                            print(f"    🔄 VM updated: {vm_name} ({external_ip})")
 
             # Seed Apps from config.yml
             apps_config = config.get("apps", {})
@@ -251,6 +378,7 @@ def seed_database():
 
         print("\n🎉 Seed Complete!")
         print(f"  Projects: {seeded_projects}")
+        print(f"  VMs: {seeded_vms}")
         print(f"  Apps: {seeded_apps}")
         print(f"  Addons: {seeded_addons}")
         print(f"  Secrets: {seeded_secrets}")
