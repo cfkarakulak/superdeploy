@@ -309,15 +309,16 @@ async def get_app_container_metrics(project_name: str, app_name: str):
         
         prometheus_url = f"http://{orchestrator_vm.external_ip}:9090"
         
-        # Query cAdvisor metrics for containers matching app name
+        # Query cAdvisor metrics for Docker containers (systemd cgroup paths)
+        # Filter: only docker-*.scope containers (not root, not system services)
         queries = {
-            "cpu_usage": f'rate(container_cpu_usage_seconds_total{{name=~".*{app_name}.*"}}[5m]) * 100',
-            "memory_usage": f'container_memory_usage_bytes{{name=~".*{app_name}.*"}}',
-            "memory_limit": f'container_spec_memory_limit_bytes{{name=~".*{app_name}.*"}}',
-            "network_rx": f'rate(container_network_receive_bytes_total{{name=~".*{app_name}.*"}}[5m])',
-            "network_tx": f'rate(container_network_transmit_bytes_total{{name=~".*{app_name}.*"}}[5m])',
-            "fs_reads": f'rate(container_fs_reads_bytes_total{{name=~".*{app_name}.*"}}[5m])',
-            "fs_writes": f'rate(container_fs_writes_bytes_total{{name=~".*{app_name}.*"}}[5m])',
+            "cpu_usage": f'rate(container_cpu_usage_seconds_total{{id=~"/system.slice/docker-.*\\\\.scope"}}[5m]) * 100',
+            "memory_usage": f'container_memory_usage_bytes{{id=~"/system.slice/docker-.*\\\\.scope"}}',
+            "memory_limit": f'container_spec_memory_limit_bytes{{id=~"/system.slice/docker-.*\\\\.scope"}}',
+            "network_rx": f'rate(container_network_receive_bytes_total{{id=~"/system.slice/docker-.*\\\\.scope"}}[5m])',
+            "network_tx": f'rate(container_network_transmit_bytes_total{{id=~"/system.slice/docker-.*\\\\.scope"}}[5m])',
+            "fs_reads": f'rate(container_fs_reads_bytes_total{{id=~"/system.slice/docker-.*\\\\.scope"}}[5m])',
+            "fs_writes": f'rate(container_fs_writes_bytes_total{{id=~"/system.slice/docker-.*\\\\.scope"}}[5m])',
         }
         
         # Execute queries
@@ -341,23 +342,35 @@ async def get_app_container_metrics(project_name: str, app_name: str):
                     print(f"Container metrics query error ({key}): {e}")
                     results[key] = []
         
+        # Helper to extract container name from systemd cgroup path
+        def get_container_name(container_id: str) -> str:
+            """Extract container hash from systemd cgroup path"""
+            # /system.slice/docker-HASH.scope -> HASH (first 12 chars)
+            if 'docker-' in container_id:
+                hash_part = container_id.split('docker-')[1].split('.scope')[0]
+                return hash_part[:12]  # Docker short ID
+            return container_id
+        
         # Process results into container-specific metrics
         containers = {}
         
         for result in results.get("cpu_usage", []):
-            container_name = result.get("metric", {}).get("name", "unknown")
+            container_id = result.get("metric", {}).get("id", "unknown")
+            container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["cpu_percent"] = float(result.get("value", [None, "0"])[1])
         
         for result in results.get("memory_usage", []):
-            container_name = result.get("metric", {}).get("name", "unknown")
+            container_id = result.get("metric", {}).get("id", "unknown")
+            container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["memory_bytes"] = int(float(result.get("value", [None, "0"])[1]))
         
         for result in results.get("memory_limit", []):
-            container_name = result.get("metric", {}).get("name", "unknown")
+            container_id = result.get("metric", {}).get("id", "unknown")
+            container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
             limit = int(float(result.get("value", [None, "0"])[1]))
@@ -368,25 +381,29 @@ async def get_app_container_metrics(project_name: str, app_name: str):
                 )
         
         for result in results.get("network_rx", []):
-            container_name = result.get("metric", {}).get("name", "unknown")
+            container_id = result.get("metric", {}).get("id", "unknown")
+            container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["network_rx_bytes_per_sec"] = float(result.get("value", [None, "0"])[1])
         
         for result in results.get("network_tx", []):
-            container_name = result.get("metric", {}).get("name", "unknown")
+            container_id = result.get("metric", {}).get("id", "unknown")
+            container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["network_tx_bytes_per_sec"] = float(result.get("value", [None, "0"])[1])
         
         for result in results.get("fs_reads", []):
-            container_name = result.get("metric", {}).get("name", "unknown")
+            container_id = result.get("metric", {}).get("id", "unknown")
+            container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["fs_read_bytes_per_sec"] = float(result.get("value", [None, "0"])[1])
         
         for result in results.get("fs_writes", []):
-            container_name = result.get("metric", {}).get("name", "unknown")
+            container_id = result.get("metric", {}).get("id", "unknown")
+            container_name = get_container_name(container_id)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["fs_write_bytes_per_sec"] = float(result.get("value", [None, "0"])[1])
