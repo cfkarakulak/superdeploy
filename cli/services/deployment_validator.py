@@ -73,9 +73,9 @@ class DeploymentValidator:
         """Validate GitHub token."""
         errors = []
 
-        github_token = shared_secrets.get("GITHUB_TOKEN", "").strip()
+        github_token = shared_secrets.get("REPOSITORY_TOKEN", "").strip()
         if not github_token:
-            errors.append("GITHUB_TOKEN is missing or empty in secrets.yml")
+            errors.append("REPOSITORY_TOKEN is missing or empty in secrets.yml")
 
         return errors
 

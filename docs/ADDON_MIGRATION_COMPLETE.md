@@ -144,7 +144,7 @@ addons:
 
 shared:
   DOCKER_ORG: c100394
-  GITHUB_TOKEN: xxx
+  REPOSITORY_TOKEN: xxx
   # ... other shared secrets
 ```
 

@@ -158,7 +158,7 @@ export default function AppGitHubPage() {
         ) : error ? (
           <div className="text-center py-12 text-[#8b8b8b]">
             <p className="text-[15px]">Failed to load workflows: {error}</p>
-            <p className="text-[13px] mt-2">Make sure GITHUB_TOKEN is set in secrets.</p>
+            <p className="text-[13px] mt-2">Make sure REPOSITORY_TOKEN is set in secrets.</p>
           </div>
         ) : workflows.length === 0 ? (
           <div className="text-center py-12 text-[#8b8b8b]">

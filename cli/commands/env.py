@@ -45,7 +45,7 @@ class EnvVarHelper:
         "PROXY_INTERNAL_IP",
         "DOCKER_USERNAME",
         "DOCKER_TOKEN",
-        "GITHUB_TOKEN",
+        "REPOSITORY_TOKEN",
         "VM_MACHINE_TYPE",
         "VM_DISK_SIZE",
         "VM_IMAGE",
@@ -106,17 +106,21 @@ class EnvVarHelper:
     @classmethod
     def verify_password(cls, env_vars: Dict[str, str], console) -> bool:
         """Verify user identity with password challenge."""
-        expected_token = env_vars.get("GITHUB_TOKEN", "")
+        expected_token = env_vars.get("REPOSITORY_TOKEN", "")
 
         if not expected_token or expected_token in ["", "your-github-token"]:
-            console.print("[red]❌ GITHUB_TOKEN not configured in secrets.yml[/red]")
-            console.print("[yellow]Set a valid GITHUB_TOKEN to use --no-mask[/yellow]")
+            console.print(
+                "[red]❌ REPOSITORY_TOKEN not configured in secrets.yml[/red]"
+            )
+            console.print(
+                "[yellow]Set a valid REPOSITORY_TOKEN to use --no-mask[/yellow]"
+            )
             return False
 
         console.print(
             Panel(
                 "[yellow]⚠️  Sensitive data access[/yellow]\n\n"
-                "[white]Enter your GITHUB_TOKEN (from secrets.yml):[/white]",
+                "[white]Enter your REPOSITORY_TOKEN (from secrets.yml):[/white]",
                 border_style="yellow",
             )
         )
@@ -251,7 +255,7 @@ class EnvCheckCommand(BaseCommand):
         "GCP_REGION",
         "SSH_KEY_PATH",
         "DOCKER_USERNAME",
-        "GITHUB_TOKEN",
+        "REPOSITORY_TOKEN",
         "POSTGRES_PASSWORD",
         "RABBITMQ_PASSWORD",
         "API_SECRET_KEY",

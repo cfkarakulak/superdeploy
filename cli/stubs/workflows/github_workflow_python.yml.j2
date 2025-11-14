@@ -17,14 +17,14 @@ jobs:
       - name: Checkout {{ app_name }} repository
         uses: actions/checkout@v4
         with:
-          token: {% raw %}${{ secrets.GITHUB_TOKEN }}{% endraw %}
+          token: {% raw %}${{ secrets.REPOSITORY_TOKEN }}{% endraw %}
           path: {{ app_name }}
       
       - name: Checkout commons models (shared workspace)
         uses: actions/checkout@v4
         with:
           repository: {{ repo_org }}/commons
-          token: {% raw %}${{ secrets.GITHUB_TOKEN }}{% endraw %}
+          token: {% raw %}${{ secrets.REPOSITORY_TOKEN }}{% endraw %}
           path: commons
       
       - name: Read app configuration

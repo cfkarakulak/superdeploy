@@ -579,7 +579,7 @@ addons:
 shared:
   DOCKER_ORG: c100394
   DOCKER_TOKEN: dckr_pat_xxx
-  GITHUB_TOKEN: ghp_xxx
+  REPOSITORY_TOKEN: ghp_xxx
   ORCHESTRATOR_IP: 34.41.217.222
 
 # =============================================================================

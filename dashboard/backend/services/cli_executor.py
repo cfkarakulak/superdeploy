@@ -171,7 +171,7 @@ class CLIExecutor:
 
                 # GitHub token
                 if secrets.get("github_token"):
-                    shared["GITHUB_TOKEN"] = secrets["github_token"]
+                    shared["REPOSITORY_TOKEN"] = secrets["github_token"]
 
                 # SMTP credentials (optional)
                 if secrets.get("smtp_host"):

@@ -16,7 +16,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: {% raw %}${{ secrets.GITHUB_TOKEN }}{% endraw %}
+          token: {% raw %}${{ secrets.REPOSITORY_TOKEN }}{% endraw %}
       
       - name: Setup Node.js
         uses: actions/setup-node@v4

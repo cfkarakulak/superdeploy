@@ -126,7 +126,7 @@ def generate_project_secrets(
         "    # Required scopes: repo, workflow, packages, admin:org (manage_runners)"
     )
     yml_lines.append(
-        "    GITHUB_TOKEN: ''           # GitHub Personal Access Token (REQUIRED)"
+        "    REPOSITORY_TOKEN: ''           # GitHub Personal Access Token (REQUIRED)"
     )
     yml_lines.append("    #   This token is used to:")
     yml_lines.append("    #   - Checkout private repositories (e.g., commons)")

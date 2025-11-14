@@ -36,7 +36,7 @@ def get_github_token(project_name: str) -> str:
             .filter(
                 Secret.environment_id == production_env.id,
                 Secret.app == "shared",
-                Secret.key == "GITHUB_TOKEN",
+                Secret.key == "REPOSITORY_TOKEN",
             )
             .first()
         )

@@ -241,7 +241,7 @@ class InitCommand(BaseCommand):
             "     [yellow]→ Add DOCKER_ORG, DOCKER_USERNAME, DOCKER_TOKEN (required)[/yellow]"
         )
         self.console.print(
-            "     [yellow]→ Add GITHUB_TOKEN (required - with admin:org scope)[/yellow]"
+            "     [yellow]→ Add REPOSITORY_TOKEN (required - with admin:org scope)[/yellow]"
         )
         self.console.print(
             "     [yellow]→ Add SMTP credentials (optional, for email notifications)[/yellow]"

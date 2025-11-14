@@ -188,7 +188,7 @@ def create_project_from_wizard(
         "DOCKER_ORG": payload.secrets.docker_org,
         "DOCKER_USERNAME": payload.secrets.docker_username,
         "DOCKER_TOKEN": payload.secrets.docker_token,
-        "GITHUB_TOKEN": payload.secrets.github_token,
+        "REPOSITORY_TOKEN": payload.secrets.github_token,
     }
 
     if payload.secrets.smtp_host:
