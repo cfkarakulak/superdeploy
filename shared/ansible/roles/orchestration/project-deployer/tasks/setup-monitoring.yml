@@ -16,13 +16,22 @@
         - Fix: Ensure config.yml contains an 'apps' section
     quiet: true
 
-- name: Build monitoring targets list
+- name: Build VM IP mapping for monitoring
   set_fact:
-    monitoring_targets: "{{ monitoring_targets | default([]) + [item.value.vm + '-' + item.key + ':' + ((item.value.internal_port | default(item.value.port)) | string)] }}"
+    vm_ip_map: "{{ vm_ip_map | default({}) | combine({item: hostvars[item].ansible_host}) }}"
+  loop: "{{ groups['all'] | reject('match', '.*orchestrator.*') | list }}"
+  when: 
+    - hostvars[item].ansible_host is defined
+
+- name: Build monitoring targets list with external IPs
+  set_fact:
+    monitoring_targets: "{{ monitoring_targets | default([]) + [vm_ip_map[item.value.vm] + ':' + ((item.value.internal_port | default(item.value.port)) | string)] }}"
   loop: "{{ apps | dict2items }}"
   when: 
     - (item.value.port is defined or item.value.internal_port is defined)
     - item.value.vm is defined
+    - vm_ip_map is defined
+    - vm_ip_map[item.value.vm] is defined
 
 - name: Set app port fact for monitoring
   set_fact:
