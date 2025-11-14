@@ -16,22 +16,15 @@
         - Fix: Ensure config.yml contains an 'apps' section
     quiet: true
 
-- name: Build VM IP mapping for monitoring
-  set_fact:
-    vm_ip_map: "{{ vm_ip_map | default({}) | combine({item: hostvars[item].ansible_host}) }}"
-  loop: "{{ groups['all'] | reject('match', '.*orchestrator.*') | list }}"
-  when: 
-    - hostvars[item].ansible_host is defined
-
 - name: Build monitoring targets list with external IPs
   set_fact:
-    monitoring_targets: "{{ monitoring_targets | default([]) + [vm_ip_map[item.value.vm] + ':' + ((item.value.internal_port | default(item.value.port)) | string)] }}"
+    monitoring_targets: "{{ monitoring_targets | default([]) + [hostvars[groups[item.value.vm][0]].ansible_host + ':' + ((item.value.internal_port | default(item.value.port)) | string)] }}"
   loop: "{{ apps | dict2items }}"
   when: 
     - (item.value.port is defined or item.value.internal_port is defined)
     - item.value.vm is defined
-    - vm_ip_map is defined
-    - vm_ip_map[item.value.vm] is defined
+    - groups[item.value.vm] is defined
+    - groups[item.value.vm] | length > 0
 
 - name: Set app port fact for monitoring
   set_fact:
@@ -68,7 +61,7 @@
   set_fact:
     # Use external_ip for cross-VPC monitoring (orchestrator → project VMs)
     # Internal IPs only work within same VPC, but orchestrator is separate deployment  
-    vm_monitoring_list: "{{ vm_monitoring_list | default([]) + [{'name': item, 'ip': hostvars[item].ansible_host, 'internal_ip': hostvars[item].internal_ip | default(''), 'external_ip': hostvars[item].ansible_host}] }}"
+    vm_monitoring_list: "{{ vm_monitoring_list | default([]) + [{'name': item, 'external_ip': hostvars[item].ansible_host, 'internal_ip': hostvars[item].internal_ip | default('')}] }}"
   loop: "{{ groups['all'] | reject('match', '.*orchestrator.*') | list }}"
   when: 
     - hostvars[item].ansible_host is defined
