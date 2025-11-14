@@ -7,58 +7,21 @@ router = APIRouter(tags=["github"])
 
 
 def get_github_token(project_name: str) -> str:
-    """Get GitHub token from database."""
+    """Get GitHub token from Settings table."""
     from database import SessionLocal
-    from models import Project, Environment, Secret
+    from models import Setting
 
     db = SessionLocal()
     try:
-        project = db.query(Project).filter(Project.name == project_name).first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        production_env = (
-            db.query(Environment)
-            .filter(
-                Environment.project_id == project.id, Environment.name == "production"
-            )
-            .first()
-        )
-
-        if not production_env:
+        setting = db.query(Setting).filter(Setting.key == "github_token").first()
+        
+        if not setting or not setting.value:
             raise HTTPException(
-                status_code=404, detail="Production environment not found"
+                status_code=404,
+                detail="GitHub token not found in settings"
             )
-
-        # Try to find GitHub token in secrets (shared or api)
-        token_secret = (
-            db.query(Secret)
-            .filter(
-                Secret.environment_id == production_env.id,
-                Secret.app == "shared",
-                Secret.key == "REPOSITORY_TOKEN",
-            )
-            .first()
-        )
-
-        if token_secret:
-            return token_secret.value
-
-        # Try GH_TOKEN as fallback
-        token_secret = (
-            db.query(Secret)
-            .filter(
-                Secret.environment_id == production_env.id,
-                Secret.app == "shared",
-                Secret.key == "GH_TOKEN",
-            )
-            .first()
-        )
-
-        if token_secret:
-            return token_secret.value
-
-        raise HTTPException(status_code=404, detail="GitHub token not found in secrets")
+        
+        return setting.value
 
     finally:
         db.close()

@@ -300,90 +300,90 @@ export default function AppOverviewPage() {
           </div>
         </div>
 
-        {/* Section 2: Container Metrics (cAdvisor) */}
-        <div className="mb-6">
-          <h2 className="text-[15px] font-semibold text-[#0a0a0a] mb-4 flex items-center gap-2">
-            <Container className="w-4 h-4" />
-            Container Metrics
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Running Containers */}
-            <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-teal-50 rounded-lg">
-                    <Container className="w-5 h-5 text-teal-600" />
+        {/* Section 2: Running Containers */}
+        {containerCount > 0 && (
+          <div className="mb-6">
+            <h2 className="text-[15px] font-semibold text-[#0a0a0a] mb-4 flex items-center gap-2">
+              <Container className="w-4 h-4" />
+              Running Containers ({containerCount})
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {containers.map((container, idx) => (
+                <div key={idx} className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow bg-white">
+                  {/* Container Header */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="p-2 bg-teal-50 rounded-lg flex-shrink-0">
+                        <Container className="w-4 h-4 text-teal-600" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-[13px] font-medium text-[#0a0a0a] truncate" title={container.name}>
+                          {container.name}
+                        </h3>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-50 text-green-700 mt-1">
+                          Running
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-[13px] text-[#8b8b8b] font-light">Running Containers</h3>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-[32px] font-semibold text-[#0a0a0a]">
-                  {containerCount}
-                </span>
-                <span className="text-[16px] text-[#8b8b8b]">active</span>
-              </div>
-              <div className="mt-3">
-                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-medium ${
-                  containerCount > 0 ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-700"
-                }`}>
-                  {containerCount > 0 ? "Healthy" : "No containers"}
-                </span>
-              </div>
-            </div>
 
-            {/* Container CPU */}
-            <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-indigo-50 rounded-lg">
-                    <Cpu className="w-5 h-5 text-indigo-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-[13px] text-[#8b8b8b] font-light">Container CPU</h3>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-[32px] font-semibold text-[#0a0a0a]">
-                  {totalContainerCpu.toFixed(1)}
-                </span>
-                <span className="text-[16px] text-[#8b8b8b]">%</span>
-              </div>
-              <div className="mt-3">
-                <span className="text-[11px] text-[#8b8b8b]">
-                  Total across {containerCount} container{containerCount !== 1 ? 's' : ''}
-                </span>
-              </div>
-            </div>
+                  {/* Container Stats */}
+                  <div className="space-y-3">
+                    {/* CPU */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] text-[#8b8b8b] font-medium">CPU</span>
+                        <span className="text-[13px] font-semibold text-[#0a0a0a]">
+                          {container.cpu_percent?.toFixed(1) || '0.0'}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-[#f0f0f0] rounded-full h-1">
+                        <div
+                          className="bg-blue-600 h-1 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.min(container.cpu_percent || 0, 100)}%` }}
+                        ></div>
+                      </div>
+                    </div>
 
-            {/* Container Memory */}
-            <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-pink-50 rounded-lg">
-                    <MemoryStick className="w-5 h-5 text-pink-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-[13px] text-[#8b8b8b] font-light">Container Memory</h3>
+                    {/* Memory */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] text-[#8b8b8b] font-medium">Memory</span>
+                        <span className="text-[13px] font-semibold text-[#0a0a0a]">
+                          {formatBytes(container.memory_bytes || 0)}
+                        </span>
+                      </div>
+                      {container.memory_percent !== undefined && (
+                        <div className="w-full bg-[#f0f0f0] rounded-full h-1">
+                          <div
+                            className="bg-purple-600 h-1 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.min(container.memory_percent, 100)}%` }}
+                          ></div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Network */}
+                    <div className="pt-2 border-t border-[#f0f0f0]">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-[#8b8b8b]">RX</span>
+                        <span className="text-[#0a0a0a] font-medium">
+                          {formatBytes(container.network_rx_bytes_per_sec || 0)}/s
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] mt-1">
+                        <span className="text-[#8b8b8b]">TX</span>
+                        <span className="text-[#0a0a0a] font-medium">
+                          {formatBytes(container.network_tx_bytes_per_sec || 0)}/s
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-[32px] font-semibold text-[#0a0a0a]">
-                  {formatBytes(totalContainerMemory)}
-                </span>
-              </div>
-              <div className="mt-3">
-                <span className="text-[11px] text-[#8b8b8b]">
-                  Total across {containerCount} container{containerCount !== 1 ? 's' : ''}
-                </span>
-              </div>
+              ))}
             </div>
           </div>
-        </div>
+        )}
 
         {/* Section 3: Application Metrics (Prometheus Middleware) */}
         <div className="mb-6">
@@ -479,47 +479,6 @@ export default function AppOverviewPage() {
           </div>
         </div>
 
-        {/* Container Details Table */}
-        {containerCount > 0 && (
-          <div className="mt-6">
-            <h2 className="text-[15px] font-semibold text-[#0a0a0a] mb-4">Container Details</h2>
-            <div className="border border-[#e3e8ee] rounded-lg overflow-hidden">
-              <table className="min-w-full divide-y divide-[#e3e8ee]">
-                <thead className="bg-[#f7f7f7]">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-[13px] font-medium text-[#8b8b8b]">Container</th>
-                    <th className="px-4 py-3 text-left text-[13px] font-medium text-[#8b8b8b]">CPU %</th>
-                    <th className="px-4 py-3 text-left text-[13px] font-medium text-[#8b8b8b]">Memory</th>
-                    <th className="px-4 py-3 text-left text-[13px] font-medium text-[#8b8b8b]">Network RX</th>
-                    <th className="px-4 py-3 text-left text-[13px] font-medium text-[#8b8b8b]">Network TX</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-[#e3e8ee]">
-                  {containers.map((container, idx) => (
-                    <tr key={idx} className="hover:bg-[#f7f7f7] transition-colors">
-                      <td className="px-4 py-3 text-[13px] text-[#0a0a0a] font-mono">
-                        {container.name}
-                      </td>
-                      <td className="px-4 py-3 text-[13px] text-[#0a0a0a]">
-                        {container.cpu_percent?.toFixed(2) || '0.00'}%
-                      </td>
-                      <td className="px-4 py-3 text-[13px] text-[#0a0a0a]">
-                        {formatBytes(container.memory_bytes || 0)}
-                        {container.memory_percent ? ` (${container.memory_percent.toFixed(1)}%)` : ''}
-                      </td>
-                      <td className="px-4 py-3 text-[13px] text-[#0a0a0a]">
-                        {formatBytes(container.network_rx_bytes_per_sec || 0)}/s
-                      </td>
-                      <td className="px-4 py-3 text-[13px] text-[#0a0a0a]">
-                        {formatBytes(container.network_tx_bytes_per_sec || 0)}/s
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

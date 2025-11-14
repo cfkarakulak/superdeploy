@@ -95,7 +95,7 @@ export default function AppGitHubPage() {
   useEffect(() => {
     const fetchAppInfo = async () => {
       try {
-        const response = await fetch(`http://localhost:8401/api/apps/${projectName}/list`);
+        const response = await fetch(`http://localhost:8000/api/apps/${projectName}/list`);
         const data = await response.json();
         const app = data.apps.find((a: any) => a.name === appName);
         if (app) {

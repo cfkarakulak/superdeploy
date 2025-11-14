@@ -3,7 +3,17 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { AppHeader, PageHeader } from "@/components";
-import { GitBranch, GitCommit, Calendar, User, CheckCircle2, RotateCcw } from "lucide-react";
+import { 
+  GitBranch, 
+  GitCommit, 
+  Calendar, 
+  User, 
+  CheckCircle2, 
+  RotateCcw,
+  Clock,
+  Tag,
+  Activity
+} from "lucide-react";
 
 interface Release {
   version: string;
@@ -49,7 +59,7 @@ export default function DeployPage() {
     try {
       setLoading(true);
       const response = await fetch(
-        `http://localhost:8401/api/apps/${projectName}/${appName}/releases`
+        `http://localhost:8000/api/apps/${projectName}/${appName}/releases`
       );
       if (!response.ok) throw new Error("Failed to fetch releases");
       const data = await response.json();
@@ -75,7 +85,7 @@ export default function DeployPage() {
     setSwitching(gitSha);
     try {
       const response = await fetch(
-        `http://localhost:8401/api/apps/${projectName}/${appName}/switch`,
+        `http://localhost:8000/api/apps/${projectName}/${appName}/switch`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -114,18 +124,46 @@ export default function DeployPage() {
     }
   };
 
+  const getRelativeTime = (dateString: string) => {
+    if (dateString === "-") return "-";
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+      
+      if (seconds < 60) return "just now";
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      if (days < 30) return `${days}d ago`;
+      const months = Math.floor(days / 30);
+      if (months < 12) return `${months}mo ago`;
+      const years = Math.floor(months / 12);
+      return `${years}y ago`;
+    } catch {
+      return dateString;
+    }
+  };
+
   return (
     <div>
       <AppHeader />
       
       <div className="bg-white rounded-[16px] p-[20px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
-        <PageHeader
-          breadcrumb={{
-            label: "Deploy",
-            href: `/project/${projectName}/app/${appName}`
-          }}
-          title="Deployment History"
-        />
+        <div className="mb-6">
+          <PageHeader
+            breadcrumb={{
+              label: "Deploy",
+              href: `/project/${projectName}/app/${appName}`
+            }}
+            title="Deployment History"
+          />
+          <p className="text-[13px] text-[#8b8b8b] mt-2">
+            View all deployments and rollback to any previous version with zero downtime
+          </p>
+        </div>
 
         {loading ? (
           <ReleasesTableSkeleton />
@@ -139,100 +177,166 @@ export default function DeployPage() {
             <p className="text-[13px] mt-2">Deploy the app first: <code className="bg-[#f7f7f7] px-2 py-1 rounded">git push origin production</code></p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {releases.map((release, index) => (
-              <div
-                key={index}
-                className="bg-[#f7f7f7] rounded-lg p-5 border border-[#e3e8ee] hover:border-[#cbd5e1] transition-all"
-              >
-                {/* Header Row */}
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                    <span className="text-[14px] font-semibold text-green-600">
-                      {release.status}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <code className="text-[13px] bg-[#e3e8ee] px-3 py-1 rounded font-mono text-[#0a0a0a]">
-                      v{release.version}
-                    </code>
-                    {index > 0 && (
-                      <button
-                        onClick={() => handleSwitch(release.git_sha)}
-                        disabled={switching !== null}
-                        className="flex items-center gap-1 text-[11px] px-3 py-1 rounded bg-blue-500 text-white hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Switch to this version"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        {switching === release.git_sha ? "Switching..." : "Switch"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Details Grid */}
-                <div className="space-y-3">
-                  {/* Commit Message */}
-                  {release.commit_message && release.commit_message !== "-" && (
-                    <div className="bg-white p-3 rounded border border-[#e3e8ee]">
-                      <p className="text-[13px] text-[#0a0a0a] line-clamp-2">
-                        {release.commit_message}
-                      </p>
-                    </div>
+          <div className="space-y-0">
+            {releases.map((release, index) => {
+              const isLatest = index === 0;
+              const hasTimeline = index < releases.length - 1;
+              
+              return (
+                <div key={index} className="relative">
+                  {/* Timeline connector */}
+                  {hasTimeline && (
+                    <div className="absolute left-[15px] top-[48px] bottom-[-24px] w-[2px] bg-[#e3e8ee]" />
                   )}
-
-                  {/* Git SHA - Full version with copy */}
-                  <div className="flex items-start gap-2">
-                    <GitCommit className="w-4 h-4 text-[#8b8b8b] mt-1" />
-                    <div className="flex-1">
-                      <span className="text-[11px] text-[#8b8b8b] block mb-1">Git SHA</span>
-                      <div className="flex items-center gap-2">
-                        <code className="text-[13px] font-mono text-[#0a0a0a] bg-white px-2 py-1 rounded border border-[#e3e8ee]">
-                          {release.git_sha}
-                        </code>
-                        <button
-                          onClick={() => navigator.clipboard.writeText(release.git_sha)}
-                          className="text-[11px] text-[#8b8b8b] hover:text-[#0a0a0a] transition-colors px-2 py-1 rounded hover:bg-[#f7f7f7]"
-                          title="Copy SHA"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Branch */}
-                    <div className="flex items-center gap-2">
-                      <GitBranch className="w-4 h-4 text-[#8b8b8b]" />
-                      <div className="flex flex-col">
-                        <span className="text-[11px] text-[#8b8b8b]">Branch</span>
-                        <span className="text-[13px] text-[#0a0a0a] font-medium">{release.branch}</span>
+                  
+                  <div className="relative flex gap-4 pb-6">
+                    {/* Timeline dot with status */}
+                    <div className="relative z-10 flex-shrink-0">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        isLatest 
+                          ? 'bg-green-500 ring-4 ring-green-100' 
+                          : 'bg-white border-2 border-[#e3e8ee]'
+                      }`}>
+                        {isLatest ? (
+                          <Activity className="w-4 h-4 text-white" />
+                        ) : (
+                          <CheckCircle2 className="w-4 h-4 text-green-500" />
+                        )}
                       </div>
                     </div>
 
-                    {/* Deployed By */}
-                    <div className="flex items-center gap-2">
-                      <User className="w-4 h-4 text-[#8b8b8b]" />
-                      <div className="flex flex-col">
-                        <span className="text-[11px] text-[#8b8b8b]">Deployed By</span>
-                        <span className="text-[13px] text-[#0a0a0a]">{release.deployed_by}</span>
-                      </div>
-                    </div>
+                    {/* Card */}
+                    <div className="flex-1 min-w-0">
+                      <div className={`bg-white rounded-lg border ${
+                        isLatest ? 'border-green-200 shadow-sm' : 'border-[#e3e8ee]'
+                      } hover:shadow-md transition-all overflow-hidden`}>
+                        
+                        {/* Header */}
+                        <div className="px-4 py-3 border-b border-[#e3e8ee] flex items-center justify-between gap-4">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            {/* Status Badge */}
+                            {isLatest && (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-green-50 text-green-700 border border-green-200 flex-shrink-0">
+                                <Activity className="w-3 h-3" />
+                                Current
+                              </span>
+                            )}
+                            
+                            {/* Version */}
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Tag className="w-3.5 h-3.5 text-[#8b8b8b] flex-shrink-0" />
+                              <code className="text-[13px] font-mono font-medium text-[#0a0a0a]">
+                                v{release.version}
+                              </code>
+                            </div>
 
-                    {/* Deployed At */}
-                    <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-[#8b8b8b]" />
-                      <div className="flex flex-col">
-                        <span className="text-[11px] text-[#8b8b8b]">Deployed At</span>
-                        <span className="text-[13px] text-[#0a0a0a]">{formatDate(release.deployed_at)}</span>
+                            {/* Relative Time */}
+                            <span className="text-[12px] text-[#8b8b8b] flex-shrink-0">
+                              {getRelativeTime(release.deployed_at)}
+                            </span>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {!isLatest && (
+                              <button
+                                onClick={() => handleSwitch(release.git_sha)}
+                                disabled={switching !== null}
+                                className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md bg-[#0a0a0a] text-white hover:bg-[#2a2a2a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                                title="Rollback to this version"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                {switching === release.git_sha ? "Switching..." : "Rollback"}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Body */}
+                        <div className="px-4 py-4 space-y-4">
+                          {/* Commit Message */}
+                          {release.commit_message && release.commit_message !== "-" && (
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <GitCommit className="w-3.5 h-3.5 text-[#8b8b8b]" />
+                                <span className="text-[11px] font-medium text-[#8b8b8b] uppercase tracking-wider">Commit</span>
+                              </div>
+                              <p className="text-[14px] text-[#0a0a0a] pl-5">
+                                {release.commit_message}
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Metadata Grid */}
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-3 border-t border-[#f0f0f0]">
+                            {/* Git SHA */}
+                            <div>
+                              <div className="text-[11px] font-medium text-[#8b8b8b] uppercase tracking-wider mb-1.5">
+                                Commit SHA
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <code className="text-[12px] font-mono text-[#0a0a0a] bg-[#f7f7f7] px-2 py-1 rounded">
+                                  {release.git_sha.substring(0, 7)}
+                                </code>
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(release.git_sha);
+                                    alert('✓ Copied!');
+                                  }}
+                                  className="text-[11px] text-[#8b8b8b] hover:text-[#0a0a0a] transition-colors"
+                                  title="Copy full SHA"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Branch */}
+                            <div>
+                              <div className="text-[11px] font-medium text-[#8b8b8b] uppercase tracking-wider mb-1.5">
+                                Branch
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <GitBranch className="w-3 h-3 text-[#8b8b8b]" />
+                                <span className="text-[13px] text-[#0a0a0a] font-medium">
+                                  {release.branch}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Deployed By */}
+                            <div>
+                              <div className="text-[11px] font-medium text-[#8b8b8b] uppercase tracking-wider mb-1.5">
+                                Deployed By
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <User className="w-3 h-3 text-[#8b8b8b]" />
+                                <span className="text-[13px] text-[#0a0a0a]">
+                                  {release.deployed_by}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Timestamp */}
+                            <div>
+                              <div className="text-[11px] font-medium text-[#8b8b8b] uppercase tracking-wider mb-1.5">
+                                Deployed
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Clock className="w-3 h-3 text-[#8b8b8b]" />
+                                <span className="text-[13px] text-[#0a0a0a]" title={formatDate(release.deployed_at)}>
+                                  {getRelativeTime(release.deployed_at)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

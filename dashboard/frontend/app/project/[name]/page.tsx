@@ -111,8 +111,8 @@ export default function ProjectPage() {
     const fetchData = async () => {
       try {
         const [appsRes, addonsRes] = await Promise.all([
-          fetch(`http://localhost:8401/api/apps/${projectName}/list`),
-          fetch(`http://localhost:8401/api/addons/${projectName}/list`),
+          fetch(`http://localhost:8000/api/apps/${projectName}/list`),
+          fetch(`http://localhost:8000/api/addons/${projectName}/list`),
         ]);
 
         const appsData = await appsRes.json();

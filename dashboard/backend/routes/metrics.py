@@ -342,9 +342,13 @@ async def get_app_container_metrics(project_name: str, app_name: str):
                     results[key] = []
 
         # Helper to extract container name from systemd cgroup path
-        def get_container_name(container_id: str) -> str:
-            """Extract container hash from systemd cgroup path"""
-            # /system.slice/docker-HASH.scope -> HASH (first 12 chars)
+        def get_container_name(container_id: str, container_name_label: str = "") -> str:
+            """Extract readable container name from labels or fallback to hash"""
+            # Try to use container_name label first (e.g., "api-web-1")
+            if container_name_label and container_name_label != "":
+                return container_name_label
+            
+            # Fallback: /system.slice/docker-HASH.scope -> HASH (first 12 chars)
             if "docker-" in container_id:
                 hash_part = container_id.split("docker-")[1].split(".scope")[0]
                 return hash_part[:12]  # Docker short ID
@@ -354,8 +358,10 @@ async def get_app_container_metrics(project_name: str, app_name: str):
         containers = {}
 
         for result in results.get("cpu_usage", []):
-            container_id = result.get("metric", {}).get("id", "unknown")
-            container_name = get_container_name(container_id)
+            metric = result.get("metric", {})
+            container_id = metric.get("id", "unknown")
+            container_name_label = metric.get("name", "")  # Get container name from cAdvisor
+            container_name = get_container_name(container_id, container_name_label)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["cpu_percent"] = float(
@@ -363,8 +369,10 @@ async def get_app_container_metrics(project_name: str, app_name: str):
             )
 
         for result in results.get("memory_usage", []):
-            container_id = result.get("metric", {}).get("id", "unknown")
-            container_name = get_container_name(container_id)
+            metric = result.get("metric", {})
+            container_id = metric.get("id", "unknown")
+            container_name_label = metric.get("name", "")
+            container_name = get_container_name(container_id, container_name_label)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["memory_bytes"] = int(
@@ -372,8 +380,10 @@ async def get_app_container_metrics(project_name: str, app_name: str):
             )
 
         for result in results.get("memory_limit", []):
-            container_id = result.get("metric", {}).get("id", "unknown")
-            container_name = get_container_name(container_id)
+            metric = result.get("metric", {})
+            container_id = metric.get("id", "unknown")
+            container_name_label = metric.get("name", "")
+            container_name = get_container_name(container_id, container_name_label)
             if container_name not in containers:
                 containers[container_name] = {}
             limit = int(float(result.get("value", [None, "0"])[1]))
@@ -384,8 +394,10 @@ async def get_app_container_metrics(project_name: str, app_name: str):
                 )
 
         for result in results.get("network_rx", []):
-            container_id = result.get("metric", {}).get("id", "unknown")
-            container_name = get_container_name(container_id)
+            metric = result.get("metric", {})
+            container_id = metric.get("id", "unknown")
+            container_name_label = metric.get("name", "")
+            container_name = get_container_name(container_id, container_name_label)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["network_rx_bytes_per_sec"] = float(
@@ -393,8 +405,10 @@ async def get_app_container_metrics(project_name: str, app_name: str):
             )
 
         for result in results.get("network_tx", []):
-            container_id = result.get("metric", {}).get("id", "unknown")
-            container_name = get_container_name(container_id)
+            metric = result.get("metric", {})
+            container_id = metric.get("id", "unknown")
+            container_name_label = metric.get("name", "")
+            container_name = get_container_name(container_id, container_name_label)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["network_tx_bytes_per_sec"] = float(
@@ -402,8 +416,10 @@ async def get_app_container_metrics(project_name: str, app_name: str):
             )
 
         for result in results.get("fs_reads", []):
-            container_id = result.get("metric", {}).get("id", "unknown")
-            container_name = get_container_name(container_id)
+            metric = result.get("metric", {})
+            container_id = metric.get("id", "unknown")
+            container_name_label = metric.get("name", "")
+            container_name = get_container_name(container_id, container_name_label)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["fs_read_bytes_per_sec"] = float(
@@ -411,8 +427,10 @@ async def get_app_container_metrics(project_name: str, app_name: str):
             )
 
         for result in results.get("fs_writes", []):
-            container_id = result.get("metric", {}).get("id", "unknown")
-            container_name = get_container_name(container_id)
+            metric = result.get("metric", {})
+            container_id = metric.get("id", "unknown")
+            container_name_label = metric.get("name", "")
+            container_name = get_container_name(container_id, container_name_label)
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["fs_write_bytes_per_sec"] = float(
