@@ -154,7 +154,7 @@ async def get_app_metrics(project_name: str, app_name: str):
 async def get_project_vms_metrics(project_name: str):
     """
     Get real-time metrics for all VMs in a project from Prometheus.
-    
+
     Returns metrics for each VM:
     - CPU usage (%)
     - Memory usage (%)
@@ -164,23 +164,25 @@ async def get_project_vms_metrics(project_name: str):
     - Status (up/down)
     """
     db = SessionLocal()
-    
+
     try:
         # Verify project exists
         project = db.query(Project).filter(Project.name == project_name).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
-        
+
         # Get all VMs for this project
         vms = db.query(VM).filter(VM.project_id == project.id).all()
         if not vms:
             return {"project": project_name, "vms": []}
-        
+
         # Get orchestrator VM for Prometheus
-        orchestrator_project = db.query(Project).filter(Project.name == "orchestrator").first()
+        orchestrator_project = (
+            db.query(Project).filter(Project.name == "orchestrator").first()
+        )
         if not orchestrator_project:
             raise HTTPException(status_code=500, detail="Orchestrator not found")
-        
+
         orchestrator_vm = (
             db.query(VM)
             .filter(VM.project_id == orchestrator_project.id, VM.name == "orchestrator")
@@ -188,19 +190,19 @@ async def get_project_vms_metrics(project_name: str):
         )
         if not orchestrator_vm or not orchestrator_vm.external_ip:
             raise HTTPException(status_code=500, detail="Orchestrator VM not found")
-        
+
         prometheus_url = f"http://{orchestrator_vm.external_ip}:9090"
-        
+
         # Collect metrics for all VMs
         vm_metrics_list = []
-        
+
         for vm in vms:
             if not vm.external_ip:
                 continue
-                
+
             vm_ip = vm.external_ip
             instance_filter = f'instance=~".*{vm_ip}.*"'
-            
+
             # Prometheus queries for this VM
             queries = {
                 "cpu_usage": f'100 - (avg by (instance) (rate(node_cpu_seconds_total{{mode="idle",{instance_filter}}}[5m])) * 100)',
@@ -210,15 +212,15 @@ async def get_project_vms_metrics(project_name: str):
                 "status": f'up{{instance=~".*{vm_ip}.*",job="project-nodes"}}',
                 "network_rx": f'rate(node_network_receive_bytes_total{{device="eth0",{instance_filter}}}[5m])',
                 "network_tx": f'rate(node_network_transmit_bytes_total{{device="eth0",{instance_filter}}}[5m])',
-                "load_1m": f'node_load1{{{instance_filter}}}',
+                "load_1m": f"node_load1{{{instance_filter}}}",
             }
-            
+
             # Execute all queries in parallel
             results = await asyncio.gather(
                 *[query_prometheus(prometheus_url, q) for q in queries.values()],
-                return_exceptions=True
+                return_exceptions=True,
             )
-            
+
             # Map results back to query names
             metrics = {}
             for (key, _), result in zip(queries.items(), results):
@@ -226,30 +228,36 @@ async def get_project_vms_metrics(project_name: str):
                     metrics[key] = 0.0 if key != "status" else 0
                 else:
                     metrics[key] = result
-            
-            vm_metrics_list.append({
-                "name": vm.name,
-                "external_ip": vm.external_ip,
-                "internal_ip": vm.internal_ip,
-                "machine_type": vm.machine_type,
-                "status": "up" if metrics.get("status", 0) == 1 else "down",
-                "metrics": {
-                    "cpu_usage": round(metrics.get("cpu_usage", 0.0), 1),
-                    "memory_usage": round(metrics.get("memory_usage", 0.0), 1),
-                    "disk_usage": round(metrics.get("disk_usage", 0.0), 1),
-                    "uptime_seconds": int(metrics.get("uptime", 0)),
-                    "load_1m": round(metrics.get("load_1m", 0.0), 2),
-                    "network_rx_bytes_per_sec": round(metrics.get("network_rx", 0.0), 0),
-                    "network_tx_bytes_per_sec": round(metrics.get("network_tx", 0.0), 0),
+
+            vm_metrics_list.append(
+                {
+                    "name": vm.name,
+                    "external_ip": vm.external_ip,
+                    "internal_ip": vm.internal_ip,
+                    "machine_type": vm.machine_type,
+                    "status": "up" if metrics.get("status", 0) == 1 else "down",
+                    "metrics": {
+                        "cpu_usage": round(metrics.get("cpu_usage", 0.0), 1),
+                        "memory_usage": round(metrics.get("memory_usage", 0.0), 1),
+                        "disk_usage": round(metrics.get("disk_usage", 0.0), 1),
+                        "uptime_seconds": int(metrics.get("uptime", 0)),
+                        "load_1m": round(metrics.get("load_1m", 0.0), 2),
+                        "network_rx_bytes_per_sec": round(
+                            metrics.get("network_rx", 0.0), 0
+                        ),
+                        "network_tx_bytes_per_sec": round(
+                            metrics.get("network_tx", 0.0), 0
+                        ),
+                    },
                 }
-            })
-        
+            )
+
         return {
             "project": project_name,
             "prometheus_url": prometheus_url,
-            "vms": vm_metrics_list
+            "vms": vm_metrics_list,
         }
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:

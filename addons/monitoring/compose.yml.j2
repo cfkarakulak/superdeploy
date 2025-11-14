@@ -41,6 +41,28 @@ services:
       - "superdeploy.service=monitoring"
       - "superdeploy.component=prometheus"
 
+  # cAdvisor - Container metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: superdeploy-cadvisor
+    restart: always
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - monitoring-network
+    privileged: true
+    command:
+      - '--housekeeping_interval=10s'
+      - '--docker_only=true'
+      - '--store_container_labels=false'
+      - '--disable_metrics=disk,diskIO,tcp,udp,percpu,sched,process'
+
   # Grafana - Visualization and dashboards
   grafana:
     image: grafana/grafana:latest

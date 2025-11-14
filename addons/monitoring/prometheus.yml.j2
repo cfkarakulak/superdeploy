@@ -40,6 +40,14 @@ scrape_configs:
           service: 'grafana'
           component: 'monitoring'
 
+  # cAdvisor - Container metrics
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          service: 'cadvisor'
+          component: 'monitoring'
+
   # Project node exporters (file-based service discovery)
   # Each project creates its own file in /opt/superdeploy/shared/monitoring/targets.d/
   - job_name: 'project-nodes'
@@ -50,6 +58,19 @@ scrape_configs:
     relabel_configs:
       - source_labels: [__meta_filepath]
         regex: '.*/([^/]+)-nodes\.json'
+        target_label: project
+
+  # Project application metrics (file-based service discovery)
+  # Apps with /metrics endpoint
+  - job_name: 'project-apps'
+    file_sd_configs:
+      - files:
+          - '/opt/superdeploy/shared/monitoring/targets.d/*-apps.json'
+        refresh_interval: 30s
+    metrics_path: '/metrics'
+    relabel_configs:
+      - source_labels: [__meta_filepath]
+        regex: '.*/([^/]+)-apps\.json'
         target_label: project
 
 {% for project in projects %}
