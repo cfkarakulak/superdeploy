@@ -87,8 +87,8 @@ class ProjectInitializer:
 class InitCommand(BaseCommand):
     """Initialize new project with secrets.yml."""
 
-    def __init__(self, project_name: str, verbose: bool = False):
-        super().__init__(verbose=verbose)
+    def __init__(self, project_name: str, verbose: bool = False, json_output: bool = False):
+        super().__init__(verbose=verbose, json_output=json_output)
         self.project_name = project_name
 
     def execute(self) -> None:
@@ -256,7 +256,8 @@ class InitCommand(BaseCommand):
 
 @click.command(name="init")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def init(project, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def init(project, verbose, json_output):
     """
     Initialize new project with secrets.yml
 
@@ -266,5 +267,5 @@ def init(project, verbose):
 
     No more .env files!
     """
-    cmd = InitCommand(project, verbose=verbose)
+    cmd = InitCommand(project, verbose=verbose, json_output=json_output)
     cmd.run()

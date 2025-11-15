@@ -75,8 +75,7 @@ vms:
     disk_size: 20
     services: []
 
-# Deploy
-export GITHUB_RUNNER_TOKEN="xxx"
+# Deploy (runners auto-register)
 superdeploy myproject:up
 ```
 
@@ -384,16 +383,13 @@ git clone https://github.com/cfkarakulak/superdeploy.git
 # 2. GCP credentials setup
 export GOOGLE_APPLICATION_CREDENTIALS=~/superdeploy-key.json
 
-# 3. GitHub runner token al
-export GITHUB_RUNNER_TOKEN="xxx"
-
-# 4. Full deploy
+# 3. Full deploy (runners auto-register with REPOSITORY_TOKEN)
 superdeploy myproject:up
 
-# 5. Secrets sync
+# 4. Secrets sync
 superdeploy myproject:sync
 
-# 6. Database restore (if needed)
+# 5. Database restore (if needed)
 # ... backup restore steps ...
 ```
 

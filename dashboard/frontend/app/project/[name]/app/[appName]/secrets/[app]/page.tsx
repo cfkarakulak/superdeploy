@@ -113,6 +113,23 @@ export default function SecretsPage() {
   const [editValue, setEditValue] = useState("");
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [selectedEnvironment, setSelectedEnvironment] = useState("production");
+  const [appDomain, setAppDomain] = useState<string>("");
+
+  // Fetch app domain
+  useEffect(() => {
+    const fetchAppInfo = async () => {
+      try {
+        const response = await fetch(`http://localhost:8401/api/projects/${projectName}`);
+        if (response.ok) {
+          const data = await response.json();
+          setAppDomain(data.domain || projectName);
+        }
+      } catch (err) {
+        setAppDomain(projectName);
+      }
+    };
+    if (projectName && appName) fetchAppInfo();
+  }, [projectName, appName]);
 
   const fetchSecrets = async () => {
     try {
@@ -246,12 +263,12 @@ export default function SecretsPage() {
           <p><strong>Error:</strong> {error}</p>
         </div>
       ) : (
-        <div className="bg-white rounded-[16px] p-[20px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+        <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
           <PageHeader
-            breadcrumb={{
-              label: "Secrets",
-              href: `/project/${projectName}/app/${appName}`
-            }}
+            breadcrumbs={[
+              { label: appDomain || projectName, href: `/project/${projectName}` },
+              { label: appName, href: `/project/${projectName}/app/${appName}` },
+            ]}
             title="Environment Variables"
           />
 
@@ -334,9 +351,8 @@ export default function SecretsPage() {
               }))}
               getRowKey={(item) => `secret-${item.id}`}
               onRowClick={(item) => {
-                if (item.data.editable) {
-                  openEditModal(item.data);
-                }
+                // Open modal for all secrets to view (editable ones can be changed)
+                openEditModal(item.data);
               }}
             />
           )}
@@ -392,7 +408,9 @@ export default function SecretsPage() {
       <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Edit Config Variable</DialogTitle>
+            <DialogTitle>
+              {editingSecret?.editable ? 'Edit Config Variable' : 'View Config Variable'}
+            </DialogTitle>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
@@ -410,8 +428,15 @@ export default function SecretsPage() {
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
               placeholder="Enter new value..."
-              autoFocus
+              disabled={!editingSecret?.editable}
+              autoFocus={editingSecret?.editable}
             />
+            
+            {!editingSecret?.editable && (
+              <p className="text-[12px] text-[#8b8b8b]">
+                This is a {editingSecret?.source} secret and cannot be edited directly.
+              </p>
+            )}
           </div>
 
           <DialogFooter className="gap-2">
@@ -420,15 +445,17 @@ export default function SecretsPage() {
               onClick={() => setEditModalOpen(false)}
               disabled={savingKey !== null}
             >
-              Cancel
+              {editingSecret?.editable ? 'Cancel' : 'Close'}
             </Button>
-            <Button
-              onClick={handleUpdate}
-              disabled={savingKey !== null}
-              loading={savingKey !== null}
-            >
-              Save Changes
-            </Button>
+            {editingSecret?.editable && (
+              <Button
+                onClick={handleUpdate}
+                disabled={savingKey !== null}
+                loading={savingKey !== null}
+              >
+                Save Changes
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

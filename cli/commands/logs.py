@@ -172,6 +172,7 @@ class LogsCommand(ProjectCommand):
         project_name: str,
         options: LogsOptions,
         verbose: bool = False,
+        json_output: bool = False,
     ):
         """
         Initialize logs command.
@@ -180,8 +181,9 @@ class LogsCommand(ProjectCommand):
             project_name: Name of the project
             options: LogsOptions with configuration
             verbose: Whether to show verbose output
+            json_output: Whether to output in JSON format
         """
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.options = options
         self.parser = LogParser()
         self.colorizer = LogColorizer()
@@ -317,7 +319,8 @@ class LogsCommand(ProjectCommand):
 @click.option("--level", help="Filter by log level (ERROR, WARNING, INFO, DEBUG)")
 @click.option("--grep", "grep_pattern", help="Filter logs by pattern (supports regex)")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def logs(project, app, lines, level, grep_pattern, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def logs(project, app, lines, level, grep_pattern, verbose, json_output):
     """
     Stream application logs in real-time (always tails)
 
@@ -354,5 +357,5 @@ def logs(project, app, lines, level, grep_pattern, verbose):
         grep_pattern=grep_pattern,
     )
 
-    cmd = LogsCommand(project, options, verbose=verbose)
+    cmd = LogsCommand(project, options, verbose=verbose, json_output=json_output)
     cmd.run()

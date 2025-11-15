@@ -41,8 +41,9 @@ class TunnelCommand(ProjectCommand):
         all_services: bool = False,
         list_services: bool = False,
         verbose: bool = False,
+        json_output: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.service = service
         self.all_services = all_services
         self.list_services = list_services
@@ -185,7 +186,8 @@ class TunnelCommand(ProjectCommand):
 @click.option("--all", "all_services", is_flag=True, help="Tunnel all services")
 @click.option("--list", "list_services", is_flag=True, help="List available services")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def tunnel(project, service, all_services, list_services, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def tunnel(project, service, all_services, list_services, verbose, json_output):
     """
     Create SSH tunnels to access database/addon services securely
 
@@ -196,5 +198,7 @@ def tunnel(project, service, all_services, list_services, verbose):
       superdeploy cheapa:tunnel --all
       superdeploy cheapa:tunnel --list
     """
-    cmd = TunnelCommand(project, service, all_services, list_services, verbose)
+    cmd = TunnelCommand(
+        project, service, all_services, list_services, verbose, json_output=json_output
+    )
     cmd.run()

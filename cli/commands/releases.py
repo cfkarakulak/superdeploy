@@ -9,9 +9,14 @@ class ReleasesCommand(ProjectCommand):
     """Show release history for an app (last 5 releases kept)."""
 
     def __init__(
-        self, project_name: str, app_name: str, limit: int = 10, verbose: bool = False
+        self,
+        project_name: str,
+        app_name: str,
+        limit: int = 10,
+        verbose: bool = False,
+        json_output: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.app_name = app_name
         self.limit = limit
 
@@ -27,7 +32,8 @@ class ReleasesCommand(ProjectCommand):
         # Initialize logger
         logger = self.init_logger(self.project_name, f"releases-{self.app_name}")
 
-        logger.step(f"Fetching deployment history for {self.app_name}")
+        if logger:
+            logger.step(f"Fetching deployment history for {self.app_name}")
 
         # Use version tracking system
         try:
@@ -48,26 +54,59 @@ class ReleasesCommand(ProjectCommand):
             import json
 
             if result.returncode != 0 or not result.stdout.strip():
-                self.console.print("[yellow]⚠️  No deployment history found[/yellow]")
-                self.console.print(
-                    "[dim]Deploy the app first: git push origin production[/dim]\n"
-                )
+                if self.json_output:
+                    self.output_json({"releases": []})
+                else:
+                    self.console.print(
+                        "[yellow]⚠️  No deployment history found[/yellow]"
+                    )
+                    self.console.print(
+                        "[dim]Deploy the app first: git push origin production[/dim]\n"
+                    )
                 return
 
             releases_data = json.loads(result.stdout)
 
             if self.app_name not in releases_data:
-                self.console.print(
-                    f"[yellow]⚠️  No deployment history for {self.app_name}[/yellow]"
-                )
+                if self.json_output:
+                    self.output_json({"releases": []})
+                else:
+                    self.console.print(
+                        f"[yellow]⚠️  No deployment history for {self.app_name}[/yellow]"
+                    )
                 return
 
             # Get releases array for this app
             releases_list = releases_data[self.app_name]
             if not isinstance(releases_list, list) or len(releases_list) == 0:
-                self.console.print(
-                    f"[yellow]⚠️  No deployment history for {self.app_name}[/yellow]"
-                )
+                if self.json_output:
+                    self.output_json({"releases": []})
+                else:
+                    self.console.print(
+                        f"[yellow]⚠️  No deployment history for {self.app_name}[/yellow]"
+                    )
+                return
+
+            # JSON output mode
+            if self.json_output:
+                output_releases = []
+                for idx, release in enumerate(reversed(releases_list[-self.limit :])):
+                    deployed_at = release.get("deployed_at", "-")
+                    if "T" in deployed_at:
+                        deployed_at = deployed_at.replace("T", " ").replace("Z", " UTC")
+
+                    output_releases.append(
+                        {
+                            "version": release.get("version", "-"),
+                            "git_sha": release.get("git_sha", "-"),
+                            "deployed_by": release.get("deployed_by", "-"),
+                            "deployed_at": deployed_at,
+                            "branch": release.get("branch", "-"),
+                            "status": "CURRENT" if idx == 0 else "PREVIOUS",
+                        }
+                    )
+
+                self.output_json({"releases": output_releases})
                 return
 
             # Create deployment history table
@@ -117,7 +156,8 @@ class ReleasesCommand(ProjectCommand):
                 if latest_commit and latest_commit != "-":
                     self.console.print(f"  [dim]{latest_commit}[/dim]")
 
-            logger.success(f"Deployment history retrieved for {self.app_name}")
+            if logger:
+                logger.success(f"Deployment history retrieved for {self.app_name}")
 
             # Show switch instructions
             self.console.print("\n[bold]💡 Switch to any version:[/bold]")
@@ -136,7 +176,8 @@ class ReleasesCommand(ProjectCommand):
                 self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
         except Exception as e:
-            logger.log_error(f"Error fetching history: {e}")
+            if logger:
+                logger.log_error(f"Error fetching history: {e}")
             self.console.print(f"[red]❌ Error: {e}[/red]")
             import traceback
 
@@ -150,7 +191,8 @@ class ReleasesCommand(ProjectCommand):
 @click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
 @click.option("-n", "--limit", default=10, help="Number of releases to show")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def releases_list(project, app, limit, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def releases_list(project, app, limit, verbose, json_output):
     """
     Show release history for an app (last 5 releases kept)
 
@@ -166,5 +208,7 @@ def releases_list(project, app, limit, verbose):
     - Current/Previous status
     - Use 'superdeploy releases:rollback' to change versions
     """
-    cmd = ReleasesCommand(project, app, limit=limit, verbose=verbose)
+    cmd = ReleasesCommand(
+        project, app, limit=limit, verbose=verbose, json_output=json_output
+    )
     cmd.run()

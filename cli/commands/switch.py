@@ -15,7 +15,7 @@ class SwitchCommand(ProjectCommand):
         force: bool = False,
         verbose: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.app_name = app_name
         self.git_sha = git_sha
         self.force = force
@@ -32,15 +32,19 @@ class SwitchCommand(ProjectCommand):
         # Initialize logger
         logger = self.init_logger(self.project_name, f"switch-{self.app_name}")
 
-        logger.step(f"Switching {self.app_name} to Git SHA: {self.git_sha[:7]}")
+        if logger:
+
+            logger.step(f"Switching {self.app_name} to Git SHA: {self.git_sha[:7]}")
 
         # Get VM for app
         try:
             vm_name, vm_ip = self.get_vm_for_app(self.app_name)
-            logger.log(f"Target VM: {vm_name} ({vm_ip})")
+            if logger:
+                logger.log(f"Target VM: {vm_name} ({vm_ip})")
             self.console.print(f"[dim]Target VM: {vm_name} ({vm_ip})[/dim]\n")
         except Exception as e:
-            logger.log_error(f"Failed to find VM: {e}")
+            if logger:
+                logger.log_error(f"Failed to find VM: {e}")
             self.console.print(f"[red]❌ Failed to find VM: {e}[/red]")
             if not self.verbose:
                 self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
@@ -216,7 +220,8 @@ docker image prune -f > /dev/null 2>&1
             )
 
             if "SWITCH_SUCCESS" in result.stdout:
-                logger.success(
+                if logger:
+                    logger.success(
                     f"Zero-downtime switch completed: {self.app_name} → {self.git_sha[:7]}"
                 )
                 self.console.print(
@@ -241,7 +246,8 @@ docker image prune -f > /dev/null 2>&1
                 if not self.verbose:
                     self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
             elif "ROLLBACK_PERFORMED" in result.stdout:
-                logger.log_error("Switch failed - automatic rollback performed")
+                if logger:
+                    logger.log_error("Switch failed - automatic rollback performed")
                 self.console.print(
                     "\n[red]❌ Switch failed - automatic rollback performed[/red]"
                 )
@@ -254,7 +260,8 @@ docker image prune -f > /dev/null 2>&1
                     self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
                 raise SystemExit(1)
             else:
-                logger.log_error("Switch failed")
+                if logger:
+                    logger.log_error("Switch failed")
                 self.console.print("\n[red]❌ Switch failed[/red]")
                 if self.verbose and result.stderr:
                     self.console.print(f"[dim]{result.stderr}[/dim]")
@@ -263,7 +270,8 @@ docker image prune -f > /dev/null 2>&1
                 raise SystemExit(1)
 
         except Exception as e:
-            logger.log_error(f"Switch error: {e}")
+            if logger:
+                logger.log_error(f"Switch error: {e}")
             self.console.print(f"[red]❌ Switch error: {e}[/red]")
             if not self.verbose:
                 self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
@@ -281,7 +289,8 @@ docker image prune -f > /dev/null 2>&1
 )
 @click.option("--force", is_flag=True, help="Skip confirmation")
 @click.option("--verbose", is_flag=True, help="Show all command output")
-def releases_switch(project, app, git_sha, force, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def releases_switch(project, app, git_sha, force, verbose, json_output):
     """
     Switch to any release version (forward/backward) with zero-downtime
 
@@ -313,7 +322,7 @@ def releases_switch(project, app, git_sha, force, verbose):
       superdeploy cheapa:status                  # See all app versions
       docker pull <org>/api:<git-sha>            # Check Docker Hub
     """
-    cmd = SwitchCommand(project, app, git_sha=git_sha, force=force, verbose=verbose)
+    cmd = SwitchCommand(project, app, git_sha=git_sha, force=force, verbose=verbose, json_output=json_output)
     cmd.run()
 
 

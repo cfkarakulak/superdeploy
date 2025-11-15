@@ -45,7 +45,7 @@ class RunCommand(ProjectCommand):
             options: RunCommandOptions with configuration
             verbose: Whether to show verbose output
         """
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.options = options
         self.logger = None
 
@@ -175,9 +175,10 @@ class RunCommand(ProjectCommand):
 @click.command(name="run")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
 @click.option("--interactive", "-i", is_flag=True, help="Interactive mode (with TTY)")
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
 @click.argument("app")
 @click.argument("command")
-def run(project, app, command, verbose, interactive):
+def run(project, app, command, verbose, interactive, json_output):
     """
     Run command in application container
 
@@ -207,5 +208,5 @@ def run(project, app, command, verbose, interactive):
         interactive=interactive,
     )
 
-    cmd = RunCommand(project, options, verbose=verbose)
+    cmd = RunCommand(project, options, verbose=verbose, json_output=json_output)
     cmd.run()

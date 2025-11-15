@@ -22,6 +22,7 @@ cli/commands/__init__.py
 cli/commands/addons.py
 cli/commands/backup.py
 cli/commands/config.py
+cli/commands/dashboard.py
 cli/commands/deploy.py
 cli/commands/doctor.py
 cli/commands/domains.py
@@ -42,10 +43,10 @@ cli/commands/scale.py
 cli/commands/status.py
 cli/commands/subnets.py
 cli/commands/switch.py
-cli/commands/sync.py
 cli/commands/tunnel.py
 cli/commands/up.py
 cli/commands/validate.py
+cli/commands/vars.py
 cli/commands/orchestrator/__init__.py
 cli/commands/orchestrator/down.py
 cli/commands/orchestrator/init.py

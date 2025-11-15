@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { AppHeader, PageHeader } from "@/components";
+import { AppHeader, PageHeader, Button } from "@/components";
 
 export default function SettingsPage() {
   const params = useParams();
@@ -12,6 +12,23 @@ export default function SettingsPage() {
   const [githubToken, setGithubToken] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [appDomain, setAppDomain] = useState<string>("");
+
+  // Fetch app domain
+  useEffect(() => {
+    const fetchAppInfo = async () => {
+      try {
+        const response = await fetch(`http://localhost:8401/api/projects/${projectName}`);
+        if (response.ok) {
+          const data = await response.json();
+          setAppDomain(data.domain || projectName);
+        }
+      } catch (err) {
+        setAppDomain(projectName);
+      }
+    };
+    if (projectName && appName) fetchAppInfo();
+  }, [projectName, appName]);
 
   const handleSave = async () => {
     if (!githubToken.trim()) {
@@ -47,14 +64,13 @@ export default function SettingsPage() {
     <div>
       <AppHeader />
       
-      <div className="bg-white rounded-[16px] p-[20px] pt-[25px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+      <div className="bg-white rounded-[16px] p-[32px] pt-[25px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
         <PageHeader
-          breadcrumb={{
-            label: "Settings",
-            href: `/project/${projectName}/app/${appName}/settings`
-          }}
-          title="Application Settings"
-          description="Configure GitHub integration and other application settings"
+          breadcrumbs={[
+            { label: appDomain || projectName, href: `/project/${projectName}` },
+            { label: appName, href: `/project/${projectName}/app/${appName}` },
+          ]}
+          title="Configuration"
         />
 
         <div className="space-y-6 mt-6">
@@ -86,13 +102,14 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              <button
+              <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-4 py-2 bg-[#0ea5e9] text-white text-[14px] font-medium rounded-lg hover:bg-[#0284c7] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                variant="primary"
+                size="md"
               >
                 {saving ? "Saving..." : "Save Token"}
-              </button>
+              </Button>
             </div>
           </div>
 

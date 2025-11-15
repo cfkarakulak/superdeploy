@@ -8,8 +8,7 @@ class PlanCommand(ProjectCommand):
     """Show deployment plan - what will change."""
 
     def __init__(
-        self, project_name: str, detailed: bool = False, verbose: bool = False
-    ):
+        self, project_name: str, detailed: bool = False, verbose: bool = False, json_output: bool = False):
         super().__init__(project_name, verbose=verbose)
         self.detailed = detailed
 
@@ -23,42 +22,53 @@ class PlanCommand(ProjectCommand):
 
         # Initialize logger
         logger = self.init_logger(self.project_name, "plan")
-        logger.step("Loading current configuration")
+        if logger:
+            logger.step("Loading current configuration")
 
         # Load current config
         try:
             config = self.config_service.get_raw_config(self.project_name)
         except FileNotFoundError:
-            logger.error("Project configuration not found")
+            if logger:
+                logger.error("Project configuration not found")
             raise SystemExit(1)
         except Exception as e:
-            logger.error(f"Failed to load configuration: {e}")
+            if logger:
+                logger.error(f"Failed to load configuration: {e}")
             raise SystemExit(1)
 
-        logger.success("Configuration loaded")
+        if logger:
+
+            logger.success("Configuration loaded")
 
         # Load state (if exists)
-        logger.step("Comparing with deployed state")
+        if logger:
+            logger.step("Comparing with deployed state")
 
         try:
             state = self.state_service.load_state()
             has_state = True
-            logger.log("Found existing deployment state")
+            if logger:
+                logger.log("Found existing deployment state")
         except:
             state = {"vms": {}, "addons": {}, "apps": {}}
             has_state = False
-            logger.log("No previous deployment found (first deployment)")
+            if logger:
+                logger.log("No previous deployment found (first deployment)")
 
         # Detect changes
         changes = self._detect_changes(config, state)
 
         if not changes["has_changes"]:
-            logger.success("No changes detected")
+            if logger:
+                logger.success("No changes detected")
             self.console.print("\n[green]✅ Infrastructure is up to date[/green]\n")
             self.console.print("Your deployment matches config.yml\n")
             return
 
-        logger.success(f"Detected {changes['total_changes']} change(s)")
+        if logger:
+
+            logger.success(f"Detected {changes['total_changes']} change(s)")
 
         # Display changes
         self._display_changes(changes, config, state, has_state)

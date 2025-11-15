@@ -21,11 +21,6 @@ export default function PageHeader({ breadcrumb, breadcrumbs, title, description
 
   return (
     <div className="mb-10">
-      {/* Title */}
-      <h1 className="text-[27px] leading-[32px] text-black mb-1">
-        {title}
-      </h1>
-
       {/* Breadcrumb with back arrow */}
       {crumbs.length > 0 && (
         <nav aria-label="Breadcrumb" className="flex items-center gap-2">
@@ -49,11 +44,17 @@ export default function PageHeader({ breadcrumb, breadcrumbs, title, description
               </Link>
             </div>
           ))}
-          
-          {/* Current page */}
-          <span className="text-[#6a6d77]">›</span>
-          <span className="text-[13px] tracking-[0.02em] text-[#0a0a0a] font-normal">{title}</span>
         </nav>
+      )}
+
+      {/* Title */}
+      <h1 className="text-[27px] leading-[32px] text-black mb-1">
+        {title}
+      </h1>
+
+      {/* Description if provided */}
+      {description && (
+        <p className="text-[13px] text-[#8b8b8b] mt-2">{description}</p>
       )}
     </div>
   );

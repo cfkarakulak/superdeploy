@@ -11,13 +11,28 @@ class SubnetsCommand(BaseCommand):
 
     def execute(self) -> None:
         """Execute subnets command."""
+        allocator = SubnetAllocator()
+        allocations = allocator.list_allocations()
+
+        # JSON output mode
+        if self.json_output:
+            subnets_data = {"orchestrator": SubnetAllocator.get_orchestrator_subnet()}
+            for project_name in sorted(allocations.keys()):
+                subnets_data[project_name] = allocations[project_name]
+
+            self.output_json(
+                {
+                    "subnets": subnets_data,
+                    "total_projects": len(allocations),
+                    "available_slots": 255 - len(allocations),
+                }
+            )
+            return
+
         self.show_header(
             title="Subnet Allocations",
             subtitle="View subnet CIDR allocations for all projects",
         )
-
-        allocator = SubnetAllocator()
-        allocations = allocator.list_allocations()
 
         if not allocations:
             self.console.print("[yellow]No subnet allocations found.[/yellow]")
@@ -69,11 +84,12 @@ class SubnetsCommand(BaseCommand):
 
 @click.command()
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def subnets(verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def subnets(verbose, json_output):
     """
     View subnet allocations for all projects
 
     Shows which subnet CIDR is allocated to each project to avoid conflicts.
     """
-    cmd = SubnetsCommand(verbose=verbose)
+    cmd = SubnetsCommand(verbose=verbose, json_output=json_output)
     cmd.run()

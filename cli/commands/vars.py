@@ -250,7 +250,7 @@ class VarsClearCommand(ProjectCommand):
         environment: str = "production",
         verbose: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.environment = environment
 
     def execute(self) -> None:
@@ -331,7 +331,7 @@ class VarsSyncCommand(ProjectCommand):
         environment: str = "production",
         verbose: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.environment = environment
 
     def execute(self) -> None:
@@ -347,20 +347,25 @@ class VarsSyncCommand(ProjectCommand):
 
         from cli.secret_manager import SecretManager
 
-        logger.step("Loading project configuration")
+        if logger:
+
+            logger.step("Loading project configuration")
 
         # Load config
         try:
             project_config = self.config_service.load_project_config(self.project_name)
-            logger.success("Configuration loaded")
+            if logger:
+                logger.success("Configuration loaded")
         except FileNotFoundError as e:
-            logger.log_error(f"Configuration not found: {e}")
+            if logger:
+                logger.log_error(f"Configuration not found: {e}")
             self.console.print(f"[red]❌ {e}[/red]")
             if not self.verbose:
                 self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
             return
         except ValueError as e:
-            logger.log_error(f"Invalid configuration: {e}")
+            if logger:
+                logger.log_error(f"Invalid configuration: {e}")
             self.console.print(f"[red]❌ Invalid configuration: {e}[/red]")
             if not self.verbose:
                 self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
@@ -565,7 +570,8 @@ class VarsSyncCommand(ProjectCommand):
     help="Target environment (production/staging)",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def vars_clear(project, environment, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def vars_clear(project, environment, verbose, json_output):
     """
     Clear ALL GitHub secrets and variables
 
@@ -580,7 +586,7 @@ def vars_clear(project, environment, verbose):
         superdeploy cheapa:vars:clear                # Clear production
         superdeploy cheapa:vars:clear -e staging     # Clear staging
     """
-    cmd = VarsClearCommand(project, environment=environment, verbose=verbose)
+    cmd = VarsClearCommand(project, environment=environment, verbose=verbose, json_output=json_output)
     cmd.run()
 
 
@@ -593,7 +599,8 @@ def vars_clear(project, environment, verbose):
     help="Target environment (production/staging)",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def vars_sync(project, environment, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def vars_sync(project, environment, verbose, json_output):
     """
     Sync ALL secrets to GitHub
 
@@ -611,5 +618,5 @@ def vars_sync(project, environment, verbose):
         superdeploy cheapa:vars:sync                    # Sync to production
         superdeploy cheapa:vars:sync -e staging         # Sync to staging
     """
-    cmd = VarsSyncCommand(project, environment=environment, verbose=verbose)
+    cmd = VarsSyncCommand(project, environment=environment, verbose=verbose, json_output=json_output)
     cmd.run()

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { AppHeader, PageHeader } from "@/components";
+import { AppHeader, PageHeader, Button } from "@/components";
 import { 
   GitBranch, 
   GitCommit, 
@@ -23,24 +23,45 @@ interface Release {
   branch: string;
   commit_message: string;
   status: string;
+  author?: {
+    login: string;
+    avatar_url: string;
+  };
+  duration_seconds?: number;
+  changed_files?: number;
+  additions?: number;
+  deletions?: number;
+  environment?: string;
 }
 
-// Skeleton Components
+// Skeleton Components  
+const shimmerStyles = `
+  @keyframes shimmer {
+    0% {
+      background-position: -1000px 0;
+    }
+    100% {
+      background-position: 1000px 0;
+    }
+  }
+  
+  .skeleton-shimmer {
+    animation: shimmer 2s infinite linear;
+    background: linear-gradient(
+      to right,
+      #eef2f5 0%,
+      #e6eaef 20%,
+      #eef2f5 40%,
+      #eef2f5 100%
+    );
+    background-size: 1000px 100%;
+  }
+`;
+
 const ReleasesTableSkeleton = () => (
-  <div className="space-y-3">
+  <div className="space-y-4">
     {Array.from({ length: 3 }, (_, i) => (
-      <div key={i} className="bg-[#f7f7f7] rounded-lg p-4 space-y-3 skeleton-animated">
-        <div className="flex items-center justify-between">
-          <div className="w-[120px] h-[20px] bg-[#e3e8ee] rounded skeleton-animated" />
-          <div className="w-[80px] h-[20px] bg-[#e3e8ee] rounded skeleton-animated" />
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="w-full h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-          <div className="w-full h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-          <div className="w-full h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-          <div className="w-full h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-        </div>
-      </div>
+      <div key={i} className="h-[180px] rounded-lg skeleton-shimmer"></div>
     ))}
   </div>
 );
@@ -54,6 +75,23 @@ export default function DeployPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
+  const [appDomain, setAppDomain] = useState<string>("");
+
+  // Fetch app domain
+  useEffect(() => {
+    const fetchAppInfo = async () => {
+      try {
+        const response = await fetch(`http://localhost:8401/api/projects/${projectName}`);
+        if (response.ok) {
+          const data = await response.json();
+          setAppDomain(data.domain || projectName);
+        }
+      } catch (err) {
+        setAppDomain(projectName);
+      }
+    };
+    if (projectName && appName) fetchAppInfo();
+  }, [projectName, appName]);
 
   const fetchReleases = async () => {
     try {
@@ -85,7 +123,7 @@ export default function DeployPage() {
     setSwitching(gitSha);
     try {
       const response = await fetch(
-        `http://localhost:8000/api/apps/${projectName}/${appName}/switch`,
+        `http://localhost:8401/api/apps/${projectName}/${appName}/switch`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -106,6 +144,14 @@ export default function DeployPage() {
     } finally {
       setSwitching(null);
     }
+  };
+
+  const formatDuration = (seconds?: number) => {
+    if (!seconds) return null;
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}m ${remainingSeconds}s`;
   };
 
   const formatDate = (dateString: string) => {
@@ -149,187 +195,190 @@ export default function DeployPage() {
 
   return (
     <div>
+      <style dangerouslySetInnerHTML={{ __html: shimmerStyles }} />
       <AppHeader />
       
-      <div className="bg-white rounded-[16px] p-[20px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
-        <div className="mb-6">
-          <PageHeader
-            breadcrumb={{
-              label: "Deploy",
-              href: `/project/${projectName}/app/${appName}`
-            }}
-            title="Deployment History"
-          />
-          <p className="text-[13px] text-[#8b8b8b] mt-2">
-            View all deployments and rollback to any previous version with zero downtime
-          </p>
-        </div>
+      <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+        <PageHeader
+          breadcrumbs={[
+            { label: appDomain || projectName, href: `/project/${projectName}` },
+            { label: appName, href: `/project/${projectName}/app/${appName}` },
+          ]}
+          title="Deployment History"
+        />
 
         {loading ? (
           <ReleasesTableSkeleton />
         ) : error ? (
           <div className="text-center py-12 text-[#8b8b8b]">
-            <p className="text-[15px]">Failed to load releases: {error}</p>
+            <p className="text-[13px] tracking-[0.03em] font-light">Failed to load releases: {error}</p>
           </div>
         ) : releases.length === 0 ? (
           <div className="text-center py-12 text-[#8b8b8b]">
-            <p className="text-[15px]">No deployment history found</p>
-            <p className="text-[13px] mt-2">Deploy the app first: <code className="bg-[#f7f7f7] px-2 py-1 rounded">git push origin production</code></p>
+            <p className="text-[13px] tracking-[0.03em] font-light">No deployment history found</p>
+            <p className="text-[11px] tracking-[0.03em] font-light mt-2">Deploy the app first: <code className="bg-[#f6f8fa] px-2 py-1 rounded border border-[#e3e8ee]">git push origin production</code></p>
           </div>
         ) : (
-          <div className="space-y-0">
+          <div className="space-y-4">
             {releases.map((release, index) => {
               const isLatest = index === 0;
-              const hasTimeline = index < releases.length - 1;
               
               return (
-                <div key={index} className="relative">
-                  {/* Timeline connector */}
-                  {hasTimeline && (
-                    <div className="absolute left-[15px] top-[48px] bottom-[-24px] w-[2px] bg-[#e3e8ee]" />
-                  )}
-                  
-                  <div className="relative flex gap-4 pb-6">
-                    {/* Timeline dot with status */}
-                    <div className="relative z-10 flex-shrink-0">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        isLatest 
-                          ? 'bg-green-500 ring-4 ring-green-100' 
-                          : 'bg-white border-2 border-[#e3e8ee]'
-                      }`}>
+                <div key={index} className="border border-[#e3e8ee] rounded-lg transition-all overflow-hidden">
+                  {/* Header */}
+                  <div className="px-5 py-4 bg-[#f6f8fa] border-b border-[#e3e8ee] flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      {/* Status Dot */}
+                      <div className="flex-shrink-0">
                         {isLatest ? (
-                          <Activity className="w-4 h-4 text-white" />
+                          <div className="w-2 h-2 rounded-full bg-green-500"></div>
                         ) : (
-                          <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          <div className="w-2 h-2 rounded-full bg-gray-400"></div>
                         )}
                       </div>
+                      
+                      {/* Status Badge */}
+                      {isLatest && (
+                        <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-green-500 text-white flex-shrink-0">
+                          Current
+                        </span>
+                      )}
+                      
+                      {/* Version */}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Tag className="w-3 h-3 text-[#8b8b8b] flex-shrink-0" />
+                        <code className="text-[11px] font-mono text-[#0a0a0a] tracking-[0.03em] font-light">
+                          v{release.version}
+                        </code>
+                      </div>
+
+                      {/* Relative Time */}
+                      <span className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light flex-shrink-0">
+                        {getRelativeTime(release.deployed_at)}
+                      </span>
                     </div>
 
-                    {/* Card */}
-                    <div className="flex-1 min-w-0">
-                      <div className={`bg-white rounded-lg border ${
-                        isLatest ? 'border-green-200 shadow-sm' : 'border-[#e3e8ee]'
-                      } hover:shadow-md transition-all overflow-hidden`}>
-                        
-                        {/* Header */}
-                        <div className="px-4 py-3 border-b border-[#e3e8ee] flex items-center justify-between gap-4">
-                          <div className="flex items-center gap-3 min-w-0 flex-1">
-                            {/* Status Badge */}
-                            {isLatest && (
-                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-green-50 text-green-700 border border-green-200 flex-shrink-0">
-                                <Activity className="w-3 h-3" />
-                                Current
-                              </span>
-                            )}
-                            
-                            {/* Version */}
-                            <div className="flex items-center gap-2 min-w-0">
-                              <Tag className="w-3.5 h-3.5 text-[#8b8b8b] flex-shrink-0" />
-                              <code className="text-[13px] font-mono font-medium text-[#0a0a0a]">
-                                v{release.version}
-                              </code>
-                            </div>
+                    {/* Rollback Button */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {!isLatest && (
+                        <Button
+                          onClick={() => handleSwitch(release.git_sha)}
+                          disabled={switching !== null}
+                          size="sm"
+                          variant="primary"
+                          icon={<RotateCcw className="w-3 h-3" />}
+                        >
+                          {switching === release.git_sha ? "Switching..." : "Rollback"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
 
-                            {/* Relative Time */}
-                            <span className="text-[12px] text-[#8b8b8b] flex-shrink-0">
-                              {getRelativeTime(release.deployed_at)}
+                  {/* Body */}
+                  <div className="px-5 py-4 space-y-4">
+                    {/* Commit Message */}
+                    {release.commit_message && release.commit_message !== "-" && (
+                      <div>
+                        <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">Commit</p>
+                        <p className="text-[12px] text-[#0a0a0a] tracking-[0.03em] font-light">
+                          {release.commit_message}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Stats Row (if available) */}
+                    {(release.duration_seconds || release.changed_files || release.additions !== undefined) && (
+                      <div className="flex items-center gap-4 text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light pb-3 border-b border-[#e3e8ee]">
+                        {release.duration_seconds && (
+                          <div className="flex items-center gap-1.5">
+                            <Clock className="w-3 h-3" />
+                            <span>{formatDuration(release.duration_seconds)}</span>
+                          </div>
+                        )}
+                        {release.changed_files !== undefined && release.changed_files > 0 && (
+                          <div className="flex items-center gap-1.5">
+                            <span>{release.changed_files} {release.changed_files === 1 ? 'file' : 'files'}</span>
+                          </div>
+                        )}
+                        {release.additions !== undefined && release.deletions !== undefined && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-green-600">+{release.additions}</span>
+                            <span className="text-red-600">-{release.deletions}</span>
+                          </div>
+                        )}
+                        {release.environment && (
+                          <div className="ml-auto">
+                            <span className="px-2 py-0.5 rounded bg-[#f6f8fa] border border-[#e3e8ee] text-[11px] text-[#0a0a0a] tracking-[0.03em] font-light">
+                              {release.environment}
                             </span>
                           </div>
+                        )}
+                      </div>
+                    )}
 
-                          {/* Actions */}
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {!isLatest && (
-                              <button
-                                onClick={() => handleSwitch(release.git_sha)}
-                                disabled={switching !== null}
-                                className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md bg-[#0a0a0a] text-white hover:bg-[#2a2a2a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                                title="Rollback to this version"
-                              >
-                                <RotateCcw className="w-3.5 h-3.5" />
-                                {switching === release.git_sha ? "Switching..." : "Rollback"}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Body */}
-                        <div className="px-4 py-4 space-y-4">
-                          {/* Commit Message */}
-                          {release.commit_message && release.commit_message !== "-" && (
-                            <div>
-                              <div className="flex items-center gap-2 mb-2">
-                                <GitCommit className="w-3.5 h-3.5 text-[#8b8b8b]" />
-                                <span className="text-[11px] font-medium text-[#8b8b8b] uppercase tracking-wider">Commit</span>
-                              </div>
-                              <p className="text-[14px] text-[#0a0a0a] pl-5">
-                                {release.commit_message}
-                              </p>
-                            </div>
+                    {/* Metadata Grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {/* Author / Deployed By */}
+                      <div>
+                        <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">
+                          {release.author ? 'Author' : 'Deployed By'}
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          {release.author ? (
+                            <>
+                              <img 
+                                src={release.author.avatar_url} 
+                                alt={release.author.login}
+                                className="w-4 h-4 rounded-full"
+                              />
+                              <span className="text-[11px] text-[#0a0a0a] tracking-[0.03em] font-light">
+                                {release.author.login}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <User className="w-3 h-3 text-[#8b8b8b]" />
+                              <span className="text-[11px] text-[#0a0a0a] tracking-[0.03em] font-light">
+                                {release.deployed_by}
+                              </span>
+                            </>
                           )}
+                        </div>
+                      </div>
 
-                          {/* Metadata Grid */}
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-3 border-t border-[#f0f0f0]">
-                            {/* Git SHA */}
-                            <div>
-                              <div className="text-[11px] font-medium text-[#8b8b8b] uppercase tracking-wider mb-1.5">
-                                Commit SHA
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <code className="text-[12px] font-mono text-[#0a0a0a] bg-[#f7f7f7] px-2 py-1 rounded">
-                                  {release.git_sha.substring(0, 7)}
-                                </code>
-                                <button
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(release.git_sha);
-                                    alert('✓ Copied!');
-                                  }}
-                                  className="text-[11px] text-[#8b8b8b] hover:text-[#0a0a0a] transition-colors"
-                                  title="Copy full SHA"
-                                >
-                                  Copy
-                                </button>
-                              </div>
-                            </div>
+                      {/* Branch */}
+                      <div>
+                        <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">
+                          Branch
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <GitBranch className="w-3 h-3 text-[#8b8b8b]" />
+                          <span className="text-[11px] text-[#0a0a0a] tracking-[0.03em] font-light">
+                            {release.branch}
+                          </span>
+                        </div>
+                      </div>
 
-                            {/* Branch */}
-                            <div>
-                              <div className="text-[11px] font-medium text-[#8b8b8b] uppercase tracking-wider mb-1.5">
-                                Branch
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <GitBranch className="w-3 h-3 text-[#8b8b8b]" />
-                                <span className="text-[13px] text-[#0a0a0a] font-medium">
-                                  {release.branch}
-                                </span>
-                              </div>
-                            </div>
+                      {/* Commit SHA */}
+                      <div>
+                        <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">
+                          Commit SHA
+                        </p>
+                        <code className="text-[11px] font-mono text-[#0a0a0a] bg-white px-2 py-1 rounded border border-[#e3e8ee] tracking-[0.03em] font-light">
+                          {release.git_sha.substring(0, 7)}
+                        </code>
+                      </div>
 
-                            {/* Deployed By */}
-                            <div>
-                              <div className="text-[11px] font-medium text-[#8b8b8b] uppercase tracking-wider mb-1.5">
-                                Deployed By
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <User className="w-3 h-3 text-[#8b8b8b]" />
-                                <span className="text-[13px] text-[#0a0a0a]">
-                                  {release.deployed_by}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Timestamp */}
-                            <div>
-                              <div className="text-[11px] font-medium text-[#8b8b8b] uppercase tracking-wider mb-1.5">
-                                Deployed
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <Clock className="w-3 h-3 text-[#8b8b8b]" />
-                                <span className="text-[13px] text-[#0a0a0a]" title={formatDate(release.deployed_at)}>
-                                  {getRelativeTime(release.deployed_at)}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
+                      {/* Timestamp */}
+                      <div>
+                        <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">
+                          Deployed
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3 h-3 text-[#8b8b8b]" />
+                          <span className="text-[11px] text-[#0a0a0a] tracking-[0.03em] font-light" title={formatDate(release.deployed_at)}>
+                            {getRelativeTime(release.deployed_at)}
+                          </span>
                         </div>
                       </div>
                     </div>

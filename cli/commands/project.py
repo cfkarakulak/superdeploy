@@ -9,8 +9,8 @@ import click
 class ProjectsDeployCommand(ProjectCommand):
     """Deploy project-specific services to VM."""
 
-    def __init__(self, project_name: str, services: str = "all", verbose: bool = False):
-        super().__init__(project_name, verbose=verbose)
+    def __init__(self, project_name: str, services: str = "all", verbose: bool = False, json_output: bool = False):
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.services = services
 
     def execute(self) -> None:
@@ -86,7 +86,8 @@ ansible-playbook -i inventories/dev.ini playbooks/project_deploy.yml \\
         from cli.logger import DeployLogger
 
         with DeployLogger("project", self.project_name, verbose=self.verbose) as logger:
-            logger.step("Deploying project services")
+            if logger:
+                logger.step("Deploying project services")
 
             runner = AnsibleRunner(
                 logger,
@@ -96,10 +97,13 @@ ansible-playbook -i inventories/dev.ini playbooks/project_deploy.yml \\
             returncode = runner.run(ansible_cmd, cwd=self.project_root)
 
             if returncode != 0:
-                logger.log_error("Deployment failed", context="Check logs for details")
+                if logger:
+                    logger.log_error("Deployment failed", context="Check logs for details")
                 raise SystemExit(1)
 
-            logger.success("Project deployed successfully")
+            if logger:
+
+                logger.success("Project deployed successfully")
             self.console.print(
                 f"\n[green]✅ Project '{self.project_name}' deployed successfully![/green]"
             )
@@ -209,7 +213,8 @@ def _create_project_deploy_playbook(ansible_dir, console):
     help="Services to deploy (comma-separated or 'all')",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def projects_deploy(project, services, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def projects_deploy(project, services, verbose, json_output):
     """Deploy project-specific services to VM"""
-    cmd = ProjectsDeployCommand(project, services=services, verbose=verbose)
+    cmd = ProjectsDeployCommand(project, services=services, verbose=verbose, json_output=json_output)
     cmd.run()

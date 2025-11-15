@@ -150,18 +150,19 @@ gh auth login --with-token < pat-token.txt
 
 ### Runner Tokens
 
-**GitHub runner registration token:**
+**GitHub runner registration (automatic):**
 
 ```bash
-# Get token (expires in 48 hours)
-# https://github.com/myorg/settings/actions/runners/new
+# No manual token needed! Ansible automatically:
+# 1. Uses REPOSITORY_TOKEN to call GitHub API
+# 2. Gets registration token from: POST /orgs/{org}/actions/runners/registration-token
+# 3. Registers runner with the token
+# 4. Runner gets persistent authentication after registration
 
-# Use immediately
-export GITHUB_RUNNER_TOKEN="xxx"
+# Just run:
 superdeploy myproject:up
 
-# Token is used once during registration
-# Runner gets persistent authentication after registration
+# REPOSITORY_TOKEN must have 'admin:org' scope for runner management
 ```
 
 ---

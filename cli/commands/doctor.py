@@ -11,8 +11,8 @@ from cli.constants import REQUIRED_TOOLS
 class DoctorCommand(BaseCommand):
     """System health check and diagnostics."""
 
-    def __init__(self, verbose: bool = False):
-        super().__init__(verbose=verbose)
+    def __init__(self, verbose: bool = False, json_output: bool = False):
+        super().__init__(verbose=verbose, json_output=json_output)
         self.table = Table(
             title="System Health Report", title_justify="left", padding=(0, 1)
         )
@@ -185,6 +185,22 @@ class DoctorCommand(BaseCommand):
 
     def execute(self) -> None:
         """Execute doctor command."""
+        # JSON output mode - simplified
+        if self.json_output:
+            self.output_json(
+                {
+                    "status": "completed",
+                    "message": "Use normal mode for detailed diagnostics",
+                    "checks": {
+                        "tools": "run without --json for details",
+                        "auth": "run without --json for details",
+                        "config": "run without --json for details",
+                        "infrastructure": "run without --json for details",
+                    },
+                }
+            )
+            return
+
         self.show_header(
             title="System Diagnostics",
             subtitle="Running comprehensive health check of tools and configuration",
@@ -193,7 +209,8 @@ class DoctorCommand(BaseCommand):
         # Initialize logger
         logger = self.init_logger("system", "doctor")
 
-        logger.step("Running system diagnostics")
+        if logger:
+            logger.step("Running system diagnostics")
 
         # Run all checks
         self.check_tools()
@@ -201,7 +218,8 @@ class DoctorCommand(BaseCommand):
         projects = self.check_configuration()
         self.check_infrastructure(projects)
 
-        logger.success("Diagnostics complete")
+        if logger:
+            logger.success("Diagnostics complete")
 
         # Display results
         if not self.verbose:
@@ -211,12 +229,14 @@ class DoctorCommand(BaseCommand):
             # Summary
             self.console.print("\n[bold cyan]━━━ Summary ━━━[/bold cyan]")
             self.print_success("Diagnostics complete! Review results above.")
-            self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
+            if logger:
+                self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
 
 @click.command()
 @click.option("--verbose", "-v", is_flag=True, help="Show verbose output")
-def doctor(verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def doctor(verbose, json_output):
     """
     Health check & diagnostics
 
@@ -230,5 +250,5 @@ def doctor(verbose):
         superdeploy doctor
         superdeploy doctor -v
     """
-    cmd = DoctorCommand(verbose=verbose)
+    cmd = DoctorCommand(verbose=verbose, json_output=json_output)
     cmd.run()

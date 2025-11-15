@@ -45,7 +45,7 @@ class ScaleCommand(ProjectCommand):
             options: ScaleOptions with configuration
             verbose: Whether to show verbose output
         """
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.options = options
 
     def execute(self) -> None:
@@ -71,7 +71,9 @@ class ScaleCommand(ProjectCommand):
             self.project_name, f"scale-app-{self.options.target_name}"
         )
 
-        logger.step("Validating Configuration")
+        if logger:
+
+            logger.step("Validating Configuration")
 
         # Get current app config
         apps_config = self.config_service.get_apps(self.project_name)
@@ -85,8 +87,10 @@ class ScaleCommand(ProjectCommand):
 
         current_app_config = apps_config[self.options.target_name]
         current_replicas = current_app_config.get("replicas", 1)
-        logger.log(f"Current replicas: {current_replicas}")
-        logger.log(f"Target replicas: {self.options.count}")
+        if logger:
+            logger.log(f"Current replicas: {current_replicas}")
+        if logger:
+            logger.log(f"Target replicas: {self.options.count}")
 
         if current_replicas == self.options.count:
             self.print_warning(
@@ -105,7 +109,9 @@ class ScaleCommand(ProjectCommand):
             self.print_warning("Scaling cancelled")
             return
 
-        logger.step("Updating Configuration")
+        if logger:
+
+            logger.step("Updating Configuration")
 
         # Update config.yml
         try:
@@ -120,18 +126,24 @@ class ScaleCommand(ProjectCommand):
             with open(config_yml, "w") as f:
                 yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-            logger.log(f"✓ Updated {config_yml}")
+            if logger:
+
+                logger.log(f"✓ Updated {config_yml}")
         except Exception as e:
             self.handle_error(e, "Failed to update configuration")
             raise SystemExit(1)
 
-        logger.step("Next Steps")
+        if logger:
+
+            logger.step("Next Steps")
 
         self.console.print("\n[bold yellow]To apply these changes, run:[/bold yellow]")
         self.console.print(f"  [cyan]superdeploy {self.project_name}:up[/cyan]")
         self.console.print()
 
-        logger.success("Configuration updated")
+        if logger:
+
+            logger.success("Configuration updated")
 
         if not self.verbose:
             self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
@@ -152,7 +164,9 @@ class ScaleCommand(ProjectCommand):
             self.project_name, f"scale-{self.options.target_name}"
         )
 
-        logger.step("Validating Configuration")
+        if logger:
+
+            logger.step("Validating Configuration")
 
         # Get current VM config
         vms_config = self.config_service.get_vms(self.project_name)
@@ -165,8 +179,10 @@ class ScaleCommand(ProjectCommand):
             )
 
         current_count = vms_config[self.options.target_name].get("count", 1)
-        logger.log(f"Current count: {current_count}")
-        logger.log(f"Target count: {self.options.count}")
+        if logger:
+            logger.log(f"Current count: {current_count}")
+        if logger:
+            logger.log(f"Target count: {self.options.count}")
 
         if current_count == self.options.count:
             self.print_warning(
@@ -180,7 +196,9 @@ class ScaleCommand(ProjectCommand):
             self.print_warning("Scaling cancelled")
             return
 
-        logger.step("Updating Configuration")
+        if logger:
+
+            logger.step("Updating Configuration")
 
         # Update config.yml
         try:
@@ -189,11 +207,15 @@ class ScaleCommand(ProjectCommand):
             self.handle_error(e, "Failed to update configuration")
             raise SystemExit(1)
 
-        logger.step("Applying Changes")
+        if logger:
+
+            logger.step("Applying Changes")
 
         self._print_next_steps()
 
-        logger.success("Configuration updated")
+        if logger:
+
+            logger.success("Configuration updated")
 
         if not self.verbose:
             self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
@@ -233,7 +255,9 @@ class ScaleCommand(ProjectCommand):
         with open(project_yml, "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-        logger.log(f"✓ Updated {project_yml}")
+        if logger:
+
+            logger.log(f"✓ Updated {project_yml}")
 
     def _print_next_steps(self) -> None:
         """Print next steps for applying changes."""
@@ -247,7 +271,8 @@ class ScaleCommand(ProjectCommand):
 @click.option("--vm-role", help="VM role for infrastructure scaling")
 @click.option("--count", type=int, help="Count for VM/app scaling")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def scale(project, target, vm_role, count, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def scale(project, target, vm_role, count, verbose, json_output):
     """
     Scale VMs or applications (Heroku-like)
 
@@ -284,5 +309,5 @@ def scale(project, target, vm_role, count, verbose):
             "  superdeploy cheapa:scale --vm-role app --count 3"
         )
 
-    cmd = ScaleCommand(project, options, verbose=verbose)
+    cmd = ScaleCommand(project, options, verbose=verbose, json_output=json_output)
     cmd.run()

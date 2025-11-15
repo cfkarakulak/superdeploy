@@ -43,7 +43,7 @@ class RestartCommand(ProjectCommand):
             options: RestartOptions with configuration
             verbose: Whether to show verbose output
         """
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.options = options
 
     def execute(self) -> None:
@@ -59,12 +59,15 @@ class RestartCommand(ProjectCommand):
         # Initialize logger
         logger = self.init_logger(self.project_name, f"restart-{self.options.app_name}")
 
-        logger.step("Finding Application")
+        if logger:
+
+            logger.step("Finding Application")
 
         # Get VM and IP for app
         try:
             vm_name, vm_ip = self.get_vm_for_app(self.options.app_name)
-            logger.log(f"App '{self.options.app_name}' running on {vm_name} ({vm_ip})")
+            if logger:
+                logger.log(f"App '{self.options.app_name}' running on {vm_name} ({vm_ip})")
         except Exception as e:
             self.handle_error(e, f"Could not find VM for app '{self.options.app_name}'")
             raise SystemExit(1)
@@ -73,7 +76,9 @@ class RestartCommand(ProjectCommand):
         vm_service = self.ensure_vm_service()
         ssh_service = vm_service.get_ssh_service()
 
-        logger.step("Restarting Container")
+        if logger:
+
+            logger.step("Restarting Container")
 
         container_name = CONTAINER_NAME_FORMAT.format(
             project=self.project_name, app=self.options.app_name
@@ -91,7 +96,9 @@ class RestartCommand(ProjectCommand):
                     context=result.stderr,
                 )
 
-            logger.log(f"✓ Container restarted: {container_name}")
+            if logger:
+
+                logger.log(f"✓ Container restarted: {container_name}")
 
             # Check container status
             status_result = ssh_service.execute_command(
@@ -101,11 +108,15 @@ class RestartCommand(ProjectCommand):
 
             if status_result.is_success and status_result.stdout.strip():
                 status = status_result.stdout.strip()
-                logger.log(f"Status: {status}")
+                if logger:
+                    logger.log(f"Status: {status}")
             else:
-                logger.warning("Could not verify container status")
+                if logger:
+                    logger.warning("Could not verify container status")
 
-            logger.success("Application restarted successfully")
+            if logger:
+
+                logger.success("Application restarted successfully")
 
             self._print_summary(logger)
 
@@ -129,7 +140,8 @@ class RestartCommand(ProjectCommand):
 @click.command()
 @click.option("-a", "--app", required=True, help="App name (api, dashboard, services)")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def restart(project, app, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def restart(project, app, verbose, json_output):
     """
     Restart an application container
 
@@ -144,5 +156,5 @@ def restart(project, app, verbose):
         superdeploy cheapa:restart -a storefront -v
     """
     options = RestartOptions(app_name=app)
-    cmd = RestartCommand(project, options, verbose=verbose)
+    cmd = RestartCommand(project, options, verbose=verbose, json_output=json_output)
     cmd.run()

@@ -3,8 +3,6 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Project, App
 from pydantic import BaseModel
-import json
-import subprocess
 
 router = APIRouter(tags=["apps"])
 
@@ -47,11 +45,38 @@ async def list_apps(project_name: str, db: Session = Depends(get_db)):
     return {"apps": apps_list}
 
 
+@router.get("/{project_name}/ps")
+async def get_app_processes(project_name: str, db: Session = Depends(get_db)):
+    """
+    Get application processes using unified CLI JSON endpoint.
+
+    Returns process information for all apps including replicas, ports, etc.
+    """
+    try:
+        # Get project
+        project = db.query(Project).filter(Project.name == project_name).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Use unified CLI JSON executor
+        from utils.cli import get_cli
+
+        cli = get_cli()
+        data = await cli.execute_json(f"{project_name}:ps")
+
+        return data
+
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{project_name}/{app_name}/releases")
 async def get_releases(project_name: str, app_name: str, db: Session = Depends(get_db)):
     """
-    Get deployment history (releases) for an app.
-    Uses SuperDeploy CLI to read versions.json from the VM.
+    Get deployment history (releases) for an app using CLI command.
+    Enriches data with GitHub API (commit messages, authors, etc).
 
     Returns:
     - version: Release version
@@ -59,9 +84,15 @@ async def get_releases(project_name: str, app_name: str, db: Session = Depends(g
     - deployed_by: Who deployed it
     - deployed_at: When it was deployed
     - branch: Git branch
-    - commit_message: Commit message (if available)
+    - commit_message: Commit message from GitHub
+    - author: GitHub commit author info
     """
     try:
+        from utils.cli import get_cli
+        import json
+        import httpx
+        from models import Setting
+
         # Get project
         project = db.query(Project).filter(Project.name == project_name).first()
         if not project:
@@ -76,85 +107,89 @@ async def get_releases(project_name: str, app_name: str, db: Session = Depends(g
         if not app:
             raise HTTPException(status_code=404, detail="App not found")
 
-        # Use backend's SSH service with proper abstraction (no direct SSH!)
-        from pathlib import Path
-        from services.ssh_service import SSHConnectionPool
-        from services.config_service import ConfigService
+        # Use centralized CLI executor with JSON output
+        cli = get_cli()
 
-        project_root = Path(__file__).parent.parent.parent.parent
-        ssh_pool = SSHConnectionPool(project_root)
-        config_service = ConfigService(project_root)
+        # Execute releases:list command with --json flag
+        output_lines = []
+        async for line in cli.execute(
+            f"{project_name}:releases:list", args=["-a", app_name, "--json"]
+        ):
+            output_lines.append(line)
 
-        try:
-            # Get VM info from state
-            vms = ssh_pool.get_vm_info_from_state(project_name)
+        clean_output = "".join(output_lines).strip()
 
-            # Find which VM hosts this app
-            config = config_service.read_config(project_name)
-            app_config = config.get("apps", {}).get(app_name, {})
-            vm_name = app_config.get("vm")
+        # Parse JSON output
+        releases_data = json.loads(clean_output)
+        releases_list = releases_data.get("releases", [])
 
-            if not vm_name or vm_name not in vms:
-                return {"releases": []}
+        print(f"DEBUG: Parsed {len(releases_list)} releases from CLI JSON output")
 
-            vm_ip = vms[vm_name]["external_ip"]
-            ssh_key_path = ssh_pool.get_ssh_key_path(project_name)
+        # Shorten git SHAs (CLI returns full SHA, UI expects short 7-char)
+        for release in releases_list:
+            git_sha = release.get("git_sha", "")
+            if git_sha and len(git_sha) > 7:
+                release["git_sha"] = git_sha[:7]
 
-            # Read releases.json via backend SSH service (not direct SSH!)
-            # releases.json contains last 5 deployments for each app
-            stdout, stderr, exit_code = await ssh_pool.execute_command(
-                vm_ip,
-                ssh_key_path,
-                f"cat /opt/superdeploy/projects/{project_name}/releases.json 2>/dev/null || echo '{{}}'",
-                timeout=10,
-            )
+        # Enrich with GitHub API data
+        github_token = (
+            db.query(Setting).filter(Setting.key == "REPOSITORY_TOKEN").first()
+        )
 
-            if exit_code != 0 or not stdout.strip():
-                return {"releases": []}
+        if github_token and github_token.value and releases_list:
+            headers = {
+                "Authorization": f"token {github_token.value}",
+                "Accept": "application/vnd.github.v3+json",
+            }
 
-            # Parse releases.json (array of releases)
-            releases_data = json.loads(stdout)
+            # Get app's repo info
+            repo_name = app.repo or app_name
+            github_org = project.github_org or "cheapaio"
 
-            if app_name not in releases_data:
-                return {"releases": []}
+            async with httpx.AsyncClient() as client:
+                for release in releases_list:
+                    sha = release["git_sha"]
+                    if sha and sha != "-" and len(sha) >= 7:
+                        try:
+                            # Get commit info from GitHub
+                            url = f"https://api.github.com/repos/{github_org}/{repo_name}/commits/{sha}"
+                            response = await client.get(
+                                url, headers=headers, timeout=5.0
+                            )
 
-            # Get releases array for this app (last 5)
-            app_releases = releases_data[app_name]
+                            if response.status_code == 200:
+                                commit_data = response.json()
+                                release["commit_message"] = commit_data.get(
+                                    "commit", {}
+                                ).get("message", "-")
+                                release["author"] = {
+                                    "login": commit_data.get("author", {}).get(
+                                        "login", "unknown"
+                                    ),
+                                    "avatar_url": commit_data.get("author", {}).get(
+                                        "avatar_url", ""
+                                    ),
+                                }
+                            else:
+                                release["commit_message"] = "-"
+                                release["author"] = None
+                        except Exception:
+                            release["commit_message"] = "-"
+                            release["author"] = None
+                    else:
+                        release["commit_message"] = "-"
+                        release["author"] = None
+        else:
+            # No GitHub token or no data - add empty fields
+            for release in releases_list:
+                release["commit_message"] = "-"
+                release["author"] = None
 
-            if not isinstance(app_releases, list) or len(app_releases) == 0:
-                return {"releases": []}
+        return {"releases": releases_list}
 
-            # Format releases (newest first)
-            formatted_releases = []
-            for idx, release_data in enumerate(reversed(app_releases)):
-                git_sha = release_data.get("git_sha", "-")
-
-                # First one is CURRENT, rest are PREVIOUS
-                status = (
-                    "CURRENT"
-                    if idx == 0
-                    else f"PREVIOUS (v{release_data.get('version', '-')})"
-                )
-
-                formatted_releases.append(
-                    {
-                        "version": release_data.get("version", "-"),
-                        "git_sha": git_sha,
-                        "deployed_by": release_data.get("deployed_by", "-"),
-                        "deployed_at": release_data.get("deployed_at", "-"),
-                        "branch": release_data.get("branch", "-"),
-                        "commit_message": release_data.get("commit_message", "-"),
-                        "status": status,
-                    }
-                )
-
-            return {"releases": formatted_releases}
-
-        finally:
-            await ssh_pool.close_all()
-
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Invalid versions data")
+    except RuntimeError as e:
+        # CLI execution failed
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -175,6 +210,8 @@ async def switch_version(
     - git_sha: Version switched to
     """
     try:
+        from utils.cli import get_cli
+
         # Get project
         project = db.query(Project).filter(Project.name == project_name).first()
         if not project:
@@ -189,34 +226,27 @@ async def switch_version(
         if not app:
             raise HTTPException(status_code=404, detail="App not found")
 
-        # Use SuperDeploy CLI switch command (handles all SSH internally)
-        result = subprocess.run(
-            [
-                "superdeploy",
-                f"{project_name}:releases:switch",
-                "-a",
-                app_name,
-                "-v",
-                request.git_sha,
-                "--force",  # Skip confirmation
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,  # 3 minutes for zero-downtime switch
-        )
+        # Use centralized CLI executor
+        cli = get_cli()
 
-        if result.returncode != 0:
-            # Parse error from CLI output
-            error_msg = result.stderr or result.stdout or "Switch failed"
-            raise HTTPException(status_code=500, detail=error_msg)
+        # Collect output
+        output_lines = []
+        async for line in cli.execute(
+            f"{project_name}:releases:switch",
+            args=["-a", app_name, "-v", request.git_sha, "--force"],
+        ):
+            output_lines.append(line)
+
+        output = "".join(output_lines)
 
         return {
             "message": f"Successfully switched to {request.git_sha[:7]}",
             "git_sha": request.git_sha,
-            "output": result.stdout,
+            "output": output,
         }
 
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Switch operation timed out")
+    except RuntimeError as e:
+        # CLI execution failed
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

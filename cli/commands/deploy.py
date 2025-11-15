@@ -40,7 +40,7 @@ class VMTarget:
 class DockerImageBuilder:
     """Handles Docker image building operations."""
 
-    def __init__(self, console, verbose: bool = False):
+    def __init__(self, console, verbose: bool = False, json_output: bool = False):
         self.console = console
         self.verbose = verbose
 
@@ -117,7 +117,7 @@ class DockerImageBuilder:
 class ApplicationDeployer:
     """Handles application deployment to VM."""
 
-    def __init__(self, console, verbose: bool = False):
+    def __init__(self, console, verbose: bool = False, json_output: bool = False):
         self.console = console
         self.verbose = verbose
 
@@ -207,7 +207,7 @@ class DeployCommand(ProjectCommand):
         push: bool = True,
         verbose: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.app_name = app_name
         self.build_image = build
         self.push_image = push
@@ -228,30 +228,36 @@ class DeployCommand(ProjectCommand):
         logger = self.init_logger(self.project_name, f"deploy-{self.app_name}")
 
         try:
-            logger.step("Loading deployment configuration")
+            if logger:
+                logger.step("Loading deployment configuration")
             # Load and validate configuration
             deploy_config = self._load_deployment_config()
             target_vm = self._find_target_vm(deploy_config.vm_role)
-            logger.success("Configuration loaded")
+            if logger:
+                logger.success("Configuration loaded")
 
             # Display deployment info
             self._display_deployment_info(deploy_config)
 
             # Step 1: Build Docker image
             if self.build_image:
-                logger.step("Building Docker image")
+                if logger:
+                    logger.step("Building Docker image")
                 if not self.image_builder.build(
                     deploy_config.app_path,
                     deploy_config.image_tag,
                     deploy_config.image_latest,
                 ):
-                    logger.log_error("Image build failed")
+                    if logger:
+                        logger.log_error("Image build failed")
                     return
-                logger.success("Image built successfully")
+                if logger:
+                    logger.success("Image built successfully")
 
             # Step 2: Push to registry
             if self.push_image:
-                logger.step("Pushing image to registry")
+                if logger:
+                    logger.step("Pushing image to registry")
                 if not self.image_builder.push(
                     deploy_config.image_tag,
                     deploy_config.image_latest,
@@ -259,32 +265,40 @@ class DeployCommand(ProjectCommand):
                     deploy_config.docker_username,
                     deploy_config.docker_token,
                 ):
-                    logger.log_error("Image push failed")
+                    if logger:
+                        logger.log_error("Image push failed")
                     return
-                logger.success("Image pushed successfully")
+                if logger:
+                    logger.success("Image pushed successfully")
 
             # Step 3: Deploy to VM
-            logger.step(f"Deploying to VM ({target_vm.vm_name})")
+            if logger:
+                logger.step(f"Deploying to VM ({target_vm.vm_name})")
             domain = self._get_app_domain()
             if not self.app_deployer.deploy(
                 target_vm, self.project_name, self.app_name, domain
             ):
-                logger.log_error("Deployment failed")
+                if logger:
+                    logger.log_error("Deployment failed")
                 return
 
-            logger.success("Deployment completed successfully")
+            if logger:
+
+                logger.success("Deployment completed successfully")
 
             if not self.verbose:
                 self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
         except DeploymentError as e:
-            logger.log_error(f"Deployment error: {e}")
+            if logger:
+                logger.log_error(f"Deployment error: {e}")
             self.console.print(f"[red]❌ {e}[/red]")
             if not self.verbose:
                 self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
             raise SystemExit(1)
         except Exception as e:
-            logger.log_error(f"Unexpected error: {e}")
+            if logger:
+                logger.log_error(f"Unexpected error: {e}")
             self.console.print(f"[red]❌ Error: {e}[/red]")
             if self.verbose:
                 import traceback
@@ -409,7 +423,8 @@ class DeployCommand(ProjectCommand):
 @click.option("--build/--no-build", default=True, help="Build Docker image")
 @click.option("--push/--no-push", default=True, help="Push to registry")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
-def deploy(project, app, build, push, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def deploy(project, app, build, push, verbose, json_output):
     """
     Quick local deployment - Build, push, and deploy an app
 
@@ -424,5 +439,5 @@ def deploy(project, app, build, push, verbose):
         superdeploy cheapa:deploy -a storefront --no-build
         superdeploy cheapa:deploy -a api -v
     """
-    cmd = DeployCommand(project, app, build=build, push=push, verbose=verbose)
+    cmd = DeployCommand(project, app, build=build, push=push, verbose=verbose, json_output=json_output)
     cmd.run()

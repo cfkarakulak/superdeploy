@@ -341,7 +341,7 @@ class DownCommand(ProjectCommand):
             options: DownOptions with configuration
             verbose: Whether to show verbose output
         """
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.options = options
 
     def execute(self) -> None:
@@ -374,16 +374,19 @@ class DownCommand(ProjectCommand):
         total_steps = 3
 
         # Step 1: GCP Resource Cleanup
-        logger.step(f"[1/{total_steps}] GCP Resource Cleanup")
+        if logger:
+            logger.step(f"[1/{total_steps}] GCP Resource Cleanup")
         self.console.print("  [dim]✓ Configuration loaded[/dim]")
         self._execute_gcp_cleanup(logger, region)
 
         # Step 2: Terraform State Cleanup
-        logger.step(f"[2/{total_steps}] Terraform State Cleanup")
+        if logger:
+            logger.step(f"[2/{total_steps}] Terraform State Cleanup")
         self._execute_terraform_cleanup(logger)
 
         # Step 3: Local Files Cleanup
-        logger.step(f"[3/{total_steps}] Local Files Cleanup")
+        if logger:
+            logger.step(f"[3/{total_steps}] Local Files Cleanup")
         self._execute_local_cleanup(logger)
 
         if not self.verbose:
@@ -395,10 +398,12 @@ class DownCommand(ProjectCommand):
             project_config = self.config_service.get_raw_config(self.project_name)
             gcp_config = project_config.get("cloud", {}).get("gcp", {})
             region = gcp_config.get("region", "us-central1")
-            logger.log("[dim]✓ Config loaded[/dim]")
+            if logger:
+                logger.log("[dim]✓ Config loaded[/dim]")
             return region
         except Exception:
-            logger.log("[dim]No config found, using defaults for cleanup[/dim]")
+            if logger:
+                logger.log("[dim]No config found, using defaults for cleanup[/dim]")
             return "us-central1"
 
     def _show_resources_to_destroy(self) -> None:
@@ -494,5 +499,5 @@ def down(project, yes, verbose, keep_infra):
         superdeploy cheapa:down --keep-infra
     """
     options = DownOptions(yes=yes, keep_infra=keep_infra)
-    cmd = DownCommand(project, options, verbose=verbose)
+    cmd = DownCommand(project, options, verbose=verbose, json_output=json_output)
     cmd.run()

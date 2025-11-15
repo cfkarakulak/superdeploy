@@ -25,8 +25,8 @@ class ProjectCommand(BaseCommand):
     - Pre-configured state, config, secret access
     """
 
-    def __init__(self, project_name: str, verbose: bool = False):
-        super().__init__(verbose=verbose)
+    def __init__(self, project_name: str, verbose: bool = False, json_output: bool = False):
+        super().__init__(verbose=verbose, json_output=json_output)
         self.project_name = project_name
 
         # Initialize services

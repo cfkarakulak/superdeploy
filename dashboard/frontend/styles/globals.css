@@ -113,10 +113,10 @@ body {
 
   body {
     @apply text-foreground;
-    background-color: #f3f5f9;
+    background-color: #eef2f5;
     font-feature-settings: "rlig" 1, "calt" 1;
     scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 #f3f5f9;
+    scrollbar-color: #cbd5e1 #eef2f5;
   }
 
   body::-webkit-scrollbar {
@@ -124,13 +124,13 @@ body {
   }
 
   body::-webkit-scrollbar-track {
-    background: #f3f5f9;
+    background: #eef2f5;
   }
 
   body::-webkit-scrollbar-thumb {
     background-color: #cbd5e1;
     border-radius: 5px;
-    border: 2px solid #f3f5f9;
+    border: 2px solid #eef2f5;
   }
 
   body::-webkit-scrollbar-thumb:hover {
@@ -554,7 +554,7 @@ body {
 
   /* Terminal/Log viewer styles - Override theme colors */
   .terminal-container {
-    background-color: #f3f5f9;
+    background-color: #eef2f5;
     color: #222;
     font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
     max-height: 600px;

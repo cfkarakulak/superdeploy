@@ -136,7 +136,7 @@ export default function AddonsPage() {
       />
 
       {addons.length === 0 ? (
-        <div className="bg-white rounded-[16px] p-[20px] text-center shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+        <div className="bg-white rounded-[16px] p-[32px] text-center shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
           <p className="text-[15px] text-[#8b8b8b]">No add-ons installed yet</p>
         </div>
       ) : (
@@ -144,7 +144,7 @@ export default function AddonsPage() {
           {addons.map((addon) => (
             <div
               key={addon.reference}
-              className="bg-white rounded-[16px] p-[20px] pt-[25px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]"
+              className="bg-white rounded-[16px] p-[32px] pt-[25px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]"
             >
               <div className="flex items-start justify-between mb-5">
                 <div>

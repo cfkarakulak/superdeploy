@@ -111,8 +111,8 @@ export default function ProjectPage() {
     const fetchData = async () => {
       try {
         const [appsRes, addonsRes] = await Promise.all([
-          fetch(`http://localhost:8000/api/apps/${projectName}/list`),
-          fetch(`http://localhost:8000/api/addons/${projectName}/list`),
+          fetch(`http://localhost:8401/api/apps/${projectName}/list`),
+          fetch(`http://localhost:8401/api/addons/${projectName}/list`),
         ]);
 
         const appsData = await appsRes.json();
@@ -158,7 +158,7 @@ export default function ProjectPage() {
               <Link
                 key={app.name}
                 href={`/project/${projectName}/app/${app.name}`}
-                className="block bg-white rounded-[16px] p-[20px] hover:bg-[#f7f7f7] transition-all shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]"
+                className="block bg-white rounded-[16px] p-[32px] hover:bg-[#f7f7f7] transition-all shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]"
               >
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 bg-[#f7f7f7] rounded flex items-center justify-center">
@@ -176,7 +176,7 @@ export default function ProjectPage() {
             ))}
           </div>
         ) : (
-          <div className="bg-white rounded-[16px] p-[20px] text-center shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+          <div className="bg-white rounded-[16px] p-[32px] text-center shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
             <p className="text-[15px] text-[#8b8b8b]">No applications yet</p>
           </div>
         )}

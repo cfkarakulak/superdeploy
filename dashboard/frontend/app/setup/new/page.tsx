@@ -2,30 +2,39 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, ChevronLeft, Package, Settings, Shield, Rocket, CheckCircle2, ChevronDown } from "lucide-react";
+import { 
+  ChevronRight, 
+  Check, 
+  Settings, 
+  Code, 
+  Package, 
+  Key,
+  Eye,
+  Search,
+  Database,
+  Zap,
+  Server,
+  MessageSquare,
+  Plus,
+  X,
+  Loader2
+} from "lucide-react";
 
 interface ProjectConfig {
-  // Step 1: Project Info
   project_name: string;
   gcp_project: string;
   gcp_region: string;
-  
-  // Step 2: Apps
   apps: Array<{
     name: string;
-    repo: string; // GitHub repo (owner/repo format)
+    repo: string;
     port: number;
   }>;
-  
-  // Step 3: Addons (simplified - just track which are installed)
   addons: {
-    databases: string[]; // ["postgres", "mysql"]
-    queues: string[]; // ["rabbitmq"]
-    proxy: string[]; // ["caddy"]
-    caches: string[]; // ["redis"]
+    databases: string[];
+    queues: string[];
+    proxy: string[];
+    caches: string[];
   };
-  
-  // Step 4: Secrets
   secrets: {
     docker_org: string;
     docker_username: string;
@@ -42,7 +51,7 @@ const INITIAL_CONFIG: ProjectConfig = {
   project_name: "",
   gcp_project: "",
   gcp_region: "us-central1",
-  apps: [{ name: "api", repo: "", port: 8000 }],
+  apps: [],
   addons: {
     databases: [],
     queues: [],
@@ -61,45 +70,67 @@ const INITIAL_CONFIG: ProjectConfig = {
   },
 };
 
+const GCP_REGIONS = [
+  "us-central1",
+  "us-east1",
+  "us-west1",
+  "europe-west1",
+  "europe-west2",
+  "asia-east1",
+  "asia-northeast1",
+];
+
+const AVAILABLE_ADDONS = {
+  databases: [
+    { id: "postgres", name: "PostgreSQL", icon: Database },
+    { id: "mysql", name: "MySQL", icon: Database },
+    { id: "mongodb", name: "MongoDB", icon: Database },
+  ],
+  caches: [
+    { id: "redis", name: "Redis", icon: Zap },
+  ],
+  queues: [
+    { id: "rabbitmq", name: "RabbitMQ", icon: MessageSquare },
+  ],
+  proxy: [
+    { id: "caddy", name: "Caddy", icon: Server },
+  ],
+};
+
 interface GroupedRepos {
   [org: string]: Array<{ full_name: string; name: string; owner: string }>;
 }
 
-export default function NewProjectWizard() {
+export default function NewProjectSetup() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [config, setConfig] = useState<ProjectConfig>(INITIAL_CONFIG);
   const [deploying, setDeploying] = useState(false);
   const [deploymentLog, setDeploymentLog] = useState<string[]>([]);
-  const [githubRepos, setGithubRepos] = useState<Array<{ full_name: string; name: string; owner: string }>>([]);
-  const [groupedRepos, setGroupedRepos] = useState<GroupedRepos>({});
+  const [githubRepos, setGithubRepos] = useState<GroupedRepos>({});
   const [loadingRepos, setLoadingRepos] = useState(false);
-  const [repoSearchTerms, setRepoSearchTerms] = useState<Record<number, string>>({});
-  const [repoDropdownOpen, setRepoDropdownOpen] = useState<Record<number, boolean>>({});
+  const [repoSearch, setRepoSearch] = useState("");
+  const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
 
-  const totalSteps = 5;
+  const totalSteps = 4;
 
-  // Fetch GitHub repos on mount (using stored token)
+  // Fetch GitHub repos
   useEffect(() => {
-    const fetchGithubRepos = async () => {
+    const fetchRepos = async () => {
       setLoadingRepos(true);
       try {
-        // Get token from backend
         const tokenResponse = await fetch("http://localhost:8401/api/settings/github-token");
         if (!tokenResponse.ok) {
-          console.error("No GitHub token configured");
           setLoadingRepos(false);
           return;
         }
         
         const { token, configured } = await tokenResponse.json();
         if (!configured || !token) {
-          console.error("GitHub token not configured");
           setLoadingRepos(false);
           return;
         }
         
-        // Fetch repos from GitHub
         const response = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated", {
           headers: { Authorization: `token ${token}` }
         });
@@ -110,33 +141,27 @@ export default function NewProjectWizard() {
             full_name: r.full_name,
             name: r.name,
             owner: r.owner.login,
-            owner_type: r.owner.type // "User" or "Organization"
+            owner_type: r.owner.type
           }));
           
-          setGithubRepos(repoList);
-          
-          // Group repos by organization
+          // Group by organization
           const grouped: GroupedRepos = {};
           const orgNames = new Set<string>();
           
-          // First pass: identify all organizations
           repoList.forEach((repo: any) => {
             if (repo.owner_type === "Organization") {
               orgNames.add(repo.owner);
             }
           });
           
-          // Sort org names alphabetically
-          const sortedOrgNames = Array.from(orgNames).sort((a, b) => a.localeCompare(b));
+          const sortedOrgs = Array.from(orgNames).sort((a, b) => a.localeCompare(b));
           
-          // Second pass: group repos by org
-          sortedOrgNames.forEach(orgName => {
+          sortedOrgs.forEach(orgName => {
             grouped[orgName] = repoList
               .filter((r: any) => r.owner === orgName && r.owner_type === "Organization")
               .sort((a: any, b: any) => a.name.localeCompare(b.name));
           });
           
-          // Personal repos (User type) - alphabetically sorted, at the end
           const personal = repoList
             .filter((r: any) => r.owner_type === "User")
             .sort((a: any, b: any) => a.name.localeCompare(b.name));
@@ -145,34 +170,17 @@ export default function NewProjectWizard() {
             grouped['Personal'] = personal;
           }
           
-          setGroupedRepos(grouped);
+          setGithubRepos(grouped);
         }
       } catch (error) {
-        console.error("Failed to fetch GitHub repos:", error);
+        console.error("Failed to fetch repos:", error);
       } finally {
         setLoadingRepos(false);
       }
     };
     
-    fetchGithubRepos();
+    fetchRepos();
   }, []);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const openDropdowns = Object.keys(repoDropdownOpen).filter(key => repoDropdownOpen[Number(key)]);
-      if (openDropdowns.length > 0) {
-        const target = event.target as HTMLElement;
-        if (!target.closest('.repo-dropdown-container')) {
-          setRepoDropdownOpen({});
-          setRepoSearchTerms({});
-        }
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [repoDropdownOpen]);
 
   const updateConfig = (updates: Partial<ProjectConfig>) => {
     setConfig({ ...config, ...updates });
@@ -195,24 +203,18 @@ export default function NewProjectWizard() {
     setDeploymentLog([]);
 
     try {
-      // Step 1: Save project configuration to database
-      setDeploymentLog((prev) => [...prev, "💾 Saving project configuration to database..."]);
+      setDeploymentLog((prev) => [...prev, "💾 Saving configuration..."]);
       
-      // Extract github_org from first app's repo
       const github_org = config.apps.length > 0 && config.apps[0].repo 
         ? config.apps[0].repo.split('/')[0] 
         : "";
       
-      const wizardPayload = {
+      const payload = {
         project_name: config.project_name,
         gcp_project: config.gcp_project,
         gcp_region: config.gcp_region,
-        github_org: github_org,
-        apps: config.apps.map(app => ({
-          name: app.name,
-          repo: app.repo,
-          port: app.port
-        })),
+        github_org,
+        apps: config.apps,
         addons: config.addons,
         secrets: config.secrets
       };
@@ -220,19 +222,17 @@ export default function NewProjectWizard() {
       const createResponse = await fetch("http://localhost:8401/api/projects/wizard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(wizardPayload),
+        body: JSON.stringify(payload),
       });
 
       if (!createResponse.ok) {
         const error = await createResponse.json();
-        throw new Error(error.detail || "Failed to save project configuration");
+        throw new Error(error.detail || "Failed to save configuration");
       }
 
       const project = await createResponse.json();
-      setDeploymentLog((prev) => [...prev, `✓ Project "${project.name}" saved to database`]);
-
-      // Step 2: Deploy from database
-      setDeploymentLog((prev) => [...prev, "🚀 Starting deployment (this may take 10-15 minutes)..."]);
+      setDeploymentLog((prev) => [...prev, `✓ Project "${project.name}" saved`]);
+      setDeploymentLog((prev) => [...prev, "🚀 Starting deployment..."]);
       
       const deployResponse = await fetch(`http://localhost:8401/api/projects/${config.project_name}/deploy`, {
         method: "POST",
@@ -243,7 +243,6 @@ export default function NewProjectWizard() {
         throw new Error("Failed to start deployment");
       }
 
-      // Read streaming deployment logs
       const reader = deployResponse.body?.getReader();
       if (reader) {
         while (true) {
@@ -251,687 +250,485 @@ export default function NewProjectWizard() {
           if (done) break;
           
           const text = new TextDecoder().decode(value);
-          const lines = text.split("\n").filter(l => l.trim());
+          const lines = text.split('\n').filter(line => line.trim());
           
-          for (const line of lines) {
-            try {
-              const msg = JSON.parse(line);
-              setDeploymentLog((prev) => [...prev, msg.message]);
-            } catch (e) {
-              // Skip invalid JSON
+          lines.forEach(line => {
+            if (line.startsWith('data: ')) {
+              const message = line.substring(6);
+              setDeploymentLog((prev) => [...prev, message]);
             }
-          }
+          });
         }
       }
 
-      setDeploymentLog((prev) => [...prev, "✅ Deployment complete!"]);
-
-      // Redirect to project page after 2 seconds
+      setDeploymentLog((prev) => [...prev, "✓ Deployment complete!"]);
+      
       setTimeout(() => {
         router.push(`/project/${config.project_name}`);
       }, 2000);
 
     } catch (error) {
-      setDeploymentLog((prev) => [...prev, `❌ Error: ${error}`]);
+      setDeploymentLog((prev) => [...prev, `❌ Error: ${error instanceof Error ? error.message : "Unknown error"}`]);
       setDeploying(false);
     }
   };
 
-  const addApp = () => {
-    updateConfig({
-      apps: [...config.apps, { name: "", repo: "", port: 8000 }],
-    });
-  };
-
-  const removeApp = (index: number) => {
-    updateConfig({
-      apps: config.apps.filter((_, i) => i !== index),
-    });
-  };
-
-  const updateApp = (index: number, field: keyof ProjectConfig["apps"][0], value: any) => {
-    const newApps = [...config.apps];
-    newApps[index] = { ...newApps[index], [field]: value };
-    updateConfig({ apps: newApps });
-  };
-
-  const stepNames = ["Project", "Apps", "Add-ons", "Secrets", "Deploy"];
-
-  const renderStepIndicator = () => (
-    <div className="flex items-center justify-center gap-4 mb-10">
-      {[1, 2, 3, 4, 5].map((s) => (
-        <div
-          key={s}
-          className={`flex flex-col items-center ${s !== 5 ? "gap-3" : ""}`}
-        >
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-medium ${
-                s === step
-                  ? "bg-[#0a0a0a] text-white"
-                  : s < step
-                  ? "bg-[#0a0a0a] text-white"
-                  : "bg-[#e6e9f0] text-[#8b8b8b]"
-              }`}
-            >
-              {s < step ? <CheckCircle2 className="w-4 h-4" /> : s}
-            </div>
-            {s !== 5 && (
-              <div
-                className={`w-16 h-0.5 ${
-                  s < step ? "bg-[#0a0a0a]" : "bg-[#e6e9f0]"
-                }`}
-              />
-            )}
-          </div>
-          <span className={`text-[11px] font-light tracking-[0.03em] ${
-            s === step ? "text-[#0a0a0a]" : "text-[#8b8b8b]"
-          }`}>
-            {stepNames[s - 1]}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-
-  // Filter repos based on search (for specific app index)
-  const getFilteredGroupedRepos = (appIndex: number) => {
-    const searchTerm = repoSearchTerms[appIndex] || "";
-    return Object.entries(groupedRepos).reduce((acc, [org, repos]) => {
-      const filtered = repos.filter(repo => 
-        repo.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        repo.name.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-      if (filtered.length > 0) {
-        acc[org] = filtered;
-      }
-      return acc;
-    }, {} as GroupedRepos);
-  };
-
-  const renderStep1 = () => (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-full bg-[#f7f7f7] flex items-center justify-center">
-          <Settings className="w-5 h-5 text-[#8b8b8b]" />
-        </div>
-        <div>
-          <h2 className="text-[19px] font-semibold text-[#0a0a0a]">Project Information</h2>
-          <p className="text-[13px] text-[#69707e]">Basic project configuration</p>
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-[13px] font-medium text-[#0a0a0a] mb-2">
-          Project Name <span className="text-red-500">*</span>
-        </label>
-        <input
-          type="text"
-          value={config.project_name}
-          onChange={(e) => updateConfig({ project_name: e.target.value })}
-          placeholder="myproject"
-          className="w-full px-4 py-2.5 border border-[#e6e9f0] rounded-[10px] text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a] focus:border-transparent"
-        />
-        <p className="text-[11px] text-[#8b8b8b] mt-1">Lowercase, no spaces (e.g., myproject, webapp, api-backend)</p>
-      </div>
-
-      <div>
-        <label className="block text-[13px] font-medium text-[#0a0a0a] mb-2">
-          GCP Project ID <span className="text-red-500">*</span>
-        </label>
-        <input
-          type="text"
-          value={config.gcp_project}
-          onChange={(e) => updateConfig({ gcp_project: e.target.value })}
-          placeholder="my-gcp-project-123"
-          className="w-full px-4 py-2.5 border border-[#e6e9f0] rounded-[10px] text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a] focus:border-transparent"
-        />
-      </div>
-
-      <div>
-        <label className="block text-[13px] font-medium text-[#0a0a0a] mb-2">
-          GCP Region <span className="text-red-500">*</span>
-        </label>
-        <select
-          value={config.gcp_region}
-          onChange={(e) => updateConfig({ gcp_region: e.target.value })}
-          className="w-full px-4 py-2.5 border border-[#e6e9f0] rounded-[10px] text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a] focus:border-transparent"
-        >
-          <option value="us-central1">us-central1 (Iowa)</option>
-          <option value="us-east1">us-east1 (South Carolina)</option>
-          <option value="us-west1">us-west1 (Oregon)</option>
-          <option value="europe-west1">europe-west1 (Belgium)</option>
-          <option value="asia-east1">asia-east1 (Taiwan)</option>
-        </select>
-      </div>
-
-    </div>
-  );
-
-  const renderStep2 = () => (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-full bg-[#f7f7f7] flex items-center justify-center">
-          <Package className="w-5 h-5 text-[#8b8b8b]" />
-        </div>
-        <div>
-          <h2 className="text-[19px] font-semibold text-[#0a0a0a]">Applications</h2>
-          <p className="text-[13px] text-[#69707e]">Define your applications to deploy</p>
-        </div>
-      </div>
-
-      {config.apps.map((app, index) => (
-        <div key={index} className="p-4 border border-[#e6e9f0] rounded-[10px] space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] font-medium text-[#0a0a0a]">Application {index + 1}</span>
-            {config.apps.length > 1 && (
-              <button
-                onClick={() => removeApp(index)}
-                className="text-[11px] text-red-500 hover:text-red-700"
-              >
-                Remove
-              </button>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-medium text-[#0a0a0a] mb-1">
-              App Name <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={app.name}
-              onChange={(e) => updateApp(index, "name", e.target.value)}
-              placeholder="api"
-              className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a] focus:border-transparent"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-medium text-[#0a0a0a] mb-1">
-              GitHub Repository <span className="text-red-500">*</span>
-            </label>
-            {loadingRepos ? (
-              <div className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] text-[#8b8b8b] bg-[#f7f7f7]">
-                Loading repositories...
-              </div>
-            ) : githubRepos.length > 0 ? (
-              <div className="relative repo-dropdown-container">
-                <button
-                  type="button"
-                  onClick={() => setRepoDropdownOpen({ ...repoDropdownOpen, [index]: !repoDropdownOpen[index] })}
-                  className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a] focus:border-transparent text-left flex items-center justify-between"
-                >
-                  <span className={app.repo ? "text-[#0a0a0a]" : "text-[#8b8b8b]"}>
-                    {app.repo || "Select a repository..."}
-                  </span>
-                  <ChevronDown className={`w-4 h-4 text-[#8b8b8b] transition-transform ${repoDropdownOpen[index] ? "rotate-180" : ""}`} />
-                </button>
-                
-                {repoDropdownOpen[index] && (
-                  <div className="absolute z-50 w-full mt-2 bg-white border border-[#e6e9f0] rounded-[8px] shadow-lg max-h-[400px] overflow-hidden">
-                    {/* Search */}
-                    <div className="p-2 border-b border-[#e6e9f0]">
-                      <input
-                        type="text"
-                        value={repoSearchTerms[index] || ""}
-                        onChange={(e) => setRepoSearchTerms({ ...repoSearchTerms, [index]: e.target.value })}
-                        placeholder="Search repositories..."
-                        className="w-full px-2 py-1.5 border border-[#e6e9f0] rounded-md text-[12px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a]"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-                    
-                    {/* Grouped Repos */}
-                    <div className="overflow-y-auto max-h-[320px]">
-                      {Object.entries(getFilteredGroupedRepos(index)).map(([org, repos]) => (
-                        <div key={org} className="border-b border-[#e6e9f0] last:border-0">
-                          <div className="px-3 py-1.5 bg-[#f7f7f7] text-[10px] font-semibold text-[#8b8b8b] uppercase tracking-wide">
-                            {org} ({repos.length})
-                          </div>
-                          {repos.map((repo) => (
-                            <button
-                              key={repo.full_name}
-                              type="button"
-                              onClick={() => {
-                                updateApp(index, "repo", repo.full_name);
-                                setRepoDropdownOpen({ ...repoDropdownOpen, [index]: false });
-                                setRepoSearchTerms({ ...repoSearchTerms, [index]: "" });
-                              }}
-                              className={`w-full px-3 py-2 text-left hover:bg-[#f7f7f7] transition-colors ${
-                                app.repo === repo.full_name ? "bg-[#f0f0f0]" : ""
-                              }`}
-                            >
-                              <div className="text-[12px] text-[#0a0a0a] font-medium">{repo.name}</div>
-                              <div className="text-[10px] text-[#8b8b8b]">{repo.full_name}</div>
-                            </button>
-                          ))}
-                        </div>
-                      ))}
-                      
-                      {Object.keys(getFilteredGroupedRepos(index)).length === 0 && (
-                        <div className="px-3 py-6 text-center text-[12px] text-[#8b8b8b]">
-                          No repositories found
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] text-red-500 bg-[#fff5f5]">
-                No repositories found. Configure GitHub token in settings.
-              </div>
-            )}
-            <p className="text-[10px] text-[#8b8b8b] mt-1">
-              {githubRepos.length > 0 ? `${githubRepos.length} repositories available` : ""}
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-medium text-[#0a0a0a] mb-1">
-              Port <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              value={app.port}
-              onChange={(e) => updateApp(index, "port", parseInt(e.target.value))}
-              className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a] focus:border-transparent"
-            />
-          </div>
-        </div>
-      ))}
-
-      <button
-        onClick={addApp}
-        className="w-full py-2.5 border-2 border-dashed border-[#e6e9f0] rounded-[10px] text-[13px] text-[#0a0a0a] font-medium hover:border-[#0a0a0a] transition-colors"
-      >
-        + Add Another App
-      </button>
-    </div>
-  );
-
-  const availableAddons = {
-    databases: [
-      { id: "postgres", name: "PostgreSQL", description: "Powerful open-source relational database", version: "15-alpine" },
-      { id: "mysql", name: "MySQL", description: "Popular open-source relational database", version: "8-alpine" },
-      { id: "mongodb", name: "MongoDB", description: "Document-oriented NoSQL database", version: "7" },
-    ],
-    queues: [
-      { id: "rabbitmq", name: "RabbitMQ", description: "Open-source message broker", version: "3.12" },
-    ],
-    proxy: [
-      { id: "caddy", name: "Caddy", description: "Automatic HTTPS reverse proxy", version: "2-alpine" },
-      { id: "nginx", name: "Nginx", description: "High-performance web server", version: "alpine" },
-    ],
-    caches: [
-      { id: "redis", name: "Redis", description: "In-memory data structure store", version: "7-alpine" },
-      { id: "memcached", name: "Memcached", description: "High-performance distributed memory cache", version: "alpine" },
-    ],
-  };
-
-  const toggleAddon = (category: 'databases' | 'queues' | 'proxy' | 'caches', addonId: string) => {
-    const currentAddons = config.addons[category];
-    const isInstalled = currentAddons.includes(addonId);
-    
-    updateConfig({
-      addons: {
-        ...config.addons,
-        [category]: isInstalled 
-          ? currentAddons.filter(id => id !== addonId)
-          : [...currentAddons, addonId]
-      }
-    });
-  };
-
-  const renderAddonCard = (
-    addon: { id: string; name: string; description: string; version: string },
-    category: 'databases' | 'queues' | 'proxy' | 'caches'
-  ) => {
-    const isInstalled = config.addons[category].includes(addon.id);
-    
-    return (
-      <div 
-        key={addon.id}
-        className={`p-4 border rounded-[10px] transition-all ${
-          isInstalled 
-            ? "border-[#0a0a0a] bg-[#f7f7f7]" 
-            : "border-[#e6e9f0] hover:border-[#d0d0d0]"
-        }`}
-      >
-        <div className="flex items-start justify-between mb-2">
-          <div className="flex-1">
-            <h4 className="text-[14px] font-semibold text-[#0a0a0a] mb-1">{addon.name}</h4>
-            <p className="text-[11px] text-[#69707e] mb-2">{addon.description}</p>
-            <span className="text-[10px] text-[#8b8b8b] font-mono">v{addon.version}</span>
-          </div>
-          <button
-            onClick={() => toggleAddon(category, addon.id)}
-            className={`ml-3 px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
-              isInstalled
-                ? "bg-[#0a0a0a] text-white hover:bg-[#2a2a2a]"
-                : "border border-[#e6e9f0] text-[#0a0a0a] hover:bg-[#f7f7f7]"
-            }`}
-          >
-            {isInstalled ? "Installed" : "Install"}
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  const renderStep3 = () => (
-    <div className="space-y-8">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-full bg-[#f7f7f7] flex items-center justify-center">
-          <Settings className="w-5 h-5 text-[#8b8b8b]" />
-        </div>
-        <div>
-          <h2 className="text-[19px] font-semibold text-[#0a0a0a]">Infrastructure Add-ons</h2>
-          <p className="text-[13px] text-[#69707e]">Click to install or uninstall add-ons</p>
-        </div>
-      </div>
-
-      {/* Databases */}
-      <div>
-        <h3 className="text-[13px] font-semibold text-[#0a0a0a] mb-3">Databases</h3>
-        <div className="grid grid-cols-1 gap-3">
-          {availableAddons.databases.map(addon => renderAddonCard(addon, "databases"))}
-        </div>
-      </div>
-
-      {/* Message Queues */}
-      <div>
-        <h3 className="text-[13px] font-semibold text-[#0a0a0a] mb-3">Message Queues</h3>
-        <div className="grid grid-cols-1 gap-3">
-          {availableAddons.queues.map(addon => renderAddonCard(addon, "queues"))}
-        </div>
-      </div>
-
-      {/* Reverse Proxy */}
-      <div>
-        <h3 className="text-[13px] font-semibold text-[#0a0a0a] mb-3">Reverse Proxy</h3>
-        <div className="grid grid-cols-1 gap-3">
-          {availableAddons.proxy.map(addon => renderAddonCard(addon, "proxy"))}
-        </div>
-      </div>
-
-      {/* Cache */}
-      <div>
-        <h3 className="text-[13px] font-semibold text-[#0a0a0a] mb-3">Cache</h3>
-        <div className="grid grid-cols-1 gap-3">
-          {availableAddons.caches.map(addon => renderAddonCard(addon, "caches"))}
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderStep4 = () => (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-full bg-[#f7f7f7] flex items-center justify-center">
-          <Shield className="w-5 h-5 text-[#8b8b8b]" />
-        </div>
-        <div>
-          <h2 className="text-[19px] font-semibold text-[#0a0a0a]">Secrets & Credentials</h2>
-          <p className="text-[13px] text-[#69707e]">Required for deployment</p>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div className="p-4 border border-[#e6e9f0] rounded-[10px]">
-          <h3 className="text-[13px] font-semibold text-[#0a0a0a] mb-3">Docker Hub Credentials <span className="text-red-500">*</span></h3>
-          
-          <div className="space-y-3">
-            <div>
-              <label className="block text-[11px] font-medium text-[#0a0a0a] mb-1">
-                Organization <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={config.secrets.docker_org}
-                onChange={(e) => updateConfig({ secrets: { ...config.secrets, docker_org: e.target.value } })}
-                placeholder="myorg"
-                className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-medium text-[#0a0a0a] mb-1">
-                Username <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={config.secrets.docker_username}
-                onChange={(e) => updateConfig({ secrets: { ...config.secrets, docker_username: e.target.value } })}
-                placeholder="username"
-                className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-medium text-[#0a0a0a] mb-1">
-                Access Token <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="password"
-                value={config.secrets.docker_token}
-                onChange={(e) => updateConfig({ secrets: { ...config.secrets, docker_token: e.target.value } })}
-                placeholder="dckr_pat_xxx..."
-                className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a]"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 border border-[#e6e9f0] rounded-[10px]">
-          <h3 className="text-[13px] font-semibold text-[#0a0a0a] mb-3">GitHub Token <span className="text-red-500">*</span></h3>
-          
-          <div>
-            <label className="block text-[11px] font-medium text-[#0a0a0a] mb-1">
-              Personal Access Token <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="password"
-              value={config.secrets.github_token}
-              onChange={(e) => updateConfig({ secrets: { ...config.secrets, github_token: e.target.value } })}
-              placeholder="ghp_xxx..."
-              className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a]"
-            />
-            <p className="text-[10px] text-[#8b8b8b] mt-1">
-              Requires <code className="px-1 py-0.5 bg-white rounded">admin:org</code> scope
-            </p>
-          </div>
-        </div>
-
-        <div className="p-4 border border-[#e6e9f0] rounded-[10px]">
-          <h3 className="text-[13px] font-semibold text-[#0a0a0a] mb-3 flex items-center gap-2">
-            <span>SMTP</span>
-            <span className="text-[10px] text-[#8b8b8b] font-normal">(Optional)</span>
-          </h3>
-          
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-medium text-[#0a0a0a] mb-1">Host</label>
-                <input
-                  type="text"
-                  value={config.secrets.smtp_host}
-                  onChange={(e) => updateConfig({ secrets: { ...config.secrets, smtp_host: e.target.value } })}
-                  placeholder="smtp.gmail.com"
-                  className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-medium text-[#0a0a0a] mb-1">Port</label>
-                <input
-                  type="text"
-                  value={config.secrets.smtp_port}
-                  onChange={(e) => updateConfig({ secrets: { ...config.secrets, smtp_port: e.target.value } })}
-                  placeholder="587"
-                  className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a]"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-medium text-[#0a0a0a] mb-1">Username</label>
-              <input
-                type="text"
-                value={config.secrets.smtp_user}
-                onChange={(e) => updateConfig({ secrets: { ...config.secrets, smtp_user: e.target.value } })}
-                placeholder="user@example.com"
-                className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-medium text-[#0a0a0a] mb-1">Password</label>
-              <input
-                type="password"
-                value={config.secrets.smtp_password}
-                onChange={(e) => updateConfig({ secrets: { ...config.secrets, smtp_password: e.target.value } })}
-                placeholder="••••••••"
-                className="w-full px-3 py-2 border border-[#e6e9f0] rounded-[8px] text-[13px] focus:outline-none focus:ring-2 focus:ring-[#0a0a0a]"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderStep5 = () => (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-full bg-[#f7f7f7] flex items-center justify-center">
-          <Rocket className="w-5 h-5 text-[#8b8b8b]" />
-        </div>
-        <div>
-          <h2 className="text-[19px] font-semibold text-[#0a0a0a]">Review & Deploy</h2>
-          <p className="text-[13px] text-[#69707e]">Infrastructure deployment will take 10-15 minutes</p>
-        </div>
-      </div>
-
-      {!deploying && !deploymentLog.length ? (
-        <div className="space-y-4">
-          <div className="p-4 bg-[#f7f7f7] rounded-[10px]">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[13px] font-medium text-[#0a0a0a]">Project</span>
-              <span className="text-[13px] text-[#69707e]">{config.project_name}</span>
-            </div>
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[13px] font-medium text-[#0a0a0a]">GCP Project</span>
-              <span className="text-[13px] text-[#69707e]">{config.gcp_project}</span>
-            </div>
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[13px] font-medium text-[#0a0a0a]">Region</span>
-              <span className="text-[13px] text-[#69707e]">{config.gcp_region}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[13px] font-medium text-[#0a0a0a]">Applications</span>
-              <span className="text-[13px] text-[#69707e]">{config.apps.length} app(s)</span>
-            </div>
-          </div>
-
-          <div className="p-4 border border-[#e6e9f0] rounded-[10px] bg-[#f7f7f7]">
-            <h3 className="text-[13px] font-semibold text-[#0a0a0a] mb-2">What happens next:</h3>
-            <ul className="text-[12px] text-[#69707e] space-y-1 ml-4 list-disc">
-              <li>Create project configuration files</li>
-              <li>Deploy GCP infrastructure (VMs, networking)</li>
-              <li>Install Docker, Node.js, and GitHub runners</li>
-              <li>Deploy infrastructure add-ons</li>
-              <li>Sync secrets to GitHub</li>
-              <li>Generate deployment workflows</li>
-            </ul>
-          </div>
-        </div>
-      ) : (
-        <div className="p-4 bg-[#0a0a0a] rounded-[10px] font-mono text-[12px] text-green-400 h-96 overflow-y-auto">
-          {deploymentLog.map((log, i) => (
-            <div key={i} className="mb-1">{log}</div>
-          ))}
-          {deploying && <div className="animate-pulse">█</div>}
-        </div>
-      )}
-    </div>
-  );
-
   const canProceed = () => {
     switch (step) {
       case 1:
-        return config.project_name && config.gcp_project;
+        return config.project_name && config.gcp_project && config.gcp_region;
       case 2:
         return config.apps.length > 0 && config.apps.every(app => app.name && app.repo && app.port);
       case 3:
-        return true; // Addons are optional
+        return true; // Optional
       case 4:
-        return config.secrets.docker_org && config.secrets.docker_username && 
-               config.secrets.docker_token && config.secrets.github_token;
-      case 5:
-        return true;
+        return config.secrets.docker_org && config.secrets.docker_username && config.secrets.docker_token;
       default:
         return false;
     }
   };
 
+  const filteredRepos = Object.entries(githubRepos).reduce((acc, [org, repos]) => {
+    if (!repoSearch) {
+      acc[org] = repos;
+    } else {
+      const filtered = repos.filter(repo => 
+        repo.full_name.toLowerCase().includes(repoSearch.toLowerCase())
+      );
+      if (filtered.length > 0) {
+        acc[org] = filtered;
+      }
+    }
+    return acc;
+  }, {} as GroupedRepos);
+
+  const addApp = () => {
+    setConfig({
+      ...config,
+      apps: [...config.apps, { name: "", repo: "", port: 8000 }]
+    });
+  };
+
+  const removeApp = (index: number) => {
+    setConfig({
+      ...config,
+      apps: config.apps.filter((_, i) => i !== index)
+    });
+  };
+
+  const updateApp = (index: number, updates: Partial<typeof config.apps[0]>) => {
+    const newApps = [...config.apps];
+    newApps[index] = { ...newApps[index], ...updates };
+    setConfig({ ...config, apps: newApps });
+  };
+
+  const toggleAddon = (category: keyof typeof config.addons, addonId: string) => {
+    const currentAddons = config.addons[category];
+    const newAddons = currentAddons.includes(addonId)
+      ? currentAddons.filter(id => id !== addonId)
+      : [...currentAddons, addonId];
+    
+    setConfig({
+      ...config,
+      addons: { ...config.addons, [category]: newAddons }
+    });
+  };
+
+  // Deploying screen
+  if (deploying) {
+    return (
+      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-8">
+        <div className="w-full max-w-2xl">
+          <div className="bg-white rounded-lg border border-[#e3e8ee] p-8">
+            <div className="flex items-center gap-3 mb-6">
+              <Loader2 className="w-6 h-6 text-[#0a0a0a] animate-spin" />
+              <h2 className="text-[20px] font-semibold text-[#0a0a0a]">
+                Deploying {config.project_name}
+              </h2>
+            </div>
+            
+            <div className="bg-[#0a0a0a] rounded-lg p-4 font-mono text-[12px] text-green-400 max-h-[400px] overflow-y-auto">
+              {deploymentLog.map((log, i) => (
+                <div key={i} className="mb-1">{log}</div>
+              ))}
+              <div className="animate-pulse">▊</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-white">
-      <div className="max-w-3xl mx-auto px-8 py-12">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-[24px] font-bold text-[#0a0a0a] mb-2">Create New Project</h1>
-          <p className="text-[14px] text-[#69707e]">
-            Set up infrastructure, GitHub Actions, and automated deployments
-          </p>
+    <div className="min-h-screen bg-[#f6f8fa]">
+      {/* Header */}
+      <div className="border-b border-[#e3e8ee] bg-white">
+        <div className="max-w-4xl mx-auto px-8 py-6">
+          <h1 className="text-[24px] font-semibold text-[#0a0a0a] mb-2">Create New Project</h1>
+          <p className="text-[14px] text-[#8b8b8b]">Deploy your applications to GCP with a few clicks</p>
         </div>
+      </div>
 
-        {/* Step Indicator */}
-        {renderStepIndicator()}
-
-        {/* Step Content */}
-        <div className="bg-white rounded-[16px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)] p-8 mb-6">
-          {step === 1 && renderStep1()}
-          {step === 2 && renderStep2()}
-          {step === 3 && renderStep3()}
-          {step === 4 && renderStep4()}
-          {step === 5 && renderStep5()}
+      {/* Progress */}
+      <div className="border-b border-[#e3e8ee] bg-white">
+        <div className="max-w-4xl mx-auto px-8 py-4">
+          <div className="flex items-center justify-between">
+            {[
+              { num: 1, name: "Project", icon: Settings },
+              { num: 2, name: "Apps", icon: Code },
+              { num: 3, name: "Add-ons", icon: Package },
+              { num: 4, name: "Secrets", icon: Key }
+            ].map((s, i) => (
+              <div key={s.num} className="flex items-center flex-1">
+                <div className="flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-colors ${
+                    step > s.num ? "bg-[#0a0a0a] border-[#0a0a0a]" :
+                    step === s.num ? "border-[#0a0a0a] bg-white" :
+                    "border-[#e3e8ee] bg-white"
+                  }`}>
+                    {step > s.num ? (
+                      <Check className="w-4 h-4 text-white" />
+                    ) : (
+                      <s.icon className={`w-4 h-4 ${step === s.num ? "text-[#0a0a0a]" : "text-[#8b8b8b]"}`} />
+                    )}
+                  </div>
+                  <span className={`text-[13px] font-medium ${step === s.num ? "text-[#0a0a0a]" : "text-[#8b8b8b]"}`}>
+                    {s.name}
+                  </span>
+                </div>
+                {i < 3 && (
+                  <div className={`flex-1 h-[2px] mx-4 ${step > s.num ? "bg-[#0a0a0a]" : "bg-[#e3e8ee]"}`}></div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
+      </div>
 
-        {/* Navigation */}
-        <div className="flex justify-between items-center">
-          <button
-            onClick={handleBack}
-            disabled={step === 1 || deploying}
-            className="flex items-center gap-2 px-4 py-2.5 text-[#69707e] hover:text-[#0a0a0a] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Back
-          </button>
+      {/* Content */}
+      <div className="max-w-4xl mx-auto px-8 py-8">
+        <div className="bg-white rounded-lg border border-[#e3e8ee] p-8">
+          {/* Step 1: Project Info */}
+          {step === 1 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-[18px] font-semibold text-[#0a0a0a] mb-1">Project Information</h2>
+                <p className="text-[13px] text-[#8b8b8b]">Basic configuration for your deployment</p>
+              </div>
 
-          {step < totalSteps ? (
+              <div>
+                <label className="block text-[13px] font-medium text-[#0a0a0a] mb-2">
+                  Project Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={config.project_name}
+                  onChange={(e) => updateConfig({ project_name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+                  placeholder="myproject"
+                  className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[14px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
+                />
+                <p className="text-[11px] text-[#8b8b8b] mt-1.5">Lowercase letters, numbers, and hyphens only</p>
+              </div>
+
+              <div>
+                <label className="block text-[13px] font-medium text-[#0a0a0a] mb-2">
+                  GCP Project ID <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={config.gcp_project}
+                  onChange={(e) => updateConfig({ gcp_project: e.target.value })}
+                  placeholder="my-gcp-project-123"
+                  className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[14px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[13px] font-medium text-[#0a0a0a] mb-2">
+                  GCP Region <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={config.gcp_region}
+                  onChange={(e) => updateConfig({ gcp_region: e.target.value })}
+                  className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[14px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
+                >
+                  {GCP_REGIONS.map(region => (
+                    <option key={region} value={region}>{region}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Apps */}
+          {step === 2 && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-[18px] font-semibold text-[#0a0a0a] mb-1">Applications</h2>
+                  <p className="text-[13px] text-[#8b8b8b]">Add your GitHub repositories to deploy</p>
+                </div>
+                <button
+                  onClick={addApp}
+                  className="px-3 py-1.5 text-[13px] font-medium text-[#0a0a0a] border border-[#e3e8ee] rounded hover:bg-[#f6f8fa] transition-colors flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add App
+                </button>
+              </div>
+
+              {config.apps.length === 0 ? (
+                <div className="border border-[#e3e8ee] rounded-lg p-12 text-center">
+                  <Code className="w-8 h-8 text-[#8b8b8b] mx-auto mb-3" />
+                  <p className="text-[14px] font-medium text-[#0a0a0a] mb-2">No applications added</p>
+                  <p className="text-[13px] text-[#8b8b8b] mb-4">Add at least one application to deploy</p>
+                  <button
+                    onClick={addApp}
+                    className="px-4 py-2 text-[13px] font-medium text-white bg-[#0a0a0a] rounded hover:bg-[#2d2d2d] transition-colors"
+                  >
+                    Add Your First App
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {config.apps.map((app, index) => (
+                    <div key={index} className="border border-[#e3e8ee] rounded-lg p-4">
+                      <div className="flex items-start justify-between mb-4">
+                        <h3 className="text-[14px] font-medium text-[#0a0a0a]">Application {index + 1}</h3>
+                        <button
+                          onClick={() => removeApp(index)}
+                          className="text-[#8b8b8b] hover:text-red-600 transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
+                            App Name
+                          </label>
+                          <input
+                            type="text"
+                            value={app.name}
+                            onChange={(e) => updateApp(index, { name: e.target.value })}
+                            placeholder="api"
+                            className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
+                            GitHub Repository
+                          </label>
+                          {loadingRepos ? (
+                            <div className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[13px] text-[#8b8b8b]">
+                              Loading repositories...
+                            </div>
+                          ) : (
+                            <>
+                              <div className="relative mb-2">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b8b8b]" />
+                                <input
+                                  type="text"
+                                  value={repoSearch}
+                                  onChange={(e) => setRepoSearch(e.target.value)}
+                                  placeholder="Search repositories..."
+                                  className="w-full pl-9 pr-3 py-2 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
+                                />
+                              </div>
+                              <div className="max-h-[200px] overflow-y-auto border border-[#e3e8ee] rounded">
+                                {Object.entries(filteredRepos).map(([org, repos]) => (
+                                  <div key={org}>
+                                    <div className="px-3 py-1.5 bg-[#f6f8fa] text-[11px] font-medium text-[#8b8b8b] uppercase sticky top-0">
+                                      {org}
+                                    </div>
+                                    {repos.map(repo => (
+                                      <button
+                                        key={repo.full_name}
+                                        onClick={() => updateApp(index, { repo: repo.full_name })}
+                                        className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[#f6f8fa] transition-colors ${
+                                          app.repo === repo.full_name ? "bg-blue-50 text-blue-600 font-medium" : "text-[#0a0a0a]"
+                                        }`}
+                                      >
+                                        {repo.name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                          {app.repo && (
+                            <p className="text-[11px] text-[#8b8b8b] mt-1.5">Selected: {app.repo}</p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
+                            Port
+                          </label>
+                          <input
+                            type="number"
+                            value={app.port}
+                            onChange={(e) => updateApp(index, { port: parseInt(e.target.value) || 8000 })}
+                            className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 3: Add-ons */}
+          {step === 3 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-[18px] font-semibold text-[#0a0a0a] mb-1">Add-ons</h2>
+                <p className="text-[13px] text-[#8b8b8b]">Extend your app with databases and services (optional)</p>
+              </div>
+
+              {Object.entries(AVAILABLE_ADDONS).map(([category, addons]) => (
+                <div key={category}>
+                  <h3 className="text-[13px] font-semibold text-[#0a0a0a] mb-3 capitalize">{category}</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {addons.map(addon => {
+                      const Icon = addon.icon;
+                      const isSelected = config.addons[category as keyof typeof config.addons].includes(addon.id);
+                      
+                      return (
+                        <button
+                          key={addon.id}
+                          onClick={() => toggleAddon(category as keyof typeof config.addons, addon.id)}
+                          className={`p-4 border-2 rounded-lg transition-all ${
+                            isSelected 
+                              ? "border-[#0a0a0a] bg-[#f6f8fa]" 
+                              : "border-[#e3e8ee] hover:border-[#8b8b8b]"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded ${isSelected ? "bg-[#0a0a0a]" : "bg-[#f6f8fa]"}`}>
+                              <Icon className={`w-4 h-4 ${isSelected ? "text-white" : "text-[#8b8b8b]"}`} />
+                            </div>
+                            <span className={`text-[14px] font-medium ${isSelected ? "text-[#0a0a0a]" : "text-[#8b8b8b]"}`}>
+                              {addon.name}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Step 4: Secrets */}
+          {step === 4 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-[18px] font-semibold text-[#0a0a0a] mb-1">Secrets</h2>
+                <p className="text-[13px] text-[#8b8b8b]">Configure credentials for deployment</p>
+              </div>
+
+              <div>
+                <h3 className="text-[14px] font-semibold text-[#0a0a0a] mb-3">Docker Registry</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
+                      Organization <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={config.secrets.docker_org}
+                      onChange={(e) => updateConfig({ secrets: { ...config.secrets, docker_org: e.target.value } })}
+                      className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
+                      Username <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={config.secrets.docker_username}
+                      onChange={(e) => updateConfig({ secrets: { ...config.secrets, docker_username: e.target.value } })}
+                      className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
+                      Access Token <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showSecrets.docker ? "text" : "password"}
+                        value={config.secrets.docker_token}
+                        onChange={(e) => updateConfig({ secrets: { ...config.secrets, docker_token: e.target.value } })}
+                        className="w-full px-3 py-2 pr-10 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSecrets({ ...showSecrets, docker: !showSecrets.docker })}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#8b8b8b] hover:text-[#0a0a0a]"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-[#e3e8ee]">
+                <h3 className="text-[14px] font-semibold text-[#0a0a0a] mb-3">GitHub (Optional)</h3>
+                <div>
+                  <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
+                    Personal Access Token
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showSecrets.github ? "text" : "password"}
+                      value={config.secrets.github_token}
+                      onChange={(e) => updateConfig({ secrets: { ...config.secrets, github_token: e.target.value } })}
+                      className="w-full px-3 py-2 pr-10 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors font-mono"
+                      placeholder="ghp_..."
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSecrets({ ...showSecrets, github: !showSecrets.github })}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[#8b8b8b] hover:text-[#0a0a0a]"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex items-center justify-between pt-6 mt-6 border-t border-[#e3e8ee]">
+            <button
+              onClick={handleBack}
+              disabled={step === 1}
+              className="px-4 py-2 text-[13px] font-medium text-[#8b8b8b] hover:text-[#0a0a0a] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Back
+            </button>
             <button
               onClick={handleNext}
               disabled={!canProceed()}
-              className="flex items-center gap-2 px-6 py-2.5 bg-[#0a0a0a] text-white rounded-[10px] font-medium hover:bg-[#2a2a2a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-6 py-2 text-[13px] font-medium text-white bg-[#0a0a0a] rounded hover:bg-[#2d2d2d] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
-              Next
+              {step === totalSteps ? "Deploy Project" : "Continue"}
               <ChevronRight className="w-4 h-4" />
             </button>
-          ) : (
-            <button
-              onClick={handleDeploy}
-              disabled={!canProceed() || deploying || deploymentLog.length > 0}
-              className="flex items-center gap-2 px-6 py-2.5 bg-[#0a0a0a] text-white rounded-[10px] font-medium hover:bg-[#2a2a2a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Rocket className="w-4 h-4" />
-              {deploying ? "Deploying..." : deploymentLog.length > 0 ? "Completed" : "Deploy Infrastructure"}
-            </button>
-          )}
+          </div>
         </div>
       </div>
     </div>
   );
 }
-

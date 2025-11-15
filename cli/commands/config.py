@@ -21,8 +21,9 @@ class ConfigSetCommand(ProjectCommand):
         deploy: bool = False,
         no_sync: bool = False,
         verbose: bool = False,
+        json_output: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.key_value = key_value
         self.app = app
         self.environment = environment
@@ -52,8 +53,10 @@ class ConfigSetCommand(ProjectCommand):
         )
 
         # Step 1: Update secrets.yml
-        logger.step("[1/4] Updating Local Config")
-        logger.log(f"File: {secrets_file}")
+        if logger:
+            logger.step("[1/4] Updating Local Config")
+        if logger:
+            logger.log(f"File: {secrets_file}")
 
         # Load existing secrets with proper structure
         if secrets_file.exists():
@@ -91,14 +94,22 @@ class ConfigSetCommand(ProjectCommand):
             yaml.dump(secrets_data, f, default_flow_style=False, sort_keys=False)
 
         if old_value:
-            logger.log(f"✓ Updated {key} in {location} (previous value overwritten)")
+            if logger:
+                logger.log(
+                    f"✓ Updated {key} in {location} (previous value overwritten)"
+                )
         else:
-            logger.log(f"✓ Added {key} to {location}")
+            if logger:
+                logger.log(f"✓ Added {key} to {location}")
 
         # Step 2: Sync to GitHub
         if not self.no_sync:
-            logger.step("[2/4] Syncing to GitHub")
-            logger.log(f"Running sync command for {self.environment} environment...")
+            if logger:
+                logger.step("[2/4] Syncing to GitHub")
+            if logger:
+                logger.log(
+                    f"Running sync command for {self.environment} environment..."
+                )
 
             try:
                 import sys
@@ -120,25 +131,34 @@ class ConfigSetCommand(ProjectCommand):
                 )
 
                 if result.returncode == 0:
-                    logger.log(f"✓ Synced to GitHub ({self.environment})")
+                    if logger:
+                        logger.log(f"✓ Synced to GitHub ({self.environment})")
                 else:
-                    logger.warning("⚠ Sync had issues")
+                    if logger:
+                        logger.warning("⚠ Sync had issues")
                     if result.stderr:
                         for line in result.stderr.split("\n")[:3]:
                             if line.strip():
-                                logger.warning(f"  {line}")
+                                if logger:
+                                    logger.warning(f"  {line}")
             except subprocess.TimeoutExpired:
-                logger.warning("⚠ Sync timed out")
+                if logger:
+                    logger.warning("⚠ Sync timed out")
             except Exception as e:
-                logger.log_error(f"Sync failed: {e}")
-                logger.warning("Continuing without sync...")
+                if logger:
+                    logger.log_error(f"Sync failed: {e}")
+                if logger:
+                    logger.warning("Continuing without sync...")
         else:
-            logger.step("[2/4] Skipping Sync")
-            logger.log("--no-sync flag provided")
+            if logger:
+                logger.step("[2/4] Skipping Sync")
+            if logger:
+                logger.log("--no-sync flag provided")
 
         # Step 3: Trigger Deployment
         if self.deploy:
-            logger.step("[3/4] Triggering Deployment")
+            if logger:
+                logger.step("[3/4] Triggering Deployment")
 
             # Load project config
             project_config_file = (
@@ -152,7 +172,10 @@ class ConfigSetCommand(ProjectCommand):
             # Filter apps if -a specified
             if self.app:
                 if self.app not in apps:
-                    logger.log_error(f"App '{self.app}' not found in project config")
+                    if logger:
+                        logger.log_error(
+                            f"App '{self.app}' not found in project config"
+                        )
                     raise SystemExit(1)
                 apps = {self.app: apps[self.app]}
 
@@ -164,11 +187,13 @@ class ConfigSetCommand(ProjectCommand):
                 app_path = Path(app_config.get("path", ""))
 
                 if not app_path.exists():
-                    logger.warning(f"⚠ {app_name}: path not found ({app_path})")
+                    if logger:
+                        logger.warning(f"⚠ {app_name}: path not found ({app_path})")
                     failed_count += 1
                     continue
 
-                logger.log(f"Deploying {app_name}...")
+                if logger:
+                    logger.log(f"Deploying {app_name}...")
 
                 try:
                     # Empty commit to trigger deployment
@@ -194,29 +219,43 @@ class ConfigSetCommand(ProjectCommand):
                         check=True,
                     )
 
-                    logger.log(f"  ✓ {app_name} deployment triggered")
+                    if logger:
+                        logger.log(f"  ✓ {app_name} deployment triggered")
                     deployed_count += 1
 
                 except subprocess.CalledProcessError as e:
-                    logger.log_error(f"  ✗ {app_name} deployment failed: {e.stderr}")
+                    if logger:
+                        logger.log_error(
+                            f"  ✗ {app_name} deployment failed: {e.stderr}"
+                        )
                     failed_count += 1
 
-            logger.log("")
-            logger.log(
-                f"Deployment summary: {deployed_count} succeeded, {failed_count} failed"
-            )
+            if logger:
+                logger.log("")
+            if logger:
+                logger.log(
+                    f"Deployment summary: {deployed_count} succeeded, {failed_count} failed"
+                )
 
             if deployed_count > 0:
-                logger.step("[4/4] Deployment In Progress")
-                logger.log("✓ Deployment triggered via git push")
-                logger.log(f"Watch logs: superdeploy {self.project_name}:logs --follow")
+                if logger:
+                    logger.step("[4/4] Deployment In Progress")
+                if logger:
+                    logger.log("✓ Deployment triggered via git push")
+                if logger:
+                    logger.log(
+                        f"Watch logs: superdeploy {self.project_name}:logs --follow"
+                    )
 
         else:
-            logger.step("[3/4] Skipping Deployment")
-            logger.log("Run with --deploy to auto-deploy")
-            logger.log(
-                f"Or manually: cd <app-path> && git push origin {self.environment}"
-            )
+            if logger:
+                logger.step("[3/4] Skipping Deployment")
+            if logger:
+                logger.log("Run with --deploy to auto-deploy")
+            if logger:
+                logger.log(
+                    f"Or manually: cd <app-path> && git push origin {self.environment}"
+                )
 
         # Summary
         self.console.print()
@@ -245,7 +284,7 @@ class ConfigGetCommand(ProjectCommand):
         app: str = None,
         verbose: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.key = key
         self.app = app
 
@@ -304,23 +343,15 @@ class ConfigListCommand(ProjectCommand):
         filter_prefix: str = None,
         app: str = None,
         verbose: bool = False,
+        json_output: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.filter_prefix = filter_prefix
         self.app = app
 
     def execute(self) -> None:
         """Execute config:list command."""
         from cli.secret_manager import SecretManager
-
-        self.show_header(
-            title="Configuration List",
-            project=self.project_name,
-            details={
-                "Filter": self.filter_prefix if self.filter_prefix else "All",
-                "Scope": f"App: {self.app} (merged)" if self.app else "Shared only",
-            },
-        )
 
         secret_mgr = SecretManager(self.project_root, self.project_name)
 
@@ -331,14 +362,14 @@ class ConfigListCommand(ProjectCommand):
             scope = f"{self.app} (shared + app-specific)"
         else:
             # Get only shared secrets
-            secrets_data = secret_mgr.load_secrets()
-            env_vars = secrets_data.get("secrets", {}).get("shared", {})
+            secrets_config = secret_mgr.load_secrets()
+            # Convert SharedSecrets object to dict
+            env_vars = {}
+            if hasattr(secrets_config.shared, "__dict__"):
+                for key, value in secrets_config.shared.__dict__.items():
+                    if value is not None:
+                        env_vars[key] = value
             scope = "shared"
-
-        # Create table
-        table = Table(title=f"Configuration Variables - {scope}", padding=(0, 1))
-        table.add_column("Key", style="cyan", no_wrap=True)
-        table.add_column("Value", style="green")
 
         # Filter if specified
         if self.filter_prefix:
@@ -349,6 +380,49 @@ class ConfigListCommand(ProjectCommand):
             }
         else:
             filtered = env_vars
+
+        # JSON output mode
+        if self.json_output:
+            # Prepare JSON data with masked sensitive values
+            json_data = {}
+            for key, value in sorted(filtered.items()):
+                if value is None:
+                    continue
+                value_str = str(value)
+                # Mask sensitive values
+                if any(
+                    sensitive in key.upper()
+                    for sensitive in ["PASSWORD", "TOKEN", "SECRET", "KEY", "PAT"]
+                ):
+                    json_data[key] = (
+                        "***" + value_str[-4:] if len(value_str) > 4 else "***"
+                    )
+                else:
+                    json_data[key] = value_str
+
+            self.output_json(
+                {
+                    "scope": scope,
+                    "filter": self.filter_prefix if self.filter_prefix else None,
+                    "variables": json_data,
+                    "total": len(filtered),
+                }
+            )
+            return
+
+        self.show_header(
+            title="Configuration List",
+            project=self.project_name,
+            details={
+                "Filter": self.filter_prefix if self.filter_prefix else "All",
+                "Scope": f"App: {self.app} (merged)" if self.app else "Shared only",
+            },
+        )
+
+        # Create table
+        table = Table(title=f"Configuration Variables - {scope}", padding=(0, 1))
+        table.add_column("Key", style="cyan", no_wrap=True)
+        table.add_column("Value", style="green")
 
         # Add rows
         for key, value in sorted(filtered.items()):
@@ -388,8 +462,9 @@ class ConfigUnsetCommand(ProjectCommand):
         deploy: bool = False,
         no_sync: bool = False,
         verbose: bool = False,
+        json_output: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.key = key
         self.app = app
         self.environment = environment
@@ -413,7 +488,8 @@ class ConfigUnsetCommand(ProjectCommand):
         )
 
         # Step 1: Remove from secrets.yml
-        logger.step("[1/3] Removing from Local Config")
+        if logger:
+            logger.step("[1/3] Removing from Local Config")
 
         if not secrets_file.exists():
             self.exit_with_error(f"{secrets_file} not found")
@@ -454,14 +530,17 @@ class ConfigUnsetCommand(ProjectCommand):
         with open(secrets_file, "w") as f:
             yaml.dump(secrets_data, f, default_flow_style=False, sort_keys=False)
 
-        logger.log(f"✓ Removed {self.key} from {location}")
+        if logger:
+            logger.log(f"✓ Removed {self.key} from {location}")
 
         # Step 2: Sync to GitHub (removes from there too)
         if not self.no_sync:
-            logger.step("[2/3] Syncing to GitHub")
-            logger.log(
-                f"Clearing and re-syncing to remove deleted secret ({self.environment})..."
-            )
+            if logger:
+                logger.step("[2/3] Syncing to GitHub")
+            if logger:
+                logger.log(
+                    f"Clearing and re-syncing to remove deleted secret ({self.environment})..."
+                )
 
             try:
                 import sys
@@ -484,27 +563,36 @@ class ConfigUnsetCommand(ProjectCommand):
                 )
 
                 if result.returncode == 0:
-                    logger.log(
-                        f"✓ Remote secrets updated ({self.environment} - secret removed)"
-                    )
+                    if logger:
+                        logger.log(
+                            f"✓ Remote secrets updated ({self.environment} - secret removed)"
+                        )
                 else:
-                    logger.warning("⚠ Sync had issues")
+                    if logger:
+                        logger.warning("⚠ Sync had issues")
                     if result.stderr:
                         for line in result.stderr.split("\n")[:3]:
                             if line.strip():
-                                logger.warning(f"  {line}")
+                                if logger:
+                                    logger.warning(f"  {line}")
             except subprocess.TimeoutExpired:
-                logger.warning("⚠ Sync timed out")
+                if logger:
+                    logger.warning("⚠ Sync timed out")
             except Exception as e:
-                logger.log_error(f"Sync failed: {e}")
+                if logger:
+                    logger.log_error(f"Sync failed: {e}")
         else:
-            logger.step("[2/3] Skipping Sync")
-            logger.log("--no-sync flag provided")
+            if logger:
+                logger.step("[2/3] Skipping Sync")
+            if logger:
+                logger.log("--no-sync flag provided")
 
         # Step 3: Trigger Deployment
         if self.deploy:
-            logger.step("[3/3] Triggering Deployment")
-            logger.log("Redeploying to apply changes...")
+            if logger:
+                logger.step("[3/3] Triggering Deployment")
+            if logger:
+                logger.log("Redeploying to apply changes...")
 
             # Load project config
             project_config_file = (
@@ -539,13 +627,16 @@ class ConfigUnsetCommand(ProjectCommand):
                         capture_output=True,
                         check=True,
                     )
-                    logger.log(f"  ✓ {app_name} redeployed")
+                    if logger:
+                        logger.log(f"  ✓ {app_name} redeployed")
                 except Exception:
                     # Silently ignore deployment errors for individual apps
                     pass
         else:
-            logger.step("[3/3] Skipping Deployment")
-            logger.log("Run with --deploy to redeploy")
+            if logger:
+                logger.step("[3/3] Skipping Deployment")
+            if logger:
+                logger.log("Run with --deploy to redeploy")
 
         self.console.print()
         self.console.print(f"[bold green]✅ {self.key} removed![/bold green]")
@@ -570,7 +661,7 @@ class ConfigShowCommand(ProjectCommand):
         mask: bool = False,
         verbose: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.mask = mask
 
     def execute(self) -> None:
@@ -840,7 +931,10 @@ class ConfigShowCommand(ProjectCommand):
 )
 @click.option("--no-sync", is_flag=True, help="Skip GitHub sync")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def config_set(project, key_value, app, environment, deploy, no_sync, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def config_set(
+    project, key_value, app, environment, deploy, no_sync, verbose, json_output
+):
     """
     Set configuration variable (Heroku-like!)
 
@@ -877,7 +971,8 @@ def config_set(project, key_value, app, environment, deploy, no_sync, verbose):
     help="App name (api, storefront, services). If not specified, searches in shared",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def config_get(project, key, app, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def config_get(project, key, app, verbose, json_output):
     """
     Get configuration variable (Heroku-like!)
 
@@ -886,7 +981,9 @@ def config_get(project, key, app, verbose):
       superdeploy cheapa:config:get POSTGRES_PASSWORD
       superdeploy cheapa:config:get AUTH_SECRET -a storefront
     """
-    cmd = ConfigGetCommand(project, key, app=app, verbose=verbose)
+    cmd = ConfigGetCommand(
+        project, key, app=app, verbose=verbose, json_output=json_output
+    )
     cmd.run()
 
 
@@ -898,7 +995,8 @@ def config_get(project, key, app, verbose):
     help="App name. If specified, shows merged secrets (shared + app-specific)",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def config_list(project, filter, app, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def config_list(project, filter, app, verbose, json_output):
     """
     List all configuration variables (Heroku-like!)
 
@@ -908,7 +1006,9 @@ def config_list(project, filter, app, verbose):
       superdeploy cheapa:config:list -a storefront         # Merged secrets for storefront
       superdeploy cheapa:config:list --filter POSTGRES     # Only POSTGRES_* vars
     """
-    cmd = ConfigListCommand(project, filter_prefix=filter, app=app, verbose=verbose)
+    cmd = ConfigListCommand(
+        project, filter_prefix=filter, app=app, verbose=verbose, json_output=json_output
+    )
     cmd.run()
 
 
@@ -929,7 +1029,8 @@ def config_list(project, filter, app, verbose):
 @click.option("--deploy", is_flag=True, help="Auto-deploy after unsetting config")
 @click.option("--no-sync", is_flag=True, help="Skip GitHub sync")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def config_unset(project, key, app, environment, deploy, no_sync, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def config_unset(project, key, app, environment, deploy, no_sync, verbose, json_output):
     """
     Unset (delete) configuration variable (Heroku-like!)
 
@@ -953,7 +1054,8 @@ def config_unset(project, key, app, environment, deploy, no_sync, verbose):
 @click.command(name="config:show")
 @click.option("--mask", is_flag=True, help="Mask sensitive values")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def config_show(project, mask, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def config_show(project, mask, verbose, json_output):
     """
     Show all project and orchestrator configuration
 
@@ -962,5 +1064,7 @@ def config_show(project, mask, verbose):
       superdeploy cheapa:config:show           # Show all configs
       superdeploy cheapa:config:show --mask    # Mask passwords
     """
-    cmd = ConfigShowCommand(project, mask=mask, verbose=verbose)
+    cmd = ConfigShowCommand(
+        project, mask=mask, verbose=verbose, json_output=json_output
+    )
     cmd.run()

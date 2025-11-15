@@ -457,10 +457,12 @@ Ansible Phase:
 
 **GitHub Runner Setup:**
 1. Download GitHub Actions runner binary
-2. Configure with token: `GITHUB_RUNNER_TOKEN`
+2. Get registration token from GitHub API using `REPOSITORY_TOKEN`
 3. Register with labels: `[self-hosted, superdeploy, {project}, {vm_role}]`
 4. Create systemd service
 5. Start runner daemon
+
+**Note:** No manual `GITHUB_RUNNER_TOKEN` needed - Ansible automatically fetches registration token via GitHub API.
 
 ### 4. Secret Sync (`superdeploy myproject:sync`)
 
@@ -599,16 +601,13 @@ superdeploy init -p newproject
 # 2. Generate workflows
 superdeploy newproject:generate
 
-# 3. Get GitHub runner token
-# https://github.com/myorg/settings/actions/runners/new
+# 3. Deploy infrastructure (runners auto-register)
+superdeploy newproject:up
 
-# 4. Deploy infrastructure
-GITHUB_RUNNER_TOKEN=xxx superdeploy newproject:up
-
-# 5. Sync secrets
+# 4. Sync secrets
 superdeploy newproject:sync
 
-# 6. Push to production
+# 5. Push to production
 cd ~/code/myorg/api
 git push origin production
 ```

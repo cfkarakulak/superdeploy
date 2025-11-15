@@ -5,9 +5,8 @@ Logs routes for streaming application logs.
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-import asyncio
-from pathlib import Path
 import re
+from utils.cli import get_cli
 
 router = APIRouter()
 
@@ -31,31 +30,15 @@ async def stream_logs(project_name: str, app_name: str, lines: int = 100):
     Yields log lines as they come from the CLI.
     """
     try:
-        # Superdeploy CLI command
-        cmd = ["superdeploy", f"{project_name}:logs", "-a", app_name, "-n", str(lines)]
+        cli = get_cli()
 
-        # Start the process
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=Path(__file__).parent.parent.parent.parent,  # superdeploy root
-        )
-
-        # Stream output line by line
-        while True:
-            line = await process.stdout.readline()
-            if not line:
-                break
-
-            # Decode and strip ANSI codes
-            decoded_line = line.decode("utf-8", errors="replace")
-            clean_line = strip_ansi_codes(decoded_line)
-
-            # Yield the line with newline for SSE format
+        # Stream logs using the centralized CLI executor
+        async for line in cli.execute(
+            f"{project_name}:logs", args=["-a", app_name, "-n", str(lines)]
+        ):
+            # Strip ANSI codes and yield
+            clean_line = strip_ansi_codes(line)
             yield f"data: {clean_line}\n\n"
-
-        await process.wait()
 
     except Exception as e:
         yield f"data: [ERROR] Failed to stream logs: {str(e)}\n\n"

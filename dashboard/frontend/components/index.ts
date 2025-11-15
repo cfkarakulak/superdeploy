@@ -1,6 +1,6 @@
 export { Avatar } from "./Avatar";
 export { GradientAvatar } from "./GradientAvatar";
-export { Button } from "./Button";
+export { default as Button } from "./Button";
 export { Input } from "./Input";
 export { default as PageHeader } from "./PageHeader";
 export { default as AppHeader } from "./AppHeader";

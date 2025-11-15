@@ -16,6 +16,24 @@ import {
   Clock
 } from "lucide-react";
 
+// Shimmer animation styles
+const shimmerStyles = `
+  @keyframes shimmer {
+    0% {
+      background-position: -1000px 0;
+    }
+    100% {
+      background-position: 1000px 0;
+    }
+  }
+  
+  .skeleton-shimmer {
+    animation: shimmer 2s infinite linear;
+    background: linear-gradient(to right, #eef2f5 4%, #ffffff 25%, #eef2f5 36%);
+    background-size: 1000px 100%;
+  }
+`;
+
 interface AppMetrics {
   cpu_usage: number;
   memory_usage: number;
@@ -35,8 +53,9 @@ interface ContainerMetrics {
   cpu_percent?: number;
   memory_bytes?: number;
   memory_percent?: number;
-  network_rx_bytes_per_sec?: number;
-  network_tx_bytes_per_sec?: number;
+  memory_limit_bytes?: number;
+  fs_read_bytes_per_sec?: number;
+  fs_write_bytes_per_sec?: number;
 }
 
 interface ApplicationMetrics {
@@ -60,6 +79,7 @@ export default function AppOverviewPage() {
   const [appMetrics, setAppMetrics] = useState<ApplicationMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [appDomain, setAppDomain] = useState<string>("");
 
   useEffect(() => {
     const fetchAllMetrics = async () => {
@@ -102,8 +122,22 @@ export default function AppOverviewPage() {
       }
     };
 
+    const fetchAppInfo = async () => {
+      try {
+        const response = await fetch(`http://localhost:8401/api/projects/${projectName}`);
+        if (response.ok) {
+          const data = await response.json();
+          setAppDomain(data.domain || projectName);
+        }
+      } catch (err) {
+        console.error("Failed to fetch project info:", err);
+        setAppDomain(projectName);
+      }
+    };
+
     if (projectName && appName) {
       fetchAllMetrics();
+      fetchAppInfo();
       
       // Refresh metrics every 10 seconds
       const interval = setInterval(fetchAllMetrics, 10000);
@@ -137,23 +171,34 @@ export default function AppOverviewPage() {
   if (loading) {
     return (
       <div>
+        <style dangerouslySetInnerHTML={{ __html: shimmerStyles }} />
         <AppHeader />
-        <div className="bg-white rounded-[16px] p-[20px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+        <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
           <PageHeader
-            breadcrumb={{
-              label: "Overview",
-              href: `/project/${projectName}/app/${appName}`,
-            }}
-            title="Application Overview"
+            breadcrumbs={[
+              { label: appDomain || projectName, href: `/project/${projectName}` },
+              { label: appName, href: `/project/${projectName}/app/${appName}` },
+            ]}
+            title="Application Metrics"
           />
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[...Array(9)].map((_, i) => (
-              <div key={i} className="animate-pulse">
-                <div className="h-32 bg-[#f7f7f7] rounded-lg"></div>
+          {/* Skeleton for 3 sections */}
+          {[...Array(3)].map((_, sectionIdx) => (
+            <div key={sectionIdx} className="mb-6">
+              {/* Section title skeleton */}
+              <div className="flex items-center gap-2 mb-[6px]">
+                <div className="w-4 h-4 rounded skeleton-shimmer"></div>
+                <div className="w-48 h-3 rounded skeleton-shimmer"></div>
               </div>
-            ))}
-          </div>
+              
+              {/* Section cards skeleton */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[...Array(3)].map((_, cardIdx) => (
+                  <div key={cardIdx} className="h-32 rounded-lg skeleton-shimmer"></div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -163,13 +208,13 @@ export default function AppOverviewPage() {
     return (
       <div>
         <AppHeader />
-        <div className="bg-white rounded-[16px] p-[20px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+        <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
           <PageHeader
-            breadcrumb={{
-              label: "Overview",
-              href: `/project/${projectName}/app/${appName}`,
-            }}
-            title="Application Overview"
+            breadcrumbs={[
+              { label: appDomain || projectName, href: `/project/${projectName}` },
+              { label: appName, href: `/project/${projectName}/app/${appName}` },
+            ]}
+            title="Application Metrics"
           />
           
           <div className="text-center py-12 text-[#8b8b8b]">
@@ -184,44 +229,24 @@ export default function AppOverviewPage() {
     <div>
       <AppHeader />
       
-      <div className="bg-white rounded-[16px] p-[20px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+      <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
         <PageHeader
-          breadcrumb={{
-            label: "Overview",
-            href: `/project/${projectName}/app/${appName}`,
-          }}
-          title="Application Overview"
+          breadcrumbs={[
+            { label: appDomain || projectName, href: `/project/${projectName}` },
+            { label: appName, href: `/project/${projectName}/app/${appName}` },
+          ]}
+          title="Application Metrics"
         />
-
-        {/* VM Info Banner */}
-        <div className="mb-6 p-4 bg-[#f7f7f7] rounded-lg border border-[#e3e8ee]">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-[#8b8b8b]" />
-              <span className="text-[13px] text-[#8b8b8b]">VM IP:</span>
-              <code className="text-[13px] text-[#0a0a0a] font-mono bg-white px-2 py-1 rounded border border-[#e3e8ee]">
-                {vmIp}
-              </code>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-              </div>
-              <span className="text-[13px] text-green-600 font-medium">Live</span>
-            </div>
-          </div>
-        </div>
 
         {/* Section 1: VM Metrics (Node Exporter) */}
         <div className="mb-6">
-          <h2 className="text-[15px] font-semibold text-[#0a0a0a] mb-4 flex items-center gap-2">
+          <h2 className="flex items-center gap-2 text-[11px] text-[#777] leading-tight tracking-[0.02em] mb-[6px] font-light">
             <Activity className="w-4 h-4" />
             Virtual Machine Metrics
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* CPU Usage */}
-            <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
+            <div className="p-5 border border-[#e3e8ee] rounded-lg">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-blue-50 rounded-lg">
@@ -233,7 +258,7 @@ export default function AppOverviewPage() {
                 </div>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="text-[32px] font-semibold text-[#0a0a0a]">
+                <span className="text-[26px] text-[#0a0a0a]">
                   {metrics.cpu_usage.toFixed(1)}
                 </span>
                 <span className="text-[16px] text-[#8b8b8b]">%</span>
@@ -247,7 +272,7 @@ export default function AppOverviewPage() {
             </div>
 
             {/* Memory Usage */}
-            <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
+            <div className="p-5 border border-[#e3e8ee] rounded-lg">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-purple-50 rounded-lg">
@@ -259,7 +284,7 @@ export default function AppOverviewPage() {
                 </div>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="text-[32px] font-semibold text-[#0a0a0a]">
+                <span className="text-[26px] text-[#0a0a0a]">
                   {metrics.memory_usage.toFixed(1)}
                 </span>
                 <span className="text-[16px] text-[#8b8b8b]">%</span>
@@ -273,7 +298,7 @@ export default function AppOverviewPage() {
             </div>
 
             {/* Disk Usage */}
-            <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
+            <div className="p-5 border border-[#e3e8ee] rounded-lg">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-orange-50 rounded-lg">
@@ -285,7 +310,7 @@ export default function AppOverviewPage() {
                 </div>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="text-[32px] font-semibold text-[#0a0a0a]">
+                <span className="text-[26px] text-[#0a0a0a]">
                   {metrics.disk_usage.toFixed(1)}
                 </span>
                 <span className="text-[16px] text-[#8b8b8b]">%</span>
@@ -300,100 +325,15 @@ export default function AppOverviewPage() {
           </div>
         </div>
 
-        {/* Section 2: Running Containers */}
-        {containerCount > 0 && (
-          <div className="mb-6">
-            <h2 className="text-[15px] font-semibold text-[#0a0a0a] mb-4 flex items-center gap-2">
-              <Container className="w-4 h-4" />
-              Running Containers ({containerCount})
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {containers.map((container, idx) => (
-                <div key={idx} className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow bg-white">
-                  {/* Container Header */}
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="p-2 bg-teal-50 rounded-lg flex-shrink-0">
-                        <Container className="w-4 h-4 text-teal-600" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h3 className="text-[13px] font-medium text-[#0a0a0a] truncate" title={container.name}>
-                          {container.name}
-                        </h3>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-50 text-green-700 mt-1">
-                          Running
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Container Stats */}
-                  <div className="space-y-3">
-                    {/* CPU */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] text-[#8b8b8b] font-medium">CPU</span>
-                        <span className="text-[13px] font-semibold text-[#0a0a0a]">
-                          {container.cpu_percent?.toFixed(1) || '0.0'}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-[#f0f0f0] rounded-full h-1">
-                        <div
-                          className="bg-blue-600 h-1 rounded-full transition-all duration-500"
-                          style={{ width: `${Math.min(container.cpu_percent || 0, 100)}%` }}
-                        ></div>
-                      </div>
-                    </div>
-
-                    {/* Memory */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] text-[#8b8b8b] font-medium">Memory</span>
-                        <span className="text-[13px] font-semibold text-[#0a0a0a]">
-                          {formatBytes(container.memory_bytes || 0)}
-                        </span>
-                      </div>
-                      {container.memory_percent !== undefined && (
-                        <div className="w-full bg-[#f0f0f0] rounded-full h-1">
-                          <div
-                            className="bg-purple-600 h-1 rounded-full transition-all duration-500"
-                            style={{ width: `${Math.min(container.memory_percent, 100)}%` }}
-                          ></div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Network */}
-                    <div className="pt-2 border-t border-[#f0f0f0]">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="text-[#8b8b8b]">RX</span>
-                        <span className="text-[#0a0a0a] font-medium">
-                          {formatBytes(container.network_rx_bytes_per_sec || 0)}/s
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] mt-1">
-                        <span className="text-[#8b8b8b]">TX</span>
-                        <span className="text-[#0a0a0a] font-medium">
-                          {formatBytes(container.network_tx_bytes_per_sec || 0)}/s
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Section 3: Application Metrics (Prometheus Middleware) */}
+        {/* Section 2: Application Metrics (Prometheus Middleware) */}
         <div className="mb-6">
-          <h2 className="text-[15px] font-semibold text-[#0a0a0a] mb-4 flex items-center gap-2">
+          <h2 className="flex items-center gap-2 text-[11px] text-[#777] leading-tight tracking-[0.02em] mb-[6px] font-light">
             <Globe className="w-4 h-4" />
             Application HTTP Metrics
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Request Rate */}
-            <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
+            <div className="p-5 border border-[#e3e8ee] rounded-lg">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-emerald-50 rounded-lg">
@@ -405,7 +345,7 @@ export default function AppOverviewPage() {
                 </div>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="text-[32px] font-semibold text-[#0a0a0a]">
+                <span className="text-[26px] text-[#0a0a0a]">
                   {appMetrics?.request_rate_per_sec.toFixed(1) || '0.0'}
                 </span>
                 <span className="text-[16px] text-[#8b8b8b]">req/s</span>
@@ -418,7 +358,7 @@ export default function AppOverviewPage() {
             </div>
 
             {/* Error Rate */}
-            <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
+            <div className="p-5 border border-[#e3e8ee] rounded-lg">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-red-50 rounded-lg">
@@ -430,7 +370,7 @@ export default function AppOverviewPage() {
                 </div>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="text-[32px] font-semibold text-[#0a0a0a]">
+                <span className="text-[26px] text-[#0a0a0a]">
                   {appMetrics?.error_percentage.toFixed(1) || '0.0'}
                 </span>
                 <span className="text-[16px] text-[#8b8b8b]">%</span>
@@ -453,7 +393,7 @@ export default function AppOverviewPage() {
             </div>
 
             {/* Average Latency */}
-            <div className="p-5 border border-[#e3e8ee] rounded-lg hover:shadow-md transition-shadow">
+            <div className="p-5 border border-[#e3e8ee] rounded-lg">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-amber-50 rounded-lg">
@@ -465,7 +405,7 @@ export default function AppOverviewPage() {
                 </div>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="text-[32px] font-semibold text-[#0a0a0a]">
+                <span className="text-[26px] text-[#0a0a0a]">
                   {appMetrics?.latency_p50_ms.toFixed(0) || '0'}
                 </span>
                 <span className="text-[16px] text-[#8b8b8b]">ms</span>
@@ -478,6 +418,87 @@ export default function AppOverviewPage() {
             </div>
           </div>
         </div>
+
+        {/* Section 3: Running Containers */}
+        {containerCount > 0 && (
+          <div className="mb-6">
+            <h2 className="flex items-center gap-2 text-[11px] text-[#777] leading-tight tracking-[0.02em] mb-[6px] font-light">
+              <Container className="w-4 h-4" />
+              Running Containers ({containerCount})
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {containers.map((container, idx) => (
+                <div key={idx} className="p-5 border border-[#e3e8ee] rounded-lg">
+                  {/* Container Header */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-teal-50 rounded-lg">
+                        <Container className="w-5 h-5 text-teal-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-[13px] text-[#8b8b8b] font-light">{container.name}</h3>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CPU Usage */}
+                  <div className="mb-4">
+                    <div className="flex items-baseline gap-2 mb-1">
+                      <span className="text-[22px] text-[#0a0a0a]">
+                        {container.cpu_percent?.toFixed(1) || '0.0'}
+                      </span>
+                      <span className="text-[14px] text-[#8b8b8b]">% CPU</span>
+                    </div>
+                    <div className="w-full bg-[#f0f0f0] rounded-full h-1.5">
+                      <div
+                        className="bg-blue-600 h-1.5 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(container.cpu_percent || 0, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {/* Memory Usage */}
+                  <div className="mb-4">
+                    <div className="flex items-baseline gap-2 mb-1">
+                      <span className="text-[22px] text-[#0a0a0a]">
+                        {formatBytes(container.memory_bytes || 0)}
+                      </span>
+                      {container.memory_limit_bytes && container.memory_limit_bytes > 0 && (
+                        <span className="text-[13px] text-[#8b8b8b]">
+                          / {formatBytes(container.memory_limit_bytes)}
+                        </span>
+                      )}
+                    </div>
+                    {container.memory_percent !== undefined && (
+                      <div className="w-full bg-[#f0f0f0] rounded-full h-1.5">
+                        <div
+                          className="bg-purple-600 h-1.5 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.min(container.memory_percent, 100)}%` }}
+                        ></div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Disk I/O */}
+                  <div className="pt-3 border-t border-[#e3e8ee]">
+                    <div className="flex items-center justify-between text-[12px] mb-1">
+                      <span className="text-[#8b8b8b]">Disk Read</span>
+                      <span className="text-[#0a0a0a] font-medium">
+                        {formatBytes(container.fs_read_bytes_per_sec || 0)}/s
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[12px]">
+                      <span className="text-[#8b8b8b]">Disk Write</span>
+                      <span className="text-[#0a0a0a] font-medium">
+                        {formatBytes(container.fs_write_bytes_per_sec || 0)}/s
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

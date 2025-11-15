@@ -251,7 +251,7 @@ docker ps | grep api
 ┌─────────────────────────────────────────────────────────────────┐
 │ 3. INFRASTRUCTURE DEPLOYMENT                                    │
 │                                                                 │
-│  GITHUB_RUNNER_TOKEN=xxx superdeploy myproject:up              │
+│  superdeploy myproject:up                                      │
 │                                                                 │
 │  Terraform Phase:                                              │
 │    ✓ Create GCP VMs                                           │
@@ -261,9 +261,9 @@ docker ps | grep api
 │                                                                 │
 │  Ansible Phase:                                                │
 │    ✓ Install base system (Docker, Node.js)                    │
-│    ✓ Setup GitHub runner                                      │
+│    ✓ Setup GitHub runner (auto-registers via REPOSITORY_TOKEN)│
 │       → Download runner binary                                │
-│       → Configure with token                                  │
+│       → Get registration token from GitHub API                │
 │       → Set labels: [self-hosted, superdeploy, project, role] │
 │       → Create systemd service                                │
 │    ✓ Create .project file                                     │

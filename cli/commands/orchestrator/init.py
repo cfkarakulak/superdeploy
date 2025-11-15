@@ -23,8 +23,8 @@ class OrchestratorConfig:
 class OrchestratorInitCommand(BaseCommand):
     """Initialize orchestrator configuration."""
 
-    def __init__(self, verbose: bool = False):
-        super().__init__(verbose=verbose)
+    def __init__(self, verbose: bool = False, json_output: bool = False):
+        super().__init__(verbose=verbose, json_output=json_output)
 
     def execute(self) -> None:
         """Execute init command."""
@@ -44,23 +44,31 @@ class OrchestratorInitCommand(BaseCommand):
 
         config_path = orchestrator_dir / "config.yml"
 
-        logger.step("Checking existing configuration")
+        if logger:
+
+            logger.step("Checking existing configuration")
 
         # Check if config exists
         if not self._confirm_overwrite(config_path, logger):
             return
 
-        logger.step("Collecting configuration")
+        if logger:
+
+            logger.step("Collecting configuration")
 
         # Collect configuration
         config = self._collect_configuration()
 
-        logger.step("Generating configuration file")
+        if logger:
+
+            logger.step("Generating configuration file")
 
         # Generate and save config
         self._generate_config(config, config_path, project_root, logger)
 
-        logger.success("Orchestrator configuration created")
+        if logger:
+
+            logger.success("Orchestrator configuration created")
 
         # Display next steps
         self._display_next_steps()
@@ -71,7 +79,8 @@ class OrchestratorInitCommand(BaseCommand):
     def _confirm_overwrite(self, config_path: Path, logger) -> bool:
         """Confirm overwrite if config exists."""
         if config_path.exists():
-            logger.warning("Configuration file already exists")
+            if logger:
+                logger.warning("Configuration file already exists")
             self.console.print(
                 "[yellow]Config exists. Overwrite? [y/n][/yellow] [dim](n)[/dim]: ",
                 end="",
@@ -79,11 +88,13 @@ class OrchestratorInitCommand(BaseCommand):
             answer = input().strip().lower()
             self.console.print()
             if answer not in ["y", "yes"]:
-                logger.log("User cancelled initialization")
+                if logger:
+                    logger.log("User cancelled initialization")
                 self.console.print("[dim]Cancelled[/dim]")
                 return False
         else:
-            logger.log("No existing configuration found")
+            if logger:
+                logger.log("No existing configuration found")
         return True
 
     def _collect_configuration(self) -> OrchestratorConfig:
@@ -132,7 +143,8 @@ class OrchestratorInitCommand(BaseCommand):
         self, config: OrchestratorConfig, config_path: Path, project_root: Path, logger
     ) -> None:
         """Generate and save orchestrator config."""
-        logger.log("Generating config.yml...")
+        if logger:
+            logger.log("Generating config.yml...")
 
         cli_root = Path(__file__).resolve().parents[2]
         stub_file = cli_root / "stubs" / "configs" / "orchestrator_config_generator.py"
@@ -153,10 +165,13 @@ class OrchestratorInitCommand(BaseCommand):
         with open(config_path, "w") as f:
             f.write(config_content)
 
-        logger.log(f"Config saved: {config_path.relative_to(project_root)}")
+        if logger:
+
+            logger.log(f"Config saved: {config_path.relative_to(project_root)}")
 
         # Generate secrets.yml
-        logger.log("Generating secrets.yml...")
+        if logger:
+            logger.log("Generating secrets.yml...")
         secrets_path = config_path.parent / "secrets.yml"
         self._generate_secrets(secrets_path, project_root, logger)
 
@@ -195,7 +210,9 @@ secrets:
         with open(secrets_path, "w") as f:
             f.write(secrets_content)
 
-        logger.log(f"Secrets saved: {secrets_path.relative_to(project_root)}")
+        if logger:
+
+            logger.log(f"Secrets saved: {secrets_path.relative_to(project_root)}")
 
     def _display_next_steps(self) -> None:
         """Display next steps after initialization."""

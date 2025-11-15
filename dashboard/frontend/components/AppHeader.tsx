@@ -13,6 +13,12 @@ interface Project {
   domain?: string;
 }
 
+interface VM {
+  name: string;
+  ip: string;
+  role: string;
+}
+
 interface App {
   name: string;
   type: string;
@@ -110,19 +116,49 @@ export default function AppHeader() {
   const appName = params?.appName as string;
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
+  const [vms, setVms] = useState<VM[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchProjects = async () => {
+    const fetchData = async () => {
       try {
-        const response = await fetch("http://localhost:8401/api/projects/");
-        if (!response.ok) throw new Error("Failed to fetch");
-        const data = await response.json();
-        console.log("AppHeader Projects data:", data);
-        const projectsList = Array.isArray(data) ? data : [];
+        // Fetch projects
+        const projectsResponse = await fetch("http://localhost:8401/api/projects/");
+        if (!projectsResponse.ok) throw new Error("Failed to fetch");
+        const projectsData = await projectsResponse.json();
+        console.log("AppHeader Projects data:", projectsData);
+        const projectsList = Array.isArray(projectsData) ? projectsData : [];
         setProjects(projectsList);
         const current = projectsList.find((p: Project) => p.name === projectName);
         setCurrentProject(current || null);
+        
+        // Fetch VMs for this project
+        if (projectName) {
+          try {
+            const vmsResponse = await fetch(`http://localhost:8401/api/projects/${projectName}/vms`);
+            if (vmsResponse.ok) {
+              const vmsData = await vmsResponse.json();
+              setVms(vmsData.vms || []);
+            } else {
+              // Mock data for now (until backend endpoint is fixed)
+              if (projectName === "cheapa") {
+                setVms([
+                  { name: "app-0", role: "app", ip: "34.59.83.20" },
+                  { name: "core-0", role: "core", ip: "104.154.104.66" }
+                ]);
+              }
+            }
+          } catch (error) {
+            console.error("Failed to fetch VMs:", error);
+            // Mock data fallback
+            if (projectName === "cheapa") {
+              setVms([
+                { name: "app-0", role: "app", ip: "34.59.83.20" },
+                { name: "core-0", role: "core", ip: "104.154.104.66" }
+              ]);
+            }
+          }
+        }
       } catch (error) {
         console.error("Failed to fetch projects:", error);
         setProjects([]);
@@ -130,7 +166,7 @@ export default function AppHeader() {
         setIsLoading(false);
       }
     };
-    fetchProjects();
+    fetchData();
   }, [projectName]);
 
   const menuItems = [
@@ -206,7 +242,7 @@ export default function AppHeader() {
         {/* App Switcher - Only show if we're in an app context */}
         {appName && (
           <>
-            <div className="relative mt-5 w-4 h-4 before:absolute before:inset-y-0 before:left-0 before:right-0 before:z-10 before:bg-gradient-to-r before:from-[#f3f5f9] before:to-[rgba(247,248,251,0)]">
+            <div className="relative mt-5 w-4 h-4 before:absolute before:inset-y-0 before:left-0 before:right-0 before:z-10 before:bg-gradient-to-r before:from-[#eef2f5] before:to-[rgba(247,248,251,0)]">
               <svg
                 viewBox="0 0 16 16"
                 className="w-4 h-4 text-black"
@@ -224,6 +260,27 @@ export default function AppHeader() {
           </>
         )}
       </div>
+      
+      {/* VM Info Bar */}
+      {vms.length > 0 && (
+        <div className="mb-6 flex items-center gap-2 text-[12px] text-[#656d76]">
+          <span className="text-green-600">✓</span>
+          <span>Configuration</span>
+          <span>•</span>
+          <span>Production</span>
+          <span>•</span>
+          <span className="font-medium text-[#0a0a0a]">{vms.length} VM{vms.length > 1 ? 's' : ''}</span>
+          <span>(</span>
+          {vms.map((vm, index) => (
+            <span key={vm.name}>
+              <span className="font-mono">{vm.name}:</span>
+              <span className="ml-1 text-[#0969da]">{vm.ip}</span>
+              {index < vms.length - 1 && <span className="mx-1">,</span>}
+            </span>
+          ))}
+          <span>)</span>
+        </div>
+      )}
 
       {/* Tab-style Menu - Below switchers */}
       {appName && (

@@ -34,14 +34,10 @@ cp projects/cheapa/secrets.yml projects/myproject/
 # 4. Generate deployment files
 superdeploy myproject:generate
 
-# 5. Get GitHub runner token
-# Go to: https://github.com/yourorg/settings/actions/runners/new
-# Copy the token
+# 5. Deploy infrastructure (runners auto-register via REPOSITORY_TOKEN)
+superdeploy myproject:up
 
-# 6. Deploy infrastructure
-GITHUB_RUNNER_TOKEN=<token> superdeploy myproject:up
-
-# 7. Sync secrets to GitHub
+# 6. Sync secrets to GitHub
 superdeploy myproject:sync
 ```
 

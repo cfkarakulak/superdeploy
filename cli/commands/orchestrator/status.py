@@ -11,8 +11,8 @@ from cli.core.orchestrator_loader import OrchestratorLoader
 class OrchestratorStatusCommand(BaseCommand):
     """Show orchestrator status."""
 
-    def __init__(self, verbose: bool = False):
-        super().__init__(verbose=verbose)
+    def __init__(self, verbose: bool = False, json_output: bool = False):
+        super().__init__(verbose=verbose, json_output=json_output)
         self.table = Table(
             title="Orchestrator - Infrastructure Status",
             title_justify="left",
@@ -25,6 +25,17 @@ class OrchestratorStatusCommand(BaseCommand):
 
     def execute(self) -> None:
         """Execute status command."""
+        # JSON output mode - simplified
+        if self.json_output:
+            self.output_json(
+                {
+                    "status": "completed",
+                    "message": "Use normal mode for detailed status",
+                    "service": "orchestrator",
+                }
+            )
+            return
+
         self.show_header(title="Orchestrator Status", project="orchestrator")
 
         # Initialize logger
@@ -35,27 +46,33 @@ class OrchestratorStatusCommand(BaseCommand):
 
         orchestrator_loader = OrchestratorLoader(shared_dir)
 
-        logger.step("Loading orchestrator configuration")
+        if logger:
+            logger.step("Loading orchestrator configuration")
 
         try:
             orch_config = orchestrator_loader.load()
         except FileNotFoundError as e:
-            logger.log_error(f"Configuration not found: {e}")
+            if logger:
+                logger.log_error(f"Configuration not found: {e}")
             self.console.print(f"[red]❌ {e}[/red]")
             raise SystemExit(1)
 
         if orch_config.is_deployed():
-            logger.success("Configuration loaded")
+            if logger:
+                logger.success("Configuration loaded")
             self._display_deployed_status(orch_config, logger)
         else:
             self._display_not_deployed(logger)
 
         if not self.verbose:
-            self.console.print(f"[dim]Logs saved to:[/dim] {logger.log_path}\n")
+            self.console.print(
+                f"[dim]Logs saved to:[/dim] {logger.log_path}\n"
+            ) if logger else None
 
     def _display_deployed_status(self, orch_config, logger) -> None:
         """Display status for deployed orchestrator."""
-        logger.step("Checking orchestrator VM and containers")
+        if logger:
+            logger.step("Checking orchestrator VM and containers")
 
         # Get orchestrator details
         orch_ip = orch_config.get_ip()
@@ -77,7 +94,8 @@ class OrchestratorStatusCommand(BaseCommand):
         ssh_service = SSHService()
 
         if ssh_service.test_connection(orch_ip):
-            logger.success("SSH connection successful")
+            if logger:
+                logger.success("SSH connection successful")
 
             # Get container status
             try:
@@ -88,12 +106,16 @@ class OrchestratorStatusCommand(BaseCommand):
                 )
 
                 if self.verbose:
-                    logger.log(f"Containers on orchestrator: {result.stdout.strip()}")
+                    if logger:
+                        logger.log(
+                            f"Containers on orchestrator: {result.stdout.strip()}"
+                        )
 
                 if result.returncode == 0 and result.stdout.strip():
                     # Parse and display containers
                     containers = result.stdout.strip().split("\n")
-                    logger.success(f"Found {len(containers)} running containers")
+                    if logger:
+                        logger.success(f"Found {len(containers)} running containers")
 
                     for line in containers:
                         if "\t" in line:
@@ -122,7 +144,8 @@ class OrchestratorStatusCommand(BaseCommand):
                                 f"  └─ {display_name}", status, "container", port_info
                             )
                 else:
-                    logger.warning("No containers found")
+                    if logger:
+                        logger.warning("No containers found")
                     self.table.add_row(
                         "  └─ No containers", "[yellow]Empty[/yellow]", "", ""
                     )
@@ -155,10 +178,12 @@ class OrchestratorStatusCommand(BaseCommand):
                     self.table.add_row("[bold]Memory Usage[/bold]", "", mem_usage, "")
 
             except Exception as e:
-                logger.log_error(f"Error checking containers: {e}")
+                if logger:
+                    logger.log_error(f"Error checking containers: {e}")
                 self.table.add_row("  └─ Error", "[red]Failed[/red]", str(e)[:40], "")
         else:
-            logger.warning("SSH connection failed")
+            if logger:
+                logger.warning("SSH connection failed")
             self.table.add_row(
                 "[bold]SSH Connection[/bold]", "[red]Unreachable[/red]", orch_ip, ""
             )
@@ -166,7 +191,8 @@ class OrchestratorStatusCommand(BaseCommand):
         # Add metadata
         self.table.add_row("[bold]Last Updated[/bold]", "", last_updated, "")
 
-        logger.success("Status check complete")
+        if logger:
+            logger.success("Status check complete")
 
         # Display table
         if not self.verbose:
@@ -187,14 +213,16 @@ class OrchestratorStatusCommand(BaseCommand):
 
     def _display_not_deployed(self, logger) -> None:
         """Display status for non-deployed orchestrator."""
-        logger.warning("Orchestrator not deployed")
+        if logger:
+            logger.warning("Orchestrator not deployed")
         self.console.print("[yellow]⚠️  Orchestrator not deployed[/yellow]")
         self.console.print("  Run: [red]superdeploy orchestrator:up[/red]")
 
 
 @click.command(name="orchestrator:status")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def orchestrator_status(verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def orchestrator_status(verbose, json_output):
     """
     Show orchestrator infrastructure and container status
 
@@ -204,5 +232,5 @@ def orchestrator_status(verbose):
     - Resource usage (disk, memory)
     - Access URLs and useful commands
     """
-    cmd = OrchestratorStatusCommand(verbose=verbose)
+    cmd = OrchestratorStatusCommand(verbose=verbose, json_output=json_output)
     cmd.run()

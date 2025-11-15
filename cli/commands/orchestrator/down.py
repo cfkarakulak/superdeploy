@@ -15,9 +15,8 @@ class OrchestratorDownCommand(BaseCommand):
     """Destroy orchestrator VM and clean up state."""
 
     def __init__(
-        self, yes: bool = False, preserve_ip: bool = False, verbose: bool = False
-    ):
-        super().__init__(verbose=verbose)
+        self, yes: bool = False, preserve_ip: bool = False, verbose: bool = False, json_output: bool = False):
+        super().__init__(verbose=verbose, json_output=json_output)
         self.yes = yes
         self.preserve_ip = preserve_ip
 
@@ -117,7 +116,8 @@ class OrchestratorDownCommand(BaseCommand):
 
         if not confirmed:
             self.console.print("[yellow]❌ Destruction cancelled[/yellow]")
-            logger.log("User cancelled destruction")
+            if logger:
+                logger.log("User cancelled destruction")
 
         return confirmed
 
@@ -131,7 +131,8 @@ class OrchestratorDownCommand(BaseCommand):
             zone = gcp_config.get("zone", "us-central1-a")
             region = gcp_config.get("region", "us-central1")
         except FileNotFoundError:
-            logger.log("[dim]No config found, using defaults for cleanup[/dim]")
+            if logger:
+                logger.log("[dim]No config found, using defaults for cleanup[/dim]")
             zone = "us-central1-a"
             region = "us-central1"
 
@@ -152,7 +153,8 @@ class OrchestratorDownCommand(BaseCommand):
 
     def _cleanup_gcp_resources(self, logger, zone: str, region: str) -> None:
         """Clean up GCP resources."""
-        logger.step("[1/3] GCP Resource Cleanup")
+        if logger:
+            logger.step("[1/3] GCP Resource Cleanup")
         self.console.print("  [dim]✓ Configuration loaded[/dim]")
 
         vms_deleted = 0
@@ -271,7 +273,8 @@ class OrchestratorDownCommand(BaseCommand):
 
     def _cleanup_terraform_state(self, logger, shared_dir: Path) -> None:
         """Clean up Terraform state."""
-        logger.step("[2/3] Terraform State Cleanup")
+        if logger:
+            logger.step("[2/3] Terraform State Cleanup")
 
         terraform_dir = shared_dir / "terraform"
         workspace_found = workspace_exists("orchestrator")
@@ -295,7 +298,8 @@ class OrchestratorDownCommand(BaseCommand):
 
     def _cleanup_local_files(self, logger, shared_dir: Path) -> None:
         """Clean up local files."""
-        logger.step("[3/3] Local Files Cleanup")
+        if logger:
+            logger.step("[3/3] Local Files Cleanup")
 
         # Delete state.yml
         state_file = shared_dir / "orchestrator" / "state.yml"
@@ -312,7 +316,8 @@ class OrchestratorDownCommand(BaseCommand):
             allocator = SubnetAllocator()
             allocator.release_subnet("orchestrator")
         except Exception as e:
-            logger.warning(f"Subnet release warning: {e}")
+            if logger:
+                logger.warning(f"Subnet release warning: {e}")
 
         self.console.print("  [dim]✓ Local files cleaned[/dim]")
 
@@ -321,7 +326,8 @@ class OrchestratorDownCommand(BaseCommand):
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 @click.option("--preserve-ip", is_flag=True, help="Keep static IP (don't delete)")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def orchestrator_down(yes, preserve_ip, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def orchestrator_down(yes, preserve_ip, verbose, json_output):
     """Destroy orchestrator VM and clean up state"""
-    cmd = OrchestratorDownCommand(yes=yes, preserve_ip=preserve_ip, verbose=verbose)
+    cmd = OrchestratorDownCommand(yes=yes, preserve_ip=preserve_ip, verbose=verbose, json_output=json_output)
     cmd.run()

@@ -51,6 +51,30 @@ class Project(Base):
     addons = relationship(
         "Addon", back_populates="project", cascade="all, delete-orphan"
     )
+    vms = relationship("VM", back_populates="project", cascade="all, delete-orphan")
+
+
+class VM(Base):
+    """Virtual Machine model."""
+
+    __tablename__ = "vms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
+    name = Column(String(100), nullable=False)  # e.g., "cheapa-app-0"
+    role = Column(String(50), nullable=False)  # e.g., "app", "core"
+    external_ip = Column(String(50), nullable=True)
+    internal_ip = Column(String(50), nullable=True)
+    zone = Column(String(100), nullable=True)
+    machine_type = Column(String(100), nullable=True)
+    status = Column(String(50), default="running")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    project = relationship("Project", back_populates="vms")
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uix_project_vm_name"),
+    )
 
 
 class Environment(Base):
@@ -132,25 +156,6 @@ class MetricsCache(Base):
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
     project = relationship("Project")
-
-
-class VM(Base):
-    """Virtual Machine model."""
-
-    __tablename__ = "vms"
-
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
-    name = Column(String(100), nullable=False, index=True)  # core, app
-    external_ip = Column(String(50), nullable=True)
-    internal_ip = Column(String(50), nullable=True)
-    machine_type = Column(String(50), nullable=True)  # e2-medium
-    status = Column(String(50), default="running")
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    project = relationship("Project")
-
-    __table_args__ = (UniqueConstraint("project_id", "name", name="uix_project_vm"),)
 
 
 class App(Base):

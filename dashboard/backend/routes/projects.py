@@ -6,9 +6,9 @@ from typing import List, Optional, Dict, AsyncIterator
 from database import get_db
 from models import Project, Environment, App, Addon, Secret
 from pathlib import Path
+from utils.cli import get_cli
 import json
 import yaml
-import asyncio
 
 router = APIRouter(tags=["projects"])
 
@@ -359,46 +359,23 @@ async def deploy_from_db(project_name: str, db: Session) -> AsyncIterator[str]:
             json.dumps({"type": "info", "message": "🚀 Starting deployment..."}) + "\n"
         )
 
-        # Run: superdeploy {project}:up
-        process = await asyncio.create_subprocess_exec(
-            "superdeploy",
-            f"{project_name}:up",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=str(superdeploy_root),
-        )
+        # Use centralized CLI executor
+        cli = get_cli()
 
-        while True:
-            line = await process.stdout.readline()
-            if not line:
-                break
-
-            decoded = line.decode().strip()
+        async for line in cli.execute(f"{project_name}:up"):
+            decoded = line.strip()
             if decoded:
                 yield json.dumps({"type": "log", "message": decoded}) + "\n"
 
-        await process.wait()
-
-        if process.returncode == 0:
-            yield (
-                json.dumps(
-                    {
-                        "type": "success",
-                        "message": "✅ Deployment completed successfully!",
-                    }
-                )
-                + "\n"
+        yield (
+            json.dumps(
+                {
+                    "type": "success",
+                    "message": "✅ Deployment completed successfully!",
+                }
             )
-        else:
-            yield (
-                json.dumps(
-                    {
-                        "type": "error",
-                        "message": f"❌ Deployment failed with exit code {process.returncode}",
-                    }
-                )
-                + "\n"
-            )
+            + "\n"
+        )
 
     except Exception as e:
         yield json.dumps({"type": "error", "message": f"❌ Error: {str(e)}"}) + "\n"
@@ -410,3 +387,29 @@ async def deploy_project(project_name: str, db: Session = Depends(get_db)):
     return StreamingResponse(
         deploy_from_db(project_name, db), media_type="application/x-ndjson"
     )
+
+
+@router.get("/{project_name}/vms")
+def get_project_vms(project_name: str, db: Session = Depends(get_db)):
+    """Get VMs for a project."""
+    from models import VM
+
+    project = db.query(Project).filter(Project.name == project_name).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    vms = db.query(VM).filter(VM.project_id == project.id).all()
+
+    return {
+        "vms": [
+            {
+                "name": vm.name,
+                "role": vm.role,
+                "ip": vm.external_ip,
+                "zone": vm.zone,
+                "machine_type": vm.machine_type,
+                "status": vm.status,
+            }
+            for vm in vms
+        ]
+    }

@@ -17,25 +17,11 @@ class AddonsListCommand(ProjectCommand):
     """List all addon instances for project."""
 
     def execute(self) -> None:
-        self.show_header(
-            title="Addons",
-            project=self.project_name,
-            subtitle="Managed addon instances",
-        )
-
         # Load config
         config = self.config_service.get_raw_config(self.project_name)
 
         # Parse addon instances
         instances = self.config_service.parse_addons(config)
-
-        if not instances:
-            self.console.print("[yellow]No addons configured[/yellow]")
-            self.console.print("\n[dim]Add an addon with:[/dim]")
-            self.console.print(
-                f"  [cyan]superdeploy {self.project_name}:addons:add <type> --name <name>[/cyan]"
-            )
-            return
 
         # Parse app attachments to show which apps use which addons
         apps_config = config.get("apps", {})
@@ -49,6 +35,42 @@ class AddonsListCommand(ProjectCommand):
                 attachment_map[attachment.addon].append(
                     f"{app_name} ({attachment.as_})"
                 )
+
+        # JSON output mode
+        if self.json_output:
+            addons_data = []
+            for instance in sorted(instances, key=lambda x: (x.category, x.name)):
+                full_name = instance.full_name
+                attached_apps = attachment_map.get(full_name, [])
+                addons_data.append({
+                    "name": full_name,
+                    "type": instance.type,
+                    "version": instance.version,
+                    "plan": instance.plan,
+                    "category": instance.category,
+                    "attached_to": attached_apps if attached_apps else []
+                })
+            
+            self.output_json({
+                "project": self.project_name,
+                "addons": addons_data,
+                "total": len(instances)
+            })
+            return
+
+        self.show_header(
+            title="Addons",
+            project=self.project_name,
+            subtitle="Managed addon instances",
+        )
+
+        if not instances:
+            self.console.print("[yellow]No addons configured[/yellow]")
+            self.console.print("\n[dim]Add an addon with:[/dim]")
+            self.console.print(
+                f"  [cyan]superdeploy {self.project_name}:addons:add <type> --name <name>[/cyan]"
+            )
+            return
 
         # Create table
         table = Table(
@@ -82,8 +104,8 @@ class AddonsListCommand(ProjectCommand):
 class AddonsInfoCommand(ProjectCommand):
     """Show detailed info about addon instance."""
 
-    def __init__(self, project_name: str, addon: str, verbose: bool = False):
-        super().__init__(project_name, verbose=verbose)
+    def __init__(self, project_name: str, addon: str, verbose: bool = False, json_output: bool = False):
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.addon = addon  # e.g., "databases.primary"
 
     def execute(self) -> None:
@@ -261,7 +283,7 @@ class AddonsAddCommand(ProjectCommand):
         plan: str = "standard",
         verbose: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.addon_type = addon_type
         self.name = name
         self.version = version
@@ -370,8 +392,8 @@ class AddonsAddCommand(ProjectCommand):
 class AddonsRemoveCommand(ProjectCommand):
     """Remove addon instance from config.yml."""
 
-    def __init__(self, project_name: str, addon: str, verbose: bool = False):
-        super().__init__(project_name, verbose=verbose)
+    def __init__(self, project_name: str, addon: str, verbose: bool = False, json_output: bool = False):
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.addon = addon
 
     def execute(self) -> None:
@@ -459,7 +481,7 @@ class AddonsAttachCommand(ProjectCommand):
         access: str = "readwrite",
         verbose: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.addon = addon
         self.app = app
         self.as_var = as_var
@@ -621,8 +643,8 @@ class AddonsAttachCommand(ProjectCommand):
 class AddonsDetachCommand(ProjectCommand):
     """Detach addon from app in config.yml."""
 
-    def __init__(self, project_name: str, addon: str, app: str, verbose: bool = False):
-        super().__init__(project_name, verbose=verbose)
+    def __init__(self, project_name: str, addon: str, app: str, verbose: bool = False, json_output: bool = False):
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.addon = addon
         self.app = app
 
@@ -768,7 +790,8 @@ class AddonsDetachCommand(ProjectCommand):
 # Click command wrappers
 @click.command(name="addons:list")
 @click.option("--verbose", "-v", is_flag=True)
-def addons_list(project, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def addons_list(project, verbose, json_output):
     """
     List all addon instances
 
@@ -776,14 +799,15 @@ def addons_list(project, verbose):
         superdeploy cheapa:addons:list
         superdeploy cheapa:addons
     """
-    cmd = AddonsListCommand(project, verbose=verbose)
+    cmd = AddonsListCommand(project, verbose=verbose, json_output=json_output)
     cmd.run()
 
 
 @click.command(name="addons:info")
 @click.argument("addon")  # databases.primary
 @click.option("--verbose", "-v", is_flag=True)
-def addons_info(project, addon, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def addons_info(project, addon, verbose, json_output):
     """
     Show detailed information about an addon instance
 
@@ -791,7 +815,7 @@ def addons_info(project, addon, verbose):
         superdeploy cheapa:addons:info databases.primary
         superdeploy cheapa:addons:info caches.session
     """
-    cmd = AddonsInfoCommand(project, addon, verbose=verbose)
+    cmd = AddonsInfoCommand(project, addon, verbose=verbose, json_output=json_output)
     cmd.run()
 
 
@@ -801,7 +825,8 @@ def addons_info(project, addon, verbose):
 @click.option("--version", help="Addon version (default: latest stable)")
 @click.option("--plan", default="standard", help="Resource plan (default: standard)")
 @click.option("--verbose", "-v", is_flag=True)
-def addons_add(project, addon_type, name, version, plan, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def addons_add(project, addon_type, name, version, plan, verbose, json_output):
     """
     Add new addon instance to project
 
@@ -810,14 +835,15 @@ def addons_add(project, addon_type, name, version, plan, verbose):
         superdeploy cheapa:addons:add redis --name cache --version 7-alpine
         superdeploy cheapa:addons:add rabbitmq --name queue --plan large
     """
-    cmd = AddonsAddCommand(project, addon_type, name, version, plan, verbose=verbose)
+    cmd = AddonsAddCommand(project, addon_type, name, version, plan, verbose=verbose, json_output=json_output)
     cmd.run()
 
 
 @click.command(name="addons:remove")
 @click.argument("addon")  # databases.primary
 @click.option("--verbose", "-v", is_flag=True)
-def addons_remove(project, addon, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def addons_remove(project, addon, verbose, json_output):
     """
     Remove addon instance from project
 
@@ -825,7 +851,7 @@ def addons_remove(project, addon, verbose):
         superdeploy cheapa:addons:remove databases.primary
         superdeploy cheapa:addons:remove caches.session
     """
-    cmd = AddonsRemoveCommand(project, addon, verbose=verbose)
+    cmd = AddonsRemoveCommand(project, addon, verbose=verbose, json_output=json_output)
     cmd.run()
 
 
@@ -839,7 +865,8 @@ def addons_remove(project, addon, verbose):
     "--access", default="readwrite", help="Access level: readwrite or readonly"
 )
 @click.option("--verbose", "-v", is_flag=True)
-def addons_attach(project, addon, app, as_var, access, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def addons_attach(project, addon, app, as_var, access, verbose, json_output):
     """
     Attach addon to app (adds to app's config.yml)
 
@@ -847,7 +874,7 @@ def addons_attach(project, addon, app, as_var, access, verbose):
         superdeploy cheapa:addons:attach databases.primary --app api
         superdeploy cheapa:addons:attach databases.primary --app storefront --as DB --access readonly
     """
-    cmd = AddonsAttachCommand(project, addon, app, as_var, access, verbose=verbose)
+    cmd = AddonsAttachCommand(project, addon, app, as_var, access, verbose=verbose, json_output=json_output)
     cmd.run()
 
 
@@ -855,23 +882,25 @@ def addons_attach(project, addon, app, as_var, access, verbose):
 @click.argument("addon")  # databases.primary
 @click.option("--app", required=True, help="App name to detach from")
 @click.option("--verbose", "-v", is_flag=True)
-def addons_detach(project, addon, app, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def addons_detach(project, addon, app, verbose, json_output):
     """
     Detach addon from app (removes from app's config.yml)
 
     Examples:
         superdeploy cheapa:addons:detach databases.primary --app api
     """
-    cmd = AddonsDetachCommand(project, addon, app, verbose=verbose)
+    cmd = AddonsDetachCommand(project, addon, app, verbose=verbose, json_output=json_output)
     cmd.run()
 
 
 # Alias: addons without subcommand defaults to list
 @click.command(name="addons")
 @click.option("--verbose", "-v", is_flag=True)
-def addons(project, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def addons(project, verbose, json_output):
     """
     List all addon instances (alias for addons:list)
     """
-    cmd = AddonsListCommand(project, verbose=verbose)
+    cmd = AddonsListCommand(project, verbose=verbose, json_output=json_output)
     cmd.run()

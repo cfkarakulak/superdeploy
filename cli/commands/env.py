@@ -143,14 +143,52 @@ class EnvListCommand(BaseCommand):
         app: str = None,
         no_mask: bool = False,
         verbose: bool = False,
+        json_output: bool = False,
     ):
-        super().__init__(verbose=verbose)
+        super().__init__(verbose=verbose, json_output=json_output)
         self.show_all = show_all
         self.app = app
         self.no_mask = no_mask
 
     def execute(self) -> None:
         """Execute env:list command."""
+        # Get first project
+        projects = self._get_projects()
+        env_vars = self._load_env_vars(projects[0])
+
+        # Verification for unmasked view
+        if self.no_mask:
+            if not self.json_output and not EnvVarHelper.verify_password(
+                env_vars, self.console
+            ):
+                raise SystemExit(1)
+
+        # JSON output mode
+        if self.json_output:
+            masked_vars = {}
+            for key, value in env_vars.items():
+                value_str = str(value)
+                # Mask sensitive values unless no_mask is True
+                if not self.no_mask and any(
+                    sensitive in key.upper()
+                    for sensitive in ["PASSWORD", "TOKEN", "SECRET", "KEY", "PAT"]
+                ):
+                    masked_vars[key] = (
+                        "***" + value_str[-4:] if len(value_str) > 4 else "***"
+                    )
+                else:
+                    masked_vars[key] = value_str
+
+            self.output_json(
+                {
+                    "project": projects[0],
+                    "variables": masked_vars,
+                    "total": len(masked_vars),
+                    "masked": not self.no_mask,
+                }
+            )
+            return
+
         self.show_header(
             title="Environment Variables",
             details={
@@ -159,15 +197,6 @@ class EnvListCommand(BaseCommand):
                 "Masked": "No" if self.no_mask else "Yes",
             },
         )
-
-        # Get first project
-        projects = self._get_projects()
-        env_vars = self._load_env_vars(projects[0])
-
-        # Verification for unmasked view
-        if self.no_mask:
-            if not EnvVarHelper.verify_password(env_vars, self.console):
-                raise SystemExit(1)
 
         # Build and display table
         table = self._build_table(env_vars, projects[0])
@@ -197,8 +226,14 @@ class EnvListCommand(BaseCommand):
     def _load_env_vars(self, project_name: str) -> Dict[str, str]:
         """Load environment variables from secrets."""
         secret_mgr = SecretManager(self.project_root, project_name)
-        secrets_data = secret_mgr.load_secrets()
-        return secrets_data.get("secrets", {}).get("shared", {})
+        secrets_config = secret_mgr.load_secrets()
+        # Convert SharedSecrets object to dict
+        env_vars = {}
+        if hasattr(secrets_config.shared, "__dict__"):
+            for key, value in secrets_config.shared.__dict__.items():
+                if value is not None:
+                    env_vars[key] = value
+        return env_vars
 
     def _build_table(self, env_vars: Dict[str, str], project_name: str) -> Table:
         """Build environment variables table."""
@@ -266,17 +301,34 @@ class EnvCheckCommand(BaseCommand):
 
     def execute(self) -> None:
         """Execute env:check command."""
-        self.show_header(
-            title="Environment Health Check",
-            subtitle="Validating configuration and security",
-        )
-
         # Load environment variables
         projects = self._get_projects()
         env_vars = self._load_env_vars(projects[0])
 
         # Run checks
         issues, warnings = self._check_environment(env_vars)
+
+        # JSON output mode
+        if self.json_output:
+            self.output_json(
+                {
+                    "project": projects[0],
+                    "total_vars": len(env_vars),
+                    "issues": issues,
+                    "warnings": warnings,
+                    "issue_count": len(issues),
+                    "warning_count": len(warnings),
+                    "status": "failed"
+                    if issues
+                    else ("warning" if warnings else "passed"),
+                }
+            )
+            return
+
+        self.show_header(
+            title="Environment Health Check",
+            subtitle="Validating configuration and security",
+        )
 
         # Display results
         self._display_results(issues, warnings, len(env_vars))
@@ -293,8 +345,14 @@ class EnvCheckCommand(BaseCommand):
     def _load_env_vars(self, project_name: str) -> Dict[str, str]:
         """Load environment variables from secrets."""
         secret_mgr = SecretManager(self.project_root, project_name)
-        secrets_data = secret_mgr.load_secrets()
-        return secrets_data.get("secrets", {}).get("shared", {})
+        secrets_config = secret_mgr.load_secrets()
+        # Convert SharedSecrets object to dict
+        env_vars = {}
+        if hasattr(secrets_config.shared, "__dict__"):
+            for key, value in secrets_config.shared.__dict__.items():
+                if value is not None:
+                    env_vars[key] = value
+        return env_vars
 
     def _check_environment(
         self, env_vars: Dict[str, str]
@@ -350,7 +408,15 @@ class EnvCheckCommand(BaseCommand):
     "--no-mask", is_flag=True, help="Show full values (requires verification)"
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def env_list(project=None, show_all=False, app=None, no_mask=False, verbose=False):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def env_list(
+    project=None,
+    show_all=False,
+    app=None,
+    no_mask=False,
+    verbose=False,
+    json_output=False,
+):
     """
     View environment variables (secure)
 
@@ -367,13 +433,20 @@ def env_list(project=None, show_all=False, app=None, no_mask=False, verbose=Fals
     - Full values require verification
     - Nothing is stored in history
     """
-    cmd = EnvListCommand(show_all=show_all, app=app, no_mask=no_mask, verbose=verbose)
+    cmd = EnvListCommand(
+        show_all=show_all,
+        app=app,
+        no_mask=no_mask,
+        verbose=verbose,
+        json_output=json_output,
+    )
     cmd.run()
 
 
 @click.command(name="env:check")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def env_check(project=None, verbose=False):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def env_check(project=None, verbose=False, json_output=False):
     """
     Check environment configuration health
 
@@ -382,5 +455,5 @@ def env_check(project=None, verbose=False):
     - No placeholder values
     - Secure password strength
     """
-    cmd = EnvCheckCommand(verbose=verbose)
+    cmd = EnvCheckCommand(verbose=verbose, json_output=json_output)
     cmd.run()

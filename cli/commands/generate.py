@@ -114,8 +114,8 @@ class WorkflowGenerator:
 class GenerateCommand(ProjectCommand):
     """Generate deployment files with GitHub Actions workflows."""
 
-    def __init__(self, project_name: str, app: str = None, verbose: bool = False):
-        super().__init__(project_name, verbose=verbose)
+    def __init__(self, project_name: str, app: str = None, verbose: bool = False, json_output: bool = False):
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.app = app
 
     def execute(self) -> None:
@@ -304,7 +304,8 @@ class GenerateCommand(ProjectCommand):
 @click.command(name="generate")
 @click.option("--app", help="Generate for specific app only")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def generate(project, app, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def generate(project, app, verbose, json_output):
     """
     Generate deployment files with GitHub Actions workflows
 
@@ -318,5 +319,5 @@ def generate(project, app, verbose):
         superdeploy cheapa:generate
         superdeploy cheapa:generate --app api
     """
-    cmd = GenerateCommand(project, app=app, verbose=verbose)
+    cmd = GenerateCommand(project, app=app, verbose=verbose, json_output=json_output)
     cmd.run()

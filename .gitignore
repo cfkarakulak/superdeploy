@@ -64,7 +64,9 @@ ansible/.ansible/
 
 # Logs
 *.log
-logs/
+/logs/
+/cli/logs/
+/dashboard/logs/
 *.out
 
 # Backups

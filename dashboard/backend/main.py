@@ -26,12 +26,15 @@ from routes import (
     environments,
     github,
     cli,
+    cli_json,
     containers,
     apps,
     addons,
     logs,
     metrics,
     settings,
+    resources,
+    config,
 )
 
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
@@ -41,12 +44,15 @@ app.include_router(
 )
 app.include_router(github.router, prefix="/api/github", tags=["github"])
 app.include_router(cli.router, prefix="/api/cli", tags=["cli"])
+app.include_router(cli_json.router, prefix="/api/cli-json", tags=["cli-json"])
 app.include_router(containers.router, prefix="/api/containers", tags=["containers"])
 app.include_router(apps.router, prefix="/api/apps", tags=["apps"])
 app.include_router(addons.router, prefix="/api/addons", tags=["addons"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 app.include_router(metrics.router, prefix="/api/metrics", tags=["metrics"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
+app.include_router(resources.router, prefix="/api/resources", tags=["resources"])
+app.include_router(config.router, prefix="/api/config", tags=["config"])
 
 
 @app.get("/")
@@ -224,7 +230,10 @@ async def startup_event():
                             .first()
                         )
 
-                        for vm_name, vm_config in vms_state.items():
+                        for vm_role, vm_config in vms_state.items():
+                            # VM name format: {project}-{role}-0
+                            vm_name = f"{project_dir.name}-{vm_role}-0"
+
                             existing_vm = (
                                 db.query(VM)
                                 .filter(VM.project_id == project.id, VM.name == vm_name)
@@ -235,6 +244,7 @@ async def startup_event():
                                 new_vm = VM(
                                     project_id=project.id,
                                     name=vm_name,
+                                    role=vm_role,
                                     external_ip=vm_config.get("external_ip"),
                                     internal_ip=vm_config.get("internal_ip"),
                                     machine_type=vm_config.get("machine_type"),

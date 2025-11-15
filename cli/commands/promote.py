@@ -15,7 +15,7 @@ class PromoteCommand(ProjectCommand):
         to_branch: str = "production",
         verbose: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.app_name = app_name
         self.from_branch = from_branch
         self.to_branch = to_branch
@@ -50,7 +50,8 @@ class PromoteCommand(ProjectCommand):
 @click.option("--from-branch", default="staging", help="Source branch")
 @click.option("--to-branch", default="production", help="Target branch")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def promote(project, app, from_branch, to_branch, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def promote(project, app, from_branch, to_branch, verbose, json_output):
     """
     Promote code between environments using Git branches
 

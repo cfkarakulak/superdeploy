@@ -45,8 +45,8 @@ class BackupService:
 class BackupsCreateCommand(ProjectCommand):
     """Backup project database and configurations."""
 
-    def __init__(self, project_name: str, output: str = None, verbose: bool = False):
-        super().__init__(project_name, verbose=verbose)
+    def __init__(self, project_name: str, output: str = None, verbose: bool = False, json_output: bool = False):
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.output = output or f"./backups/{project_name}"
         self.backup_service = BackupService()
 
@@ -69,7 +69,9 @@ class BackupsCreateCommand(ProjectCommand):
         # Initialize logger
         logger = self.init_logger(self.project_name, f"backup-{timestamp}")
 
-        logger.step("Starting backup process")
+        if logger:
+
+            logger.step("Starting backup process")
 
         # Get VM and SSH service
         vm_service = self.ensure_vm_service()
@@ -83,28 +85,32 @@ class BackupsCreateCommand(ProjectCommand):
         ) as progress:
             # Step 1: Create backup directory
             task1 = progress.add_task("[cyan]Creating backup directory...", total=1)
-            logger.log(f"Creating backup directory: {backup_path}")
+            if logger:
+                logger.log(f"Creating backup directory: {backup_path}")
             backup_path.mkdir(parents=True, exist_ok=True)
             progress.advance(task1)
             self.console.print(f"[green]✓[/green] Directory created: {backup_path}")
 
             # Step 2: Backup database
             task2 = progress.add_task("[cyan]Backing up database...", total=1)
-            logger.log("Backing up database")
+            if logger:
+                logger.log("Backing up database")
             self._backup_database(vm_ip, ssh_service, backup_path)
             progress.advance(task2)
             self.console.print("[green]✓[/green] Database backed up")
 
             # Step 3: Backup configuration files
             task3 = progress.add_task("[cyan]Backing up configs...", total=1)
-            logger.log("Backing up configuration files")
+            if logger:
+                logger.log("Backing up configuration files")
             self._backup_configs(backup_path)
             progress.advance(task3)
             self.console.print("[green]✓[/green] Configs backed up")
 
             # Step 4: Create backup manifest
             task4 = progress.add_task("[cyan]Creating manifest...", total=1)
-            logger.log("Creating backup manifest")
+            if logger:
+                logger.log("Creating backup manifest")
             metadata = BackupMetadata(
                 project=self.project_name,
                 timestamp=timestamp,
@@ -115,7 +121,9 @@ class BackupsCreateCommand(ProjectCommand):
             progress.advance(task4)
             self.console.print("[green]✓[/green] Manifest created")
 
-        logger.success(f"Backup completed: {backup_path}")
+        if logger:
+
+            logger.success(f"Backup completed: {backup_path}")
         self._display_completion_message(backup_path)
 
         if not self.verbose:
@@ -201,7 +209,8 @@ class BackupsCreateCommand(ProjectCommand):
 @click.command(name="backups:create")
 @click.option("--output", "-o", help="Backup output path (default: ./backups/)")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def backups_create(project, output, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def backups_create(project, output, verbose, json_output):
     """
     Backup project database and configurations
 
@@ -217,5 +226,5 @@ def backups_create(project, output, verbose):
     - Environment variables (encrypted)
     - Docker compose files
     """
-    cmd = BackupsCreateCommand(project, output=output, verbose=verbose)
+    cmd = BackupsCreateCommand(project, output=output, verbose=verbose, json_output=json_output)
     cmd.run()

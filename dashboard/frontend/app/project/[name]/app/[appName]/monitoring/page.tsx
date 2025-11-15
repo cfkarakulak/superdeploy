@@ -6,6 +6,24 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { AppHeader, PageHeader, Button } from "@/components";
 
+// Shimmer animation styles
+const shimmerStyles = `
+  @keyframes shimmer {
+    0% {
+      background-position: -1000px 0;
+    }
+    100% {
+      background-position: 1000px 0;
+    }
+  }
+  
+  .skeleton-shimmer {
+    animation: shimmer 2s infinite linear;
+    background: linear-gradient(to right, #eef2f5 4%, #ffffff 25%, #eef2f5 36%);
+    background-size: 1000px 100%;
+  }
+`;
+
 interface Container {
   id: string;
   name: string;
@@ -20,15 +38,15 @@ interface Container {
 // Breadcrumb Skeleton
 const BreadcrumbSkeleton = () => (
   <div className="flex items-center gap-3 mb-6">
-    <div className="w-5 h-5 bg-[#e3e8ee] rounded skeleton-animated" />
+    <div className="w-5 h-5 rounded skeleton-shimmer" />
     <div className="flex items-center gap-2">
-      <div className="w-[80px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-      <div className="w-[8px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-      <div className="w-[100px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-      <div className="w-[8px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-      <div className="w-[100px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-      <div className="w-[8px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-      <div className="w-[110px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
+      <div className="w-[80px] h-[16px] rounded skeleton-shimmer" />
+      <div className="w-[8px] h-[16px] rounded skeleton-shimmer" />
+      <div className="w-[100px] h-[16px] rounded skeleton-shimmer" />
+      <div className="w-[8px] h-[16px] rounded skeleton-shimmer" />
+      <div className="w-[100px] h-[16px] rounded skeleton-shimmer" />
+      <div className="w-[8px] h-[16px] rounded skeleton-shimmer" />
+      <div className="w-[110px] h-[16px] rounded skeleton-shimmer" />
     </div>
   </div>
 );
@@ -36,8 +54,8 @@ const BreadcrumbSkeleton = () => (
 // Header Skeleton
 const MonitoringHeaderSkeleton = () => (
   <div className="mb-6">
-    <div className="w-[140px] h-[28px] bg-[#e3e8ee] rounded-md mb-2 skeleton-animated" />
-    <div className="w-[220px] h-[20px] bg-[#e3e8ee] rounded-md skeleton-animated" />
+    <div className="w-[140px] h-[28px] rounded-md mb-2 skeleton-shimmer" />
+    <div className="w-[220px] h-[20px] rounded-md skeleton-shimmer" />
   </div>
 );
 
@@ -46,28 +64,28 @@ const ContainerCardSkeleton = () => (
   <div className="bg-white rounded-lg p-5 shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
     <div className="flex items-center justify-between mb-4">
       <div className="flex-1">
-        <div className="w-[220px] h-[20px] bg-[#e3e8ee] rounded-md mb-2 skeleton-animated" />
-        <div className="w-[180px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
+        <div className="w-[220px] h-[20px] rounded-md mb-2 skeleton-shimmer" />
+        <div className="w-[180px] h-[16px] rounded skeleton-shimmer" />
       </div>
-      <div className="w-[70px] h-[24px] bg-[#e3e8ee] rounded-full skeleton-animated" />
+      <div className="w-[70px] h-[24px] rounded-full skeleton-shimmer" />
     </div>
     <div className="grid grid-cols-3 gap-4 mb-4">
       <div>
-        <div className="w-[50px] h-[16px] bg-[#e3e8ee] rounded mb-1 skeleton-animated" />
-        <div className="w-[80px] h-[18px] bg-[#e3e8ee] rounded skeleton-animated" />
+        <div className="w-[50px] h-[16px] rounded mb-1 skeleton-shimmer" />
+        <div className="w-[80px] h-[18px] rounded skeleton-shimmer" />
       </div>
       <div>
-        <div className="w-[60px] h-[16px] bg-[#e3e8ee] rounded mb-1 skeleton-animated" />
-        <div className="w-[90px] h-[18px] bg-[#e3e8ee] rounded skeleton-animated" />
+        <div className="w-[60px] h-[16px] rounded mb-1 skeleton-shimmer" />
+        <div className="w-[90px] h-[18px] rounded skeleton-shimmer" />
       </div>
       <div>
-        <div className="w-[70px] h-[16px] bg-[#e3e8ee] rounded mb-1 skeleton-animated" />
-        <div className="w-[100px] h-[18px] bg-[#e3e8ee] rounded skeleton-animated" />
+        <div className="w-[70px] h-[16px] rounded mb-1 skeleton-shimmer" />
+        <div className="w-[100px] h-[18px] rounded skeleton-shimmer" />
       </div>
     </div>
     <div className="flex gap-2">
-      <div className="w-[80px] h-[32px] bg-[#e3e8ee] rounded skeleton-animated" />
-      <div className="w-[80px] h-[32px] bg-[#e3e8ee] rounded skeleton-animated" />
+      <div className="w-[80px] h-[32px] rounded skeleton-shimmer" />
+      <div className="w-[80px] h-[32px] rounded skeleton-shimmer" />
     </div>
   </div>
 );
@@ -75,6 +93,7 @@ const ContainerCardSkeleton = () => (
 // Full Page Skeleton
 const MonitoringPageSkeleton = () => (
   <div>
+    <style dangerouslySetInnerHTML={{ __html: shimmerStyles }} />
     <BreadcrumbSkeleton />
     <MonitoringHeaderSkeleton />
     <div className="space-y-4">
@@ -144,7 +163,7 @@ export default function AppMonitoringPage() {
     <div>
       <AppHeader />
       
-      <div className="bg-white rounded-[16px] p-[20px] pt-[25px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+      <div className="bg-white rounded-[16px] p-[32px] pt-[25px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
             <PageHeader
           breadcrumb={{
             label: "Monitoring",

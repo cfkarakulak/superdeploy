@@ -50,7 +50,7 @@ class UpCommand(ProjectCommand):
         force: bool = False,
         dry_run: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose)
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.skip_terraform = skip_terraform
         self.skip_ansible = skip_ansible
         self.skip = skip
@@ -107,8 +107,10 @@ class UpCommand(ProjectCommand):
                     )
                     if state_file.exists():
                         state_file.unlink()
-                        logger.log("🗑️  State cleared (force mode)")
-                        logger.log("")
+                        if logger:
+                            logger.log("🗑️  State cleared (force mode)")
+                        if logger:
+                            logger.log("")
 
                 # Change detection (smart deployment)
                 changes = None  # Initialize - will be set if change detection runs
@@ -117,8 +119,10 @@ class UpCommand(ProjectCommand):
                 if self.force or self.skip_terraform or self.skip_ansible:
                     # Force mode: Skip change detection, deploy everything
                     if self.force:
-                        logger.log("🔄 Force mode: skipping change detection")
-                        logger.log("")
+                        if logger:
+                            logger.log("🔄 Force mode: skipping change detection")
+                        if logger:
+                            logger.log("")
                     # No change detection needed
                     changes = None
                 else:
@@ -130,10 +134,12 @@ class UpCommand(ProjectCommand):
                             self.project_name
                         )
                     except FileNotFoundError:
-                        logger.log_error(f"Project not found: {self.project_name}")
+                        if logger:
+                            logger.log_error(f"Project not found: {self.project_name}")
                         raise SystemExit(1)
                     except ValueError as e:
-                        logger.log_error(f"Invalid configuration: {e}")
+                        if logger:
+                            logger.log_error(f"Invalid configuration: {e}")
                         raise SystemExit(1)
 
                     # Detect changes
@@ -142,54 +148,73 @@ class UpCommand(ProjectCommand):
 
                     # Dry-run mode
                     if self.dry_run:
-                        logger.log("🔍 Dry-run mode: showing what would be done")
-                        logger.log("")
+                        if logger:
+                            logger.log("🔍 Dry-run mode: showing what would be done")
+                        if logger:
+                            logger.log("")
 
                         if not changes["has_changes"]:
-                            logger.success(
+                            if logger:
+                                logger.success(
                                 "✅ No changes detected. Infrastructure is up to date."
                             )
                             return
 
                         # Show changes (mini plan)
                         if changes["vms"]["added"]:
-                            logger.log(
+                            if logger:
+                                logger.log(
                                 f"VMs to create: {', '.join(changes['vms']['added'])}"
                             )
                         if changes["vms"]["modified"]:
                             modified_vms = [
                                 v["name"] for v in changes["vms"]["modified"]
                             ]
-                            logger.log(f"VMs to modify: {', '.join(modified_vms)}")
+                            if logger:
+                                logger.log(f"VMs to modify: {', '.join(modified_vms)}")
                         if changes["addons"]["added"]:
-                            logger.log(
+                            if logger:
+                                logger.log(
                                 f"Addons to install: {', '.join(changes['addons']['added'])}"
                             )
                         if changes["apps"]["added"]:
-                            logger.log(
+                            if logger:
+                                logger.log(
                                 f"Apps to setup: {', '.join(changes['apps']['added'])}"
                             )
 
-                        logger.log("")
-                        logger.log("Run without --dry-run to apply changes")
+                        if logger:
+
+                            logger.log("")
+                        if logger:
+                            logger.log("Run without --dry-run to apply changes")
                         return
 
                     # No changes - skip deployment
                     if not changes["has_changes"]:
-                        logger.log("🔍 Detecting changes...")
-                        logger.log("")
-                        logger.success("✅ No changes detected.")
-                        logger.log("")
-                        logger.log("Infrastructure is up to date with config.yml")
-                        logger.log("")
-                        logger.log(
+                        if logger:
+                            logger.log("🔍 Detecting changes...")
+                        if logger:
+                            logger.log("")
+                        if logger:
+                            logger.success("✅ No changes detected.")
+                        if logger:
+                            logger.log("")
+                        if logger:
+                            logger.log("Infrastructure is up to date with config.yml")
+                        if logger:
+                            logger.log("")
+                        if logger:
+                            logger.log(
                             f"To force update: superdeploy {self.project_name}:up --force"
                         )
                         return
 
                     # Show detected changes
-                    logger.log("🔍 Detecting changes...")
-                    logger.log("")
+                    if logger:
+                        logger.log("🔍 Detecting changes...")
+                    if logger:
+                        logger.log("")
 
                     # Check if any VMs need configuration
                     state = state_mgr.load_state()
@@ -199,51 +224,64 @@ class UpCommand(ProjectCommand):
                             vms_needing_config.append(vm_name)
 
                     if vms_needing_config:
-                        logger.log(
+                        if logger:
+                            logger.log(
                             f"  [yellow]⚙ VMs need configuration:[/yellow] {', '.join(vms_needing_config)}"
                         )
 
                     if changes["vms"]["added"]:
-                        logger.log(
+                        if logger:
+                            logger.log(
                             f"  [green]+ VMs to create:[/green] {', '.join(changes['vms']['added'])}"
                         )
                     if changes["vms"]["modified"]:
                         modified_vms = [v["name"] for v in changes["vms"]["modified"]]
-                        logger.log(
+                        if logger:
+                            logger.log(
                             f"  [yellow]~ VMs to modify:[/yellow] {', '.join(modified_vms)}"
                         )
                     if changes["addons"]["added"]:
-                        logger.log(
+                        if logger:
+                            logger.log(
                             f"  [green]+ Addons to install:[/green] {', '.join(changes['addons']['added'])}"
                         )
                     if changes["apps"]["added"]:
-                        logger.log(
+                        if logger:
+                            logger.log(
                             f"  [green]+ Apps to setup:[/green] {', '.join(changes['apps']['added'])}"
                         )
 
-                    logger.log("")
-                    logger.log("Proceeding with deployment...")
-                    logger.log("")
+                    if logger:
+
+                        logger.log("")
+                    if logger:
+                        logger.log("Proceeding with deployment...")
+                    if logger:
+                        logger.log("")
 
                     # Override skip flags based on what's needed
                     if not changes["needs_terraform"]:
                         self.skip_terraform = True
-                        logger.log(
+                        if logger:
+                            logger.log(
                             "  [dim]⏭ Skipping Terraform (no infrastructure changes)[/dim]"
                         )
 
                     if not changes["needs_ansible"]:
                         self.skip_ansible = True
-                        logger.log(
+                        if logger:
+                            logger.log(
                             "  [dim]⏭ Skipping Ansible (no service changes)[/dim]"
                         )
 
                     if not changes["needs_sync"]:
-                        logger.log("  [dim]⏭ No secret changes detected[/dim]")
+                        if logger:
+                            logger.log("  [dim]⏭ No secret changes detected[/dim]")
 
                     # Auto-generate workflows if needed
                     if changes["needs_generate"]:
-                        logger.log("  [cyan]→ Auto-generating workflows...[/cyan]")
+                        if logger:
+                            logger.log("  [cyan]→ Auto-generating workflows...[/cyan]")
 
                         # Call generate command directly (uses same environment)
                         from cli.commands.generate import GenerateCommand
@@ -253,13 +291,18 @@ class UpCommand(ProjectCommand):
                                 project_name=self.project_name, verbose=self.verbose
                             )
                             gen_cmd.execute()
-                            logger.log("  [dim]✓ Workflows generated[/dim]")
+                            if logger:
+                                logger.log("  [dim]✓ Workflows generated[/dim]")
                         except Exception as e:
-                            logger.log_error("Workflow generation failed")
-                            logger.warning(f"  {str(e)}")
+                            if logger:
+                                logger.log_error("Workflow generation failed")
+                            if logger:
+                                logger.warning(f"  {str(e)}")
                             raise SystemExit(1)
 
-                    logger.log("")
+                    if logger:
+
+                        logger.log("")
 
                 self._deploy_project(
                     logger,
@@ -277,11 +320,15 @@ class UpCommand(ProjectCommand):
                     state_mgr = StateManager(self.project_root, self.project_name)
                     state_mgr.update_from_config(project_config)
 
-                    logger.log("")
-                    logger.log("💾 State saved")
+                    if logger:
+
+                        logger.log("")
+                    if logger:
+                        logger.log("💾 State saved")
 
             except Exception as e:
-                logger.log_error(
+                if logger:
+                    logger.log_error(
                     str(e), context=f"Project {self.project_name} deployment failed"
                 )
                 self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
@@ -340,7 +387,9 @@ def _deploy_project_internal(
 ):
     """Internal function for project deployment with logging"""
 
-    logger.step("[1/4] Setup & Infrastructure")
+    if logger:
+
+        logger.step("[1/4] Setup & Infrastructure")
 
     # Load project config
     from cli.core.orchestrator_loader import OrchestratorLoader
@@ -353,10 +402,12 @@ def _deploy_project_internal(
         project_config_obj = config_service.load_project_config(project)
         console.print("  [dim]✓ Configuration loaded[/dim]")
     except FileNotFoundError as e:
-        logger.log_error(str(e), context=f"Project '{project}' not found")
+        if logger:
+            logger.log_error(str(e), context=f"Project '{project}' not found")
         raise SystemExit(1)
     except ValueError as e:
-        logger.log_error(f"Invalid configuration: {e}")
+        if logger:
+            logger.log_error(f"Invalid configuration: {e}")
         raise SystemExit(1)
 
     # Load orchestrator config
@@ -365,7 +416,8 @@ def _deploy_project_internal(
 
         # Check if orchestrator is deployed
         if not orchestrator_config.is_deployed():
-            logger.log_error(
+            if logger:
+                logger.log_error(
                 "Orchestrator not deployed yet",
                 context="Deploy it first: [red]superdeploy orchestrator up[/red]",
             )
@@ -373,13 +425,15 @@ def _deploy_project_internal(
 
         orchestrator_ip = orchestrator_config.get_ip()
         if not orchestrator_ip:
-            logger.log_error("Orchestrator IP not found")
+            if logger:
+                logger.log_error("Orchestrator IP not found")
             raise SystemExit(1)
 
         console.print(f"  [dim]✓ Orchestrator @ {orchestrator_ip}[/dim]")
 
     except FileNotFoundError as e:
-        logger.log_error(str(e), context="Orchestrator config not found")
+        if logger:
+            logger.log_error(str(e), context="Orchestrator config not found")
         raise SystemExit(1)
 
     # Load project config and environment
@@ -410,21 +464,26 @@ def _deploy_project_internal(
     # Validate required vars
     required = ["GCP_PROJECT_ID", "GCP_REGION", "SSH_KEY_PATH"]
     if not validate_env_vars(env, required):
-        logger.log_error(
+        if logger:
+            logger.log_error(
             "Missing required environment variables", context=", ".join(required)
         )
         raise SystemExit(1)
 
-    logger.log("✓ Environment validated")
+    if logger:
+
+        logger.log("✓ Environment validated")
 
     # Terraform - Smart skip logic
     if not skip_terraform:
         # Smart skip: if no terraform changes, skip it
         if changes and not changes.get("needs_terraform", True):
-            logger.log("[dim]✓ Terraform: no VM changes, skipping[/dim]")
+            if logger:
+                logger.log("[dim]✓ Terraform: no VM changes, skipping[/dim]")
             skip_terraform = True
         else:
-            logger.log("Provisioning VMs (3-5 min)...")
+            if logger:
+                logger.log("Provisioning VMs (3-5 min)...")
 
             from cli.terraform_utils import (
                 terraform_refresh,
@@ -432,7 +491,8 @@ def _deploy_project_internal(
             )
 
             # Ensure we're on default workspace before init (prevents interactive prompt)
-            logger.log("Ensuring default workspace")
+            if logger:
+                logger.log("Ensuring default workspace")
             terraform_dir = project_root / "shared" / "terraform"
             terraform_state_dir = terraform_dir / ".terraform"
 
@@ -454,7 +514,8 @@ def _deploy_project_internal(
             )
 
             if returncode != 0:
-                logger.log_error("Terraform init failed", context=stderr)
+                if logger:
+                    logger.log_error("Terraform init failed", context=stderr)
                 raise SystemExit(1)
 
             console.print("  [dim]✓ Terraform initialized[/dim]")
@@ -468,7 +529,8 @@ def _deploy_project_internal(
             try:
                 select_workspace(project, create=True)
             except Exception as e:
-                logger.log_error("Workspace setup failed", context=str(e))
+                if logger:
+                    logger.log_error("Workspace setup failed", context=str(e))
                 raise SystemExit(1)
 
             # Refresh state
@@ -491,7 +553,8 @@ def _deploy_project_internal(
             )
 
             if returncode != 0:
-                logger.log_error("Terraform apply failed", context=stderr)
+                if logger:
+                    logger.log_error("Terraform apply failed", context=stderr)
                 raise SystemExit(1)
 
             console.print("  [dim]✓ VMs provisioned[/dim]")
@@ -521,10 +584,13 @@ def _deploy_project_internal(
                 env_key = vm_key.upper().replace("-", "_")
                 env[f"{env_key}_INTERNAL_IP"] = ip
 
-            logger.log("✓ VM IPs loaded to environment")
+            if logger:
+
+                logger.log("✓ VM IPs loaded to environment")
 
             # Wait for VMs
-            logger.log("Waiting for VMs to be ready...")
+            if logger:
+                logger.log("Waiting for VMs to be ready...")
 
             if public_ips:
                 import time
@@ -537,7 +603,8 @@ def _deploy_project_internal(
                 all_ready = True
 
                 for vm_name, vm_ip in public_ips.items():
-                    logger.log(f"Checking {vm_name} ({vm_ip})")
+                    if logger:
+                        logger.log(f"Checking {vm_name} ({vm_ip})")
                     vm_ready = False
 
                     for attempt in range(1, max_attempts + 1):
@@ -551,7 +618,8 @@ def _deploy_project_internal(
                         )
 
                         if result.returncode == 0 and "root" in result.stdout:
-                            logger.log(f"✓ {vm_name} is ready")
+                            if logger:
+                                logger.log(f"✓ {vm_name} is ready")
                             vm_ready = True
                             # Clean SSH known_hosts
                             subprocess.run(
@@ -563,7 +631,8 @@ def _deploy_project_internal(
                             time.sleep(10)
 
                     if not vm_ready:
-                        logger.warning(f"{vm_name} may not be fully ready")
+                        if logger:
+                            logger.warning(f"{vm_name} may not be fully ready")
                         all_ready = False
 
                 if all_ready:
@@ -574,7 +643,8 @@ def _deploy_project_internal(
                     )
                     console.print("  [dim]✓ VMs ready[/dim]")
                 else:
-                    logger.warning("Some VMs may not be fully ready, continuing...")
+                    if logger:
+                        logger.warning("Some VMs may not be fully ready, continuing...")
                     vm_count = len(public_ips)
                     # Create VM list with IPs even if not fully ready
                     vm_list_with_ips = ", ".join(
@@ -587,7 +657,8 @@ def _deploy_project_internal(
                     f"  [dim]✓ Configuration • Environment • {vm_count} VMs ({vm_list_with_ips})[/dim]"
                 )
             else:
-                logger.log("No VMs found in outputs")
+                if logger:
+                    logger.log("No VMs found in outputs")
 
     else:
         # Skip terraform, load VMs from state
@@ -625,10 +696,12 @@ def _deploy_project_internal(
     if not skip_ansible:
         # Smart skip: if no ansible changes, skip it
         if changes and not changes.get("needs_ansible", True):
-            logger.log("[dim]✓ Ansible: no addon/service changes, skipping[/dim]")
+            if logger:
+                logger.log("[dim]✓ Ansible: no addon/service changes, skipping[/dim]")
             skip_ansible = True
         else:
-            logger.step("[2/4] Base System")
+            if logger:
+                logger.step("[2/4] Base System")
 
             # Load VM IPs from state if terraform was skipped
             if skip_terraform:
@@ -651,7 +724,9 @@ def _deploy_project_internal(
                                 "internal_ip"
                             ]
 
-                logger.log("✓ VM IPs loaded from state")
+                if logger:
+
+                    logger.log("✓ VM IPs loaded from state")
             # else: env already has IPs from terraform outputs above
 
             # Generate inventory
@@ -704,7 +779,8 @@ def _deploy_project_internal(
                 if changes and changes.get("needs_foundation", True):
                     tag_parts.append("foundation")
                 else:
-                    logger.log("[dim]✓ Foundation: already complete, skipping[/dim]")
+                    if logger:
+                        logger.log("[dim]✓ Foundation: already complete, skipping[/dim]")
 
                 tag_parts.extend(["addons", "project"])
                 ansible_tags = ",".join(tag_parts)
@@ -766,7 +842,8 @@ def _deploy_project_internal(
                     result_returncode = runner.run(base_cmd, cwd=project_root)
 
                     if result_returncode != 0:
-                        logger.log_error(
+                        if logger:
+                            logger.log_error(
                             "Ansible configuration failed", context="Check logs"
                         )
                         raise SystemExit(1)
@@ -863,14 +940,16 @@ def _deploy_project_internal(
                     last_runner = addon_runner  # Track the last addon runner
 
                     if result_returncode != 0:
-                        logger.log_error(f"Addon {addon_name} deployment failed")
+                        if logger:
+                            logger.log_error(f"Addon {addon_name} deployment failed")
                         raise SystemExit(1)
             else:
                 # Normal single Ansible run
                 result_returncode = runner.run(ansible_cmd, cwd=project_root)
 
                 if result_returncode != 0:
-                    logger.log_error(
+                    if logger:
+                        logger.log_error(
                         "Ansible configuration failed", context="Check logs for details"
                     )
                     console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
@@ -906,7 +985,8 @@ def _deploy_project_internal(
             state_mgr.mark_deployment_complete()
 
     else:
-        logger.step("Skipping Ansible (--skip-ansible)")
+        if logger:
+            logger.step("Skipping Ansible (--skip-ansible)")
 
     # Phase 4: Code Deployment - Manual sync required
     # Note: Secret sync removed from automatic deployment due to timeout issues
@@ -917,9 +997,12 @@ def _deploy_project_internal(
     # Orchestrator info
     orchestrator_ip = env.get("ORCHESTRATOR_IP")
     if orchestrator_ip:
-        logger.log("")
-        logger.log("🎯 Orchestrator")
-        logger.log(f"  IP: {orchestrator_ip}")
+        if logger:
+            logger.log("")
+        if logger:
+            logger.log("🎯 Orchestrator")
+        if logger:
+            logger.log(f"  IP: {orchestrator_ip}")
 
         # Get credentials from orchestrator secrets
         try:
@@ -932,19 +1015,27 @@ def _deploy_project_internal(
 
             grafana_pass = orch_secrets.get("GRAFANA_ADMIN_PASSWORD", "")
 
-            logger.log(f"  Grafana: http://{orchestrator_ip}:3000")
-            if grafana_pass:
-                logger.log("    Username: admin")
-                logger.log(f"    Password: {grafana_pass}")
+            if logger:
 
-            logger.log(f"  Prometheus: http://{orchestrator_ip}:9090")
+                logger.log(f"  Grafana: http://{orchestrator_ip}:3000")
+            if grafana_pass:
+                if logger:
+                    logger.log("    Username: admin")
+                if logger:
+                    logger.log(f"    Password: {grafana_pass}")
+
+            if logger:
+
+                logger.log(f"  Prometheus: http://{orchestrator_ip}:9090")
         except Exception:
             # Orchestrator config not available yet
             pass
 
     # Project VMs and Apps
-    logger.log("")
-    logger.log(f"📦 Project: {project}")
+    if logger:
+        logger.log("")
+    if logger:
+        logger.log(f"📦 Project: {project}")
 
     # Get VM IPs
     vm_ips = {}
@@ -954,13 +1045,17 @@ def _deploy_project_internal(
             vm_ips[vm_name] = value
 
     if vm_ips:
-        logger.log("  VMs:")
+        if logger:
+            logger.log("  VMs:")
         for vm_name, ip in sorted(vm_ips.items()):
-            logger.log(f"    • {vm_name}: {ip}")
+            if logger:
+                logger.log(f"    • {vm_name}: {ip}")
 
     # Display project credentials (postgres, rabbitmq, etc.)
-    logger.log("")
-    logger.log("🔐 Project Credentials")
+    if logger:
+        logger.log("")
+    if logger:
+        logger.log("🔐 Project Credentials")
 
     # PostgreSQL (from env vars set by addon deployment)
     postgres_host = env.get("POSTGRES_HOST", "")
@@ -969,12 +1064,18 @@ def _deploy_project_internal(
     postgres_db = env.get("POSTGRES_DB", "")
 
     if postgres_pass:
-        logger.log("")
-        logger.log("  🐘 PostgreSQL")
-        logger.log(f"    Host: {postgres_host}")
-        logger.log(f"    Database: {postgres_db}")
-        logger.log(f"    Username: {postgres_user}")
-        logger.log(f"    Password: {postgres_pass}")
+        if logger:
+            logger.log("")
+        if logger:
+            logger.log("  🐘 PostgreSQL")
+        if logger:
+            logger.log(f"    Host: {postgres_host}")
+        if logger:
+            logger.log(f"    Database: {postgres_db}")
+        if logger:
+            logger.log(f"    Username: {postgres_user}")
+        if logger:
+            logger.log(f"    Password: {postgres_pass}")
 
     # RabbitMQ (from env vars set by addon deployment)
     rabbitmq_host = env.get("RABBITMQ_HOST", "")
@@ -989,29 +1090,41 @@ def _deploy_project_internal(
             break
 
     if rabbitmq_pass:
-        logger.log("")
-        logger.log("  🐰 RabbitMQ")
-        logger.log(f"    Host: {rabbitmq_host}")
-        logger.log(f"    Username: {rabbitmq_user}")
-        logger.log(f"    Password: {rabbitmq_pass}")
+        if logger:
+            logger.log("")
+        if logger:
+            logger.log("  🐰 RabbitMQ")
+        if logger:
+            logger.log(f"    Host: {rabbitmq_host}")
+        if logger:
+            logger.log(f"    Username: {rabbitmq_user}")
+        if logger:
+            logger.log(f"    Password: {rabbitmq_pass}")
         if core_vm_ip:
-            logger.log(f"    Management UI: http://{core_vm_ip}:15672")
+            if logger:
+                logger.log(f"    Management UI: http://{core_vm_ip}:15672")
 
     # Redis (if exists)
     redis_host = env.get("REDIS_HOST", "")
     redis_pass = env.get("REDIS_PASSWORD", "")
 
     if redis_pass:
-        logger.log("")
-        logger.log("  📦 Redis")
-        logger.log(f"    Host: {redis_host}")
-        logger.log(f"    Password: {redis_pass}")
+        if logger:
+            logger.log("")
+        if logger:
+            logger.log("  📦 Redis")
+        if logger:
+            logger.log(f"    Host: {redis_host}")
+        if logger:
+            logger.log(f"    Password: {redis_pass}")
 
     # Get app URLs
     apps = project_config_obj.raw_config.get("apps", {})
     if apps:
-        logger.log("")
-        logger.log("  Applications:")
+        if logger:
+            logger.log("")
+        if logger:
+            logger.log("  Applications:")
         for app_name, app_config in apps.items():
             domain = app_config.get("domain", "")
             port = app_config.get("port")
@@ -1026,15 +1139,21 @@ def _deploy_project_internal(
 
             if vm_ip:
                 if domain:
-                    logger.log(f"    • {app_name}: https://{domain}")
+                    if logger:
+                        logger.log(f"    • {app_name}: https://{domain}")
                 else:
-                    logger.log(f"    • {app_name}: http://{vm_ip}:{port}")
+                    if logger:
+                        logger.log(f"    • {app_name}: http://{vm_ip}:{port}")
 
     # Display deployment success banner at the end
-    logger.log("")
-    logger.log("━" * 60)
-    logger.success("Infrastructure Deployed!")
-    logger.log("━" * 60)
+    if logger:
+        logger.log("")
+    if logger:
+        logger.log("━" * 60)
+    if logger:
+        logger.success("Infrastructure Deployed!")
+    if logger:
+        logger.log("━" * 60)
 
     # Always display deployment summary (even in non-verbose mode)
     if not verbose:

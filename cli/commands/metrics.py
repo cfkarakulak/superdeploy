@@ -8,8 +8,8 @@ from cli.base import ProjectCommand
 class MetricsCommand(ProjectCommand):
     """Show deployment metrics and statistics."""
 
-    def __init__(self, project_name: str, days: int = 7, verbose: bool = False):
-        super().__init__(project_name, verbose=verbose)
+    def __init__(self, project_name: str, days: int = 7, verbose: bool = False, json_output: bool = False):
+        super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.days = days
 
     def execute(self) -> None:
@@ -26,7 +26,9 @@ class MetricsCommand(ProjectCommand):
         # Initialize logger
         logger = self.init_logger(self.project_name, "metrics")
 
-        logger.step("Collecting metrics")
+        if logger:
+
+            logger.step("Collecting metrics")
 
         # Get VM and SSH service
         vm_service = self.ensure_vm_service()
@@ -38,7 +40,9 @@ class MetricsCommand(ProjectCommand):
         self._show_service_uptime(vm_ip, ssh_service)
         self._show_deployment_history(vm_ip, ssh_service)
 
-        logger.success("Metrics collected successfully")
+        if logger:
+
+            logger.success("Metrics collected successfully")
 
         # Summary
         self.console.print(
@@ -147,7 +151,8 @@ class MetricsCommand(ProjectCommand):
 @click.command()
 @click.option("--days", "-d", default=7, help="Number of days to analyze")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
-def metrics(project, days, verbose):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def metrics(project, days, verbose, json_output):
     """
     Show deployment metrics and statistics
 
@@ -164,5 +169,5 @@ def metrics(project, days, verbose):
     - Service uptime
     - Resource usage (CPU/Memory)
     """
-    cmd = MetricsCommand(project, days=days, verbose=verbose)
+    cmd = MetricsCommand(project, days=days, verbose=verbose, json_output=json_output)
     cmd.run()

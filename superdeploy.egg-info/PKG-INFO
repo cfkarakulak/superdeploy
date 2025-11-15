@@ -23,6 +23,10 @@ Requires-Dist: paramiko>=3.0.0
 Requires-Dist: ansible<13.0.0,>=9.0.0
 Requires-Dist: ansible-runner>=2.3.0
 Requires-Dist: mitogen>=0.3.4
+Requires-Dist: fastapi>=0.104.0
+Requires-Dist: uvicorn>=0.24.0
+Requires-Dist: sqlalchemy>=2.0.0
+Requires-Dist: psycopg2-binary>=2.9.0
 Dynamic: author
 Dynamic: classifier
 Dynamic: requires-dist

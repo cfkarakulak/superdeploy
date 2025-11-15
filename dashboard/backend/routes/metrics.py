@@ -64,18 +64,31 @@ async def get_app_metrics(project_name: str, app_name: str):
         if not app:
             raise HTTPException(status_code=404, detail="App not found")
 
-        # Get VM name from app
-        vm_name = app.vm
-        if not vm_name:
+        # Get VM name from app (can be role or full name)
+        vm_identifier = app.vm
+        if not vm_identifier:
             raise HTTPException(status_code=404, detail="App has no VM assigned")
 
-        # Get VM from database
+        # Get VM from database - try by name first, then by role
         vm = (
-            db.query(VM).filter(VM.project_id == project.id, VM.name == vm_name).first()
+            db.query(VM)
+            .filter(VM.project_id == project.id, VM.name == vm_identifier)
+            .first()
         )
+
+        # If not found by name, try by role (e.g., app.vm = "app" -> find VM with role="app")
+        if not vm:
+            # Build full VM name: {project}-{role}-0
+            vm_name = f"{project_name}-{vm_identifier}-0"
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == project.id, VM.name == vm_name)
+                .first()
+            )
+
         if not vm or not vm.external_ip:
             raise HTTPException(
-                status_code=404, detail=f"VM '{vm_name}' not found or has no IP"
+                status_code=404, detail=f"VM '{vm_identifier}' not found or has no IP"
             )
 
         vm_ip = vm.external_ip
@@ -311,15 +324,19 @@ async def get_app_container_metrics(project_name: str, app_name: str):
 
         # Query cAdvisor metrics for Docker containers (systemd cgroup paths)
         # Filter: only docker-*.scope containers (not root, not system services)
-        # Include container_label_com_docker_compose_service to get service names
+        # Include containers for this specific app (via superdeploy_app label)
+        # Exclude cAdvisor itself
+        base_filter = f'id=~"/system.slice/docker-.*\\\\.scope",name!="",container_label_com_superdeploy_project="{project_name}",name!~".*cadvisor.*"'
+        app_filter = f'{base_filter},container_label_com_superdeploy_app="{app_name}"'
+
         queries = {
-            "cpu_usage": 'rate(container_cpu_usage_seconds_total{id=~"/system.slice/docker-.*\\\\.scope",name!=""}[5m]) * 100',
-            "memory_usage": 'container_memory_usage_bytes{id=~"/system.slice/docker-.*\\\\.scope",name!=""}',
-            "memory_limit": 'container_spec_memory_limit_bytes{id=~"/system.slice/docker-.*\\\\.scope",name!=""}',
-            "network_rx": 'rate(container_network_receive_bytes_total{id=~"/system.slice/docker-.*\\\\.scope",name!=""}[5m])',
-            "network_tx": 'rate(container_network_transmit_bytes_total{id=~"/system.slice/docker-.*\\\\.scope",name!=""}[5m])',
-            "fs_reads": 'rate(container_fs_reads_bytes_total{id=~"/system.slice/docker-.*\\\\.scope",name!=""}[5m])',
-            "fs_writes": 'rate(container_fs_writes_bytes_total{id=~"/system.slice/docker-.*\\\\.scope",name!=""}[5m])',
+            "cpu_usage": f"rate(container_cpu_usage_seconds_total{{{app_filter}}}[5m]) * 100",
+            "memory_usage": f"container_memory_usage_bytes{{{app_filter}}}",
+            "memory_limit": f"container_spec_memory_limit_bytes{{{app_filter}}}",
+            "network_rx": f"rate(container_network_receive_bytes_total{{{app_filter}}}[5m])",
+            "network_tx": f"rate(container_network_transmit_bytes_total{{{app_filter}}}[5m])",
+            "fs_reads": f"rate(container_fs_reads_bytes_total{{{app_filter}}}[5m])",
+            "fs_writes": f"rate(container_fs_writes_bytes_total{{{app_filter}}}[5m])",
         }
 
         # Execute queries
@@ -344,40 +361,33 @@ async def get_app_container_metrics(project_name: str, app_name: str):
 
         # Helper to extract container name from cAdvisor metrics
         def get_container_name(metric: dict) -> str:
-            """Extract readable container name from cAdvisor metric labels"""
-            # Priority 1: Docker Compose service name (e.g., "api-web")
-            compose_service = metric.get(
-                "container_label_com_docker_compose_service", ""
-            )
-            if compose_service:
-                # Get replica number if available
-                replica = metric.get(
-                    "container_label_com_docker_compose_container_number", ""
-                )
-                if replica:
-                    return f"{compose_service}-{replica}"
-                return compose_service
+            """
+            Extract container name from superdeploy custom labels.
 
-            # Priority 2: Container name from cAdvisor (e.g., "api-web-1")
-            container_name = metric.get("name", "")
-            if container_name and container_name != "":
+            All containers deployed via superdeploy MUST have these labels:
+            - container_label_com_superdeploy_app: App name (e.g., "api", "services")
+            - container_label_com_superdeploy_process: Process type (e.g., "web", "worker")
+
+            If labels are missing, cAdvisor is misconfigured or container wasn't deployed via superdeploy.
+            """
+            superdeploy_app = metric.get("container_label_com_superdeploy_app", "")
+            superdeploy_process = metric.get(
+                "container_label_com_superdeploy_process", ""
+            )
+
+            if not superdeploy_app:
+                # Container doesn't have superdeploy labels - shouldn't happen
+                container_name = metric.get("name", "unknown")
+                print(
+                    f"WARNING: Container '{container_name}' missing superdeploy labels!"
+                )
                 return container_name
 
-            # Priority 3: Image name (e.g., "api:latest" -> "api")
-            image = metric.get("image", "")
-            if image:
-                # Extract image name without tag
-                image_name = image.split(":")[0].split("/")[-1]
-                if image_name:
-                    return image_name
+            # Format: "app" for web processes, "app (process)" for others
+            if superdeploy_process and superdeploy_process != "web":
+                return f"{superdeploy_app} ({superdeploy_process})"
 
-            # Fallback: container ID from systemd path
-            container_id = metric.get("id", "")
-            if "docker-" in container_id:
-                hash_part = container_id.split("docker-")[1].split(".scope")[0]
-                return hash_part[:12]  # Docker short ID
-
-            return "unknown"
+            return superdeploy_app
 
         # Process results into container-specific metrics
         containers = {}
@@ -491,18 +501,31 @@ async def get_app_application_metrics(project_name: str, app_name: str):
         if not app:
             raise HTTPException(status_code=404, detail="App not found")
 
-        # Get VM name from app
-        vm_name = app.vm
-        if not vm_name:
+        # Get VM name from app (can be role or full name)
+        vm_identifier = app.vm
+        if not vm_identifier:
             raise HTTPException(status_code=404, detail="App has no VM assigned")
 
-        # Get VM from database
+        # Get VM from database - try by name first, then by role
         vm = (
-            db.query(VM).filter(VM.project_id == project.id, VM.name == vm_name).first()
+            db.query(VM)
+            .filter(VM.project_id == project.id, VM.name == vm_identifier)
+            .first()
         )
+
+        # If not found by name, try by role (e.g., app.vm = "app" -> find VM with role="app")
+        if not vm:
+            # Build full VM name: {project}-{role}-0
+            vm_name = f"{project_name}-{vm_identifier}-0"
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == project.id, VM.name == vm_name)
+                .first()
+            )
+
         if not vm or not vm.external_ip:
             raise HTTPException(
-                status_code=404, detail=f"VM '{vm_name}' not found or has no IP"
+                status_code=404, detail=f"VM '{vm_identifier}' not found or has no IP"
             )
 
         vm_ip = vm.external_ip

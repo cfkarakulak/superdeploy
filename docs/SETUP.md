@@ -234,20 +234,20 @@ GitHub self-hosted runner token gerekli:
 ## 🏗️ Adım 6: Infrastructure Deploy Et
 
 ```bash
-# Environment variable olarak token'ı set et
-export GITHUB_RUNNER_TOKEN="A1B2C3D4E5F6G7H8I9J0..."
-
-# Deploy başlat
+# Deploy başlat (GitHub runners otomatik register olacak REPOSITORY_TOKEN ile)
 superdeploy myproject:up
 
 # Ne olacak:
 # ✓ Terraform: GCP'de VM'ler oluşturulacak
 # ✓ Ansible: Docker, Node.js kurulacak
-# ✓ GitHub runner kurulacak (labels: [self-hosted, superdeploy, myproject, app/core])
+# ✓ GitHub runner kurulacak ve otomatik register edilecek
+#   - REPOSITORY_TOKEN ile GitHub API'den registration token alınacak
+#   - Labels: [self-hosted, superdeploy, myproject, app/core]
 # ✓ Infrastructure addons deploy edilecek (postgres, rabbitmq)
 # ✓ .project file oluşturulacak (runner validation için)
 
 # Süre: ~10 dakika
+# NOT: GITHUB_RUNNER_TOKEN'a gerek yok, REPOSITORY_TOKEN yeterli!
 ```
 
 ---
@@ -363,9 +363,14 @@ curl https://api.myproject.com/health
 ### Runner Kayıt Olmuyor
 
 ```bash
-# Token expired olabilir (48 saat geçerli)
-# Yeni token al ve tekrar dene:
-export GITHUB_RUNNER_TOKEN="new-token"
+# REPOSITORY_TOKEN'ı kontrol et:
+# 1. secrets.yml'de REPOSITORY_TOKEN var mı?
+# 2. Token scope'ları doğru mu? (admin:org gerekli)
+# 3. Token expire olmamış mı?
+
+# Token'ı yenile ve tekrar dene:
+# - GitHub Settings → Developer settings → Personal access tokens
+# - Required scopes: repo, workflow, packages, admin:org (manage_runners)
 superdeploy myproject:up
 ```
 

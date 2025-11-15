@@ -59,19 +59,16 @@ cd superdeploy && pip install -e .
 mkdir -p projects/myproject
 # ... configure config.yml and secrets.yml ...
 
-# 3. Get GitHub runner token
-# https://github.com/yourorg/settings/actions/runners/new
+# 3. Deploy infrastructure (runners auto-register via REPOSITORY_TOKEN)
+superdeploy myproject:up
 
-# 4. Deploy infrastructure
-GITHUB_RUNNER_TOKEN=xxx superdeploy myproject:up
-
-# 5. Sync secrets
+# 4. Sync secrets
 superdeploy myproject:sync
 
-# 6. Generate workflows
+# 5. Generate workflows
 superdeploy myproject:generate
 
-# 7. Deploy apps
+# 6. Deploy apps
 git push origin production
 ```
 

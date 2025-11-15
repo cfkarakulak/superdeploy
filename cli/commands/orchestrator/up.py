@@ -27,7 +27,7 @@ class OrchestratorUpCommand(BaseCommand):
         verbose: bool = False,
         force: bool = False,
     ):
-        super().__init__(verbose=verbose)
+        super().__init__(verbose=verbose, json_output=json_output)
         self.skip_terraform = skip_terraform
         self.preserve_ip = preserve_ip
         self.addon = addon
@@ -69,7 +69,8 @@ class OrchestratorUpCommand(BaseCommand):
                     )
 
             except Exception as e:
-                logger.log_error(str(e), context="Orchestrator deployment failed")
+                if logger:
+                    logger.log_error(str(e), context="Orchestrator deployment failed")
                 self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
                 raise SystemExit(1)
 
@@ -128,7 +129,9 @@ def _deploy_orchestrator(
 ):
     """Internal function for orchestrator deployment with logging"""
 
-    logger.step("[1/3] Setup & Infrastructure")
+    if logger:
+
+        logger.step("[1/3] Setup & Infrastructure")
 
     # Load orchestrator config
     orchestrator_loader = OrchestratorLoader(shared_dir)
@@ -137,7 +140,8 @@ def _deploy_orchestrator(
         orch_config = orchestrator_loader.load()
         console.print("  [dim]✓ Configuration loaded[/dim]")
     except FileNotFoundError as e:
-        logger.log_error(str(e), context="Orchestrator config not found")
+        if logger:
+            logger.log_error(str(e), context="Orchestrator config not found")
         raise SystemExit(1)
 
     # Force mode: Clear state to trigger full re-deployment
@@ -145,12 +149,15 @@ def _deploy_orchestrator(
         state_file = shared_dir / "orchestrator" / "state.yml"
         if state_file.exists():
             state_file.unlink()
-            logger.log("🗑️  State cleared (force mode)")
-            logger.log("")
+            if logger:
+                logger.log("🗑️  State cleared (force mode)")
+            if logger:
+                logger.log("")
 
     # Check state and detect changes (unless forced or specific addon)
     if not force and not addon:
-        logger.log("Detecting changes...")
+        if logger:
+            logger.log("Detecting changes...")
 
         # Simple state check for orchestrator (different from project state management)
         state = orch_config.state_manager.load_state()
@@ -159,10 +166,14 @@ def _deploy_orchestrator(
 
         # If VM is only provisioned (not fully configured), continue with Ansible
         if vm_status == "provisioned":
-            logger.log("")
-            logger.log("VM is provisioned but not fully configured.")
-            logger.log("Continuing with Ansible configuration...")
-            logger.log("")
+            if logger:
+                logger.log("")
+            if logger:
+                logger.log("VM is provisioned but not fully configured.")
+            if logger:
+                logger.log("Continuing with Ansible configuration...")
+            if logger:
+                logger.log("")
             # Don't skip, continue to Ansible
         elif is_deployed:
             # Compare config hash (same as project state manager)
@@ -171,48 +182,68 @@ def _deploy_orchestrator(
             current_hash = orch_config.state_manager._calculate_config_hash()
 
             if current_hash == last_hash:
-                logger.success("No changes detected. Infrastructure is up to date.")
-                logger.log("")
-                logger.log("Current state:")
-                logger.log(f"  • VM deployed: {is_deployed}")
-                logger.log(f"  • IP: {state.get('orchestrator_ip', 'N/A')}")
-                logger.log("")
-                logger.log("To force re-deployment, use: --force")
-                logger.log("To deploy specific addon, use: --addon <name>")
+                if logger:
+                    logger.success("No changes detected. Infrastructure is up to date.")
+                if logger:
+                    logger.log("")
+                if logger:
+                    logger.log("Current state:")
+                if logger:
+                    logger.log(f"  • VM deployed: {is_deployed}")
+                if logger:
+                    logger.log(f"  • IP: {state.get('orchestrator_ip', 'N/A')}")
+                if logger:
+                    logger.log("")
+                if logger:
+                    logger.log("To force re-deployment, use: --force")
+                if logger:
+                    logger.log("To deploy specific addon, use: --addon <name>")
                 return
             else:
-                logger.log("")
-                logger.log("Detected changes in configuration")
+                if logger:
+                    logger.log("")
+                if logger:
+                    logger.log("Detected changes in configuration")
 
                 # Try to determine what changed
                 last_config = state.get("config", {})
 
                 # Check VM config changes
                 if orch_config.config.get("vm") != last_config.get("vm"):
-                    logger.log("  • VM configuration changed")
+                    if logger:
+                        logger.log("  • VM configuration changed")
                     skip_terraform = False  # Need terraform
                 else:
-                    logger.log("  • VM configuration unchanged")
+                    if logger:
+                        logger.log("  • VM configuration unchanged")
                     skip_terraform = True  # Skip terraform
 
                 # Check addon configs
                 if orch_config.config.get("grafana") != last_config.get("grafana"):
-                    logger.log("  • Grafana configuration changed")
+                    if logger:
+                        logger.log("  • Grafana configuration changed")
                 if orch_config.config.get("prometheus") != last_config.get(
                     "prometheus"
                 ):
-                    logger.log("  • Prometheus configuration changed")
+                    if logger:
+                        logger.log("  • Prometheus configuration changed")
 
-                logger.log("")
+                if logger:
+
+                    logger.log("")
         else:
-            logger.log("First deployment detected")
+            if logger:
+                logger.log("First deployment detected")
     elif force:
-        logger.log("Force mode enabled, running full deployment")
+        if logger:
+            logger.log("Force mode enabled, running full deployment")
     elif addon:
-        logger.log(f"Deploying specific addon: {addon}")
+        if logger:
+            logger.log(f"Deploying specific addon: {addon}")
 
     # Generate and save secrets
-    logger.log("Checking secrets...")
+    if logger:
+        logger.log("Checking secrets...")
 
     orchestrator_dir = shared_dir / "orchestrator"
     orchestrator_dir.mkdir(parents=True, exist_ok=True)
@@ -221,9 +252,11 @@ def _deploy_orchestrator(
     secrets = orch_config.initialize_secrets()
 
     if secrets:
-        logger.log("✓ Secrets verified")
+        if logger:
+            logger.log("✓ Secrets verified")
     else:
-        logger.log("✓ Secrets generated")
+        if logger:
+            logger.log("✓ Secrets generated")
 
     # Get GCP config
     gcp_config = orch_config.config.get("gcp", {})
@@ -231,7 +264,8 @@ def _deploy_orchestrator(
 
     gcp_project_id = gcp_config.get("project_id")
     if not gcp_project_id:
-        logger.log_error("gcp.project_id not set in shared/orchestrator/config.yml")
+        if logger:
+            logger.log_error("gcp.project_id not set in shared/orchestrator/config.yml")
         raise SystemExit(1)
 
     ssh_key_path = ssh_config.get("public_key_path", "~/.ssh/superdeploy_deploy.pub")
@@ -262,34 +296,41 @@ def _deploy_orchestrator(
             )
 
             if returncode != 0:
-                logger.log_error("Terraform init failed", context=stderr)
+                if logger:
+                    logger.log_error("Terraform init failed", context=stderr)
                 raise SystemExit(1)
 
             console.print("  [dim]✓ Terraform initialized[/dim]")
         except Exception as e:
-            logger.log_error("Terraform init failed", context=str(e))
+            if logger:
+                logger.log_error("Terraform init failed", context=str(e))
             raise SystemExit(1)
 
         # Select or create orchestrator workspace (silently)
         try:
             select_workspace("orchestrator", create=True)
         except Exception as e:
-            logger.log_error("Workspace setup failed", context=str(e))
+            if logger:
+                logger.log_error("Workspace setup failed", context=str(e))
             raise SystemExit(1)
 
         # Generate tfvars
-        logger.log("Generating terraform variables")
+        if logger:
+            logger.log("Generating terraform variables")
         tfvars = orch_config.to_terraform_vars(gcp_project_id, ssh_key_path)
 
         # Preserve IP logic: If preserve_ip is enabled, get current IP from state
         if preserve_ip:
-            logger.log("Preserve IP mode enabled - keeping static IP")
+            if logger:
+                logger.log("Preserve IP mode enabled - keeping static IP")
             current_ip = orch_config.get_ip()
             if current_ip:
-                logger.log(f"Current IP to preserve: {current_ip}")
+                if logger:
+                    logger.log(f"Current IP to preserve: {current_ip}")
                 # Terraform will use existing IP address by name convention
             else:
-                logger.log("No existing IP found, will create new one")
+                if logger:
+                    logger.log("No existing IP found, will create new one")
 
         tfvars_file = (
             project_root / "shared" / "terraform" / "orchestrator.auto.tfvars.json"
@@ -298,10 +339,13 @@ def _deploy_orchestrator(
         with open(tfvars_file, "w") as f:
             json.dump(tfvars, f, indent=2)
 
-        logger.log("Terraform vars written to: orchestrator.auto.tfvars.json")
+        if logger:
+
+            logger.log("Terraform vars written to: orchestrator.auto.tfvars.json")
 
         # Apply
-        logger.log("Running terraform apply")
+        if logger:
+            logger.log("Running terraform apply")
         apply_cmd = "cd shared/terraform && terraform apply -auto-approve -no-color -compact-warnings"
 
         returncode, stdout, stderr = run_with_progress(
@@ -312,7 +356,8 @@ def _deploy_orchestrator(
         )
 
         if returncode != 0:
-            logger.log_error("Terraform apply failed", context=stderr)
+            if logger:
+                logger.log_error("Terraform apply failed", context=stderr)
             raise SystemExit(1)
 
         console.print("  [dim]✓ VM provisioned[/dim]")
@@ -322,7 +367,8 @@ def _deploy_orchestrator(
         try:
             select_workspace("orchestrator", create=False)
         except Exception as e:
-            logger.log_error("Failed to select orchestrator workspace", context=str(e))
+            if logger:
+                logger.log_error("Failed to select orchestrator workspace", context=str(e))
             raise SystemExit(1)
 
         # Get outputs from orchestrator workspace
@@ -336,7 +382,8 @@ def _deploy_orchestrator(
         )
 
         if result.returncode != 0:
-            logger.log_error("Failed to get terraform outputs", context=result.stderr)
+            if logger:
+                logger.log_error("Failed to get terraform outputs", context=result.stderr)
             raise SystemExit(1)
 
         outputs = json.loads(result.stdout)
@@ -346,8 +393,10 @@ def _deploy_orchestrator(
         )
 
         if not orchestrator_ip:
-            logger.log_error("Could not find orchestrator IP in terraform outputs")
-            logger.log(f"Available outputs: {outputs}")
+            if logger:
+                logger.log_error("Could not find orchestrator IP in terraform outputs")
+            if logger:
+                logger.log(f"Available outputs: {outputs}")
             raise SystemExit(1)
 
         # Save only IP to state (VM provisioned, but not yet configured)
@@ -385,7 +434,8 @@ def _deploy_orchestrator(
             if attempt < max_attempts:
                 time.sleep(10)
         else:
-            logger.warning("VM may not be fully ready, continuing anyway...")
+            if logger:
+                logger.warning("VM may not be fully ready, continuing anyway...")
             console.print("  [yellow]⚠[/yellow] [dim]VM partially ready[/dim]")
 
         # Show configuration summary with IP
@@ -399,7 +449,8 @@ def _deploy_orchestrator(
     else:
         orchestrator_ip = orch_config.get_ip()
         if not orchestrator_ip:
-            logger.log_error("Orchestrator IP not found. Deploy with Terraform first.")
+            if logger:
+                logger.log_error("Orchestrator IP not found. Deploy with Terraform first.")
             raise SystemExit(1)
 
         # Show configuration summary with IP (skip-terraform mode)
@@ -426,10 +477,12 @@ ansible_python_interpreter=/usr/bin/python3
         f.write(inventory_content)
 
     # Phase 1 complete - show summary
-    logger.success(f"Configuration • Secrets • VM @ {orchestrator_ip}")
+    if logger:
+        logger.success(f"Configuration • Secrets • VM @ {orchestrator_ip}")
 
     # Ansible - Phase 2 & 3
-    logger.step("[2/3] Base System")
+    if logger:
+        logger.step("[2/3] Base System")
 
     ansible_dir = project_root / "shared" / "ansible"
 
@@ -454,7 +507,8 @@ ansible_python_interpreter=/usr/bin/python3
         # Deploy only specific addon(s)
         enabled_addons_list = [a.strip() for a in addon.split(",")]
         ansible_tags = "addons"  # Only run addons tag
-        logger.log(f"Deploying only addon(s): {', '.join(enabled_addons_list)}")
+        if logger:
+            logger.log(f"Deploying only addon(s): {', '.join(enabled_addons_list)}")
     elif tags:
         ansible_tags = tags
         # For orchestrator, deploy monitoring addon
@@ -464,7 +518,9 @@ ansible_python_interpreter=/usr/bin/python3
         # Deploy monitoring addon by default
         enabled_addons_list = ["monitoring"]
 
-    logger.log(f"Running ansible with tags: {ansible_tags}")
+    if logger:
+
+        logger.log(f"Running ansible with tags: {ansible_tags}")
 
     ansible_cmd = build_ansible_command(
         ansible_dir=ansible_dir,
@@ -483,7 +539,8 @@ ansible_python_interpreter=/usr/bin/python3
     result_returncode = runner.run(ansible_cmd, cwd=project_root)
 
     if result_returncode != 0:
-        logger.log_error(
+        if logger:
+            logger.log_error(
             "Ansible configuration failed", context="Check logs for details"
         )
         console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
