@@ -38,7 +38,7 @@ export default function AppGitHubPage() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [appDomain, setAppDomain] = useState<string>("");
+  const [appDomain, setAppDomain] = useState<string>(projectName);
 
   // Shimmer animation styles
   const shimmerStyles = `
@@ -128,13 +128,14 @@ export default function AppGitHubPage() {
       <AppHeader />
       
       <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
-        <PageHeader
-          breadcrumbs={[
-            { label: appDomain || projectName, href: `/project/${projectName}` },
-            { label: appName, href: `/project/${projectName}/app/${appName}` },
-          ]}
-          title="Workflows"
-        />
+            <PageHeader
+              breadcrumbs={[
+                { label: appDomain || projectName, href: `/project/${projectName}` },
+                { label: appName, href: `/project/${projectName}/app/${appName}` },
+              ]}
+              menuLabel="Actions"
+              title="Workflows"
+            />
 
             {loading ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
@@ -154,11 +155,11 @@ export default function AppGitHubPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-            {workflows.map((run) => (
+            {workflows.slice(0, 6).map((run) => (
               <div
                 key={run.id}
                 onClick={() => router.push(`/project/${projectName}/app/${appName}/github/${run.id}`)}
-                className="p-5 border border-[#e3e8ee] rounded-lg cursor-pointer transition-all"
+                className="p-5 border border-[#e3e8ee] hover:border-[#b9c1c6] rounded-lg cursor-pointer"
               >
                 {/* Header: Status + Title */}
                 <div className="flex items-start gap-3 mb-4">

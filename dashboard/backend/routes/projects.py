@@ -391,7 +391,7 @@ async def deploy_project(project_name: str, db: Session = Depends(get_db)):
 
 @router.get("/{project_name}/vms")
 def get_project_vms(project_name: str, db: Session = Depends(get_db)):
-    """Get VMs for a project."""
+    """Get VMs for a project + orchestrator IP."""
     from models import VM
 
     project = db.query(Project).filter(Project.name == project_name).first()
@@ -400,7 +400,22 @@ def get_project_vms(project_name: str, db: Session = Depends(get_db)):
 
     vms = db.query(VM).filter(VM.project_id == project.id).all()
 
+    # Get orchestrator IP
+    orchestrator_project = (
+        db.query(Project).filter(Project.name == "orchestrator").first()
+    )
+    orchestrator_ip = None
+    if orchestrator_project:
+        orchestrator_vm = (
+            db.query(VM)
+            .filter(VM.project_id == orchestrator_project.id, VM.name == "orchestrator")
+            .first()
+        )
+        if orchestrator_vm:
+            orchestrator_ip = orchestrator_vm.external_ip
+
     return {
+        "orchestrator_ip": orchestrator_ip,
         "vms": [
             {
                 "name": vm.name,
@@ -411,5 +426,5 @@ def get_project_vms(project_name: str, db: Session = Depends(get_db)):
                 "status": vm.status,
             }
             for vm in vms
-        ]
+        ],
     }

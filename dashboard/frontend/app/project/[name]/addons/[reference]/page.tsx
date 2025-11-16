@@ -62,7 +62,7 @@ export default function AddonDetailPage() {
                 <span className="text-[13px] text-[#8b8b8b]">CPU</span>
                 <span className="text-[13px]  text-[#0a0a0a]">12%</span>
               </div>
-              <div className="w-full bg-[#f7f7f7] rounded-full h-2">
+              <div className="w-full bg-[#eef2f5] rounded-full h-2">
                 <div className="bg-[#008545] h-2 rounded-full" style={{ width: "12%" }} />
               </div>
             </div>
@@ -71,7 +71,7 @@ export default function AddonDetailPage() {
                 <span className="text-[13px] text-[#8b8b8b]">Memory</span>
                 <span className="text-[13px]  text-[#0a0a0a]">45%</span>
               </div>
-              <div className="w-full bg-[#f7f7f7] rounded-full h-2">
+              <div className="w-full bg-[#eef2f5] rounded-full h-2">
                 <div className="bg-[#008545] h-2 rounded-full" style={{ width: "45%" }} />
               </div>
             </div>
@@ -80,7 +80,7 @@ export default function AddonDetailPage() {
                 <span className="text-[13px] text-[#8b8b8b]">Storage</span>
                 <span className="text-[13px]  text-[#0a0a0a]">23%</span>
               </div>
-              <div className="w-full bg-[#f7f7f7] rounded-full h-2">
+              <div className="w-full bg-[#eef2f5] rounded-full h-2">
                 <div className="bg-[#008545] h-2 rounded-full" style={{ width: "23%" }} />
               </div>
             </div>

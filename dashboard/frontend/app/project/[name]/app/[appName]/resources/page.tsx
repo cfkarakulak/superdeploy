@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AppHeader, PageHeader, Button } from "@/components";
+import { getAddonLogo, getStatusDot } from "@/lib/addonLogos";
 import { 
   Cpu, 
   Server, 
@@ -87,7 +88,7 @@ export default function ResourcesPage() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [appDomain, setAppDomain] = useState<string>("");
+  const [appDomain, setAppDomain] = useState<string>(projectName);
 
   useEffect(() => {
     const fetchResources = async () => {
@@ -153,31 +154,6 @@ export default function ResourcesPage() {
     }
   `;
 
-  const getAddonLogo = (type: string) => {
-    const logos: Record<string, string> = {
-      postgres: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/postgresql/postgresql-original.svg",
-      redis: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/redis/redis-original.svg",
-      mongodb: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/mongodb/mongodb-original.svg",
-      rabbitmq: "https://www.rabbitmq.com/img/rabbitmq-logo.svg",
-      elasticsearch: "https://static-www.elastic.co/v3/assets/bltefdd0b53724fa2ce/blt36f2da8d650732a0/5d0823c3d8ff351753cbc99f/logo-elasticsearch-32-color.svg",
-      mysql: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/mysql/mysql-original.svg",
-      caddy: "https://caddyserver.com/resources/images/caddy-circle-lock.svg",
-      nginx: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/nginx/nginx-original.svg",
-    };
-    return logos[type] || null;
-  };
-
-  const getStatusDot = (status: string) => {
-    const statusLower = status.toLowerCase();
-    if (statusLower.includes("up") || statusLower.includes("running")) {
-      return "bg-green-500";
-    }
-    if (statusLower.includes("exited") || statusLower.includes("down")) {
-      return "bg-red-500";
-    }
-    return "bg-yellow-500";
-  };
-
   return (
     <div>
       <style dangerouslySetInnerHTML={{ __html: shimmerStyles }} />
@@ -189,6 +165,7 @@ export default function ResourcesPage() {
             { label: appDomain || projectName, href: `/project/${projectName}` },
             { label: appName, href: `/project/${projectName}/app/${appName}` },
           ]}
+          menuLabel="Resources"
           title="Resources & Add-ons"
         />
 
@@ -198,10 +175,10 @@ export default function ResourcesPage() {
             <div>
               <div className="flex items-center gap-2 mb-[8px]">
                 <div className="w-4 h-4 rounded skeleton-shimmer"></div>
-                <div className="w-48 h-3 rounded skeleton-shimmer"></div>
+                <div className="w-44 h-3 rounded skeleton-shimmer"></div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[...Array(2)].map((_, cardIdx) => (
+                {[...Array(1)].map((_, cardIdx) => (
                   <div key={cardIdx} className="h-[220px] rounded-lg skeleton-shimmer"></div>
                 ))}
               </div>
@@ -211,7 +188,7 @@ export default function ResourcesPage() {
             <div>
               <div className="flex items-center gap-2 mb-[8px]">
                 <div className="w-4 h-4 rounded skeleton-shimmer"></div>
-                <div className="w-48 h-3 rounded skeleton-shimmer"></div>
+                <div className="w-44 h-3 rounded skeleton-shimmer"></div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[...Array(3)].map((_, cardIdx) => (
@@ -236,7 +213,7 @@ export default function ResourcesPage() {
               {processes.length === 0 ? (
                 <div className="border border-[#e3e8ee] rounded-lg p-16 text-center">
                   <div className="w-16 h-16 bg-[#f6f8fa] rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Server className="w-8 h-8 text-[#8b8b8b]" />
+                    <Server className="w-6 h-6 text-[#8b8b8b]" />
                   </div>
                   <p className="text-[15px] font-medium text-[#0a0a0a] mb-2">No processes configured</p>
                   <p className="text-[13px] text-[#8b8b8b] mb-4">Deploy your application to see process formation</p>
@@ -250,7 +227,7 @@ export default function ResourcesPage() {
                     return (
                       <div
                         key={process.name}
-                        className="p-5 border border-[#e3e8ee] rounded-lg transition-all"
+                        className="p-5 border border-[#e3e8ee] hover:border-[#b9c1c6] rounded-lg"
                       >
                         {/* Header */}
                         <div className="flex items-start justify-between mb-4">
@@ -282,7 +259,7 @@ export default function ResourcesPage() {
                         {/* Command - Full Width */}
                         <div className="pt-3 border-t border-[#e3e8ee]">
                           <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">Command</p>
-                          <code className="block text-[11px] text-[#0a0a0a] font-mono tracking-[0.03em] font-light break-all leading-relaxed">
+                          <code className="block text-[11px] text-[#0a0a0a] font-mono font-light break-all leading-relaxed">
                             {process.command}
                           </code>
                         </div>
@@ -303,7 +280,7 @@ export default function ResourcesPage() {
               {addons.length === 0 ? (
                 <div className="border border-[#e3e8ee] rounded-lg p-16 text-center">
                   <div className="w-16 h-16 bg-[#f6f8fa] rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Package className="w-8 h-8 text-[#8b8b8b]" />
+                    <Package className="w-6 h-6 text-[#8b8b8b]" />
                   </div>
                   <p className="text-[15px] font-medium text-[#0a0a0a] mb-2">No add-ons detected</p>
                   <p className="text-[13px] text-[#8b8b8b] mb-4 max-w-md mx-auto">
@@ -326,33 +303,34 @@ export default function ResourcesPage() {
                     return (
                       <div
                         key={addon.reference}
-                        className="p-5 border border-[#e3e8ee] rounded-lg transition-all cursor-pointer"
+                        className="p-5 border border-[#e3e8ee] hover:border-[#b9c1c6] rounded-lg cursor-pointer"
                         onClick={() => router.push(`/project/${projectName}/app/${appName}/addons/${addon.reference}`)}
                       >
                         {/* Header */}
                         <div className="flex items-start justify-between mb-4">
                           <div className="flex items-center gap-3">
                             {logo ? (
-                              <div className="w-12 h-12 flex items-center justify-center bg-white rounded-lg border border-[#e3e8ee] flex-shrink-0">
-                                <img 
-                                  src={logo} 
-                                  alt={addon.type} 
-                                  className="w-8 h-8 object-contain"
-                                />
+                              <div className="w-10 h-10 flex items-center p-2 justify-center bg-white rounded-lg border border-[#e3e8ee] flex-shrink-0">
+                                {logo}
                               </div>
                             ) : (
-                              <div className="w-12 h-12 flex items-center justify-center bg-gray-50 rounded-lg border border-[#e3e8ee] flex-shrink-0">
+                              <div className="w-10 h-10 flex items-center justify-center bg-gray-50 rounded-lg border border-[#e3e8ee] flex-shrink-0">
                                 <Package className="w-6 h-6 text-gray-600" />
                               </div>
                             )}
                             <div>
-                              <h3 className="text-[13px] text-[#8b8b8b] font-light">{addon.reference}</h3>
+                              <h3 className="text-[13px] text-[#8b8b8b] font-light mb-1">{addon.reference}</h3>
+                              <div className="flex items-center gap-1.5">
+                                <div className={`w-2 h-2 rounded-full ${statusDot} flex-shrink-0`}></div>
+                                <span className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light">
+                                  {addon.status.replace(/\s*\([^)]*\)/g, '')}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                          <div className={`w-2 h-2 rounded-full ${statusDot} mt-1`}></div>
                         </div>
 
-                        {/* Type & Version */}
+                        {/* Type */}
                         <div className="flex items-baseline gap-1 mb-3">
                           <span className="text-[21px] text-[#0a0a0a] capitalize">
                             {addon.type}
@@ -365,14 +343,6 @@ export default function ResourcesPage() {
                           <code className="block text-[11px] text-[#0a0a0a] font-mono tracking-[0.03em] font-light">
                             {addon.version}
                           </code>
-                        </div>
-
-                        {/* Status - Full Width */}
-                        <div className="mb-3">
-                          <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">Status</p>
-                          <span className="block text-[11px] text-[#0a0a0a] tracking-[0.03em] font-light">
-                            {addon.status}
-                          </span>
                         </div>
 
                         {/* Env Prefix - Full Width */}

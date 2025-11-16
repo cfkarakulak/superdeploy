@@ -48,6 +48,17 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
 }
 
+/* Text Selection Styling */
+::selection {
+  background-color: #e3e8ee;
+  color: #0a0a0a;
+}
+
+::-moz-selection {
+  background-color: #e3e8ee;
+  color: #0a0a0a;
+}
+
 @theme {
   --font-sans: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, "Helvetica Neue", Arial, sans-serif;
 
@@ -184,27 +195,27 @@ body {
     width: 16px;
     height: 16px;
     border-radius: 5px;
-    background-color: #e5e9f2;
     cursor: pointer;
     position: relative;
-    transition: all 0.15s ease;
+    position: relative;
+    border-radius: 4px;
+    border: 1px solid #d5d8e1;
   }
-  
   input[type="checkbox"]:checked {
-    background-color: var(--accent-color, #4f46e5);
-    border-color: var(--accent-color, #4f46e5);
+    background-color: #dce1e6;
+    border-color: #dce1e6;
   }
-  
-  input[type="checkbox"]:checked::after {
-    content: '';
+  input[type="checkbox"]:checked::before {
+    content: "";
     position: absolute;
-    left: 5px;
-    top: 2px;
-    width: 4px;
-    height: 8px;
-    border: solid white;
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
+    top: 1px;
+    left: 1px;
+    width: 12px;
+    height: 12px;
+    background-image: url("data:image/svg+xml;base64,CjxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggc3Ryb2tlPSJub25lIiBkPSJNMCAwaDI0djI0SDB6IiBmaWxsPSJub25lIi8+PHBhdGggZD0iTTUgMTJsNSA1bDEwIC0xMCIgLz48L3N2Zz4=");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
   }
   
   input[type="checkbox"]:disabled {
@@ -228,7 +239,6 @@ body {
 
   button:focus-visible {
     outline: none;
-    box-shadow: var(--shadow-focus);
   }
 
   /* Smooth scrolling */
@@ -241,9 +251,9 @@ body {
     @apply bg-accent text-accent-foreground;
   }
 
-  /* Focus visible styles */
+  /* Focus visible styles - REMOVED */
   :focus-visible {
-    @apply outline-none ring-2 ring-ring ring-offset-2;
+    @apply outline-none;
   }
 }
 
@@ -727,4 +737,8 @@ select:focus-visible,
 textarea:focus-visible,
 a:focus-visible {
   outline: none !important;
+}
+
+.shadow-x1{
+  box-shadow: 0 1px 3px 0 rgba(89, 105, 129, .05), 0 1px 1px 0 rgba(0, 0, 0, .025);
 }

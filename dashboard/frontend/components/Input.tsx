@@ -15,42 +15,31 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     
     return (
       <div className="w-full">
-        <div
+        {label && (
+          <label 
+            htmlFor={inputId}
+            className="block text-[11px] text-[#111] tracking-[0.03em] font-light mb-2"
+          >
+            {label}
+          </label>
+        )}
+        <input
+          id={inputId}
+          type={type}
           className={cn(
-            "bg-[#f7f7f7] rounded-[12px] px-3 py-2.5 transition-all duration-200 cursor-text",
-            "focus-within:bg-white",
-            "focus-within:outline focus-within:outline-2 focus-within:outline-[#00d66f]",
-            error && "focus-within:outline-[#ef4444]"
+            "w-full bg-white text-[15px] text-[#0a0a0a] px-3 py-2.5 rounded-lg",
+            "border border-[#e3e8ee]",
+            "outline-none focus:border-[#8b8b8b] transition-colors",
+            "placeholder:text-[#9b9b9b]",
+            "disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-[#f6f8fa]",
+            error && "border-[#ef4444] focus:border-[#ef4444]",
+            className
           )}
-          onClick={() => {
-            const input = document.getElementById(inputId);
-            input?.focus();
-          }}
-        >
-          {label && (
-            <label 
-              htmlFor={inputId}
-              className="block text-[13px] text-[#6b6b6b] mb-1 cursor-text"
-            >
-              {label}
-            </label>
-          )}
-          <input
-            id={inputId}
-            type={type}
-            className={cn(
-              "w-full bg-transparent text-[15px] text-[#0a0a0a]",
-              "border-none outline-none p-0 m-0",
-              "placeholder:text-[#9b9b9b]",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-              className
-            )}
-            ref={ref}
-            {...props}
-          />
-        </div>
+          ref={ref}
+          {...props}
+        />
         {error && (
-          <p className="mt-2 text-sm text-[#ef4444]">{error}</p>
+          <p className="mt-2 text-[11px] text-[#ef4444] tracking-[0.03em] font-light">{error}</p>
         )}
       </div>
     );

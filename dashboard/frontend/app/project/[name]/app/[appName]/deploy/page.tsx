@@ -75,7 +75,7 @@ export default function DeployPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
-  const [appDomain, setAppDomain] = useState<string>("");
+  const [appDomain, setAppDomain] = useState<string>(projectName);
 
   // Fetch app domain
   useEffect(() => {
@@ -199,13 +199,14 @@ export default function DeployPage() {
       <AppHeader />
       
       <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
-        <PageHeader
-          breadcrumbs={[
-            { label: appDomain || projectName, href: `/project/${projectName}` },
-            { label: appName, href: `/project/${projectName}/app/${appName}` },
-          ]}
-          title="Deployment History"
-        />
+          <PageHeader
+            breadcrumbs={[
+              { label: appDomain || projectName, href: `/project/${projectName}` },
+              { label: appName, href: `/project/${projectName}/app/${appName}` },
+            ]}
+            menuLabel="Deploy"
+            title="Deployment History"
+          />
 
         {loading ? (
           <ReleasesTableSkeleton />
@@ -226,7 +227,7 @@ export default function DeployPage() {
               return (
                 <div key={index} className="border border-[#e3e8ee] rounded-lg transition-all overflow-hidden">
                   {/* Header */}
-                  <div className="px-5 py-4 bg-[#f6f8fa] border-b border-[#e3e8ee] flex items-center justify-between gap-4">
+                  <div className="px-5 py-4 border-b border-[#e3e8ee] flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       {/* Status Dot */}
                       <div className="flex-shrink-0">
@@ -236,13 +237,6 @@ export default function DeployPage() {
                           <div className="w-2 h-2 rounded-full bg-gray-400"></div>
                         )}
                       </div>
-                      
-                      {/* Status Badge */}
-                      {isLatest && (
-                        <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-green-500 text-white flex-shrink-0">
-                          Current
-                        </span>
-                      )}
                       
                       {/* Version */}
                       <div className="flex items-center gap-1.5 min-w-0">
@@ -258,9 +252,13 @@ export default function DeployPage() {
                       </span>
                     </div>
 
-                    {/* Rollback Button */}
+                    {/* Current Badge or Rollback Button */}
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      {!isLatest && (
+                      {isLatest ? (
+                        <span className="inline-flex items-center justify-center gap-1.5 rounded-[10px] text-[11px] px-3 py-1.5 font-medium tracking-[0.03em] bg-green-500 text-white flex-shrink-0">
+                          Current
+                        </span>
+                      ) : (
                         <Button
                           onClick={() => handleSwitch(release.git_sha)}
                           disabled={switching !== null}

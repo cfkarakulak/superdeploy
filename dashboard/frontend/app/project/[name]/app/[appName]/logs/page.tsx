@@ -13,7 +13,7 @@ export default function LogsPage() {
   const [logs, setLogs] = useState<string[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [appDomain, setAppDomain] = useState<string>("");
+  const [appDomain, setAppDomain] = useState<string>(projectName);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const pausedLogsRef = useRef<string[]>([]);
@@ -122,6 +122,7 @@ export default function LogsPage() {
             { label: appDomain || projectName, href: `/project/${projectName}` },
             { label: appName, href: `/project/${projectName}/app/${appName}` },
           ]}
+          menuLabel="Logs"
           title="Application Logs"
         />
 

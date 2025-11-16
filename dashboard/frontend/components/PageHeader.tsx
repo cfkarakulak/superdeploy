@@ -11,11 +11,12 @@ interface BreadcrumbItem {
 interface PageHeaderProps {
   breadcrumb?: BreadcrumbItem;
   breadcrumbs?: BreadcrumbItem[];
+  menuLabel?: string; // Menu item name (e.g., "Resources", "Deploy", "Actions")
   title: string;
   description?: string;
 }
 
-export default function PageHeader({ breadcrumb, breadcrumbs, title, description }: PageHeaderProps) {
+export default function PageHeader({ breadcrumb, breadcrumbs, menuLabel, title, description }: PageHeaderProps) {
   // Convert single breadcrumb to array for consistent handling
   const crumbs = breadcrumbs || (breadcrumb ? [breadcrumb] : []);
 
@@ -44,6 +45,16 @@ export default function PageHeader({ breadcrumb, breadcrumbs, title, description
               </Link>
             </div>
           ))}
+          
+          {/* Menu Label as last breadcrumb item */}
+          {menuLabel && (
+            <div className="flex items-center gap-2">
+              <span className="text-[#6a6d77]">›</span>
+              <span className="text-[13px] tracking-[0.03em] font-light text-[#0a0a0a]">
+                {menuLabel}
+              </span>
+            </div>
+          )}
         </nav>
       )}
 

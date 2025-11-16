@@ -79,7 +79,7 @@ export default function AppOverviewPage() {
   const [appMetrics, setAppMetrics] = useState<ApplicationMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [appDomain, setAppDomain] = useState<string>("");
+  const [appDomain, setAppDomain] = useState<string>(projectName); // Initialize with projectName
 
   useEffect(() => {
     const fetchAllMetrics = async () => {
@@ -179,26 +179,57 @@ export default function AppOverviewPage() {
               { label: appDomain || projectName, href: `/project/${projectName}` },
               { label: appName, href: `/project/${projectName}/app/${appName}` },
             ]}
+            menuLabel="Overview"
             title="Application Metrics"
           />
           
-          {/* Skeleton for 3 sections */}
-          {[...Array(3)].map((_, sectionIdx) => (
-            <div key={sectionIdx} className="mb-6">
-              {/* Section title skeleton */}
-              <div className="flex items-center gap-2 mb-[6px]">
-                <div className="w-4 h-4 rounded skeleton-shimmer"></div>
-                <div className="w-48 h-3 rounded skeleton-shimmer"></div>
-              </div>
-              
-              {/* Section cards skeleton */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[...Array(3)].map((_, cardIdx) => (
-                  <div key={cardIdx} className="h-32 rounded-lg skeleton-shimmer"></div>
-                ))}
-              </div>
+          {/* Section 1: VM Metrics Skeleton */}
+          <div className="mb-6">
+            {/* Section title skeleton */}
+            <div className="flex items-center gap-2 mb-[6px]">
+              <div className="w-4 h-4 rounded skeleton-shimmer"></div>
+              <div className="w-48 h-3 rounded skeleton-shimmer"></div>
             </div>
-          ))}
+            
+            {/* VM Metrics cards skeleton (shorter height) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[...Array(3)].map((_, cardIdx) => (
+                <div key={cardIdx} className="h-[140px] rounded-lg skeleton-shimmer"></div>
+              ))}
+            </div>
+          </div>
+
+          {/* Section 2: HTTP Metrics Skeleton */}
+          <div className="mb-6">
+            {/* Section title skeleton */}
+            <div className="flex items-center gap-2 mb-[6px]">
+              <div className="w-4 h-4 rounded skeleton-shimmer"></div>
+              <div className="w-48 h-3 rounded skeleton-shimmer"></div>
+            </div>
+            
+            {/* HTTP Metrics cards skeleton (shorter height) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[...Array(3)].map((_, cardIdx) => (
+                <div key={cardIdx} className="h-[140px] rounded-lg skeleton-shimmer"></div>
+              ))}
+            </div>
+          </div>
+
+          {/* Section 3: Running Containers Skeleton */}
+          <div className="mb-6">
+            {/* Section title skeleton */}
+            <div className="flex items-center gap-2 mb-[6px]">
+              <div className="w-4 h-4 rounded skeleton-shimmer"></div>
+              <div className="w-48 h-3 rounded skeleton-shimmer"></div>
+            </div>
+            
+            {/* Container cards skeleton (taller height) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[...Array(3)].map((_, cardIdx) => (
+                <div key={cardIdx} className="h-[260px] rounded-lg skeleton-shimmer"></div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -214,6 +245,7 @@ export default function AppOverviewPage() {
               { label: appDomain || projectName, href: `/project/${projectName}` },
               { label: appName, href: `/project/${projectName}/app/${appName}` },
             ]}
+            menuLabel="Overview"
             title="Application Metrics"
           />
           
@@ -235,6 +267,7 @@ export default function AppOverviewPage() {
             { label: appDomain || projectName, href: `/project/${projectName}` },
             { label: appName, href: `/project/${projectName}/app/${appName}` },
           ]}
+          menuLabel="Overview"
           title="Application Metrics"
         />
 
@@ -253,7 +286,7 @@ export default function AppOverviewPage() {
                     <Cpu className="w-5 h-5 text-blue-600" />
                   </div>
                   <div>
-                    <h3 className="text-[13px] text-[#8b8b8b] font-light">CPU Usage</h3>
+                    <h3 className="text-[11px] text-[#777] leading-tight tracking-[0.03em] font-light">CPU Usage</h3>
                   </div>
                 </div>
               </div>
@@ -279,7 +312,7 @@ export default function AppOverviewPage() {
                     <MemoryStick className="w-5 h-5 text-purple-600" />
                   </div>
                   <div>
-                    <h3 className="text-[13px] text-[#8b8b8b] font-light">Memory Usage</h3>
+                    <h3 className="text-[11px] text-[#777] leading-tight tracking-[0.03em] font-light">MEM Usage</h3>
                   </div>
                 </div>
               </div>
@@ -305,7 +338,7 @@ export default function AppOverviewPage() {
                     <HardDrive className="w-5 h-5 text-orange-600" />
                   </div>
                   <div>
-                    <h3 className="text-[13px] text-[#8b8b8b] font-light">Disk Usage</h3>
+                    <h3 className="text-[11px] text-[#777] leading-tight tracking-[0.03em] font-light">Disk Usage</h3>
                   </div>
                 </div>
               </div>
@@ -340,7 +373,7 @@ export default function AppOverviewPage() {
                     <TrendingUp className="w-5 h-5 text-emerald-600" />
                   </div>
                   <div>
-                    <h3 className="text-[13px] text-[#8b8b8b] font-light">Request Rate</h3>
+                    <h3 className="text-[11px] text-[#777] leading-tight tracking-[0.03em] font-light">Request Rate</h3>
                   </div>
                 </div>
               </div>
@@ -365,7 +398,7 @@ export default function AppOverviewPage() {
                     <AlertCircle className="w-5 h-5 text-red-600" />
                   </div>
                   <div>
-                    <h3 className="text-[13px] text-[#8b8b8b] font-light">Error Rate</h3>
+                    <h3 className="text-[11px] text-[#777] leading-tight tracking-[0.03em] font-light">Error Rate</h3>
                   </div>
                 </div>
               </div>
@@ -400,7 +433,7 @@ export default function AppOverviewPage() {
                     <Clock className="w-5 h-5 text-amber-600" />
                   </div>
                   <div>
-                    <h3 className="text-[13px] text-[#8b8b8b] font-light">Avg Latency (P50)</h3>
+                    <h3 className="text-[11px] text-[#777] leading-tight tracking-[0.03em] font-light">Avg Latency (P50)</h3>
                   </div>
                 </div>
               </div>
@@ -436,7 +469,7 @@ export default function AppOverviewPage() {
                         <Container className="w-5 h-5 text-teal-600" />
                       </div>
                       <div>
-                        <h3 className="text-[13px] text-[#8b8b8b] font-light">{container.name}</h3>
+                        <h3 className="text-[11px] text-[#777] leading-tight tracking-[0.03em] font-light">{container.name}</h3>
                       </div>
                     </div>
                   </div>

@@ -50,7 +50,7 @@ export default function HomePage() {
       ) : projects.length === 0 ? (
         <div className="text-center py-20">
           <div className="mb-6">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#f7f7f7] mb-4">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#eef2f5] mb-4">
               <Plus className="w-8 h-8 text-[#8b8b8b]" />
             </div>
             <h3 className="text-[17px] font-semibold text-[#0a0a0a] mb-2">No projects yet</h3>

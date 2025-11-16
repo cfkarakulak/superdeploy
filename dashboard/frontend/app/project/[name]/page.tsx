@@ -158,10 +158,10 @@ export default function ProjectPage() {
               <Link
                 key={app.name}
                 href={`/project/${projectName}/app/${app.name}`}
-                className="block bg-white rounded-[16px] p-[32px] hover:bg-[#f7f7f7] transition-all shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]"
+                className="block bg-white rounded-[16px] p-[32px] hover:bg-[#eef2f5] transition-all shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]"
               >
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-[#f7f7f7] rounded flex items-center justify-center">
+                  <div className="w-10 h-10 bg-[#eef2f5] rounded flex items-center justify-center">
                     <Package className="w-5 h-5 text-[#008545]" />
                   </div>
                   <div className="flex-1">
@@ -187,11 +187,11 @@ export default function ProjectPage() {
         <h2 className="text-[17px] font-semibold text-[#0a0a0a] mb-4">Add-ons</h2>
         <Link
           href={`/project/${projectName}/addons`}
-          className="block bg-[#f7f7f7] rounded-lg p-5 hover:bg-[#ebebeb] transition-all shadow-[0_0_0_1px_rgba(0,0,0,0.08)] hover:shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
+          className="block bg-[#eef2f5] rounded-lg p-5 hover:bg-[#ebebeb] transition-all shadow-[0_0_0_1px_rgba(0,0,0,0.08)] hover:shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
         >
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#f7f7f7] rounded flex items-center justify-center">
+              <div className="w-10 h-10 bg-[#eef2f5] rounded flex items-center justify-center">
                 <Database className="w-5 h-5 text-[#6366f1]" />
               </div>
               <div>

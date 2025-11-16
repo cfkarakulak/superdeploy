@@ -166,6 +166,47 @@ export default function Table({
     return result;
   }, [filteredData, expandedKeys]);
 
+  // Select/Deselect All logic (must be after flattenedData)
+  const selectableItems = useMemo(() => {
+    return flattenedData.filter((item) => {
+      // Exclude detail rows and groups
+      if (isDetailRow(item) || item.type === "group") return false;
+      // If isRowSelectable is defined, use it to check if row is selectable
+      if (isRowSelectable) {
+        return isRowSelectable(item);
+      }
+      return true;
+    });
+  }, [flattenedData, isRowSelectable]);
+
+  const allSelectableKeys = useMemo(() => {
+    return new Set(selectableItems.map((item) => String(item.id)));
+  }, [selectableItems]);
+
+  const isAllSelected = useMemo(() => {
+    if (allSelectableKeys.size === 0) return false;
+    return Array.from(allSelectableKeys).every((key) => selectedKeys.has(key));
+  }, [allSelectableKeys, selectedKeys]);
+
+  const isSomeSelected = useMemo(() => {
+    if (allSelectableKeys.size === 0) return false;
+    return Array.from(allSelectableKeys).some((key) => selectedKeys.has(key)) && !isAllSelected;
+  }, [allSelectableKeys, selectedKeys, isAllSelected]);
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      // Deselect all
+      deselectAll();
+    } else {
+      // Select all selectable items
+      const newSelection = new Set(allSelectableKeys);
+      setSelectedKeys(newSelection);
+      if (onSelectionChange) {
+        onSelectionChange(newSelection);
+      }
+    }
+  };
+
   // Pinned Detail Rows (translateX) logic
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -336,7 +377,7 @@ export default function Table({
 
       <div
         ref={scrollContainerRef}
-        className={`relative w-full overflow-x-auto scrollbar-thin rounded-[20px] bg-white shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)] ${isSearchFocused || searchTerm ? "searching" : ""}`}
+        className={`relative w-full overflow-x-auto scrollbar-thin rounded-[20px] bg-white border border-[#ebebeb] shadow-x1 ${isSearchFocused || searchTerm ? "searching" : ""}`}
         onScroll={handleScroll}
       >
         <table className="shadow-table min-h-[92px] w-full min-w-max border-collapse">
@@ -353,9 +394,30 @@ export default function Table({
                   data-sticky={col.sticky ? "true" : "false"}
                 >
                   {colIndex === 0 ? (
-                    <span className="pl-9 text-[13px] tracking-[0.02em] font-light text-[#8b8b8b]">
-                      {col.title}
-                    </span>
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={isAllSelected}
+                        ref={(el) => {
+                          if (el) {
+                            el.indeterminate = isSomeSelected;
+                          }
+                        }}
+                        onChange={toggleSelectAll}
+                        disabled={allSelectableKeys.size === 0}
+                        style={{
+                          '--accent-color': '#4f46e5',
+                        } as React.CSSProperties}
+                        className={`mr-4 ml-1 ${
+                          allSelectableKeys.size === 0
+                            ? "opacity-50 cursor-not-allowed"
+                            : "cursor-pointer"
+                        }`}
+                      />
+                      <span className="text-[13px] tracking-[0.02em] font-light text-[#8b8b8b]">
+                        {col.title}
+                      </span>
+                    </div>
                   ) : (
                     <span className="text-[13px] tracking-[0.02em] font-light text-[#8b8b8b]">
                       {col.title}
@@ -382,7 +444,7 @@ export default function Table({
                       : ""
                   } ${
                     !detailRow && item.type !== "group" && onRowClick
-                      ? "cursor-pointer hover:bg-[#f9fafb]"
+                      ? "cursor-pointer hover:bg-[#f9fbfd]"
                       : ""
                   } ${customRowClassName} ${shouldShowRedLine ? "opacity-50 line-through" : ""}`}
                   data-border={

@@ -278,7 +278,9 @@ async def get_project_vms_metrics(project_name: str):
 
 
 @router.get("/{project_name}/{app_name}/containers")
-async def get_app_container_metrics(project_name: str, app_name: str):
+async def get_app_container_metrics(
+    project_name: str, app_name: str, include_addons: bool = False
+):
     """
     Get cAdvisor container metrics for an app.
 
@@ -287,6 +289,12 @@ async def get_app_container_metrics(project_name: str, app_name: str):
     - Memory usage per container
     - Network I/O per container
     - Filesystem I/O per container
+
+    Args:
+        project_name: Name of the project
+        app_name: Name of the app
+        include_addons: If True, includes all project containers (app + addons).
+                       If False (default), only returns app-specific containers.
     """
     db = SessionLocal()
 
@@ -324,10 +332,17 @@ async def get_app_container_metrics(project_name: str, app_name: str):
 
         # Query cAdvisor metrics for Docker containers (systemd cgroup paths)
         # Filter: only docker-*.scope containers (not root, not system services)
-        # Include containers for this specific app (via superdeploy_app label)
         # Exclude cAdvisor itself
-        base_filter = f'id=~"/system.slice/docker-.*\\\\.scope",name!="",container_label_com_superdeploy_project="{project_name}",name!~".*cadvisor.*"'
-        app_filter = f'{base_filter},container_label_com_superdeploy_app="{app_name}"'
+        # Note: App containers have "container_label_com_superdeploy_app" label
+        #       Addon containers have "container_label_addon_type" label
+        #       Both have "project" label
+
+        if include_addons:
+            # Include ALL containers in the project (app + addons)
+            app_filter = f'id=~"/system.slice/docker-.*\\\\.scope",name!="",name!~".*cadvisor.*",project="{project_name}"'
+        else:
+            # Only app-specific containers (filter by superdeploy_app label)
+            app_filter = f'id=~"/system.slice/docker-.*\\\\.scope",name!="",name!~".*cadvisor.*",project="{project_name}",container_label_com_superdeploy_app="{app_name}"'
 
         queries = {
             "cpu_usage": f"rate(container_cpu_usage_seconds_total{{{app_filter}}}[5m]) * 100",
@@ -362,32 +377,30 @@ async def get_app_container_metrics(project_name: str, app_name: str):
         # Helper to extract container name from cAdvisor metrics
         def get_container_name(metric: dict) -> str:
             """
-            Extract container name from superdeploy custom labels.
+            Extract container name from superdeploy custom labels or Docker name.
 
-            All containers deployed via superdeploy MUST have these labels:
+            App containers have these labels:
             - container_label_com_superdeploy_app: App name (e.g., "api", "services")
             - container_label_com_superdeploy_process: Process type (e.g., "web", "worker")
 
-            If labels are missing, cAdvisor is misconfigured or container wasn't deployed via superdeploy.
+            Addon containers don't have these labels, so we use Docker container name directly.
             """
             superdeploy_app = metric.get("container_label_com_superdeploy_app", "")
             superdeploy_process = metric.get(
                 "container_label_com_superdeploy_process", ""
             )
 
-            if not superdeploy_app:
-                # Container doesn't have superdeploy labels - shouldn't happen
-                container_name = metric.get("name", "unknown")
-                print(
-                    f"WARNING: Container '{container_name}' missing superdeploy labels!"
-                )
-                return container_name
+            # If has superdeploy labels, it's an app container
+            if superdeploy_app:
+                # Format: "app" for web processes, "app (process)" for others
+                if superdeploy_process and superdeploy_process != "web":
+                    return f"{superdeploy_app} ({superdeploy_process})"
+                return superdeploy_app
 
-            # Format: "app" for web processes, "app (process)" for others
-            if superdeploy_process and superdeploy_process != "web":
-                return f"{superdeploy_app} ({superdeploy_process})"
-
-            return superdeploy_app
+            # No superdeploy labels = addon container
+            # Use Docker container name directly (from cAdvisor "name" label)
+            container_name = metric.get("name", "unknown")
+            return container_name
 
         # Process results into container-specific metrics
         containers = {}

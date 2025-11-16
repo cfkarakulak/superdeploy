@@ -12,7 +12,7 @@ export default function SettingsPage() {
   const [githubToken, setGithubToken] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [appDomain, setAppDomain] = useState<string>("");
+  const [appDomain, setAppDomain] = useState<string>(projectName);
 
   // Fetch app domain
   useEffect(() => {
@@ -70,6 +70,7 @@ export default function SettingsPage() {
             { label: appDomain || projectName, href: `/project/${projectName}` },
             { label: appName, href: `/project/${projectName}/app/${appName}` },
           ]}
+          menuLabel="Settings"
           title="Configuration"
         />
 

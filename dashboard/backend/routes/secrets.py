@@ -1,15 +1,13 @@
 """Secret management routes."""
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from database import get_db
-from models import Secret
+from utils.cli import get_cli
 
 router = APIRouter(tags=["secrets"])
 
 
-# Secrets Management (Database-based, Heroku-like)
+# Secrets Management (CLI-based, Real-time)
 
 
 class SecretUpdateRequest(BaseModel):
@@ -21,97 +19,51 @@ class SecretUpdateRequest(BaseModel):
 async def get_app_secrets(
     project_name: str,
     app_name: str,
-    environment: str = "production",
-    db: Session = Depends(get_db),
 ):
     """
     Get secrets for an app (Heroku-like).
 
-    Returns app-specific and shared secrets from DATABASE.
+    Returns app-specific and shared secrets from secrets.yml via CLI.
+    Also returns addon secrets with proper prefixes.
     """
-    from models import Project, Environment, Addon
-
     try:
-        # Get project and specified environment
-        project = db.query(Project).filter(Project.name == project_name).first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
+        cli = get_cli()
 
-        env = (
-            db.query(Environment)
-            .filter(
-                Environment.project_id == project.id, Environment.name == environment
-            )
-            .first()
+        # Use CLI to get all secrets (app + shared + addon)
+        config_data = await cli.execute_json(
+            f"{project_name}:config:list", args=["--app", app_name]
         )
 
-        if not env:
-            raise HTTPException(
-                status_code=404,
-                detail=f"{environment.capitalize()} environment not found",
-            )
-
-        # Get secrets from DB
-        app_secrets = (
-            db.query(Secret)
-            .filter(Secret.environment_id == env.id, Secret.app == app_name)
-            .all()
-        )
-
-        shared_secrets = (
-            db.query(Secret)
-            .filter(Secret.environment_id == env.id, Secret.app == "shared")
-            .all()
-        )
-
-        # Build response
         secrets = []
 
-        # Add app-specific secrets
-        for secret in app_secrets:
+        # Add all environment variables from CLI
+        # CLI already merges shared + app-specific + addon secrets
+        for key, value in config_data.get("variables", {}).items():
+            # Detect source based on key patterns
+            if any(
+                addon_prefix in key
+                for addon_prefix in [
+                    "DATABASE_",
+                    "RABBITMQ_",
+                    "REDIS_",
+                    "MONGODB_",
+                    "ELASTICSEARCH_",
+                ]
+            ):
+                source = "addon"
+                editable = False
+            else:
+                source = "app"
+                editable = True
+
             secrets.append(
                 {
-                    "key": secret.key,
-                    "value": secret.value,
-                    "source": "app",
-                    "editable": True,
-                    "id": secret.id,
+                    "key": key,
+                    "value": str(value),
+                    "source": source,
+                    "editable": editable,
                 }
             )
-
-        # Add shared secrets
-        for secret in shared_secrets:
-            secrets.append(
-                {
-                    "key": secret.key,
-                    "value": secret.value,
-                    "source": "shared",
-                    "editable": True,
-                    "id": secret.id,
-                }
-            )
-
-        # Get addon-generated secrets (from addon credentials)
-        addons = db.query(Addon).filter(Addon.project_id == project.id).all()
-
-        for addon in addons:
-            # Check if this addon is attached to this app
-            if addon.attachments:
-                for attachment in addon.attachments:
-                    if attachment.get("app_name") == app_name:
-                        # Add addon credentials as read-only secrets
-                        if addon.credentials:
-                            prefix = attachment.get("as_prefix", addon.type.upper())
-                            for key, value in addon.credentials.items():
-                                env_key = f"{prefix}_{key.upper()}"
-                                secrets.append(
-                                    {
-                                        "key": env_key,
-                                        "value": str(value),
-                                        "source": "addon",
-                                        "editable": False,
-                                    }
-                                )
 
         return {"app_name": app_name, "secrets": secrets}
 
@@ -126,72 +78,35 @@ async def set_app_secret(
     project_name: str,
     app_name: str,
     secret_data: SecretUpdateRequest,
-    environment: str = "production",
-    db: Session = Depends(get_db),
 ):
     """
     Set or update a secret for an app.
 
-    Updates DATABASE only. No file writes, no SSH calls.
+    Updates secrets.yml file via CLI.
     """
-    from models import Project, Environment
-
     try:
-        # Get project and specified environment
-        project = db.query(Project).filter(Project.name == project_name).first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
+        cli = get_cli()
 
-        env = (
-            db.query(Environment)
-            .filter(
-                Environment.project_id == project.id, Environment.name == environment
-            )
-            .first()
+        # Use CLI to set the secret
+        result = await cli.execute_json(
+            f"{project_name}:config:set",
+            args=["-a", app_name, secret_data.key, secret_data.value],
         )
 
-        if not env:
-            raise HTTPException(
-                status_code=404,
-                detail=f"{environment.capitalize()} environment not found",
-            )
-
-        # Check if secret exists
-        existing = (
-            db.query(Secret)
-            .filter(
-                Secret.environment_id == env.id,
-                Secret.app == app_name,
-                Secret.key == secret_data.key,
-            )
-            .first()
-        )
-
-        if existing:
-            # Update existing secret
-            existing.value = secret_data.value
+        if result.get("success"):
+            return {
+                "success": True,
+                "message": f"Secret {secret_data.key} updated for {app_name}",
+                "key": secret_data.key,
+            }
         else:
-            # Create new secret
-            new_secret = Secret(
-                environment_id=env.id,
-                app=app_name,
-                key=secret_data.key,
-                value=secret_data.value,
+            raise HTTPException(
+                status_code=500, detail=result.get("error", "Failed to set secret")
             )
-            db.add(new_secret)
-
-        db.commit()
-
-        return {
-            "success": True,
-            "message": f"Secret {secret_data.key} updated for {app_name}",
-            "key": secret_data.key,
-        }
 
     except HTTPException:
         raise
     except Exception as e:
-        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -200,61 +115,32 @@ async def delete_app_secret(
     project_name: str,
     app_name: str,
     key: str,
-    environment: str = "production",
-    db: Session = Depends(get_db),
 ):
     """
     Delete a secret for an app.
 
-    Removes from DATABASE only. No file writes, no SSH calls.
+    Removes from secrets.yml file via CLI.
     """
-    from models import Project, Environment
-
     try:
-        # Get project and specified environment
-        project = db.query(Project).filter(Project.name == project_name).first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
+        cli = get_cli()
 
-        env = (
-            db.query(Environment)
-            .filter(
-                Environment.project_id == project.id, Environment.name == environment
-            )
-            .first()
+        # Use CLI to unset the secret
+        result = await cli.execute_json(
+            f"{project_name}:config:unset", args=["-a", app_name, key]
         )
 
-        if not env:
+        if result.get("success"):
+            return {
+                "success": True,
+                "message": f"Secret {key} deleted from {app_name}",
+                "key": key,
+            }
+        else:
             raise HTTPException(
-                status_code=404,
-                detail=f"{environment.capitalize()} environment not found",
+                status_code=500, detail=result.get("error", "Failed to delete secret")
             )
-
-        # Find and delete secret
-        secret = (
-            db.query(Secret)
-            .filter(
-                Secret.environment_id == env.id,
-                Secret.app == app_name,
-                Secret.key == key,
-            )
-            .first()
-        )
-
-        if not secret:
-            raise HTTPException(status_code=404, detail="Secret not found")
-
-        db.delete(secret)
-        db.commit()
-
-        return {
-            "success": True,
-            "message": f"Secret {key} deleted from {app_name}",
-            "key": key,
-        }
 
     except HTTPException:
         raise
     except Exception as e:
-        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

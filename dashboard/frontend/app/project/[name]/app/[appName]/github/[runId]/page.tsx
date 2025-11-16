@@ -71,7 +71,7 @@ export default function WorkflowDetailPage() {
   const [expandedJobs, setExpandedJobs] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [appDomain, setAppDomain] = useState<string>("");
+  const [appDomain, setAppDomain] = useState<string>(projectName);
 
   // Fetch project domain
   useEffect(() => {
@@ -143,7 +143,7 @@ export default function WorkflowDetailPage() {
         <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
           {/* Breadcrumb skeleton */}
           <div className="mb-10">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2">
               <div className="h-[13px] w-[80px] skeleton-shimmer rounded"></div>
               <span className="text-[#6a6d77]">›</span>
               <div className="h-[13px] w-[50px] skeleton-shimmer rounded"></div>
@@ -207,7 +207,7 @@ export default function WorkflowDetailPage() {
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           {/* Status */}
-          <div className="p-5 border border-[#e3e8ee] rounded-lg transition-all">
+          <div className="p-5 border border-[#e3e8ee] hover:border-[#b9c1c6] rounded-lg">
             <div className="flex items-start gap-3">
               <div className="flex-shrink-0 mt-0.5">
                 {workflowRun.conclusion === "success" ? (
@@ -234,7 +234,7 @@ export default function WorkflowDetailPage() {
           </div>
 
           {/* Branch & Commit */}
-          <div className="p-5 border border-[#e3e8ee] rounded-lg transition-all">
+          <div className="p-5 border border-[#e3e8ee] hover:border-[#b9c1c6] rounded-lg">
             <div className="space-y-3">
               <div>
                 <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">Branch</p>
@@ -254,7 +254,7 @@ export default function WorkflowDetailPage() {
           </div>
 
           {/* Time & Link */}
-          <div className="p-5 border border-[#e3e8ee] rounded-lg transition-all">
+          <div className="p-5 border border-[#e3e8ee] hover:border-[#b9c1c6] rounded-lg">
             <div className="space-y-3">
               <div>
                 <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">Started</p>
