@@ -14,7 +14,8 @@ import {
   MemoryStick,
   Network,
   Lock,
-  Package
+  Package,
+  RotateCw
 } from "lucide-react";
 
 // Shimmer animation styles
@@ -80,6 +81,9 @@ export default function AddonDetailPage() {
   const [appDomain, setAppDomain] = useState<string>("");
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [viewingCredential, setViewingCredential] = useState<AddonCredential | null>(null);
+  const [rotateModalOpen, setRotateModalOpen] = useState(false);
+  const [rotatingCredential, setRotatingCredential] = useState<AddonCredential | null>(null);
+  const [rotating, setRotating] = useState(false);
 
   // Fetch project domain for breadcrumb
   useEffect(() => {
@@ -166,11 +170,48 @@ export default function AddonDetailPage() {
     setViewModalOpen(true);
   };
 
+  const openRotateModal = (credential: AddonCredential) => {
+    setRotatingCredential(credential);
+    setRotateModalOpen(true);
+  };
+
+  const handleRotate = async () => {
+    if (!rotatingCredential) return;
+    
+    setRotating(true);
+    try {
+      const response = await fetch(
+        `http://localhost:8401/api/resources/${projectName}/${appName}/addon/${addonRef}/rotate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential_key: rotatingCredential.key }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to rotate credential');
+      }
+
+      // Refresh addon data to get new credential value
+      const addonResponse = await fetch(`http://localhost:8401/api/resources/${projectName}/${appName}/addon/${addonRef}`);
+      if (addonResponse.ok) {
+        const data = await addonResponse.json();
+        setAddon(data.addon);
+      }
+
+      setRotateModalOpen(false);
+      setRotatingCredential(null);
+    } catch (err) {
+      console.error('Failed to rotate credential:', err);
+      alert('Failed to rotate credential. Please try again.');
+    } finally {
+      setRotating(false);
+    }
+  };
+
   const maskValue = (value: string) => {
-    if (value.length <= 4) return "••••";
-    // Max 20 characters
-    const masked = "•".repeat(Math.min(value.length - 4, 16)) + value.slice(-4);
-    return masked.length > 20 ? masked.slice(0, 20) : masked;
+    return "•••";
   };
 
   const formatBytes = (bytes: number): string => {
@@ -391,25 +432,52 @@ export default function AddonDetailPage() {
               
               {addon.credentials && addon.credentials.length > 0 ? (
                 <Table
+                  tableFixed={true}
                   columns={[
                     {
                       title: "Key",
-                      width: "300px",
+                      width: "60%",
                       render: (item: Item) => (
-                        <div className="flex items-center gap-3">
-                          <Lock className="w-4 h-4 text-[#8b8b8b]" />
-                          <code className="text-[13px] font-mono text-[#0a0a0a]">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Lock className="w-4 h-4 text-[#8b8b8b] shrink-0" />
+                          <code className="text-[13px] font-mono text-[#111] truncate">
                             {item.data.key}
                           </code>
                         </div>
                       ),
                     },
                     {
-                      title: "Value",
+                      title: "Type",
+                      width: "30%",
                       render: (item: Item) => (
-                        <code className="text-[13px] font-mono text-[#8b8b8b]">
-                          {maskValue(item.data.value)}
-                        </code>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-[6px] text-[11px] tracking-[0.03em] font-light bg-[#e0e7ff] text-[#4338ca]">
+                          Addon
+                        </span>
+                      ),
+                    },
+                    {
+                      title: "",
+                      width: "10%",
+                      render: (item: Item) => (
+                        <div className="flex items-center justify-end gap-2">
+                          {(item.data.key.toLowerCase().includes('password') || 
+                            item.data.key.toLowerCase().includes('secret') ||
+                            item.data.key.toLowerCase().includes('token')) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              icon={<RotateCw className="w-3.5 h-3.5" />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openRotateModal(item.data);
+                              }}
+                              className="p-1.5! hover:bg-[#f0f9ff]! text-[#8b8b8b]! hover:text-[#0ea5e9]!"
+                              title="Rotate credential"
+                            >
+                              {/* Icon only button */}
+                            </Button>
+                          )}
+                        </div>
                       ),
                     },
                   ]}
@@ -437,22 +505,23 @@ export default function AddonDetailPage() {
       <Dialog open={viewModalOpen} onOpenChange={setViewModalOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>View Environment Variable</DialogTitle>
+            <DialogTitle>
+              <code className="font-mono">{viewingCredential?.key}</code>
+            </DialogTitle>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
             <div>
-              <label className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light block mb-2">Key</label>
-              <code className="block text-[13px] font-mono bg-[#f6f8fa] px-3 py-2.5 rounded border border-[#e3e8ee] text-[#0a0a0a]">
-                {viewingCredential?.key}
+              <label className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light block mb-2">Value</label>
+              <code className="block text-[13px] font-mono bg-[#f6f8fa] px-3 py-2.5 rounded-[10px] text-[#0a0a0a] break-all">
+                {viewingCredential?.value}
               </code>
             </div>
             
-            <div>
-              <label className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light block mb-2">Value</label>
-              <code className="block text-[13px] font-mono bg-[#f6f8fa] px-3 py-2.5 rounded border border-[#e3e8ee] text-[#0a0a0a] break-all">
-                {viewingCredential?.value}
-              </code>
+            <div className="bg-[#fff8e1] rounded-[10px] p-3">
+              <p className="text-[11px] tracking-[0.03em] font-light text-[#795548]">
+                <strong className="font-medium">Read-only:</strong> This is an addon-managed credential and cannot be edited directly.
+              </p>
             </div>
           </div>
 
@@ -472,6 +541,52 @@ export default function AddonDetailPage() {
               icon={copiedField === viewingCredential?.key ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
             >
               {copiedField === viewingCredential?.key ? "Copied" : "Copy Value"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rotate Credential Modal */}
+      <Dialog open={rotateModalOpen} onOpenChange={setRotateModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rotate Credential</DialogTitle>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <p className="text-[14px] text-[#343a46] mb-3">
+              Are you sure you want to rotate this credential?
+            </p>
+            
+            <div className="bg-[#f0f9ff] rounded-lg p-3 mb-3">
+              <code className="text-[13px] font-mono text-[#0369a1] break-all">
+                {rotatingCredential?.key}
+              </code>
+            </div>
+            
+            <div className="bg-[#fff8e1] rounded-[10px] p-3">
+              <p className="text-[11px] tracking-[0.03em] font-light text-[#795548]">
+                <strong className="font-medium">Warning:</strong> This will generate a new credential value, update the addon configuration, and restart the addon container. Your application will also be restarted to use the new credential.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setRotateModalOpen(false)}
+              disabled={rotating}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRotate}
+              disabled={rotating}
+              loading={rotating}
+              icon={<RotateCw className="w-3.5 h-3.5" />}
+              className="bg-[#0ea5e9]! hover:bg-[#0284c7]! text-white!"
+            >
+              {rotating ? "Rotating..." : "Rotate"}
             </Button>
           </DialogFooter>
         </DialogContent>

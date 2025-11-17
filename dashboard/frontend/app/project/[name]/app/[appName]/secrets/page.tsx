@@ -1,24 +1,9 @@
-"use client";
+// This file is intentionally left as a redirect placeholder
+// The actual secrets page is at /secrets/[app]/page.tsx
+// But we want /secrets to work directly without the [app] parameter
+// So we'll import and re-export the actual secrets page component
 
-import { useParams, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import SecretsPage from "./[app]/page";
 
-export default function SecretsRedirectPage() {
-  const params = useParams();
-  const router = useRouter();
-  const projectName = params?.name as string;
-  const appName = params?.appName as string;
-
-  useEffect(() => {
-    if (projectName && appName) {
-      router.replace(`/project/${projectName}/app/${appName}/secrets/${appName}`);
-    }
-  }, [projectName, appName, router]);
-
-  return (
-    <div className="flex items-center justify-center min-h-[400px]">
-      <div className="text-[15px] text-[#8b8b8b]">Redirecting...</div>
-    </div>
-  );
-}
+export default SecretsPage;
 

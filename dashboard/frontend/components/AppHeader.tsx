@@ -14,8 +14,9 @@ export default function AppHeader() {
     { label: "Overview", href: `/project/${projectName}/app/${appName}` },
     { label: "Resources", href: `/project/${projectName}/app/${appName}/resources` },
     { label: "Deploy", href: `/project/${projectName}/app/${appName}/deploy` },
-    { label: "Actions", href: `/project/${projectName}/app/${appName}/github` },
+    { label: "Actions", href: `/project/${projectName}/app/${appName}/actions` },
     { label: "Secrets", href: `/project/${projectName}/app/${appName}/secrets` },
+    { label: "Aliases", href: `/project/${projectName}/app/${appName}/aliases` },
     { label: "Logs", href: `/project/${projectName}/app/${appName}/logs` },
   ];
 
@@ -32,8 +33,12 @@ export default function AppHeader() {
       return pathname?.startsWith(href);
     }
     
-    if (href === `/project/${projectName}/app/${appName}/github`) {
+    if (href === `/project/${projectName}/app/${appName}/aliases`) {
       return pathname?.startsWith(href);
+    }
+    
+    if (href === `/project/${projectName}/app/${appName}/actions`) {
+      return pathname?.startsWith(href) || pathname?.startsWith(`/project/${projectName}/app/${appName}/github`);
     }
     
     return pathname?.startsWith(href);

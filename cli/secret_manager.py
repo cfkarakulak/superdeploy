@@ -1,220 +1,85 @@
 """
 Secret Management
 
-Modern secret manager using domain models for type-safe secret handling.
+Database-backed secret manager (replaces secrets.yml).
+All secrets are now stored in PostgreSQL.
 """
 
-import yaml
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
+from cli.database import get_db_session, Secret, SecretAlias
+from sqlalchemy.orm import Session
 
-from cli.models.secrets import SecretConfig
-from cli.exceptions import SecretError
 
-
-class SecretFormatter:
-    """Formats secret configuration for human-readable YAML output."""
-
-    @staticmethod
-    def format(config: SecretConfig) -> str:
-        """
-        Format secret configuration as human-readable YAML.
-
-        Args:
-            config: Secret configuration to format
-
-        Returns:
-            Formatted YAML string
-        """
-        lines = []
-
-        # Header
-        lines.append("# " + "=" * 77)
-        lines.append(f"# {config.project_name.upper()} - Secrets Configuration")
-        lines.append("# " + "=" * 77)
-        lines.append("# WARNING: This file contains sensitive information")
-        lines.append("# Keep this file secure and never commit to version control")
-        lines.append("# " + "=" * 77)
-        lines.append("")
-
-        # Secrets section
-        lines.append("secrets:")
-
-        # Shared secrets
-        lines.append("  shared:")
-
-        if config.shared.values:
-            # Group by category for better readability
-            db_keys = [k for k in config.shared.values if k.startswith("POSTGRES_")]
-            mq_keys = [k for k in config.shared.values if k.startswith("RABBITMQ_")]
-            docker_keys = [k for k in config.shared.values if k.startswith("DOCKER_")]
-            other_keys = [
-                k
-                for k in config.shared.values
-                if not any(
-                    k.startswith(p) for p in ["POSTGRES_", "RABBITMQ_", "DOCKER_"]
-                )
-            ]
-
-            if db_keys:
-                lines.append("")
-                lines.append("    # Database Configuration")
-                for key in sorted(db_keys):
-                    lines.append(f"    {key}: {config.shared.values[key]}")
-
-            if mq_keys:
-                lines.append("")
-                lines.append("    # Message Queue Configuration")
-                for key in sorted(mq_keys):
-                    lines.append(f"    {key}: {config.shared.values[key]}")
-
-            if docker_keys:
-                lines.append("")
-                lines.append("    # Docker Registry Configuration")
-                for key in sorted(docker_keys):
-                    lines.append(f"    {key}: {config.shared.values[key]}")
-
-            if other_keys:
-                lines.append("")
-                lines.append("    # Other Shared Secrets")
-                for key in sorted(other_keys):
-                    lines.append(f"    {key}: {config.shared.values[key]}")
-        else:
-            lines.append("    {}")
-
-        # Addon credentials
-        lines.append("")
-        lines.append("  # " + "=" * 75)
-        lines.append("  # Addon Instance Credentials")
-        lines.append("  # " + "=" * 75)
-        lines.append("  addons:")
-
-        if config.addons:
-            for addon_type in sorted(config.addons.keys()):
-                lines.append(f"    {addon_type}:")
-                for instance_name in sorted(config.addons[addon_type].keys()):
-                    lines.append(f"      {instance_name}:")
-                    instance_creds = config.addons[addon_type][instance_name]
-                    for key in sorted(instance_creds.keys()):
-                        value = instance_creds[key]
-                        lines.append(f"        {key}: {value}")
-                    lines.append("")
-        else:
-            lines.append("    {}")
-
-        # App-specific secrets
-        lines.append("")
-        lines.append("  # " + "=" * 75)
-        lines.append("  # Application-Specific Secrets")
-        lines.append("  # " + "=" * 75)
-        lines.append("  apps:")
-        if config.apps:
-            for app_name, app_secrets in config.apps.items():
-                lines.append(f"    {app_name}:")
-                if app_secrets.values:
-                    for key, value in sorted(app_secrets.values.items()):
-                        lines.append(f"      {key}: {value}")
-                else:
-                    lines.append("      {}")
-                lines.append("")
-        else:
-            lines.append("    {}")
-
-        # Environment aliases section
-        lines.append("# " + "=" * 77)
-        lines.append("# Environment Variable Aliases")
-        lines.append("# " + "=" * 77)
-        lines.append("env_aliases:")
-        if config.env_aliases:
-            for app_name, aliases in config.env_aliases.items():
-                lines.append(f"  {app_name}:")
-                if aliases:
-                    for alias_key, alias_value in sorted(aliases.items()):
-                        lines.append(f"    {alias_key}: {alias_value}")
-                else:
-                    lines.append("    {}")
-                lines.append("")
-        else:
-            for app_name in config.apps.keys():
-                lines.append(f"  {app_name}: {{}}")
-
-        lines.append("")
-        return "\n".join(lines)
+# SecretFormatter removed - no longer needed (secrets.yml is deprecated)
 
 
 class SecretManager:
     """
-    Manages project secrets using type-safe domain models.
+    Database-backed secret manager (replaces secrets.yml).
 
-    Responsibilities:
-    - Load/save secret configuration
-    - Merge shared and app-specific secrets
-    - Handle environment variable aliases
-    - Maintain secret hierarchy
+    All operations now work with PostgreSQL database.
     """
 
-    def __init__(self, project_root: Path, project_name: str):
+    def __init__(
+        self, project_root: Path, project_name: str, environment: str = "production"
+    ):
         """
         Initialize secret manager.
 
         Args:
-            project_root: Path to superdeploy root directory
+            project_root: Path to superdeploy root directory (kept for compatibility)
             project_name: Name of the project
+            environment: Environment (production/staging)
         """
         self.project_root = project_root
         self.project_name = project_name
-        self.secrets_file = project_root / "projects" / project_name / "secrets.yml"
-        self.formatter = SecretFormatter()
+        self.environment = environment
 
-    def load_secrets(self) -> SecretConfig:
+    def _get_db(self) -> Session:
+        """Get database session."""
+        return get_db_session()
+
+    def _resolve_alias(self, alias_value: str, db: Session) -> Optional[str]:
         """
-        Load secret configuration from file.
-
-        Returns:
-            SecretConfig object (empty if file doesn't exist)
-        """
-        if not self.secrets_file.exists():
-            return SecretConfig(project_name=self.project_name)
-
-        try:
-            with open(self.secrets_file, "r") as f:
-                data = yaml.safe_load(f) or {}
-            return SecretConfig.from_dict(self.project_name, data)
-        except Exception as e:
-            raise SecretError(
-                "Failed to load secrets file",
-                context=f"File: {self.secrets_file}, Error: {str(e)}",
-            )
-
-    def save_secrets(self, config: SecretConfig) -> None:
-        """
-        Save secret configuration to file.
+        Resolve an alias value like 'postgres.primary.HOST' to actual value.
 
         Args:
-            config: Secret configuration to save
-        """
-        self.secrets_file.parent.mkdir(parents=True, exist_ok=True)
-        formatted_content = self.formatter.format(config)
+            alias_value: Alias target key (e.g. postgres.primary.HOST)
+            db: Database session
 
-        try:
-            with open(self.secrets_file, "w") as f:
-                f.write(formatted_content)
-            # Set restrictive permissions
-            self.secrets_file.chmod(0o600)
-        except Exception as e:
-            raise SecretError(
-                "Failed to save secrets file",
-                context=f"File: {self.secrets_file}, Error: {str(e)}",
+        Returns:
+            Resolved value or None if not found
+        """
+        # Alias format: addon_type.instance_name.KEY
+        # e.g. postgres.primary.HOST
+        parts = alias_value.split(".")
+        if len(parts) < 3:
+            return None
+
+        # The alias points to an addon secret key
+        # postgres.primary.HOST is stored as key in secrets table
+        secret = (
+            db.query(Secret)
+            .filter(
+                Secret.project_name == self.project_name,
+                Secret.key == alias_value,
+                Secret.environment == self.environment,
             )
+            .first()
+        )
+
+        return secret.value if secret else None
 
     def get_app_secrets(self, app_name: str) -> Dict[str, str]:
         """
-        Get merged secrets for specific app.
+        Get merged secrets for specific app with alias resolution.
 
         Merges:
-        - secrets.shared (all apps)
-        - secrets.{app_name} (app-specific)
-        - env_aliases.{app_name} (variable name mappings)
+        - Shared secrets (app_name=NULL)
+        - Addon secrets (source='addon')
+        - App-specific secrets (app_name={app})
+        - Resolves aliases
 
         Args:
             app_name: Name of the application
@@ -222,8 +87,58 @@ class SecretManager:
         Returns:
             Dictionary of environment variables for the app
         """
-        config = self.load_secrets()
-        return config.get_merged_secrets(app_name)
+        db = self._get_db()
+        try:
+            merged = {}
+
+            # 1. Get shared secrets (app_name=NULL)
+            shared_secrets = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_name == self.project_name,
+                    Secret.app_name.is_(None),
+                    Secret.environment == self.environment,
+                )
+                .all()
+            )
+
+            for secret in shared_secrets:
+                merged[secret.key] = secret.value
+
+            # 2. Get app-specific secrets
+            app_secrets = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_name == self.project_name,
+                    Secret.app_name == app_name,
+                    Secret.environment == self.environment,
+                )
+                .all()
+            )
+
+            for secret in app_secrets:
+                merged[secret.key] = secret.value  # Override shared
+
+            # 3. Apply aliases
+            aliases = (
+                db.query(SecretAlias)
+                .filter(
+                    SecretAlias.project_name == self.project_name,
+                    SecretAlias.app_name == app_name,
+                )
+                .all()
+            )
+
+            for alias in aliases:
+                # Resolve alias to actual value
+                resolved_value = self._resolve_alias(alias.target_key, db)
+                if resolved_value:
+                    merged[alias.alias_key] = resolved_value
+
+            return merged
+
+        finally:
+            db.close()
 
     def get_shared_secrets(self) -> Dict[str, str]:
         """
@@ -232,8 +147,21 @@ class SecretManager:
         Returns:
             Dictionary of shared environment variables
         """
-        config = self.load_secrets()
-        return config.shared.values.copy()
+        db = self._get_db()
+        try:
+            secrets = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_name == self.project_name,
+                    Secret.app_name.is_(None),
+                    Secret.environment == self.environment,
+                )
+                .all()
+            )
+
+            return {s.key: s.value for s in secrets}
+        finally:
+            db.close()
 
     def set_shared_secret(self, key: str, value: str) -> None:
         """
@@ -243,9 +171,37 @@ class SecretManager:
             key: Secret key name
             value: Secret value
         """
-        config = self.load_secrets()
-        config.shared.set(key, value)
-        self.save_secrets(config)
+        db = self._get_db()
+        try:
+            # Upsert (update or insert)
+            secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_name == self.project_name,
+                    Secret.app_name.is_(None),
+                    Secret.key == key,
+                    Secret.environment == self.environment,
+                )
+                .first()
+            )
+
+            if secret:
+                secret.value = value
+            else:
+                secret = Secret(
+                    project_name=self.project_name,
+                    app_name=None,
+                    key=key,
+                    value=value,
+                    environment=self.environment,
+                    source="shared",
+                    editable=True,
+                )
+                db.add(secret)
+
+            db.commit()
+        finally:
+            db.close()
 
     def set_app_secret(self, app_name: str, key: str, value: str) -> None:
         """
@@ -256,16 +212,125 @@ class SecretManager:
             key: Secret key name
             value: Secret value
         """
-        config = self.load_secrets()
-        app_secrets = config.get_app_secrets(app_name)
-        app_secrets.set(key, value)
-        self.save_secrets(config)
+        db = self._get_db()
+        try:
+            # Upsert (update or insert)
+            secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_name == self.project_name,
+                    Secret.app_name == app_name,
+                    Secret.key == key,
+                    Secret.environment == self.environment,
+                )
+                .first()
+            )
+
+            if secret:
+                secret.value = value
+            else:
+                secret = Secret(
+                    project_name=self.project_name,
+                    app_name=app_name,
+                    key=key,
+                    value=value,
+                    environment=self.environment,
+                    source="app",
+                    editable=True,
+                )
+                db.add(secret)
+
+            db.commit()
+        finally:
+            db.close()
+
+    def delete_secret(self, app_name: Optional[str], key: str) -> bool:
+        """
+        Delete a secret.
+
+        Args:
+            app_name: Name of the application (None for shared)
+            key: Secret key name
+
+        Returns:
+            True if deleted, False if not found
+        """
+        db = self._get_db()
+        try:
+            query = db.query(Secret).filter(
+                Secret.project_name == self.project_name,
+                Secret.key == key,
+                Secret.environment == self.environment,
+            )
+
+            if app_name:
+                query = query.filter(Secret.app_name == app_name)
+            else:
+                query = query.filter(Secret.app_name.is_(None))
+
+            secret = query.first()
+            if secret:
+                db.delete(secret)
+                db.commit()
+                return True
+            return False
+        finally:
+            db.close()
 
     def has_secrets(self) -> bool:
         """
-        Check if secrets file exists.
+        Check if project has any secrets in database.
 
         Returns:
-            True if secrets file exists
+            True if secrets exist
         """
-        return self.secrets_file.exists()
+        db = self._get_db()
+        try:
+            count = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_name == self.project_name,
+                    Secret.environment == self.environment,
+                )
+                .count()
+            )
+            return count > 0
+        finally:
+            db.close()
+
+    def load_secrets(self):
+        """
+        Legacy method for compatibility.
+
+        Returns a dict-like object with all secrets.
+        Used by old code that expects SecretConfig.
+        """
+        # Return a simple dict structure for backwards compatibility
+        db = self._get_db()
+        try:
+            all_secrets = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_name == self.project_name,
+                    Secret.environment == self.environment,
+                )
+                .all()
+            )
+
+            # Group by shared/apps
+            result = {"shared": {}, "apps": {}, "addons": {}}
+
+            for secret in all_secrets:
+                if secret.app_name is None:
+                    if secret.source == "addon":
+                        result["addons"][secret.key] = secret.value
+                    else:
+                        result["shared"][secret.key] = secret.value
+                else:
+                    if secret.app_name not in result["apps"]:
+                        result["apps"][secret.app_name] = {}
+                    result["apps"][secret.app_name][secret.key] = secret.value
+
+            return result
+        finally:
+            db.close()

@@ -64,30 +64,90 @@ class ProjectInitializer:
         config_yml.write_text(config_content)
         return config_yml
 
-    def create_secrets_file(
-        self, project_dir: Path, project_name: str, app_names: List[str], addons: dict
-    ) -> Path:
-        """Generate and save secrets.yml with addon-aware credentials."""
-        secrets_yml = project_dir / "secrets.yml"
+    def create_secrets_in_database(
+        self, project_name: str, app_names: List[str], addons: dict
+    ) -> bool:
+        """Generate and save secrets to database (replaces secrets.yml)."""
+        from cli.database import get_db_session, Secret
+        import yaml
 
-        # Generate secrets content (addon-aware)
+        # Generate secrets content using generator
         generator = StubModuleLoader.load_generator("project_secrets_generator")
         secrets_content = generator.generate_project_secrets(
             project_name=project_name,
             app_names=app_names,
-            addons=addons,  # Pass addons from config.yml
+            addons=addons,
         )
 
-        secrets_yml.write_text(secrets_content)
-        secrets_yml.chmod(0o600)  # Restrictive permissions
+        # Parse generated YAML to extract secrets
+        secrets_data = yaml.safe_load(secrets_content)
+        secrets_dict = secrets_data.get("secrets", {})
 
-        return secrets_yml
+        db = get_db_session()
+        try:
+            # 1. Insert shared secrets
+            shared_secrets = secrets_dict.get("shared", {})
+            for key, value in shared_secrets.items():
+                secret = Secret(
+                    project_name=project_name,
+                    app_name=None,  # NULL = shared
+                    key=key,
+                    value=str(value),
+                    environment="production",
+                    source="shared",
+                    editable=True,
+                )
+                db.add(secret)
+
+            # 2. Insert addon secrets
+            addons_data = secrets_dict.get("addons", {})
+            for addon_type, instances in addons_data.items():
+                for instance_name, credentials in instances.items():
+                    for key, value in credentials.items():
+                        # Create dotted key: postgres.primary.HOST
+                        full_key = f"{addon_type}.{instance_name}.{key}"
+                        secret = Secret(
+                            project_name=project_name,
+                            app_name=None,  # Addons are shared
+                            key=full_key,
+                            value=str(value),
+                            environment="production",
+                            source="addon",
+                            editable=False,
+                        )
+                        db.add(secret)
+
+            # 3. Insert app-specific secrets
+            apps_data = secrets_dict.get("apps", {})
+            for app_name, app_secrets in apps_data.items():
+                for key, value in app_secrets.items():
+                    secret = Secret(
+                        project_name=project_name,
+                        app_name=app_name,
+                        key=key,
+                        value=str(value),
+                        environment="production",
+                        source="app",
+                        editable=True,
+                    )
+                    db.add(secret)
+
+            db.commit()
+            return True
+
+        except Exception as e:
+            db.rollback()
+            raise Exception(f"Failed to save secrets to database: {e}")
+        finally:
+            db.close()
 
 
 class InitCommand(BaseCommand):
     """Initialize new project with secrets.yml."""
 
-    def __init__(self, project_name: str, verbose: bool = False, json_output: bool = False):
+    def __init__(
+        self, project_name: str, verbose: bool = False, json_output: bool = False
+    ):
         super().__init__(verbose=verbose, json_output=json_output)
         self.project_name = project_name
 
@@ -121,15 +181,10 @@ class InitCommand(BaseCommand):
             f"\n[dim]✓ Created: {config_yml.relative_to(self.project_root)}[/dim]"
         )
 
-        # Create secrets.yml (addon-aware)
+        # Create secrets in database (replaces secrets.yml)
         self.console.print("\n[dim]Generating secrets...[/dim]")
-        secrets_yml = initializer.create_secrets_file(
-            project_dir, self.project_name, app_names, addons
-        )
-
-        self.console.print(
-            f"[dim]✓ Created: {secrets_yml.relative_to(self.project_root)}[/dim]"
-        )
+        initializer.create_secrets_in_database(self.project_name, app_names, addons)
+        self.console.print("[dim]✓ Secrets saved to database[/dim]")
         addon_count = (
             sum(len(instances) for instances in addons.values()) if addons else 0
         )
@@ -235,7 +290,7 @@ class InitCommand(BaseCommand):
         """Display next steps after initialization."""
         self.console.print("\n[white]Next steps:[/white]")
         self.console.print(
-            f"  [dim]1. Edit secrets: nano projects/{self.project_name}/secrets.yml[/dim]"
+            f"  [dim]1. Edit secrets: superdeploy {self.project_name}:config:set KEY=VALUE[/dim]"
         )
         self.console.print(
             "     [yellow]→ Add DOCKER_ORG, DOCKER_USERNAME, DOCKER_TOKEN (required)[/yellow]"

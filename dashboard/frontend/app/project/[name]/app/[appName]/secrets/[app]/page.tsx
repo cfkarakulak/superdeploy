@@ -12,9 +12,10 @@ import { parseAnsi, segmentToStyle } from "@/lib/ansiParser";
 interface Secret {
   key: string;
   value: string;
-  source: "app" | "shared" | "addon";
+  source: "app" | "shared" | "addon" | "alias";
   editable: boolean;
   id?: number;
+  target_key?: string; // For aliases - points to actual secret
 }
 
 // Full Page Skeleton
@@ -67,18 +68,20 @@ const SecretsPageSkeleton = () => {
         </div>
 
         {/* Table Container */}
-        <div className="relative w-full overflow-x-auto scrollbar-thin rounded-[20px] bg-white border border-[#ebebeb] shadow-x1">
-          <table className="shadow-table min-h-[92px] w-full min-w-max border-collapse">
+        <div className="relative w-full rounded-[20px] bg-white border border-[#ebebeb] shadow-x1">
+          <table className="shadow-table min-h-[92px] w-full border-collapse table-fixed">
             <thead>
               <tr className="border-none">
-                <th className="bg-white px-3 py-3 text-left" style={{ width: "300px" }}>
+                <th className="bg-white px-3 py-3 text-left" style={{ width: "60%" }}>
                   <div className="flex items-center">
                     <div className="w-[16px] h-[16px] bg-[#eef2f5] rounded skeleton-animated mr-4 ml-1" />
                     <div className="w-[40px] h-[14px] bg-[#eef2f5] rounded skeleton-animated" />
                   </div>
                 </th>
-                <th className="bg-white px-3 py-3 text-left">
+                <th className="bg-white px-3 py-3 text-left" style={{ width: "30%" }}>
                   <div className="w-[50px] h-[14px] bg-[#eef2f5] rounded skeleton-animated" />
+                </th>
+                <th className="bg-white px-3 py-3 text-left" style={{ width: "10%" }}>
                 </th>
               </tr>
             </thead>
@@ -90,17 +93,16 @@ const SecretsPageSkeleton = () => {
                     index !== 9 ? "border-b border-[#f0f0f0]" : ""
                   }`}
                 >
-                  <td className="px-3 py-3" style={{ width: "300px" }}>
+                  <td className="px-3 py-3" style={{ width: "60%" }}>
                     <div className="flex items-center">
                       <div className="w-[16px] h-[16px] bg-[#eef2f5] rounded skeleton-animated mr-4 ml-1" />
-                      <div className="flex items-center gap-3">
-                        <div className="w-[16px] h-[16px] bg-[#eef2f5] rounded skeleton-animated" />
-                        <div className="w-[120px] h-[16px] bg-[#eef2f5] rounded skeleton-animated" />
-                      </div>
+                      <div className="w-[120px] h-[16px] bg-[#eef2f5] rounded skeleton-animated" />
                     </div>
                   </td>
-                  <td className="px-3 py-3">
-                    <div className="w-[180px] h-[16px] bg-[#eef2f5] rounded skeleton-animated" />
+                  <td className="px-3 py-3" style={{ width: "30%" }}>
+                    <div className="w-[50px] h-[20px] bg-[#eef2f5] rounded skeleton-animated" />
+                  </td>
+                  <td className="px-3 py-3" style={{ width: "10%" }}>
                   </td>
                 </tr>
               ))}
@@ -115,7 +117,7 @@ const SecretsPageSkeleton = () => {
 export default function SecretsPage() {
   const params = useParams();
   const projectName = params?.name as string;
-  const appName = params?.app as string;
+  const appName = (params?.app || params?.appName) as string;
 
   const [configVars, setSecrets] = useState<Secret[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,6 +140,10 @@ export default function SecretsPage() {
   const [syncLogs, setSyncLogs] = useState<string>("");
   const [syncing, setSyncing] = useState(false);
   const syncLogsEndRef = useRef<HTMLDivElement>(null);
+  
+  // Alias modal states
+  const [aliasModalOpen, setAliasModalOpen] = useState(false);
+  const [viewingAlias, setViewingAlias] = useState<Secret | null>(null);
 
 
   // Auto-scroll to bottom when logs update
@@ -175,7 +181,24 @@ export default function SecretsPage() {
       );
       if (!response.ok) throw new Error("Failed to fetch config vars");
       const data = await response.json();
-      setSecrets(data.secrets || []);
+      
+      // Filter out addon secrets (they're shown in addon detail page)
+      // Then sort: app, shared, alias
+      const sourceOrder: Record<string, number> = {
+        app: 1,
+        shared: 2,
+        alias: 3,
+      };
+      
+      const filteredAndSorted = (data.secrets || [])
+        .filter((s: Secret) => s.source !== 'addon') // Remove addon secrets
+        .sort((a: Secret, b: Secret) => {
+          const orderA = sourceOrder[a.source] || 5;
+          const orderB = sourceOrder[b.source] || 5;
+          return orderA - orderB;
+        });
+      
+      setSecrets(filteredAndSorted);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -229,9 +252,15 @@ export default function SecretsPage() {
   };
 
   const openEditModal = (secret: Secret) => {
-    setEditingSecret(secret);
-    setEditValue(secret.value);
-    setEditModalOpen(true);
+    // If it's an alias, open alias modal instead
+    if (secret.source === 'alias') {
+      setViewingAlias(secret);
+      setAliasModalOpen(true);
+    } else {
+      setEditingSecret(secret);
+      setEditValue(secret.value);
+      setEditModalOpen(true);
+    }
   };
 
   const openDeleteModal = (secret: Secret) => {
@@ -369,7 +398,7 @@ export default function SecretsPage() {
     }
   };
   const maskValue = (value: string) => {
-    return "•".repeat(Math.min(value.length, 20));
+    return "•••";
   };
 
   return (
@@ -394,55 +423,57 @@ export default function SecretsPage() {
           />
 
           {/* Environment Selector and Add Button */}
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-[#777] font-light tracking-[0.03em] block">Environment:</label>
-              <div className="min-w-[200px]">
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-1">
+              <div>
                 <DropdownMenu.Root>
-                  <DropdownMenu.Trigger className="bg-white user-select-none border border-[#0000001f] shadow-x1 relative flex h-8 w-auto items-center justify-between px-2 pr-[22px] py-2 rounded-[10px] cursor-pointer outline-none group">
-                    <span className="capitalize text-[11px] tracking-[0.03em] font-light text-[#141414] user-select-none">{selectedEnvironment}</span>
-                    <ChevronDown className="top-[10px] right-[9px] absolute w-3 h-3 text-black transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                  <DropdownMenu.Trigger className="border border-[#e3e8ee] hover:bg-[#f6f8fa] user-select-none relative flex items-center justify-between px-4 pr-8 py-2 rounded-[10px] cursor-pointer outline-none group w-auto">
+                    <span className="capitalize text-[13px] tracking-[0.03em] font-light text-[#0a0a0a] user-select-none">{selectedEnvironment}</span>
+                    <ChevronDown className="absolute right-3 w-3.5 h-3.5 text-[#8b8b8b] transition-transform duration-200 group-data-[state=open]:rotate-180" />
                   </DropdownMenu.Trigger>
 
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content
-                      align="start"
-                      className="min-w-[200px] bg-white rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.15)] p-1 animate-[slide-fade-in-vertical_0.2s_ease-out] distance-8 z-[100]"
-                      sideOffset={5}
-                    >
-                      {[
-                        { value: 'production', label: 'Production' },
-                        { value: 'staging', label: 'Staging' }
-                      ].map((env) => (
-                        <DropdownMenu.Item
-                          key={env.value}
-                          onClick={() => setSelectedEnvironment(env.value)}
-                          className="flex items-center justify-between px-3 py-2 rounded hover:bg-[#f6f8fa] outline-none cursor-pointer"
-                        >
-                          <span className="text-[11px] text-[#111] font-light tracking-[0.03em]">{env.label}</span>
-                          {selectedEnvironment === env.value && (
-                            <Check className="w-3.5 h-3.5 text-[#374046]" strokeWidth={2.5} />
-                          )}
-                        </DropdownMenu.Item>
-                      ))}
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content
+                        align="start"
+                        className="min-w-[200px] bg-white rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.15)] p-1 animate-[slide-fade-in-vertical_0.2s_ease-out] distance-8 z-100"
+                        sideOffset={5}
+                      >
+                        {[
+                          { value: 'production', label: 'Production' },
+                          { value: 'staging', label: 'Staging' }
+                        ].map((env) => (
+                          <DropdownMenu.Item
+                            key={env.value}
+                            onClick={() => setSelectedEnvironment(env.value)}
+                            className="flex items-center justify-between px-3 py-2 rounded hover:bg-[#f6f8fa] outline-none cursor-pointer"
+                          >
+                            <span className="text-[13px] text-[#0a0a0a] font-light tracking-[0.03em]">{env.label}</span>
+                            {selectedEnvironment === env.value && (
+                              <Check className="w-3.5 h-3.5 text-[#0a0a0a]" strokeWidth={2.5} />
+                            )}
+                          </DropdownMenu.Item>
+                        ))}
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu.Root>
               </div>
-            </div>
 
-            <div className="flex items-center gap-2">
               <Button 
                 onClick={handleSync} 
                 icon={<RefreshCw className="w-3.5 h-3.5" />}
-                className="bg-[#e8f4fd]! text-[#1e88e5]! hover:bg-[#d0e9f9]!"
+                className="bg-[#fed7aa]! text-[#9a3412]! hover:bg-[#fdba74]!"
               >
                 Sync Secrets
               </Button>
-            <Button onClick={openAddModal} icon={<Plus className="w-3.5 h-3.5" />}>
+            </div>
+
+            <Button 
+              onClick={openAddModal} 
+              icon={<Plus className="w-3.5 h-3.5" />}
+              className="shrink-0"
+            >
               Add New Secret
             </Button>
-            </div>
           </div>
 
           {/* Secrets Table */}
@@ -456,6 +487,7 @@ export default function SecretsPage() {
             </div>
           ) : (
             <Table
+              tableFixed={true}
               bulkActionsBar={
                 selectedItems.size > 0 ? (
                   <div className="flex items-center justify-between w-full">
@@ -479,25 +511,41 @@ export default function SecretsPage() {
                 columns={[
                   {
                     title: "Key",
-                    width: "300px",
+                    width: "60%",
                     render: (item: Item) => (
-                      <div className="flex items-center gap-3">
-                        <Lock className="w-4 h-4 text-[#8b8b8b]" />
-                        <code className="text-[13px] font-mono text-[#222]">{item.data.key}</code>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Lock className="w-4 h-4 text-[#8b8b8b] shrink-0" />
+                        <code className="text-[13px] font-mono text-[#111] truncate">{item.data.key}</code>
                       </div>
                     ),
                   },
                   {
-                    title: "Value",
-                    render: (item: Item) => (
-                      <code className="text-[13px] font-mono text-[#8b8b8b]">
-                        {maskValue(item.data.value)}
-                      </code>
-                    ),
+                    title: "Type",
+                    width: "30%",
+                    render: (item: Item) => {
+                      const sourceColors = {
+                        shared: "bg-[#dbeafe] text-[#1e40af]",
+                        app: "bg-[#dcfce7] text-[#15803d]",
+                        addon: "bg-[#e0e7ff] text-[#4338ca]",
+                        alias: "bg-[#fed7aa] text-[#9a3412]",
+                      };
+                      const sourceLabels = {
+                        shared: "Shared",
+                        app: "App",
+                        addon: "Addon",
+                        alias: "Alias",
+                      };
+                      const source = item.data.source || "app";
+                      return (
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] tracking-[0.03em] font-light ${sourceColors[source as keyof typeof sourceColors]}`}>
+                          {sourceLabels[source as keyof typeof sourceLabels]}
+                        </span>
+                      );
+                    },
                   },
                   {
                     title: "",
-                    width: "60px",
+                    width: "10%",
                     render: (item: Item) => (
                       <div className="flex items-center justify-end">
                         {item.data.editable && (
@@ -744,6 +792,61 @@ export default function SecretsPage() {
               disabled={syncing}
             >
               {syncing ? "Syncing..." : "Close"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Alias View Modal */}
+      <Dialog open={aliasModalOpen} onOpenChange={setAliasModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              <code className="font-mono">{viewingAlias?.key}</code>
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {viewingAlias?.target_key && (
+              <div>
+                <label className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light block mb-2">Points To</label>
+                <code className="block text-[13px] font-mono bg-[#fff8e1] px-3 py-2.5 rounded-[10px] text-[#795548] break-all">
+                  {viewingAlias.target_key}
+                </code>
+              </div>
+            )}
+            
+            <div>
+              <label className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light block mb-2">Resolved Value (Read-only)</label>
+              <code className="block text-[13px] font-mono bg-[#f6f8fa] px-3 py-2.5 rounded-[10px] text-[#0a0a0a] break-all">
+                {viewingAlias?.value}
+              </code>
+            </div>
+            
+            <div className="bg-[#e0f2fe] rounded-[10px] p-3">
+              <p className="text-[11px] tracking-[0.03em] font-light text-[#075985]">
+                <strong className="font-medium">Alias:</strong> This is an alias that points to another secret. The value is resolved automatically from the target secret. To manage aliases, visit the Aliases page.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setAliasModalOpen(false)}
+            >
+              Close
+            </Button>
+            <Button
+              onClick={() => {
+                if (viewingAlias) {
+                  openDeleteModal(viewingAlias);
+                  setAliasModalOpen(false);
+                }
+              }}
+              className="bg-[#ef4444]! hover:bg-[#dc2626]! text-white!"
+            >
+              Delete Alias
             </Button>
           </DialogFooter>
         </DialogContent>

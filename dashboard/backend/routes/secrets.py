@@ -1,74 +1,117 @@
-"""Secret management routes."""
+"""Secret management routes - Database-backed."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from utils.cli import get_cli
+from sqlalchemy.orm import Session
+from database import get_db
+from models import Secret, SecretAlias
 
 router = APIRouter(tags=["secrets"])
 
 
-# Secrets Management (CLI-based, Real-time)
-
-
+# Request/Response Models
 class SecretUpdateRequest(BaseModel):
     key: str
     value: str
+
+
+class AliasUpdateRequest(BaseModel):
+    alias_key: str
+    target_key: str
 
 
 @router.get("/secrets/{project_name}/{app_name}")
 async def get_app_secrets(
     project_name: str,
     app_name: str,
+    environment: str = "production",
+    db: Session = Depends(get_db),
 ):
     """
-    Get secrets for an app (Heroku-like).
+    Get secrets for an app from database.
 
-    Returns app-specific and shared secrets from secrets.yml via CLI.
-    Also returns addon secrets with proper prefixes.
+    Returns merged secrets: shared + addon + app-specific + resolved aliases.
     """
     try:
-        cli = get_cli()
+        secrets_list = []
 
-        # Use CLI to get all secrets (app + shared + addon)
-        config_data = await cli.execute_json(
-            f"{project_name}:config:list", args=["--app", app_name]
+        # 1. Get shared secrets (app_name=NULL)
+        shared_secrets = (
+            db.query(Secret)
+            .filter(
+                Secret.project_name == project_name,
+                Secret.app_name.is_(None),
+                Secret.environment == environment,
+            )
+            .all()
         )
 
-        secrets = []
-
-        # Add all environment variables from CLI
-        # CLI already merges shared + app-specific + addon secrets
-        for key, value in config_data.get("variables", {}).items():
-            # Detect source based on key patterns
-            if any(
-                addon_prefix in key
-                for addon_prefix in [
-                    "DATABASE_",
-                    "RABBITMQ_",
-                    "REDIS_",
-                    "MONGODB_",
-                    "ELASTICSEARCH_",
-                ]
-            ):
-                source = "addon"
-                editable = False
-            else:
-                source = "app"
-                editable = True
-
-            secrets.append(
+        for secret in shared_secrets:
+            secrets_list.append(
                 {
-                    "key": key,
-                    "value": str(value),
-                    "source": source,
-                    "editable": editable,
+                    "key": secret.key,
+                    "value": secret.value,
+                    "source": secret.source,
+                    "editable": secret.editable,
                 }
             )
 
-        return {"app_name": app_name, "secrets": secrets}
+        # 2. Get app-specific secrets
+        app_secrets = (
+            db.query(Secret)
+            .filter(
+                Secret.project_name == project_name,
+                Secret.app_name == app_name,
+                Secret.environment == environment,
+            )
+            .all()
+        )
 
-    except HTTPException:
-        raise
+        for secret in app_secrets:
+            secrets_list.append(
+                {
+                    "key": secret.key,
+                    "value": secret.value,
+                    "source": secret.source,
+                    "editable": secret.editable,
+                }
+            )
+
+        # 3. Get aliases and resolve them
+        aliases = (
+            db.query(SecretAlias)
+            .filter(
+                SecretAlias.project_name == project_name,
+                SecretAlias.app_name == app_name,
+            )
+            .all()
+        )
+
+        for alias in aliases:
+            # Resolve alias to actual value
+            target_secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_name == project_name,
+                    Secret.key == alias.target_key,
+                    Secret.environment == environment,
+                )
+                .first()
+            )
+
+            if target_secret:
+                secrets_list.append(
+                    {
+                        "key": alias.alias_key,
+                        "value": target_secret.value,
+                        "source": "alias",
+                        "editable": True,  # Aliases are editable (can remove alias)
+                        "target_key": alias.target_key,  # Include target for frontend
+                    }
+                )
+
+        return {"app_name": app_name, "secrets": secrets_list}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -78,35 +121,49 @@ async def set_app_secret(
     project_name: str,
     app_name: str,
     secret_data: SecretUpdateRequest,
+    environment: str = "production",
+    db: Session = Depends(get_db),
 ):
     """
-    Set or update a secret for an app.
-
-    Updates secrets.yml file via CLI.
+    Set or update a secret for an app in database.
     """
     try:
-        cli = get_cli()
-
-        # Use CLI to set the secret
-        result = await cli.execute_json(
-            f"{project_name}:config:set",
-            args=["-a", app_name, secret_data.key, secret_data.value],
+        # Upsert (update or insert)
+        secret = (
+            db.query(Secret)
+            .filter(
+                Secret.project_name == project_name,
+                Secret.app_name == app_name,
+                Secret.key == secret_data.key,
+                Secret.environment == environment,
+            )
+            .first()
         )
 
-        if result.get("success"):
-            return {
-                "success": True,
-                "message": f"Secret {secret_data.key} updated for {app_name}",
-                "key": secret_data.key,
-            }
+        if secret:
+            secret.value = secret_data.value
         else:
-            raise HTTPException(
-                status_code=500, detail=result.get("error", "Failed to set secret")
+            secret = Secret(
+                project_name=project_name,
+                app_name=app_name,
+                key=secret_data.key,
+                value=secret_data.value,
+                environment=environment,
+                source="app",
+                editable=True,
             )
+            db.add(secret)
 
-    except HTTPException:
-        raise
+        db.commit()
+
+        return {
+            "success": True,
+            "message": f"Secret {secret_data.key} updated for {app_name}",
+            "key": secret_data.key,
+        }
+
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -115,36 +172,170 @@ async def delete_app_secret(
     project_name: str,
     app_name: str,
     key: str,
+    environment: str = "production",
+    db: Session = Depends(get_db),
 ):
     """
-    Delete a secret for an app.
-
-    Removes from secrets.yml file via CLI.
+    Delete a secret for an app from database.
     """
     try:
-        cli = get_cli()
-
-        # Use CLI to unset the secret
-        result = await cli.execute_json(
-            f"{project_name}:config:unset", args=["-a", app_name, key]
+        secret = (
+            db.query(Secret)
+            .filter(
+                Secret.project_name == project_name,
+                Secret.app_name == app_name,
+                Secret.key == key,
+                Secret.environment == environment,
+            )
+            .first()
         )
 
-        if result.get("success"):
-            return {
-                "success": True,
-                "message": f"Secret {key} deleted from {app_name}",
-                "key": key,
-            }
-        else:
+        if not secret:
+            raise HTTPException(status_code=404, detail="Secret not found")
+
+        if not secret.editable:
             raise HTTPException(
-                status_code=500, detail=result.get("error", "Failed to delete secret")
+                status_code=403, detail="This secret cannot be deleted (addon secret)"
             )
+
+        db.delete(secret)
+        db.commit()
+
+        return {
+            "success": True,
+            "message": f"Secret {key} deleted from {app_name}",
+            "key": key,
+        }
 
     except HTTPException:
         raise
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ============================================================================
+# Aliases Management
+# ============================================================================
+
+
+@router.get("/aliases/{project_name}/{app_name}")
+async def get_app_aliases(
+    project_name: str,
+    app_name: str,
+    db: Session = Depends(get_db),
+):
+    """Get all aliases for an app."""
+    try:
+        aliases = (
+            db.query(SecretAlias)
+            .filter(
+                SecretAlias.project_name == project_name,
+                SecretAlias.app_name == app_name,
+            )
+            .all()
+        )
+
+        return {
+            "aliases": [
+                {
+                    "alias_key": alias.alias_key,
+                    "target_key": alias.target_key,
+                    "created_at": alias.created_at.isoformat()
+                    if alias.created_at
+                    else None,
+                }
+                for alias in aliases
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/aliases/{project_name}/{app_name}")
+async def create_alias(
+    project_name: str,
+    app_name: str,
+    alias_data: AliasUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    """Create or update an alias."""
+    try:
+        # Upsert
+        alias = (
+            db.query(SecretAlias)
+            .filter(
+                SecretAlias.project_name == project_name,
+                SecretAlias.app_name == app_name,
+                SecretAlias.alias_key == alias_data.alias_key,
+            )
+            .first()
+        )
+
+        if alias:
+            alias.target_key = alias_data.target_key
+        else:
+            alias = SecretAlias(
+                project_name=project_name,
+                app_name=app_name,
+                alias_key=alias_data.alias_key,
+                target_key=alias_data.target_key,
+            )
+            db.add(alias)
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": f"Alias {alias_data.alias_key} created/updated",
+            "alias_key": alias_data.alias_key,
+            "target_key": alias_data.target_key,
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/aliases/{project_name}/{app_name}/{alias_key}")
+async def delete_alias(
+    project_name: str,
+    app_name: str,
+    alias_key: str,
+    db: Session = Depends(get_db),
+):
+    """Delete an alias."""
+    try:
+        alias = (
+            db.query(SecretAlias)
+            .filter(
+                SecretAlias.project_name == project_name,
+                SecretAlias.app_name == app_name,
+                SecretAlias.alias_key == alias_key,
+            )
+            .first()
+        )
+
+        if not alias:
+            raise HTTPException(status_code=404, detail="Alias not found")
+
+        db.delete(alias)
+        db.commit()
+
+        return {
+            "success": True,
+            "message": f"Alias {alias_key} deleted",
+            "alias_key": alias_key,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# GitHub Sync
+# ============================================================================
 
 
 @router.post("/sync/{project_name}/{app_name}")
@@ -154,26 +345,29 @@ async def sync_secrets(
     environment: str = "production",
 ):
     """
-    Sync secrets to GitHub for specific app (vars:sync --app).
-    
+    Sync secrets to GitHub for specific app.
+
+    Now reads from database (not secrets.yml).
     Streams CLI output in real-time.
     """
     from fastapi.responses import StreamingResponse
     import asyncio
-    
+
     async def stream_logs():
         try:
-            # Execute vars:sync command for specific app
+            # Execute vars:sync command (CLI now reads from database)
             process = await asyncio.create_subprocess_exec(
                 "./superdeploy.sh",
                 f"{project_name}:vars:sync",
-                "--app", app_name,
-                "--env", environment,
+                "--app",
+                app_name,
+                "--env",
+                environment,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
             )
-            
+
             # Stream output
             if process.stdout:
                 while True:
@@ -181,10 +375,10 @@ async def sync_secrets(
                     if not line:
                         break
                     yield line
-            
+
             await process.wait()
-            
+
         except Exception as e:
             yield f"\nError: {str(e)}\n".encode()
-    
+
     return StreamingResponse(stream_logs(), media_type="text/plain")

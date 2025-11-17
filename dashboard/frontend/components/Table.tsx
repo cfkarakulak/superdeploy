@@ -40,6 +40,7 @@ export interface TableProps {
   isRowSelectable?: (item: Item) => boolean;
   cellPadding?: string;
   bulkActionsBar?: React.ReactNode;
+  tableFixed?: boolean;
 }
 
 export default function Table({
@@ -56,6 +57,7 @@ export default function Table({
   isRowSelectable,
   cellPadding = "px-3 py-3",
   bulkActionsBar,
+  tableFixed = false,
 }: TableProps) {
   // Expand / Collapse State
   const [expandedKeys, setExpandedKeys] = useState<Set<string | number>>(() => {
@@ -89,6 +91,13 @@ export default function Table({
   const [selectedKeys, setSelectedKeys] = useState<Set<string | number>>(() => new Set());
   const isDetailRow = (item: Item) => item.type.endsWith("-detail");
 
+  // Call onSelectionChange when selectedKeys changes (avoid setState in render)
+  useEffect(() => {
+    if (onSelectionChange) {
+      onSelectionChange(selectedKeys);
+    }
+  }, [selectedKeys, onSelectionChange]);
+
   const toggleSelectRow = (item: Item) => {
     if (isDetailRow(item)) return;
 
@@ -105,10 +114,6 @@ export default function Table({
       } else {
         next.add(itemIdString);
         if (item.children) selectChildren(item.children, next);
-      }
-      // Call external callback if provided
-      if (onSelectionChange) {
-        onSelectionChange(next);
       }
       return next;
     });
@@ -129,11 +134,7 @@ export default function Table({
   };
 
   const deselectAll = () => {
-    const emptySelection = new Set<string | number>();
-    setSelectedKeys(emptySelection);
-    if (onSelectionChange) {
-      onSelectionChange(emptySelection);
-    }
+    setSelectedKeys(new Set<string | number>());
   };
 
   // Search state
@@ -201,11 +202,7 @@ export default function Table({
       deselectAll();
     } else {
       // Select all selectable items
-      const newSelection = new Set(allSelectableKeys);
-      setSelectedKeys(newSelection);
-      if (onSelectionChange) {
-        onSelectionChange(newSelection);
-      }
+      setSelectedKeys(new Set(allSelectableKeys));
     }
   };
 
@@ -285,7 +282,7 @@ export default function Table({
           data-depth={colIndex === 0 && item.__depth && item.__depth > 0 ? item.__depth : "0"}
         >
           {colIndex === 0 ? (
-            <div className="flex items-center">
+            <div className="flex items-center min-w-0">
               <input
                 checked={selectedKeys.has(String(item.id))}
                 onClick={(e) => {
@@ -309,15 +306,15 @@ export default function Table({
                 style={{
                   '--accent-color': '#4f46e5',
                 } as React.CSSProperties}
-                className={`mr-4 ml-1 ${
+                className={`mr-4 ml-1 shrink-0 ${
                   isRowSelectable && !isRowSelectable(item)
                     ? "opacity-50 cursor-not-allowed pointer-events-none"
                     : ""
                 }`}
               />
-              <div>{col.render(item, rowIndex)}</div>
+              <div className="min-w-0 flex-1">{col.render(item, rowIndex)}</div>
               {showCaret && item.children && (
-                <span className="ml-2">
+                <span className="ml-2 shrink-0">
                   {isExpanded(item.id) ? <ChevronDownIcon /> : <ChevronUpIcon />}
                 </span>
               )}
@@ -382,9 +379,16 @@ export default function Table({
         className={`relative w-full max-h-[620px] overflow-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent rounded-[20px] bg-white border border-[#ebebeb] shadow-x1 ${isSearchFocused || searchTerm ? "searching" : ""}`}
         onScroll={handleScroll}
       >
-        <table className="shadow-table min-h-[92px] w-full min-w-max border-collapse">
-          <thead className="sticky top-0 z-[5] after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[1px] after:bg-[#f0f0f0]">
-            {bulkActionsBar ? (
+        <table className={`shadow-table min-h-[92px] w-full border-collapse ${tableFixed ? "table-fixed" : "min-w-max"}`}>
+          {tableFixed && (
+            <colgroup>
+              {columns.map((col, idx) => (
+                <col key={`col-${idx}`} style={{ width: col.width || "auto" }} />
+              ))}
+            </colgroup>
+          )}
+          <thead className="sticky top-0 z-5 after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-[#f0f0f0]">
+            {bulkActionsBar && (
               <tr className="border-none">
                 <th
                   colSpan={columns.length}
@@ -403,58 +407,57 @@ export default function Table({
                       style={{
                         '--accent-color': '#4f46e5',
                       } as React.CSSProperties}
-                      className="cursor-pointer"
+                      className="cursor-pointer shrink-0"
                     />
                     {bulkActionsBar}
                   </div>
                 </th>
               </tr>
-            ) : (
-              <tr className="border-none">
-                {columns.map((col, colIndex) => (
-                  <th
-                    key={`header-${colIndex}`}
-                    className="bg-white px-3 py-3 text-left sticky top-0"
-                    style={{
-                      width: col.width || "auto",
-                      willChange: col.sticky ? "transform" : "auto",
-                    }}
-                    data-sticky={col.sticky ? "true" : "false"}
-                  >
-                    {colIndex === 0 ? (
-                      <div className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={isAllSelected}
-                          ref={(el) => {
-                            if (el) {
-                              el.indeterminate = isSomeSelected;
-                            }
-                          }}
-                          onChange={toggleSelectAll}
-                          disabled={allSelectableKeys.size === 0}
-                          style={{
-                            '--accent-color': '#4f46e5',
-                          } as React.CSSProperties}
-                          className={`mr-4 ml-1 ${
-                            allSelectableKeys.size === 0
-                              ? "opacity-50 cursor-not-allowed"
-                              : "cursor-pointer"
-                          }`}
-                        />
-                        <span className="text-[13px] tracking-[0.02em] font-light text-[#8b8b8b]">
-                          {col.title}
-                        </span>
-                      </div>
-                    ) : (
+            )}
+            <tr className={`border-none ${bulkActionsBar ? "hidden" : ""}`}>
+              {columns.map((col, colIndex) => (
+                <th
+                  key={`header-${colIndex}`}
+                  className="bg-white px-3 py-3 text-left sticky top-0"
+                  style={{
+                    width: col.width || "auto",
+                    willChange: col.sticky ? "transform" : "auto",
+                  }}
+                  data-sticky={col.sticky ? "true" : "false"}
+                >
+                  {colIndex === 0 ? (
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={isAllSelected}
+                        ref={(el) => {
+                          if (el) {
+                            el.indeterminate = isSomeSelected;
+                          }
+                        }}
+                        onChange={toggleSelectAll}
+                        disabled={allSelectableKeys.size === 0}
+                        style={{
+                          '--accent-color': '#4f46e5',
+                        } as React.CSSProperties}
+                        className={`mr-4 ml-1 shrink-0 ${
+                          allSelectableKeys.size === 0
+                            ? "opacity-50 cursor-not-allowed"
+                            : "cursor-pointer"
+                        }`}
+                      />
                       <span className="text-[13px] tracking-[0.02em] font-light text-[#8b8b8b]">
                         {col.title}
                       </span>
-                    )}
-                  </th>
-                ))}
-              </tr>
-            )}
+                    </div>
+                  ) : (
+                    <span className="text-[13px] tracking-[0.02em] font-light text-[#8b8b8b]">
+                      {col.title}
+                    </span>
+                  )}
+                </th>
+              ))}
+            </tr>
           </thead>
           <tbody>
             {flattenedData.map((item, index) => {

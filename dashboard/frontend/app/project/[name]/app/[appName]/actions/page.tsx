@@ -158,13 +158,13 @@ export default function AppGitHubPage() {
             {workflows.slice(0, 6).map((run) => (
               <div
                 key={run.id}
-                onClick={() => router.push(`/project/${projectName}/app/${appName}/github/${run.id}`)}
+                onClick={() => router.push(`/project/${projectName}/app/${appName}/actions/${run.id}`)}
                 className="p-5 border border-[#e3e8ee] hover:border-[#b9c1c6] rounded-lg cursor-pointer"
               >
                 {/* Header: Status + Title */}
                 <div className="flex items-start gap-3 mb-4">
                   {/* Status Icon */}
-                  <div className="flex-shrink-0 mt-2">
+                  <div className="shrink-0 mt-2">
                     {run.conclusion === "success" ? (
                       <div className="w-2 h-2 rounded-full bg-green-500"></div>
                     ) : run.conclusion === "failure" ? (

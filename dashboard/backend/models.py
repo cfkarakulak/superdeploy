@@ -8,6 +8,8 @@ from sqlalchemy import (
     DateTime,
     UniqueConstraint,
     JSON,
+    Text,
+    Boolean,
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -85,3 +87,46 @@ class DeploymentHistory(Base):
     )  # Commit message, files changed, etc. (renamed from metadata to avoid SQLAlchemy reserved word)
 
     project = relationship("Project")
+
+
+class Secret(Base):
+    """Secret storage (replaces secrets.yml)."""
+
+    __tablename__ = "secrets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_name = Column(String(100), nullable=False, index=True)
+    app_name = Column(String(100), nullable=True, index=True)  # NULL = shared secret
+    key = Column(String(255), nullable=False)
+    value = Column(Text, nullable=False)  # Plain text storage
+    environment = Column(String(50), default="production", nullable=False)
+    source = Column(String(50), default="app", nullable=False)  # app/shared/addon
+    editable = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "project_name", "app_name", "key", "environment", name="uix_secret"
+        ),
+    )
+
+
+class SecretAlias(Base):
+    """Secret aliases (replaces env_aliases in secrets.yml)."""
+
+    __tablename__ = "secret_aliases"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_name = Column(String(100), nullable=False, index=True)
+    app_name = Column(String(100), nullable=False, index=True)
+    alias_key = Column(String(255), nullable=False)  # e.g. DB_HOST
+    target_key = Column(String(255), nullable=False)  # e.g. postgres.primary.HOST
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "project_name", "app_name", "alias_key", name="uix_secret_alias"
+        ),
+    )

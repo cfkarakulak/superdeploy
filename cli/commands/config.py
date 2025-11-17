@@ -31,8 +31,9 @@ class ConfigSetCommand(ProjectCommand):
         self.no_sync = no_sync
 
     def execute(self) -> None:
-        """Execute config:set command."""
+        """Execute config:set command - Database-backed."""
         from cli.logger import DeployLogger
+        from cli.secret_manager import SecretManager
 
         # Parse key=value
         try:
@@ -42,65 +43,38 @@ class ConfigSetCommand(ProjectCommand):
 
         self.show_header(
             title="Set Configuration",
-            subtitle="Heroku-like config management",
+            subtitle="Heroku-like config management (Database)",
             project=self.project_name,
         )
 
         logger = DeployLogger(self.project_name, "config-set", verbose=False)
 
-        secrets_file = (
-            self.project_root / "projects" / self.project_name / "secrets.yml"
+        # Step 1: Update database
+        if logger:
+            logger.step("[1/4] Updating Database")
+
+        secret_mgr = SecretManager(
+            self.project_root, self.project_name, self.environment
         )
 
-        # Step 1: Update secrets.yml
-        if logger:
-            logger.step("[1/4] Updating Local Config")
-        if logger:
-            logger.log(f"File: {secrets_file}")
+        try:
+            # Set secret in database
+            if self.app:
+                # App-specific secret
+                secret_mgr.set_app_secret(self.app, key, value)
+                location = f"app:{self.app}"
+            else:
+                # Shared secret (all apps)
+                secret_mgr.set_shared_secret(key, value)
+                location = "shared"
 
-        # Load existing secrets with proper structure
-        if secrets_file.exists():
-            with open(secrets_file) as f:
-                secrets_data = yaml.safe_load(f) or {}
-        else:
-            secrets_data = {}
-
-        # Ensure proper structure
-        if "secrets" not in secrets_data:
-            secrets_data["secrets"] = {}
-        if "shared" not in secrets_data["secrets"]:
-            secrets_data["secrets"]["shared"] = {}
-
-        # Determine target location: app-specific or shared
-        if self.app:
-            # App-specific secret
-            if self.app not in secrets_data["secrets"]:
-                secrets_data["secrets"][self.app] = {}
-            target_dict = secrets_data["secrets"][self.app]
-            location = f"secrets.{self.app}"
-        else:
-            # Shared secret (all apps)
-            target_dict = secrets_data["secrets"]["shared"]
-            location = "secrets.shared"
-
-        # Store old value for logging
-        old_value = target_dict.get(key)
-
-        # Update value
-        target_dict[key] = value
-
-        # Write back with proper formatting
-        with open(secrets_file, "w") as f:
-            yaml.dump(secrets_data, f, default_flow_style=False, sort_keys=False)
-
-        if old_value:
             if logger:
-                logger.log(
-                    f"✓ Updated {key} in {location} (previous value overwritten)"
-                )
-        else:
+                logger.log(f"✓ Updated {key} in {location}")
+
+        except Exception as e:
             if logger:
-                logger.log(f"✓ Added {key} to {location}")
+                logger.log_error(f"Failed to update secret: {e}")
+            self.exit_with_error(str(e))
 
         # Step 2: Sync to GitHub
         if not self.no_sync:
@@ -335,25 +309,29 @@ class ConfigGetCommand(ProjectCommand):
 
 
 class ConfigListCommand(ProjectCommand):
-    """List all configuration variables (Heroku-like!)."""
+    """List all configuration variables - Database-backed."""
 
     def __init__(
         self,
         project_name: str,
         filter_prefix: str = None,
         app: str = None,
+        environment: str = "production",
         verbose: bool = False,
         json_output: bool = False,
     ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.filter_prefix = filter_prefix
         self.app = app
+        self.environment = environment
 
     def execute(self) -> None:
         """Execute config:list command."""
         from cli.secret_manager import SecretManager
 
-        secret_mgr = SecretManager(self.project_root, self.project_name)
+        secret_mgr = SecretManager(
+            self.project_root, self.project_name, self.environment
+        )
 
         # Get appropriate secrets
         if self.app:
@@ -472,8 +450,9 @@ class ConfigUnsetCommand(ProjectCommand):
         self.no_sync = no_sync
 
     def execute(self) -> None:
-        """Execute config:unset command."""
+        """Execute config:unset command - Database-backed."""
         from cli.logger import DeployLogger
+        from cli.secret_manager import SecretManager
 
         self.show_header(
             title="Unset Configuration",
@@ -483,23 +462,29 @@ class ConfigUnsetCommand(ProjectCommand):
 
         logger = DeployLogger(self.project_name, "config-unset", verbose=False)
 
-        secrets_file = (
-            self.project_root / "projects" / self.project_name / "secrets.yml"
+        # Step 1: Remove from database
+        if logger:
+            logger.step("[1/3] Removing from Database")
+
+        secret_mgr = SecretManager(
+            self.project_root, self.project_name, self.environment
         )
 
-        # Step 1: Remove from secrets.yml
-        if logger:
-            logger.step("[1/3] Removing from Local Config")
+        try:
+            # Delete secret from database
+            deleted = secret_mgr.delete_secret(self.app, self.key)
 
-        if not secrets_file.exists():
-            self.exit_with_error(f"{secrets_file} not found")
+            if not deleted:
+                self.exit_with_error(f"Secret '{self.key}' not found")
 
-        with open(secrets_file) as f:
-            secrets_data = yaml.safe_load(f) or {}
+            location = f"app:{self.app}" if self.app else "shared"
+            if logger:
+                logger.log(f"✓ Removed {self.key} from {location}")
 
-        # Check structure
-        if "secrets" not in secrets_data:
-            self.exit_with_error("No secrets found in secrets.yml")
+        except Exception as e:
+            if logger:
+                logger.log_error(f"Failed to delete secret: {e}")
+            self.exit_with_error(str(e))
 
         # Determine where to remove from
         if self.app:

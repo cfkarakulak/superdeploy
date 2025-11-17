@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from database import get_db
 from models import App
 from utils.cli import get_cli
@@ -10,6 +11,10 @@ import yaml
 from pathlib import Path
 
 router = APIRouter(tags=["resources"])
+
+
+class RotateCredentialRequest(BaseModel):
+    credential_key: str
 
 
 def _get_addon_credentials_from_secrets(
@@ -300,6 +305,117 @@ async def get_addon_detail(
         # Cache for 1 minute
         set_cache(cache_key, response, CACHE_TTL["status"])
         return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{project_name}/{app_name}/addon/{addon_ref:path}/rotate")
+async def rotate_addon_credential(
+    project_name: str,
+    app_name: str,
+    addon_ref: str,
+    request: RotateCredentialRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Rotate a specific credential for an addon.
+
+    This will:
+    1. Generate a new credential value
+    2. Update the addon configuration
+    3. Restart the addon container
+    4. Update the secret in database
+    5. Trigger app deployment with new env vars
+
+    Args:
+        project_name: Name of the project
+        app_name: Name of the app
+        addon_ref: Addon reference (e.g., "postgres.primary")
+        request: Request body with credential_key to rotate
+
+    Returns:
+        Success message with new credential info
+    """
+    try:
+        # Parse addon_ref
+        parts = addon_ref.split(".")
+        if len(parts) != 2:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid addon reference format: {addon_ref}"
+            )
+
+        addon_type, addon_name = parts
+
+        # Verify project and app exist
+        from models import Project
+
+        project = db.query(Project).filter(Project.name == project_name).first()
+        if not project:
+            raise HTTPException(
+                status_code=404, detail=f"Project '{project_name}' not found"
+            )
+
+        app = (
+            db.query(App)
+            .filter(App.project_id == project.id, App.name == app_name)
+            .first()
+        )
+
+        if not app:
+            raise HTTPException(status_code=404, detail=f"App '{app_name}' not found")
+
+        # Call CLI command to rotate credential
+        cli = get_cli()
+        try:
+            # Execute rotation command
+            # Format: superdeploy project:addons:rotate TYPE NAME CREDENTIAL
+            # Example: superdeploy cheapa:addons:rotate postgres primary PASSWORD
+
+            # Extract credential name from key (e.g., "POSTGRES_PRIMARY_PASSWORD" -> "PASSWORD")
+            credential_name = request.credential_key.split("_")[-1]
+
+            rotate_result = await cli.execute_json(
+                f"{project_name}:addons:rotate",
+                args=[addon_type, addon_name, credential_name],
+            )
+
+            # Clear cache for this addon
+            cache_key = f"addon_detail:{project_name}:{app_name}:{addon_ref}"
+            from cache import delete_cache
+
+            delete_cache(cache_key)
+
+            # Also clear resources cache
+            resources_cache_key = f"resources:{project_name}:{app_name}"
+            delete_cache(resources_cache_key)
+
+            return {
+                "success": True,
+                "message": f"Credential '{request.credential_key}' rotated successfully",
+                "addon_ref": addon_ref,
+                "credential": credential_name,
+            }
+
+        except Exception as cli_error:
+            # If CLI command fails, provide helpful error
+            error_msg = str(cli_error)
+            if "not found" in error_msg.lower():
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Addon '{addon_ref}' or credential '{request.credential_key}' not found",
+                )
+            elif "not implemented" in error_msg.lower():
+                raise HTTPException(
+                    status_code=501,
+                    detail=f"Credential rotation not yet implemented for {addon_type}",
+                )
+            else:
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to rotate credential: {error_msg}"
+                )
 
     except HTTPException:
         raise

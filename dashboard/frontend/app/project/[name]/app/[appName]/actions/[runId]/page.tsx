@@ -199,7 +199,7 @@ export default function WorkflowDetailPage() {
           breadcrumbs={[
             { label: appDomain || "Loading...", href: `/project/${projectName}` },
             { label: appName, href: `/project/${projectName}/app/${appName}` },
-            { label: "Workflows", href: `/project/${projectName}/app/${appName}/github` }
+            { label: "Workflows", href: `/project/${projectName}/app/${appName}/actions` }
           ]} 
           title={`${workflowRun.name} #${workflowRun.run_number}`} 
         />
@@ -209,7 +209,7 @@ export default function WorkflowDetailPage() {
           {/* Status */}
           <div className="p-5 border border-[#e3e8ee] hover:border-[#b9c1c6] rounded-lg">
             <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 mt-0.5">
+              <div className="shrink-0 mt-0.5">
                 {workflowRun.conclusion === "success" ? (
                   <div className="w-2 h-2 rounded-full bg-green-500"></div>
                 ) : workflowRun.conclusion === "failure" ? (
@@ -301,7 +301,7 @@ export default function WorkflowDetailPage() {
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   {/* Status Icon */}
-                  <div className="flex-shrink-0">
+                  <div className="shrink-0">
                     {job.conclusion === "success" ? (
                       <div className="w-2 h-2 rounded-full bg-green-500"></div>
                     ) : job.conclusion === "failure" ? (
@@ -333,7 +333,7 @@ export default function WorkflowDetailPage() {
                 </div>
                 
                 {/* Expand Icon */}
-                <div className="flex-shrink-0 ml-3">
+                <div className="shrink-0 ml-3">
                   {expandedJobs.has(job.id) ? (
                     <ChevronDown className="w-4 h-4 text-[#8b8b8b]" />
                   ) : (
@@ -359,7 +359,7 @@ export default function WorkflowDetailPage() {
                         }`}
                       >
                         {/* Status Icon */}
-                        <div className="flex-shrink-0">
+                        <div className="shrink-0">
                           {step.conclusion === "success" ? (
                             <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
                           ) : step.conclusion === "failure" ? (
@@ -374,7 +374,7 @@ export default function WorkflowDetailPage() {
                         {/* Step Info */}
                         <div className="flex-1 min-w-0 flex items-center justify-between">
                           <span className="text-[11px] text-[#0a0a0a] tracking-[0.03em] font-light truncate">{step.name}</span>
-                          <span className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light ml-3 flex-shrink-0">
+                          <span className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light ml-3 shrink-0">
                             {formatDuration(step.started_at, step.completed_at)}
                           </span>
                         </div>
