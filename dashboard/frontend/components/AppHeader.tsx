@@ -223,7 +223,7 @@ export default function AppHeader() {
   return (
     <div>
       {/* Top Bar */}
-      <div className="mb-4">
+      <div className="mb-6">
         {/* Simple Layout */}
         <div className="flex items-center gap-4">
           {/* Project Selector */}
@@ -263,7 +263,7 @@ export default function AppHeader() {
                       <DropdownMenu.Item key={project.id} asChild>
                         <Link
                           href={`/project/${project.name}`}
-                          className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md hover:bg-[#f6f8fa] outline-none cursor-pointer transition-colors ${
+                          className={`flex items-center gap-2.5 px-2.5 py-2 rounded- hover:bg-[#f6f8fa] outline-none cursor-pointer transition-colors ${
                             project.name === projectName ? "bg-[#f6f8fa]" : ""
                           }`}
                         >
@@ -371,7 +371,7 @@ export default function AppHeader() {
                         <DropdownMenu.Item key={app.name} asChild>
                           <Link
                             href={`/project/${projectName}/app/${app.name}`}
-                            className={`flex items-center gap-2 px-2.5 py-1.5 mb-1 rounded-md hover:bg-[#f6f8fa] outline-none cursor-pointer group transition-colors ${
+                            className={`flex items-center gap-2 px-2.5 py-1.5 mb-1 rounded-[10px] hover:bg-[#f6f8fa] outline-none cursor-pointer group transition-colors ${
                               app.name === appName ? "bg-[#f6f8fa]" : ""
                             }`}
                           >
@@ -433,7 +433,7 @@ export default function AppHeader() {
       {/* Navigation Menu */}
       {appName && (
         <div>
-          <nav className="mb-3 flex space-x-1 -ml-1" aria-label="Tabs">
+          <nav className="mb-1 flex space-x-1 -ml-1" aria-label="Tabs">
             {menuItems.map((item) => {
               const active = isActive(item.href);
               

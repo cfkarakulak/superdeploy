@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from database import get_db
-from models import App, Addon
+from models import App
 from utils.cli import get_cli
 import yaml
 from pathlib import Path

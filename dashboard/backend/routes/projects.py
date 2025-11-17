@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, AsyncIterator
 from database import get_db
-from models import Project, Environment, App, Addon, Secret
+from models import Project, App
 from pathlib import Path
 from utils.cli import get_cli
 import json
@@ -71,7 +71,7 @@ def list_projects(db: Session = Depends(get_db)):
 
 @router.post("/", response_model=ProjectResponse)
 def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
-    """Create a new project with default environments."""
+    """Create a new project."""
     # Check if project already exists
     existing = db.query(Project).filter(Project.name == project.name).first()
     if existing:
@@ -80,13 +80,6 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     # Create project
     db_project = Project(name=project.name)
     db.add(db_project)
-    db.flush()
-
-    # Create default environments
-    for env_name in ["production", "staging", "review"]:
-        env = Environment(name=env_name, project_id=db_project.id)
-        db.add(env)
-
     db.commit()
     db.refresh(db_project)
     return db_project
@@ -390,41 +383,60 @@ async def deploy_project(project_name: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{project_name}/vms")
-def get_project_vms(project_name: str, db: Session = Depends(get_db)):
-    """Get VMs for a project + orchestrator IP."""
-    from models import VM
+def get_project_vms(project_name: str):
+    """Get VMs for a project + orchestrator IP from CLI."""
+    import subprocess
 
-    project = db.query(Project).filter(Project.name == project_name).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    vms = db.query(VM).filter(VM.project_id == project.id).all()
-
-    # Get orchestrator IP
-    orchestrator_project = (
-        db.query(Project).filter(Project.name == "orchestrator").first()
-    )
-    orchestrator_ip = None
-    if orchestrator_project:
-        orchestrator_vm = (
-            db.query(VM)
-            .filter(VM.project_id == orchestrator_project.id, VM.name == "orchestrator")
-            .first()
+    try:
+        # Get project VMs
+        result = subprocess.run(
+            ["./superdeploy.sh", f"{project_name}:status", "--json"],
+            capture_output=True,
+            text=True,
+            cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
         )
-        if orchestrator_vm:
-            orchestrator_ip = orchestrator_vm.external_ip
 
-    return {
-        "orchestrator_ip": orchestrator_ip,
-        "vms": [
-            {
-                "name": vm.name,
-                "role": vm.role,
-                "ip": vm.external_ip,
-                "zone": vm.zone,
-                "machine_type": vm.machine_type,
-                "status": vm.status,
-            }
-            for vm in vms
-        ],
-    }
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500, detail=f"Failed to get VMs: {result.stderr}"
+            )
+
+        project_data = json.loads(result.stdout)
+
+        # Get orchestrator IP
+        orch_result = subprocess.run(
+            ["./superdeploy.sh", "orchestrator:status", "--json"],
+            capture_output=True,
+            text=True,
+            cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
+        )
+
+        orchestrator_ip = None
+        if orch_result.returncode == 0:
+            orch_data = json.loads(orch_result.stdout)
+            if orch_data.get("vms"):
+                # Find orchestrator VM
+                for vm in orch_data["vms"]:
+                    if vm.get("name") == "orchestrator":
+                        orchestrator_ip = vm.get("ip")
+                        break
+
+        return {
+            "orchestrator_ip": orchestrator_ip,
+            "vms": [
+                {
+                    "name": vm.get("name"),
+                    "role": vm.get("role"),
+                    "ip": vm.get("ip"),
+                    "zone": vm.get("zone"),
+                    "machine_type": vm.get("machine_type"),
+                    "status": vm.get("status", "unknown"),
+                }
+                for vm in project_data.get("vms", [])
+            ],
+        }
+
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse CLI output: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")

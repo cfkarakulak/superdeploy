@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 from database import SessionLocal
-from models import Project, App, VM
+from models import Project, App
 import httpx
 import asyncio
 

@@ -30,93 +30,28 @@ class Setting(Base):
 
 
 class Project(Base):
-    """Project model."""
+    """Project model - minimal metadata."""
 
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)
-    gcp_project_id = Column(String(200), nullable=True)  # GCP Project ID
-    github_org = Column(String(100), nullable=True)  # GitHub organization
     domain = Column(String(200), nullable=True)  # e.g., "cheapa.io"
-    cloud_provider = Column(String(50), default="gcp")
-    cloud_region = Column(String(100), default="us-central1")
-    cloud_zone = Column(String(100), default="us-central1-a")
+    github_org = Column(String(100), nullable=True)  # GitHub organization
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    environments = relationship(
-        "Environment", back_populates="project", cascade="all, delete-orphan"
-    )
     apps = relationship("App", back_populates="project", cascade="all, delete-orphan")
-    addons = relationship(
-        "Addon", back_populates="project", cascade="all, delete-orphan"
-    )
-    vms = relationship("VM", back_populates="project", cascade="all, delete-orphan")
+    
+    # Note: VMs, cloud provider, region, zone etc. are fetched from CLI
 
 
-class VM(Base):
-    """Virtual Machine model."""
-
-    __tablename__ = "vms"
-
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
-    name = Column(String(100), nullable=False)  # e.g., "cheapa-app-0"
-    role = Column(String(50), nullable=False)  # e.g., "app", "core"
-    external_ip = Column(String(50), nullable=True)
-    internal_ip = Column(String(50), nullable=True)
-    zone = Column(String(100), nullable=True)
-    machine_type = Column(String(100), nullable=True)
-    status = Column(String(50), default="running")
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    project = relationship("Project", back_populates="vms")
-
-    __table_args__ = (
-        UniqueConstraint("project_id", "name", name="uix_project_vm_name"),
-    )
+# VM table removed - use CLI `project:status --json` instead
 
 
-class Environment(Base):
-    """Environment model (production, staging, review)."""
-
-    __tablename__ = "environments"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(50), nullable=False)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    project = relationship("Project", back_populates="environments")
-    secrets = relationship(
-        "Secret", back_populates="environment", cascade="all, delete-orphan"
-    )
-
-    __table_args__ = (
-        UniqueConstraint("project_id", "name", name="uix_project_environment"),
-    )
+# Environment table removed - use hardcoded ["production", "staging"] instead
 
 
-class Secret(Base):
-    """Secret model."""
-
-    __tablename__ = "secrets"
-
-    id = Column(Integer, primary_key=True, index=True)
-    environment_id = Column(Integer, ForeignKey("environments.id", ondelete="CASCADE"))
-    app = Column(
-        String(100), nullable=False, index=True
-    )  # shared, api, services, storefront
-    key = Column(String(255), nullable=False, index=True)
-    value = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    environment = relationship("Environment", back_populates="secrets")
-
-    __table_args__ = (
-        UniqueConstraint("environment_id", "app", "key", name="uix_env_app_key"),
-    )
+# Secret table removed - use CLI `project:config:list/set/unset` instead
 
 
 class ActivityLog(Base):
@@ -139,41 +74,17 @@ class ActivityLog(Base):
     project = relationship("Project")
 
 
-class MetricsCache(Base):
-    """Cached container metrics for performance."""
-
-    __tablename__ = "metrics_cache"
-
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
-    vm_name = Column(String(100), nullable=False, index=True)
-    container_name = Column(String(200), nullable=False, index=True)
-    cpu_percent = Column(Float, nullable=True)
-    memory_usage = Column(String(50), nullable=True)  # e.g., "256MB / 512MB"
-    memory_percent = Column(Float, nullable=True)
-    network_rx = Column(String(50), nullable=True)  # e.g., "1.2GB"
-    network_tx = Column(String(50), nullable=True)  # e.g., "850MB"
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-
-    project = relationship("Project")
+# MetricsCache table removed - use Prometheus real-time queries instead
 
 
 class App(Base):
-    """Application model."""
+    """Application model - minimal metadata for GitHub integration."""
 
     __tablename__ = "apps"
 
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
     name = Column(String(100), nullable=False, index=True)
-    type = Column(String(50), nullable=False)  # web, worker, cron
-    vm = Column(String(100), nullable=True)  # VM name reference (not FK for simplicity)
-    domain = Column(String(255), nullable=True)
-    port = Column(Integer, nullable=True)
-    dockerfile_path = Column(String(255), nullable=True)
-    processes = Column(
-        JSON, nullable=True
-    )  # {"web": {"command": "...", "replicas": 1}}
     repo = Column(String(255), nullable=True)  # GitHub repo name
     owner = Column(String(255), nullable=True)  # GitHub owner/organization
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -181,33 +92,12 @@ class App(Base):
     project = relationship("Project", back_populates="apps")
 
     __table_args__ = (UniqueConstraint("project_id", "name", name="uix_project_app"),)
+    
+    # Note: All other app data (type, vm, domain, port, processes, etc.) 
+    # is fetched from CLI: `project:status -a app --json`
 
 
-class Addon(Base):
-    """Addon model (postgres, redis, etc)."""
-
-    __tablename__ = "addons"
-
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
-    name = Column(String(100), nullable=False, index=True)
-    type = Column(String(50), nullable=False)  # postgres, redis, rabbitmq, etc
-    category = Column(String(50), nullable=False)  # databases, caches, queues
-    version = Column(String(50), nullable=True)  # e.g., "15-alpine", "7-alpine"
-    vm = Column(String(100), nullable=True)  # VM name reference
-    plan = Column(String(50), default="standard")
-    status = Column(String(50), default="running")
-    credentials = Column(JSON, nullable=True)  # Stored credentials
-    attachments = Column(
-        JSON, nullable=True
-    )  # [{"app_name": "api", "as_prefix": "DATABASE"}]
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    project = relationship("Project", back_populates="addons")
-
-    __table_args__ = (
-        UniqueConstraint("project_id", "category", "name", name="uix_project_addon"),
-    )
+# Addon table removed - use CLI `project:status -a app --json` instead
 
 
 class DeploymentHistory(Base):
