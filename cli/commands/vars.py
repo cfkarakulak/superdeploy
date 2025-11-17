@@ -242,23 +242,34 @@ def remove_github_env_secrets(repo, environment, secret_names, console):
 
 
 class VarsClearCommand(ProjectCommand):
-    """Clear ALL GitHub secrets and variables."""
+    """Clear GitHub secrets and variables (all or specific keys)."""
 
     def __init__(
         self,
         project_name: str,
         environment: str = "production",
+        app: str = None,
+        keys: list = None,
         verbose: bool = False,
+        json_output: bool = False,
     ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.environment = environment
+        self.app_filter = app
+        self.keys_to_delete = keys or []
 
     def execute(self) -> None:
         """Execute vars:clear command."""
+        # Determine if we're clearing specific keys or all
+        if self.keys_to_delete:
+            subtitle = f"Remove {len(self.keys_to_delete)} secret(s)"
+        else:
+            subtitle = "Remove all secrets and variables"
+
         self.show_header(
             title=f"Clear GitHub Secrets ({self.environment})",
             project=self.project_name,
-            subtitle="Remove all secrets and variables",
+            subtitle=subtitle,
         )
 
         # Load config
@@ -284,42 +295,94 @@ class VarsClearCommand(ProjectCommand):
             self.console.print("Install: https://cli.github.com/")
             return
 
-        self.console.print(
-            "\n[bold cyan]🧹 Clearing GitHub Secrets & Variables[/bold cyan]\n"
-        )
+        if self.keys_to_delete:
+            self.console.print(
+                f"\n[bold cyan]🧹 Removing {len(self.keys_to_delete)} GitHub Secret(s)[/bold cyan]\n"
+            )
+        else:
+            self.console.print(
+                "\n[bold cyan]🧹 Clearing ALL GitHub Secrets & Variables[/bold cyan]\n"
+            )
 
-        # Process each app
-        for app_name, app_config in config.get("apps", {}).items():
+        # Process each app (or specific app if filtered)
+        apps_to_process = {}
+        if self.app_filter:
+            if self.app_filter in config.get("apps", {}):
+                apps_to_process[self.app_filter] = config["apps"][self.app_filter]
+            else:
+                self.console.print(
+                    f"[red]❌ App '{self.app_filter}' not found in config![/red]"
+                )
+                return
+        else:
+            apps_to_process = config.get("apps", {})
+
+        total_removed = 0
+        total_failed = 0
+
+        for app_name, app_config in apps_to_process.items():
             repo = f"{github_org}/{app_name}"
             self.console.print(f"[yellow]📦 {repo}[/yellow]")
 
-            # Clear repository secrets
-            repo_secrets = list_github_repo_secrets(repo, self.console)
-            if repo_secrets:
-                self.console.print(f"  Found {len(repo_secrets)} repository secrets")
+            if self.keys_to_delete:
+                # Clear only specific keys from both repo and environment
+                # Clear from repository secrets
                 success, fail = remove_github_repo_secrets(
-                    repo, repo_secrets, self.console
+                    repo, self.keys_to_delete, self.console
                 )
-                self.console.print(
-                    f"  [dim]→ {success} repo secrets removed, {fail} failed[/dim]"
-                )
+                total_removed += success
+                total_failed += fail
 
-            # Clear environment secrets
-            env_secrets = list_github_env_secrets(repo, self.environment, self.console)
-            if env_secrets:
-                self.console.print(
-                    f"  Found {len(env_secrets)} {self.environment} environment secrets"
-                )
+                # Clear from environment secrets
                 success, fail = remove_github_env_secrets(
-                    repo, self.environment, env_secrets, self.console
+                    repo, self.environment, self.keys_to_delete, self.console
                 )
-                self.console.print(
-                    f"  [dim]→ {success} {self.environment} secrets removed, {fail} failed[/dim]"
+                total_removed += success
+                total_failed += fail
+            else:
+                # Clear ALL secrets
+                # Clear repository secrets
+                repo_secrets = list_github_repo_secrets(repo, self.console)
+                if repo_secrets:
+                    self.console.print(
+                        f"  Found {len(repo_secrets)} repository secrets"
+                    )
+                    success, fail = remove_github_repo_secrets(
+                        repo, repo_secrets, self.console
+                    )
+                    total_removed += success
+                    total_failed += fail
+                    self.console.print(
+                        f"  [dim]→ {success} repo secrets removed, {fail} failed[/dim]"
+                    )
+
+                # Clear environment secrets
+                env_secrets = list_github_env_secrets(
+                    repo, self.environment, self.console
                 )
+                if env_secrets:
+                    self.console.print(
+                        f"  Found {len(env_secrets)} {self.environment} environment secrets"
+                    )
+                    success, fail = remove_github_env_secrets(
+                        repo, self.environment, env_secrets, self.console
+                    )
+                    total_removed += success
+                    total_failed += fail
+                    self.console.print(
+                        f"  [dim]→ {success} {self.environment} secrets removed, {fail} failed[/dim]"
+                    )
 
             self.console.print()
 
-        self.console.print("\n[green]✅ Clear complete![/green]")
+        if total_removed > 0:
+            self.console.print(
+                f"\n[green]✅ Successfully removed {total_removed} secret(s)![/green]"
+            )
+        if total_failed > 0:
+            self.console.print(
+                f"[yellow]⚠️  Failed to remove {total_failed} secret(s)[/yellow]"
+            )
 
 
 class VarsSyncCommand(ProjectCommand):
@@ -329,10 +392,13 @@ class VarsSyncCommand(ProjectCommand):
         self,
         project_name: str,
         environment: str = "production",
+        app: str = None,
         verbose: bool = False,
+        json_output: bool = False,
     ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.environment = environment
+        self.app_filter = app
 
     def execute(self) -> None:
         """Execute vars:sync command."""
@@ -348,7 +414,6 @@ class VarsSyncCommand(ProjectCommand):
         from cli.secret_manager import SecretManager
 
         if logger:
-
             logger.step("Loading project configuration")
 
         # Load config
@@ -405,8 +470,12 @@ class VarsSyncCommand(ProjectCommand):
             "[dim]These secrets are shared across all apps in the repo[/dim]\n"
         )
 
-        # Process each app
+        # Process each app (filter by --app if specified)
         for app_name, app_config in config.get("apps", {}).items():
+            # Skip if app filter is set and doesn't match
+            if self.app_filter and app_name != self.app_filter:
+                continue
+
             repo = f"{github_org}/{app_name}"
             self.console.print(f"[cyan]{repo}:[/cyan]")
 
@@ -569,24 +638,50 @@ class VarsSyncCommand(ProjectCommand):
     default="production",
     help="Target environment (production/staging)",
 )
+@click.option(
+    "-a",
+    "--app",
+    "app",
+    default=None,
+    help="Clear secrets for specific app only",
+)
+@click.option(
+    "-k",
+    "--key",
+    "keys",
+    multiple=True,
+    help="Specific secret key(s) to remove (can be used multiple times)",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
-def vars_clear(project, environment, verbose, json_output):
+def vars_clear(project, environment, app, keys, verbose, json_output):
     """
-    Clear ALL GitHub secrets and variables
+    Clear GitHub secrets and variables
 
     This will remove:
-    - All repository secrets
-    - All environment secrets (for specified environment)
+    - All repository secrets (default)
+    - All environment secrets for specified environment (default)
+    - Or specific keys if --key is provided
 
     Requirements:
     - gh CLI installed and authenticated
 
     Examples:
-        superdeploy cheapa:vars:clear                # Clear production
-        superdeploy cheapa:vars:clear -e staging     # Clear staging
+        superdeploy cheapa:vars:clear                           # Clear all secrets
+        superdeploy cheapa:vars:clear -e staging                # Clear all staging secrets
+        superdeploy cheapa:vars:clear -a api                    # Clear all secrets for 'api' app
+        superdeploy cheapa:vars:clear -k DATABASE_URL           # Remove DATABASE_URL
+        superdeploy cheapa:vars:clear -k KEY1 -k KEY2           # Remove multiple keys
+        superdeploy cheapa:vars:clear -a api -k DATABASE_URL   # Remove from specific app
     """
-    cmd = VarsClearCommand(project, environment=environment, verbose=verbose, json_output=json_output)
+    cmd = VarsClearCommand(
+        project,
+        environment=environment,
+        app=app,
+        keys=list(keys) if keys else None,
+        verbose=verbose,
+        json_output=json_output,
+    )
     cmd.run()
 
 
@@ -598,11 +693,18 @@ def vars_clear(project, environment, verbose, json_output):
     default="production",
     help="Target environment (production/staging)",
 )
+@click.option(
+    "-a",
+    "--app",
+    "app",
+    default=None,
+    help="Sync only specific app (optional)",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
-def vars_sync(project, environment, verbose, json_output):
+def vars_sync(project, environment, app, verbose, json_output):
     """
-    Sync ALL secrets to GitHub
+    Sync secrets to GitHub
 
     - Repository secrets (Docker credentials, shared build secrets)
     - Environment secrets (per-app secrets for production/staging)
@@ -615,8 +717,15 @@ def vars_sync(project, environment, verbose, json_output):
     Note: Use vars:clear first if you want to remove old secrets
 
     Examples:
-        superdeploy cheapa:vars:sync                    # Sync to production
-        superdeploy cheapa:vars:sync -e staging         # Sync to staging
+        superdeploy cheapa:vars:sync                    # Sync all apps to production
+        superdeploy cheapa:vars:sync -e staging         # Sync all apps to staging
+        superdeploy cheapa:vars:sync --app api          # Sync only 'api' app
     """
-    cmd = VarsSyncCommand(project, environment=environment, verbose=verbose, json_output=json_output)
+    cmd = VarsSyncCommand(
+        project,
+        environment=environment,
+        app=app,
+        verbose=verbose,
+        json_output=json_output,
+    )
     cmd.run()

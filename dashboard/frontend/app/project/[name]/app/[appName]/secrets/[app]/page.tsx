@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Lock, ChevronDown, X, Trash2, Plus, Loader2, Check } from "lucide-react";
+import { ArrowLeft, Lock, ChevronDown, X, Trash2, Plus, Loader2, Check, RefreshCw } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { AppHeader, PageHeader, Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, Table } from "@/components";
 import type { Item, TableColumn } from "@/components";
+import { parseAnsi, segmentToStyle } from "@/lib/ansiParser";
 
 interface Secret {
   key: string;
@@ -128,10 +129,23 @@ export default function SecretsPage() {
   const [editValue, setEditValue] = useState("");
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [selectedEnvironment, setSelectedEnvironment] = useState("production");
-  const [appDomain, setAppDomain] = useState<string>(projectName);
+  const [appDomain, setAppDomain] = useState<string>("");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deletingSecret, setDeletingSecret] = useState<Secret | null>(null);
+  const [selectedItems, setSelectedItems] = useState<Set<string | number>>(new Set());
+  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncLogs, setSyncLogs] = useState<string>("");
+  const [syncing, setSyncing] = useState(false);
+  const syncLogsEndRef = useRef<HTMLDivElement>(null);
 
+
+  // Auto-scroll to bottom when logs update
+  useEffect(() => {
+    if (syncModalOpen && syncLogs) {
+      syncLogsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [syncLogs, syncModalOpen]);
   // Fetch app domain
   useEffect(() => {
     const fetchAppInfo = async () => {
@@ -279,6 +293,81 @@ export default function SecretsPage() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedItems.size === 0) return;
+
+    try {
+      const selectedKeys = Array.from(selectedItems);
+      const editableSecrets = configVars.filter(
+        (s) => s.editable && selectedKeys.includes(s.key)
+      );
+
+      if (editableSecrets.length === 0) {
+        alert("No editable secrets selected");
+        return;
+      }
+
+      // Delete all selected secrets
+      await Promise.all(
+        editableSecrets.map((secret) =>
+          fetch(
+            `http://localhost:8401/api/secrets/secrets/${projectName}/${appName}/${secret.key}?environment=${selectedEnvironment}`,
+            { method: "DELETE" }
+          )
+        )
+      );
+
+      setBulkDeleteModalOpen(false);
+      setSelectedItems(new Set());
+      await fetchSecrets();
+      alert(`${editableSecrets.length} config var(s) deleted successfully. Containers are restarting...`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete config vars");
+    }
+  };
+
+  const stripAnsi = (str: string) => {
+    return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncLogs("");
+    setSyncModalOpen(true);
+
+    try {
+      const response = await fetch(
+        `http://localhost:8401/api/secrets/sync/${projectName}/${appName}?environment=${selectedEnvironment}`,
+        { method: "POST" }
+      );
+
+      if (!response.ok) {
+        const error = await response.text();
+        setSyncLogs(prev => prev + `\nError: ${error}`);
+        return;
+      }
+
+      // Stream the logs
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value);
+          setSyncLogs(prev => prev + chunk);
+        }
+      }
+
+      await fetchSecrets();
+    } catch (err) {
+      setSyncLogs(prev => prev + `\nError: ${err instanceof Error ? err.message : "Failed to sync"}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
   const maskValue = (value: string) => {
     return "•".repeat(Math.min(value.length, 20));
   };
@@ -297,7 +386,7 @@ export default function SecretsPage() {
         <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
           <PageHeader
             breadcrumbs={[
-              { label: appDomain || projectName, href: `/project/${projectName}` },
+              { label: appDomain || "Loading...", href: `/project/${projectName}` },
               { label: appName, href: `/project/${projectName}/app/${appName}` },
             ]}
             menuLabel="Secrets"
@@ -318,7 +407,7 @@ export default function SecretsPage() {
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content
                       align="start"
-                      className="min-w-[200px] bg-white rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.15)] p-1 animate-[slide-fade-in-vertical_0.2s_ease-out] distance-8"
+                      className="min-w-[200px] bg-white rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.15)] p-1 animate-[slide-fade-in-vertical_0.2s_ease-out] distance-8 z-[100]"
                       sideOffset={5}
                     >
                       {[
@@ -342,9 +431,18 @@ export default function SecretsPage() {
               </div>
             </div>
 
+            <div className="flex items-center gap-2">
+              <Button 
+                onClick={handleSync} 
+                icon={<RefreshCw className="w-3.5 h-3.5" />}
+                className="bg-[#e8f4fd]! text-[#1e88e5]! hover:bg-[#d0e9f9]!"
+              >
+                Sync Secrets
+              </Button>
             <Button onClick={openAddModal} icon={<Plus className="w-3.5 h-3.5" />}>
               Add New Secret
             </Button>
+            </div>
           </div>
 
           {/* Secrets Table */}
@@ -358,59 +456,81 @@ export default function SecretsPage() {
             </div>
           ) : (
             <Table
-              columns={[
-                {
-                  title: "Key",
-                  width: "300px",
-                  render: (item: Item) => (
-                    <div className="flex items-center gap-3">
-                      <Lock className="w-4 h-4 text-[#8b8b8b]" />
-                      <code className="text-[13px] font-mono text-[#374046]">{item.data.key}</code>
+              bulkActionsBar={
+                selectedItems.size > 0 ? (
+                  <div className="flex items-center justify-between w-full">
+                    <span className="text-[13px] text-[#374046] font-normal">
+                      {selectedItems.size} selected
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<Trash2 className="w-3.5 h-3.5" />}
+                        onClick={() => setBulkDeleteModalOpen(true)}
+                        className="bg-[#fef2f2]! text-[#ef4444]! hover:bg-[#fee2e2]! hover:text-[#ef4444]!"
+                      >
+                        Delete
+                      </Button>
                     </div>
-                  ),
-                },
-                {
-                  title: "Value",
-                  render: (item: Item) => (
-                    <code className="text-[13px] font-mono text-[#8b8b8b]">
-                      {maskValue(item.data.value)}
-                    </code>
-                  ),
-                },
-                {
-                  title: "",
-                  width: "60px",
-                  render: (item: Item) => (
-                    <div className="flex items-center justify-end">
-                      {item.data.editable && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          icon={<Trash2 className="w-3.5 h-3.5" />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openDeleteModal(item.data);
-                          }}
-                          disabled={savingKey === item.data.key}
-                          className="p-1.5! hover:bg-[#fef2f2]! text-[#8b8b8b]! hover:text-[#ef4444]!"
-                        >
-                          {/* Icon only button */}
-                        </Button>
-                      )}
-                    </div>
-                  ),
-                },
-              ]}
-              data={configVars.map((configVar) => ({
-                id: configVar.key,
-                type: "secret",
-                data: configVar,
-              }))}
-              getRowKey={(item) => `secret-${item.id}`}
-              onRowClick={(item) => {
-                // Open modal for all secrets to view (editable ones can be changed)
-                openEditModal(item.data);
-              }}
+                  </div>
+                ) : undefined
+              }
+                columns={[
+                  {
+                    title: "Key",
+                    width: "300px",
+                    render: (item: Item) => (
+                      <div className="flex items-center gap-3">
+                        <Lock className="w-4 h-4 text-[#8b8b8b]" />
+                        <code className="text-[13px] font-mono text-[#222]">{item.data.key}</code>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: "Value",
+                    render: (item: Item) => (
+                      <code className="text-[13px] font-mono text-[#8b8b8b]">
+                        {maskValue(item.data.value)}
+                      </code>
+                    ),
+                  },
+                  {
+                    title: "",
+                    width: "60px",
+                    render: (item: Item) => (
+                      <div className="flex items-center justify-end">
+                        {item.data.editable && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            icon={<Trash2 className="w-3.5 h-3.5" />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDeleteModal(item.data);
+                            }}
+                            disabled={savingKey === item.data.key}
+                            className="p-1.5! hover:bg-[#fef2f2]! text-[#8b8b8b]! hover:text-[#ef4444]!"
+                          >
+                            {/* Icon only button */}
+                          </Button>
+                        )}
+                      </div>
+                    ),
+                  },
+                ]}
+                data={configVars.map((configVar) => ({
+                  id: configVar.key,
+                  type: "secret",
+                  data: configVar,
+                }))}
+                getRowKey={(item) => `secret-${item.id}`}
+                onRowClick={(item) => {
+                  // Open modal for all secrets to view (editable ones can be changed)
+                  openEditModal(item.data);
+                }}
+                onSelectionChange={setSelectedItems}
+                isRowSelectable={(item) => item.data.editable}
             />
           )}
         </div>
@@ -466,19 +586,11 @@ export default function SecretsPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {editingSecret?.editable ? 'Edit Config Variable' : 'View Config Variable'}
+              <code className="font-mono">{editingSecret?.key}</code>
             </DialogTitle>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
-            <Input
-              label="Key"
-              type="text"
-              value={editingSecret?.key || ''}
-              disabled
-              className="font-mono"
-            />
-            
             <Input
               label="Value"
               type="text"
@@ -558,6 +670,80 @@ export default function SecretsPage() {
               className="bg-[#ef4444]! hover:bg-[#dc2626]!"
             >
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={bulkDeleteModalOpen} onOpenChange={setBulkDeleteModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Config Vars</DialogTitle>
+          </DialogHeader>
+          <p className="text-[14px] text-[#374046] py-4">
+            Are you sure you want to delete {selectedItems.size} config var(s)? This action cannot be undone and will restart your containers.
+          </p>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setBulkDeleteModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBulkDelete}
+              className="bg-[#ef4444]! hover:bg-[#dc2626]!"
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sync Secrets Dialog */}
+      <Dialog open={syncModalOpen} onOpenChange={setSyncModalOpen}>
+        <DialogContent className="sm:max-w-[720px] w-[720px] max-w-[720px]">
+          <DialogHeader>
+            <DialogTitle>Sync Secrets to GitHub</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="terminal-container scrollbar-custom rounded-lg p-4 text-[13px] leading-relaxed overflow-y-auto h-[500px] max-h-[500px]">
+              {syncLogs ? (
+                <div className="space-y-0.5">
+                  {syncLogs.split('\n').map((line, index) => {
+                    const segments = parseAnsi(line);
+                    return (
+                      <div
+                        key={index}
+                        className="px-2 py-0.5 rounded whitespace-pre-wrap break-all"
+                      >
+                        {segments.map((segment, segIndex) => (
+                          <span key={segIndex} style={segmentToStyle(segment)}>
+                            {segment.text}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })}
+                  <div ref={syncLogsEndRef} />
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-[#8b8b8b]">
+                  <div className="text-center">
+                    <p>Initializing sync...</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setSyncModalOpen(false)}
+              disabled={syncing}
+            >
+              {syncing ? "Syncing..." : "Close"}
             </Button>
           </DialogFooter>
         </DialogContent>

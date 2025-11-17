@@ -1,14 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, AsyncIterator
+from typing import List, Optional
 from database import get_db
 from models import Project, App
-from pathlib import Path
-from utils.cli import get_cli
 import json
-import yaml
+from cache import get_cache, set_cache, CACHE_TTL
 
 router = APIRouter(tags=["projects"])
 
@@ -43,6 +40,7 @@ class SecretsCreate(BaseModel):
 
 class WizardProjectCreate(BaseModel):
     project_name: str
+    domain: str
     gcp_project: str
     gcp_region: str
     github_org: str
@@ -55,7 +53,6 @@ class ProjectResponse(BaseModel):
     id: int
     name: str
     domain: Optional[str] = None
-    gcp_project_id: Optional[str] = None
     github_org: Optional[str] = None
 
     class Config:
@@ -111,104 +108,138 @@ ADDON_VERSIONS = {
 def create_project_from_wizard(
     payload: WizardProjectCreate, db: Session = Depends(get_db)
 ):
-    """Create a new project from wizard with all configuration."""
+    """Create a new project from wizard by generating config files."""
+    import yaml
+    from pathlib import Path
+
     # Check if project already exists
     existing = db.query(Project).filter(Project.name == payload.project_name).first()
     if existing:
         raise HTTPException(status_code=400, detail="Project already exists")
 
-    # 1. Create project
-    project = Project(
-        name=payload.project_name,
-        gcp_project_id=payload.gcp_project,
-        cloud_region=payload.gcp_region,
-        github_org=payload.github_org,
+    # Get project root (4 levels up from this file)
+    project_root = Path(__file__).parent.parent.parent.parent
+    project_dir = project_root / "projects" / payload.project_name
+
+    # Create project directory
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Create config.yml
+    config_data = {
+        "project": payload.project_name,
+        "gcp_project": payload.gcp_project,
+        "gcp_region": payload.gcp_region,
+        "github_org": payload.github_org,
+        "apps": {},
+    }
+
+    # Add apps to config
+    for app in payload.apps:
+        config_data["apps"][app.name] = {
+            "repo": app.repo,
+            "port": app.port,
+            "vm": "app",
+        }
+
+    # Add addons to config
+    addons_dict = payload.addons.dict()
+    if any(addons_dict.values()):
+        config_data["addons"] = {}
+
+        if addons_dict.get("databases"):
+            config_data["addons"]["databases"] = {
+                addon: {
+                    "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest")
+                }
+                for addon in addons_dict["databases"]
+            }
+
+        if addons_dict.get("queues"):
+            config_data["addons"]["queues"] = {
+                addon: {
+                    "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest")
+                }
+                for addon in addons_dict["queues"]
+            }
+
+        if addons_dict.get("caches"):
+            config_data["addons"]["caches"] = {
+                addon: {
+                    "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest")
+                }
+                for addon in addons_dict["caches"]
+            }
+
+        if addons_dict.get("proxy"):
+            config_data["addons"]["proxy"] = {
+                addon: {
+                    "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest")
+                }
+                for addon in addons_dict["proxy"]
+            }
+
+    # Write config.yml
+    config_path = project_dir / "config.yml"
+    with open(config_path, "w") as f:
+        yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+
+    # 2. Create secrets.yml
+    secrets_data = {
+        "shared": {
+            "DOCKER_ORG": payload.secrets.docker_org,
+            "DOCKER_USERNAME": payload.secrets.docker_username,
+            "DOCKER_TOKEN": payload.secrets.docker_token,
+            "GITHUB_TOKEN": payload.secrets.github_token,
+        },
+        "apps": {},
+    }
+
+    # Add app-specific empty sections
+    for app in payload.apps:
+        secrets_data["apps"][app.name] = {}
+
+    # Write secrets.yml
+    secrets_path = project_dir / "secrets.yml"
+    with open(secrets_path, "w") as f:
+        yaml.dump(secrets_data, f, default_flow_style=False, sort_keys=False)
+
+    # Set restrictive permissions on secrets.yml
+    secrets_path.chmod(0o600)
+
+    # 3. Create project in database
+    db_project = Project(
+        name=payload.project_name, domain=payload.domain, github_org=payload.github_org
     )
-    db.add(project)
+    db.add(db_project)
     db.flush()
 
-    # 2. Create production environment
-    env = Environment(name="production", project_id=project.id)
-    db.add(env)
-    db.flush()
-
-    # 3. Create apps
+    # 4. Create apps in database
     for app_data in payload.apps:
         repo_parts = app_data.repo.split("/")
         owner = repo_parts[0] if len(repo_parts) > 0 else ""
         repo_name = repo_parts[1] if len(repo_parts) > 1 else app_data.repo
 
         app = App(
-            project_id=project.id,
-            name=app_data.name,
-            repo=repo_name,
-            owner=owner,
-            port=app_data.port,
-            type="web",  # default
-            vm="app",  # default
+            project_id=db_project.id, name=app_data.name, repo=repo_name, owner=owner
         )
         db.add(app)
 
-    # 4. Create addons
-    category_map = {
-        "databases": "databases",
-        "queues": "queues",
-        "proxy": "proxy",
-        "caches": "caches",
-    }
-
-    for category_key, addon_ids in payload.addons.dict().items():
-        category = category_map.get(category_key, category_key)
-        for addon_id in addon_ids:
-            addon_meta = ADDON_VERSIONS.get(
-                addon_id, {"version": "latest", "vm": "core"}
-            )
-
-            addon = Addon(
-                project_id=project.id,
-                name=addon_id,
-                type=addon_id,
-                category=category,
-                version=addon_meta["version"],
-                vm=addon_meta["vm"],
-                plan="standard",
-                status="pending",
-            )
-            db.add(addon)
-
-    # 5. Create secrets (in production environment)
-    secrets_map = {
-        "DOCKER_ORG": payload.secrets.docker_org,
-        "DOCKER_USERNAME": payload.secrets.docker_username,
-        "DOCKER_TOKEN": payload.secrets.docker_token,
-        "REPOSITORY_TOKEN": payload.secrets.github_token,
-    }
-
-    if payload.secrets.smtp_host:
-        secrets_map.update(
-            {
-                "SMTP_HOST": payload.secrets.smtp_host,
-                "SMTP_PORT": payload.secrets.smtp_port,
-                "SMTP_USER": payload.secrets.smtp_user,
-                "SMTP_PASSWORD": payload.secrets.smtp_password,
-            }
-        )
-
-    for key, value in secrets_map.items():
-        if value:  # Only add non-empty secrets
-            secret = Secret(environment_id=env.id, app="shared", key=key, value=value)
-            db.add(secret)
-
     db.commit()
-    db.refresh(project)
+    db.refresh(db_project)
 
-    return project
+    return db_project
 
 
 @router.get("/{project_name}/vms")
 def get_project_vms(project_name: str):
-    """Get VMs for a project + orchestrator IP from CLI."""
+    """Get VMs for a project + orchestrator IP from CLI (with Redis cache)."""
     import subprocess
+
+    # Check cache first
+    cache_key = f"vms:{project_name}"
+    cached = get_cache(cache_key)
+    if cached:
+        return cached
 
     try:
         # Get project VMs
@@ -244,7 +275,7 @@ def get_project_vms(project_name: str):
                         orchestrator_ip = vm.get("ip")
                         break
 
-        return {
+        response = {
             "orchestrator_ip": orchestrator_ip,
             "vms": [
                 {
@@ -258,6 +289,11 @@ def get_project_vms(project_name: str):
                 for vm in project_data.get("vms", [])
             ],
         }
+
+        # Cache for 5 minutes
+        set_cache(cache_key, response, CACHE_TTL["vms"])
+
+        return response
 
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse CLI output: {e}")

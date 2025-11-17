@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { 
-  ChevronRight, 
+  ChevronRight,
+  ChevronLeft,
+  ChevronDown,
   Check, 
   Settings, 
   Code, 
@@ -19,6 +21,9 @@ import {
   X,
   Loader2
 } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { Button, Input } from "@/components";
+import { getAddonLogo } from "@/lib/addonLogos";
 
 interface ProjectConfig {
   project_name: string;
@@ -137,12 +142,16 @@ export default function NewProjectSetup() {
         
         if (response.ok) {
           const repos = await response.json();
+          console.log("Fetched repos:", repos.length, repos.slice(0, 2));
+          
           const repoList = repos.map((r: any) => ({
             full_name: r.full_name,
             name: r.name,
             owner: r.owner.login,
             owner_type: r.owner.type
           }));
+          
+          console.log("Mapped repos:", repoList.length, repoList.slice(0, 2));
           
           // Group by organization
           const grouped: GroupedRepos = {};
@@ -170,7 +179,10 @@ export default function NewProjectSetup() {
             grouped['Personal'] = personal;
           }
           
+          console.log("Grouped repos:", Object.keys(grouped), grouped);
           setGithubRepos(grouped);
+        } else {
+          console.error("GitHub API error:", response.status, await response.text());
         }
       } catch (error) {
         console.error("Failed to fetch repos:", error);
@@ -337,12 +349,12 @@ export default function NewProjectSetup() {
   // Deploying screen
   if (deploying) {
     return (
-      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-8">
+      <div className="min-h-screen flex items-center justify-center p-8">
         <div className="w-full max-w-2xl">
-          <div className="bg-white rounded-lg border border-[#e3e8ee] p-8">
+          <div className="rounded-lg border border-[#e3e8ee] p-8">
             <div className="flex items-center gap-3 mb-6">
-              <Loader2 className="w-6 h-6 text-[#0a0a0a] animate-spin" />
-              <h2 className="text-[20px] font-semibold text-[#0a0a0a]">
+              <Loader2 className="w-5 h-5 text-[#8b8b8b] animate-spin" />
+              <h2 className="text-[18px] text-[#222]">
                 Deploying {config.project_name}
               </h2>
             </div>
@@ -360,102 +372,114 @@ export default function NewProjectSetup() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f6f8fa]">
-      {/* Header */}
-      <div className="border-b border-[#e3e8ee] bg-white">
-        <div className="max-w-4xl mx-auto px-8 py-6">
-          <h1 className="text-[24px] font-semibold text-[#0a0a0a] mb-2">Create New Project</h1>
-          <p className="text-[14px] text-[#8b8b8b]">Deploy your applications to GCP with a few clicks</p>
-        </div>
-      </div>
-
-      {/* Progress */}
-      <div className="border-b border-[#e3e8ee] bg-white">
-        <div className="max-w-4xl mx-auto px-8 py-4">
-          <div className="flex items-center justify-between">
+    <div className="min-h-screen flex py-12">
+      <div className="w-full max-w-4xl">
+        {/* Progress */}
+        <div className="mb-8">
+          <div className="flex items-center w-full gap-6">
             {[
-              { num: 1, name: "Project", icon: Settings },
-              { num: 2, name: "Apps", icon: Code },
-              { num: 3, name: "Add-ons", icon: Package },
-              { num: 4, name: "Secrets", icon: Key }
-            ].map((s, i) => (
-              <div key={s.num} className="flex items-center flex-1">
-                <div className="flex items-center gap-2">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-colors ${
-                    step > s.num ? "bg-[#0a0a0a] border-[#0a0a0a]" :
-                    step === s.num ? "border-[#0a0a0a] bg-white" :
-                    "border-[#e3e8ee] bg-white"
-                  }`}>
-                    {step > s.num ? (
-                      <Check className="w-4 h-4 text-white" />
-                    ) : (
-                      <s.icon className={`w-4 h-4 ${step === s.num ? "text-[#0a0a0a]" : "text-[#8b8b8b]"}`} />
-                    )}
-                  </div>
-                  <span className={`text-[13px] font-medium ${step === s.num ? "text-[#0a0a0a]" : "text-[#8b8b8b]"}`}>
-                    {s.name}
+              { num: 1, label: "Configure project\nand infrastructure" },
+              { num: 2, label: "Add GitHub\nrepositories" },
+              { num: 3, label: "Select optional\nadd-ons" },
+              { num: 4, label: "Configure deployment\ncredentials" }
+            ].map((s, index) => (
+              <React.Fragment key={s.num}>
+                <div 
+                  className="flex-1 flex items-start gap-3 cursor-pointer"
+                  onClick={() => setStep(s.num)}
+                >
+                  <span className={`text-[21px] font-normal ${step >= s.num ? "text-[#0a0a0a]" : "text-[#c1c1c1]"}`}>
+                    {s.num}
                   </span>
+                  <p className={`text-[11px] font-light tracking-[0.03em] leading-relaxed whitespace-pre-line ${step >= s.num ? "text-[#0a0a0a]" : "text-[#c1c1c1]"}`}>
+                    {s.label}
+                  </p>
                 </div>
-                {i < 3 && (
-                  <div className={`flex-1 h-[2px] mx-4 ${step > s.num ? "bg-[#0a0a0a]" : "bg-[#e3e8ee]"}`}></div>
+                {index < 3 && (
+                  <ChevronRight className="w-4 h-4 text-[#c1c1c1] flex-shrink-0 mt-1" />
                 )}
-              </div>
+              </React.Fragment>
             ))}
           </div>
         </div>
-      </div>
 
-      {/* Content */}
-      <div className="max-w-4xl mx-auto px-8 py-8">
-        <div className="bg-white rounded-lg border border-[#e3e8ee] p-8">
+        {/* Content */}
+        <div>
+        <div className="bg-white rounded-[16px] p-8 shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
           {/* Step 1: Project Info */}
           {step === 1 && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-[18px] font-semibold text-[#0a0a0a] mb-1">Project Information</h2>
-                <p className="text-[13px] text-[#8b8b8b]">Basic configuration for your deployment</p>
+                <h2 className="text-[18px] text-[#0a0a0a] mb-1">Project Information</h2>
               </div>
 
-              <div>
-                <label className="block text-[13px] font-medium text-[#0a0a0a] mb-2">
-                  Project Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={config.project_name}
-                  onChange={(e) => updateConfig({ project_name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
-                  placeholder="myproject"
-                  className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[14px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
-                />
-                <p className="text-[11px] text-[#8b8b8b] mt-1.5">Lowercase letters, numbers, and hyphens only</p>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <Input
+                    label={<>Project Name <span className="text-red-500">*</span></>}
+                    type="text"
+                    value={config.project_name}
+                    onChange={(e) => updateConfig({ project_name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+                    placeholder="myproject"
+                    hint="Lowercase letters, numbers, and hyphens only"
+                  />
+                </div>
+                <div>
+                  <Input
+                    label={<>Domain <span className="text-red-500">*</span></>}
+                    type="text"
+                    value={config.domain}
+                    onChange={(e) => updateConfig({ domain: e.target.value })}
+                    placeholder="example.com"
+                    hint="Your application's domain name"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[13px] font-medium text-[#0a0a0a] mb-2">
-                  GCP Project ID <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={config.gcp_project}
-                  onChange={(e) => updateConfig({ gcp_project: e.target.value })}
-                  placeholder="my-gcp-project-123"
-                  className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[14px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
-                />
-              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <Input
+                    label={<>GCP Project ID <span className="text-red-500">*</span></>}
+                    type="text"
+                    value={config.gcp_project}
+                    onChange={(e) => updateConfig({ gcp_project: e.target.value })}
+                    placeholder="my-gcp-project-123"
+                    hint="Your Google Cloud project identifier"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-[13px] font-medium text-[#0a0a0a] mb-2">
-                  GCP Region <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={config.gcp_region}
-                  onChange={(e) => updateConfig({ gcp_region: e.target.value })}
-                  className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[14px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
-                >
-                  {GCP_REGIONS.map(region => (
-                    <option key={region} value={region}>{region}</option>
-                  ))}
-                </select>
+                <div>
+                  <label className="block text-[11px] text-[#111] font-light tracking-[0.03em] mb-2">
+                    GCP Region <span className="text-red-500">*</span>
+                  </label>
+                  <DropdownMenu.Root>
+                    <DropdownMenu.Trigger className="bg-white user-select-none border border-[#0000001f] shadow-x1 relative flex h-8 w-full items-center justify-between px-2 pr-[22px] py-2 rounded-[10px] cursor-pointer outline-none group">
+                      <span className="text-[11px] tracking-[0.03em] font-light text-[#141414] user-select-none">{config.gcp_region}</span>
+                      <ChevronRight className="top-[10px] right-[9px] absolute w-3 h-3 text-black transition-transform duration-200 group-data-[state=open]:rotate-90" />
+                    </DropdownMenu.Trigger>
+
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content
+                        align="start"
+                        className="min-w-[200px] bg-white rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.15)] p-1 animate-[slide-fade-in-vertical_150ms_ease-out_forwards] distance--8 data-[state=closed]:animate-[slide-fade-out-vertical_150ms_ease-out_forwards]"
+                        sideOffset={5}
+                      >
+                        {GCP_REGIONS.map(region => (
+                          <DropdownMenu.Item
+                            key={region}
+                            onClick={() => updateConfig({ gcp_region: region })}
+                            className="flex items-center justify-between px-3 py-2 rounded hover:bg-[#f6f8fa] outline-none cursor-pointer"
+                          >
+                            <span className="text-[11px] text-[#111] font-light tracking-[0.03em]">{region}</span>
+                            {config.gcp_region === region && (
+                              <Check className="w-3.5 h-3.5 text-[#374046]" strokeWidth={2.5} />
+                            )}
+                          </DropdownMenu.Item>
+                        ))}
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Root>
+                </div>
               </div>
             </div>
           )}
@@ -465,115 +489,131 @@ export default function NewProjectSetup() {
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-[18px] font-semibold text-[#0a0a0a] mb-1">Applications</h2>
-                  <p className="text-[13px] text-[#8b8b8b]">Add your GitHub repositories to deploy</p>
+                  <h2 className="text-[18px] text-[#0a0a0a] mb-1">Applications</h2>
                 </div>
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={addApp}
-                  className="px-3 py-1.5 text-[13px] font-medium text-[#0a0a0a] border border-[#e3e8ee] rounded hover:bg-[#f6f8fa] transition-colors flex items-center gap-1.5"
+                  icon={<Plus className="w-4 h-4" />}
                 >
-                  <Plus className="w-4 h-4" />
                   Add App
-                </button>
+                </Button>
               </div>
 
               {config.apps.length === 0 ? (
                 <div className="border border-[#e3e8ee] rounded-lg p-12 text-center">
-                  <Code className="w-8 h-8 text-[#8b8b8b] mx-auto mb-3" />
-                  <p className="text-[14px] font-medium text-[#0a0a0a] mb-2">No applications added</p>
-                  <p className="text-[13px] text-[#8b8b8b] mb-4">Add at least one application to deploy</p>
-                  <button
+                  <Code className="w-5 h-5 text-[#8b8b8b] mx-auto mb-1" />
+                  <p className="text-[11px] tracking-[0.03em] font-light text-[#8b8b8b] mb-3">No applications added</p>
+                  <Button
+                    variant="primary"
                     onClick={addApp}
-                    className="px-4 py-2 text-[13px] font-medium text-white bg-[#0a0a0a] rounded hover:bg-[#2d2d2d] transition-colors"
                   >
                     Add Your First App
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 <div className="space-y-4">
                   {config.apps.map((app, index) => (
                     <div key={index} className="border border-[#e3e8ee] rounded-lg p-4">
                       <div className="flex items-start justify-between mb-4">
-                        <h3 className="text-[14px] font-medium text-[#0a0a0a]">Application {index + 1}</h3>
-                        <button
+                        <h3 className="text-[14px] text-[#0a0a0a]">Application {index + 1}</h3>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => removeApp(index)}
-                          className="text-[#8b8b8b] hover:text-red-600 transition-colors"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                          icon={<X className="w-4 h-4" />}
+                        />
                       </div>
 
                       <div className="space-y-3">
                         <div>
-                          <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
-                            App Name
-                          </label>
-                          <input
-                            type="text"
-                            value={app.name}
-                            onChange={(e) => updateApp(index, { name: e.target.value })}
-                            placeholder="api"
-                            className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
+                          <label className="block text-[11px] text-[#111] font-light tracking-[0.03em] mb-2">
                             GitHub Repository
                           </label>
                           {loadingRepos ? (
-                            <div className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[13px] text-[#8b8b8b]">
+                            <div className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[11px] text-[#8b8b8b] font-light tracking-[0.03em]">
                               Loading repositories...
                             </div>
                           ) : (
-                            <>
-                              <div className="relative mb-2">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b8b8b]" />
-                                <input
-                                  type="text"
-                                  value={repoSearch}
-                                  onChange={(e) => setRepoSearch(e.target.value)}
-                                  placeholder="Search repositories..."
-                                  className="w-full pl-9 pr-3 py-2 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
-                                />
-                              </div>
-                              <div className="max-h-[200px] overflow-y-auto border border-[#e3e8ee] rounded">
-                                {Object.entries(filteredRepos).map(([org, repos]) => (
-                                  <div key={org}>
-                                    <div className="px-3 py-1.5 bg-[#f6f8fa] text-[11px] font-medium text-[#8b8b8b] uppercase sticky top-0">
-                                      {org}
+                            <DropdownMenu.Root>
+                              <DropdownMenu.Trigger className="bg-white w-full border border-[#e3e8ee] rounded-lg px-3 py-2.5 pr-10 text-left text-[14px] text-[#0a0a0a] outline-none focus:border-[#8b8b8b] transition-colors cursor-pointer hover:border-[#8b8b8b] relative group">
+                                <span>{app.repo || "Select repository..."}</span>
+                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b8b8b] transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                              </DropdownMenu.Trigger>
+
+                              <DropdownMenu.Portal>
+                                <DropdownMenu.Content
+                                  align="start"
+                                  className="w-[400px] bg-white rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.15)] p-2 animate-[slide-fade-in-vertical_150ms_ease-out_forwards] distance--8 data-[state=closed]:animate-[slide-fade-out-vertical_150ms_ease-out_forwards] z-50"
+                                  sideOffset={5}
+                                >
+                                  <div className="mb-2 px-2">
+                                    <div className="relative">
+                                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b8b8b]" />
+                                      <input
+                                        type="text"
+                                        value={repoSearch}
+                                        onChange={(e) => setRepoSearch(e.target.value)}
+                                        placeholder="Search repositories..."
+                                        className="w-full pl-9 pr-3 py-2 bg-white border border-[#e3e8ee] rounded-lg text-[11px] outline-none focus:border-[#8b8b8b]"
+                                      />
                                     </div>
-                                    {repos.map(repo => (
-                                      <button
-                                        key={repo.full_name}
-                                        onClick={() => updateApp(index, { repo: repo.full_name })}
-                                        className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[#f6f8fa] transition-colors ${
-                                          app.repo === repo.full_name ? "bg-blue-50 text-blue-600 font-medium" : "text-[#0a0a0a]"
-                                        }`}
-                                      >
-                                        {repo.name}
-                                      </button>
-                                    ))}
                                   </div>
-                                ))}
-                              </div>
-                            </>
-                          )}
-                          {app.repo && (
-                            <p className="text-[11px] text-[#8b8b8b] mt-1.5">Selected: {app.repo}</p>
+                                  <div className="max-h-[300px] overflow-y-auto scrollbar-thin">
+                                    {Object.keys(filteredRepos).length === 0 ? (
+                                      <div className="px-3 py-4 text-[11px] text-[#8b8b8b] font-light tracking-[0.03em] text-center">
+                                        No repositories found
+                                      </div>
+                                    ) : (
+                                      Object.entries(filteredRepos).map(([org, repos]) => (
+                                        <div key={org}>
+                                          <div className="px-3 py-1.5 text-[11px] font-light text-[#8b8b8b] uppercase tracking-[0.03em]">
+                                            {org}
+                                          </div>
+                                          {repos.map(repo => (
+                                            <DropdownMenu.Item
+                                              key={repo.full_name}
+                                              onClick={() => updateApp(index, { repo: repo.full_name })}
+                                              className="flex items-center justify-between px-3 py-2 rounded hover:bg-[#f6f8fa] outline-none cursor-pointer"
+                                            >
+                                              <span className="text-[11px] text-[#111] font-light tracking-[0.03em]">{repo.name}</span>
+                                              {app.repo === repo.full_name && (
+                                                <Check className="w-3.5 h-3.5 text-[#374046]" strokeWidth={2.5} />
+                                              )}
+                                            </DropdownMenu.Item>
+                                          ))}
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                </DropdownMenu.Content>
+                              </DropdownMenu.Portal>
+                            </DropdownMenu.Root>
                           )}
                         </div>
 
-                        <div>
-                          <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
-                            Port
-                          </label>
-                          <input
-                            type="number"
-                            value={app.port}
-                            onChange={(e) => updateApp(index, { port: parseInt(e.target.value) || 8000 })}
-                            className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
-                          />
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="col-span-2">
+                            <Input
+                              label="App Name"
+                              type="text"
+                              value={app.name}
+                              onChange={(e) => updateApp(index, { name: e.target.value })}
+                              placeholder="api"
+                              hint="Unique identifier for this application"
+                            />
+                          </div>
+                          <div>
+                            <Input
+                              label="Port"
+                              type="number"
+                              value={app.port}
+                              onChange={(e) => updateApp(index, { port: parseInt(e.target.value) || 8000 })}
+                              placeholder="8000"
+                              hint="Application port"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -587,37 +627,82 @@ export default function NewProjectSetup() {
           {step === 3 && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-[18px] font-semibold text-[#0a0a0a] mb-1">Add-ons</h2>
-                <p className="text-[13px] text-[#8b8b8b]">Extend your app with databases and services (optional)</p>
+                <h2 className="text-[18px] text-[#0a0a0a] mb-1">Add-ons</h2>
               </div>
 
               {Object.entries(AVAILABLE_ADDONS).map(([category, addons]) => (
                 <div key={category}>
-                  <h3 className="text-[13px] font-semibold text-[#0a0a0a] mb-3 capitalize">{category}</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <h2 className="flex items-center gap-2 text-[11px] text-[#777] leading-tight tracking-[0.03em] mb-[8px] font-light capitalize">
+                    <Database className="w-4 h-4" />
+                    {category}
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {addons.map(addon => {
-                      const Icon = addon.icon;
                       const isSelected = config.addons[category as keyof typeof config.addons].includes(addon.id);
+                      const logo = getAddonLogo(addon.id);
                       
                       return (
-                        <button
+                        <div
                           key={addon.id}
                           onClick={() => toggleAddon(category as keyof typeof config.addons, addon.id)}
-                          className={`p-4 border-2 rounded-lg transition-all ${
+                          className={`p-5 border rounded-lg cursor-pointer ${
                             isSelected 
                               ? "border-[#0a0a0a] bg-[#f6f8fa]" 
-                              : "border-[#e3e8ee] hover:border-[#8b8b8b]"
+                              : "border-[#e3e8ee] hover:border-[#b9c1c6]"
                           }`}
                         >
-                          <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded ${isSelected ? "bg-[#0a0a0a]" : "bg-[#f6f8fa]"}`}>
-                              <Icon className={`w-4 h-4 ${isSelected ? "text-white" : "text-[#8b8b8b]"}`} />
+                          {/* Header */}
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                              {logo ? (
+                                <div className="w-10 h-10 flex items-center p-2 justify-center bg-white rounded-lg border border-[#e3e8ee] flex-shrink-0">
+                                  {logo}
+                                </div>
+                              ) : (
+                                <div className="w-10 h-10 flex items-center justify-center bg-gray-50 rounded-lg border border-[#e3e8ee] flex-shrink-0">
+                                  <Package className="w-6 h-6 text-gray-600" />
+                                </div>
+                              )}
+                              <div>
+                                <h3 className="text-[13px] text-[#8b8b8b] font-light mb-1">{addon.name}</h3>
+                                <div className="flex items-center gap-1.5">
+                                  <div className={`w-2 h-2 rounded-full ${isSelected ? 'bg-green-500' : 'bg-gray-300'} flex-shrink-0`}></div>
+                                  <span className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light">
+                                    {isSelected ? 'Selected' : 'Available'}
+                                  </span>
+                                </div>
+                              </div>
                             </div>
-                            <span className={`text-[14px] font-medium ${isSelected ? "text-[#0a0a0a]" : "text-[#8b8b8b]"}`}>
-                              {addon.name}
+                          </div>
+
+                          {/* Type */}
+                          <div className="flex items-baseline gap-1 mb-3">
+                            <span className="text-[21px] text-[#0a0a0a] capitalize">
+                              {addon.id}
                             </span>
                           </div>
-                        </button>
+
+                          {/* Version - Full Width */}
+                          <div className="pt-3 border-t border-[#e3e8ee] mb-3">
+                            <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">Version</p>
+                            <code className="block text-[11px] text-[#0a0a0a] font-mono tracking-[0.03em] font-light">
+                              {addon.id === 'postgres' && 'latest'}
+                              {addon.id === 'redis' && 'latest'}
+                              {addon.id === 'rabbitmq' && 'latest'}
+                              {addon.id === 'mongodb' && 'latest'}
+                              {addon.id === 'elasticsearch' && 'latest'}
+                              {addon.id === 'mysql' && 'latest'}
+                            </code>
+                          </div>
+
+                          {/* Env Prefix - Full Width */}
+                          <div>
+                            <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">Environment Prefix</p>
+                            <code className="block text-[11px] text-[#0a0a0a] font-mono tracking-[0.03em] font-light">
+                              {addon.id.toUpperCase()}_*
+                            </code>
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
@@ -630,103 +715,102 @@ export default function NewProjectSetup() {
           {step === 4 && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-[18px] font-semibold text-[#0a0a0a] mb-1">Secrets</h2>
-                <p className="text-[13px] text-[#8b8b8b]">Configure credentials for deployment</p>
+                <h2 className="text-[18px] text-[#0a0a0a] mb-1">Secrets</h2>
               </div>
 
               <div>
-                <h3 className="text-[14px] font-semibold text-[#0a0a0a] mb-3">Docker Registry</h3>
+                <h3 className="text-[14px] text-[#0a0a0a] mb-3">Docker Registry</h3>
                 <div className="space-y-3">
-                  <div>
-                    <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
-                      Organization <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={config.secrets.docker_org}
-                      onChange={(e) => updateConfig({ secrets: { ...config.secrets, docker_org: e.target.value } })}
-                      className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
-                      Username <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={config.secrets.docker_username}
-                      onChange={(e) => updateConfig({ secrets: { ...config.secrets, docker_username: e.target.value } })}
-                      className="w-full px-3 py-2 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
-                      Access Token <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showSecrets.docker ? "text" : "password"}
-                        value={config.secrets.docker_token}
-                        onChange={(e) => updateConfig({ secrets: { ...config.secrets, docker_token: e.target.value } })}
-                        className="w-full px-3 py-2 pr-10 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors font-mono"
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Input
+                        label={<>Organization <span className="text-red-500">*</span></>}
+                        type="text"
+                        value={config.secrets.docker_org}
+                        onChange={(e) => updateConfig({ secrets: { ...config.secrets, docker_org: e.target.value } })}
+                        placeholder="myorg"
+                        hint="Docker Hub organization or username"
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowSecrets({ ...showSecrets, docker: !showSecrets.docker })}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#8b8b8b] hover:text-[#0a0a0a]"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
                     </div>
+                    <div>
+                      <Input
+                        label={<>Username <span className="text-red-500">*</span></>}
+                        type="text"
+                        value={config.secrets.docker_username}
+                        onChange={(e) => updateConfig({ secrets: { ...config.secrets, docker_username: e.target.value } })}
+                        placeholder="username"
+                        hint="Docker Hub username"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Input
+                      label={<>Access Token <span className="text-red-500">*</span></>}
+                      type={showSecrets.docker ? "text" : "password"}
+                      value={config.secrets.docker_token}
+                      onChange={(e) => updateConfig({ secrets: { ...config.secrets, docker_token: e.target.value } })}
+                      placeholder="dckr_pat_..."
+                      hint="Personal access token for Docker Hub"
+                      rightIcon={
+                        <button
+                          type="button"
+                          onClick={() => setShowSecrets({ ...showSecrets, docker: !showSecrets.docker })}
+                          className="text-[#8b8b8b] hover:text-[#0a0a0a] transition-colors"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      }
+                    />
                   </div>
                 </div>
               </div>
 
               <div className="pt-4 border-t border-[#e3e8ee]">
-                <h3 className="text-[14px] font-semibold text-[#0a0a0a] mb-3">GitHub (Optional)</h3>
+                <h3 className="text-[14px] text-[#0a0a0a] mb-3">GitHub (Optional)</h3>
                 <div>
-                  <label className="block text-[12px] font-medium text-[#8b8b8b] mb-1.5">
-                    Personal Access Token
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showSecrets.github ? "text" : "password"}
-                      value={config.secrets.github_token}
-                      onChange={(e) => updateConfig({ secrets: { ...config.secrets, github_token: e.target.value } })}
-                      className="w-full px-3 py-2 pr-10 border border-[#e3e8ee] rounded text-[13px] focus:outline-none focus:border-[#0a0a0a] transition-colors font-mono"
-                      placeholder="ghp_..."
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowSecrets({ ...showSecrets, github: !showSecrets.github })}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[#8b8b8b] hover:text-[#0a0a0a]"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
-                  </div>
+                  <Input
+                    label="Personal Access Token"
+                    type={showSecrets.github ? "text" : "password"}
+                    value={config.secrets.github_token}
+                    onChange={(e) => updateConfig({ secrets: { ...config.secrets, github_token: e.target.value } })}
+                    placeholder="ghp_..."
+                    hint="Personal access token with repo access"
+                    rightIcon={
+                      <button
+                        type="button"
+                        onClick={() => setShowSecrets({ ...showSecrets, github: !showSecrets.github })}
+                        className="text-[#8b8b8b] hover:text-[#0a0a0a] transition-colors"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                    }
+                  />
                 </div>
               </div>
             </div>
           )}
 
           {/* Actions */}
-          <div className="flex items-center justify-between pt-6 mt-6 border-t border-[#e3e8ee]">
-            <button
+          <div className="flex items-center justify-between pt-6 mt-6">
+            <Button
+              className="-ml-4"
+              variant="ghost"
               onClick={handleBack}
               disabled={step === 1}
-              className="px-4 py-2 text-[13px] font-medium text-[#8b8b8b] hover:text-[#0a0a0a] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              icon={<ChevronLeft className="w-4 h-4" />}
             >
               Back
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               onClick={handleNext}
               disabled={!canProceed()}
-              className="px-6 py-2 text-[13px] font-medium text-white bg-[#0a0a0a] rounded hover:bg-[#2d2d2d] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+              icon={<ChevronRight className="w-4 h-4" />}
             >
               {step === totalSteps ? "Deploy Project" : "Continue"}
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            </Button>
           </div>
+        </div>
         </div>
       </div>
     </div>

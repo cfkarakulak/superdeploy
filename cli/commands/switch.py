@@ -15,7 +15,7 @@ class SwitchCommand(ProjectCommand):
         force: bool = False,
         verbose: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose, json_output=json_output)
+        super().__init__(project_name, verbose=verbose)
         self.app_name = app_name
         self.git_sha = git_sha
         self.force = force
@@ -33,7 +33,6 @@ class SwitchCommand(ProjectCommand):
         logger = self.init_logger(self.project_name, f"switch-{self.app_name}")
 
         if logger:
-
             logger.step(f"Switching {self.app_name} to Git SHA: {self.git_sha[:7]}")
 
         # Get VM for app
@@ -222,8 +221,8 @@ docker image prune -f > /dev/null 2>&1
             if "SWITCH_SUCCESS" in result.stdout:
                 if logger:
                     logger.success(
-                    f"Zero-downtime switch completed: {self.app_name} → {self.git_sha[:7]}"
-                )
+                        f"Zero-downtime switch completed: {self.app_name} → {self.git_sha[:7]}"
+                    )
                 self.console.print(
                     "\n[green]✅ Zero-downtime switch completed successfully![/green]"
                 )
@@ -289,8 +288,7 @@ docker image prune -f > /dev/null 2>&1
 )
 @click.option("--force", is_flag=True, help="Skip confirmation")
 @click.option("--verbose", is_flag=True, help="Show all command output")
-@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
-def releases_switch(project, app, git_sha, force, verbose, json_output):
+def releases_switch(project, app, git_sha, force, verbose):
     """
     Switch to any release version (forward/backward) with zero-downtime
 
@@ -322,7 +320,7 @@ def releases_switch(project, app, git_sha, force, verbose, json_output):
       superdeploy cheapa:status                  # See all app versions
       docker pull <org>/api:<git-sha>            # Check Docker Hub
     """
-    cmd = SwitchCommand(project, app, git_sha=git_sha, force=force, verbose=verbose, json_output=json_output)
+    cmd = SwitchCommand(project, app, git_sha=git_sha, force=force, verbose=verbose)
     cmd.run()
 
 

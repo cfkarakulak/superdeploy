@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import AppHeader from "@/components/AppHeader";
-import PageHeader from "@/components/PageHeader";
-import { Plus } from "lucide-react";
+import { Button, ProjectSelector } from "@/components";
+import { Plus, Loader2, Folder } from "lucide-react";
 
 interface Project {
   id: number;
@@ -34,43 +33,68 @@ export default function HomePage() {
     fetchProjects();
   }, []);
 
-  return (
-    <div>
-      <AppHeader />
-      
-      <PageHeader
-        title="Projects"
-        description={projects.length === 0 && !loading ? "Get started by creating your first project" : "Select a project from the dropdown above to get started"}
-      />
-      
-      {loading ? (
-        <div className="text-center py-20">
-          <p className="text-[15px] text-[#69707e]">Loading projects...</p>
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-6 h-6 text-[#8b8b8b] animate-spin mx-auto mb-3" />
+          <p className="text-[13px] text-[#8b8b8b] font-light tracking-[0.03em]">
+            Loading projects...
+          </p>
         </div>
-      ) : projects.length === 0 ? (
-        <div className="text-center py-20">
-          <div className="mb-6">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#eef2f5] mb-4">
-              <Plus className="w-8 h-8 text-[#8b8b8b]" />
-            </div>
-            <h3 className="text-[17px] font-semibold text-[#0a0a0a] mb-2">No projects yet</h3>
-            <p className="text-[14px] text-[#69707e] mb-6 max-w-md mx-auto">
-              Create your first project to deploy applications with infrastructure, GitHub Actions, and automatic deployments.
-            </p>
-          </div>
-          <button
-            onClick={() => router.push("/setup/new")}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-[#0a0a0a] text-white rounded-[10px] font-medium hover:bg-[#2a2a2a] transition-colors"
-          >
-            <Plus className="w-5 h-5" />
+      </div>
+    );
+  }
+
+  // Empty state
+  if (projects.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center max-w-md px-6">
+          <Folder className="w-6 h-6 text-[#374046] mx-auto mb-4" strokeWidth={1.5} />
+
+          <h3 className="text-[18px] text-[#222] mb-2">No Projects Yet</h3>
+
+          <p className="text-[13px] text-[#8b8b8b] leading-relaxed font-light tracking-[0.01em] mb-6">
+            Get started by creating your first project to deploy
+            <br />
+            your applications and infrastructure.
+          </p>
+
+          <Button onClick={() => router.push("/setup/new")} icon={<Plus className="w-4 h-4" />}>
             Create New Project
-          </button>
+          </Button>
         </div>
-      ) : (
-        <div className="text-center py-20">
-          <p className="text-[15px] text-[#69707e]">No project selected</p>
+      </div>
+    );
+  }
+
+  // Project exists - show selector
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="text-center max-w-md px-6">
+        <Folder className="w-6 h-6 text-[#374046] mx-auto mb-4" strokeWidth={1.5} />
+
+        <h3 className="text-[18px] text-[#222] mb-2">Welcome to SuperDeploy</h3>
+
+        <p className="text-[13px] text-[#8b8b8b] leading-relaxed font-light tracking-[0.01em] mb-6">
+          Select a project to get started or create a new one to deploy
+          <br />
+          your applications and infrastructure.
+        </p>
+
+        <div className="flex items-center gap-3 justify-center">
+          <ProjectSelector variant="homepage" />
+          
+          <Button
+            onClick={() => router.push("/setup/new")}
+            icon={<Plus className="w-4 h-4" />}
+          >
+            Create New Project
+          </Button>
         </div>
-      )}
+      </div>
     </div>
   );
 }

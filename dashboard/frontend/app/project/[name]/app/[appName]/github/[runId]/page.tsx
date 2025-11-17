@@ -71,7 +71,7 @@ export default function WorkflowDetailPage() {
   const [expandedJobs, setExpandedJobs] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [appDomain, setAppDomain] = useState<string>(projectName);
+  const [appDomain, setAppDomain] = useState<string>("");
 
   // Fetch project domain
   useEffect(() => {
@@ -183,7 +183,7 @@ export default function WorkflowDetailPage() {
         <AppHeader />
         <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
           <div className="text-center py-12 text-[#8b8b8b]">
-            <p className="text-[15px]">Failed to load workflow</p>
+            <p className="text-[11px] tracking-[0.03em] font-light">Failed to load workflow</p>
           </div>
         </div>
       </div>
@@ -197,7 +197,7 @@ export default function WorkflowDetailPage() {
       <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
         <PageHeader 
           breadcrumbs={[
-            { label: appDomain || projectName, href: `/project/${projectName}` },
+            { label: appDomain || "Loading...", href: `/project/${projectName}` },
             { label: appName, href: `/project/${projectName}/app/${appName}` },
             { label: "Workflows", href: `/project/${projectName}/app/${appName}/github` }
           ]} 

@@ -38,7 +38,7 @@ export default function AppGitHubPage() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [appDomain, setAppDomain] = useState<string>(projectName);
+  const [appDomain, setAppDomain] = useState<string>("");
 
   // Shimmer animation styles
   const shimmerStyles = `
@@ -130,7 +130,7 @@ export default function AppGitHubPage() {
       <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
             <PageHeader
               breadcrumbs={[
-                { label: appDomain || projectName, href: `/project/${projectName}` },
+                { label: appDomain || "Loading...", href: `/project/${projectName}` },
                 { label: appName, href: `/project/${projectName}/app/${appName}` },
               ]}
               menuLabel="Actions"
@@ -145,12 +145,12 @@ export default function AppGitHubPage() {
               </div>
         ) : error ? (
           <div className="text-center py-12 text-[#8b8b8b]">
-            <p className="text-[15px]">Failed to load workflows: {error}</p>
+            <p className="text-[11px] tracking-[0.03em] font-light">Failed to load workflows: {error}</p>
             <p className="text-[13px] mt-2">Make sure REPOSITORY_TOKEN is set in secrets.</p>
           </div>
         ) : workflows.length === 0 ? (
           <div className="text-center py-12 text-[#8b8b8b]">
-            <p className="text-[15px]">No workflow runs found</p>
+            <p className="text-[11px] tracking-[0.03em] font-light">No workflow runs found</p>
             <p className="text-[13px] mt-2">Workflows will appear here once you push to GitHub</p>
           </div>
         ) : (

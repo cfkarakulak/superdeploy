@@ -28,6 +28,7 @@ async def stream_logs(project_name: str, app_name: str, lines: int = 100):
     Stream logs from superdeploy CLI command.
 
     Yields log lines as they come from the CLI.
+    Keeps ANSI color codes for frontend rendering.
     """
     try:
         cli = get_cli()
@@ -36,9 +37,8 @@ async def stream_logs(project_name: str, app_name: str, lines: int = 100):
         async for line in cli.execute(
             f"{project_name}:logs", args=["-a", app_name, "-n", str(lines)]
         ):
-            # Strip ANSI codes and yield
-            clean_line = strip_ansi_codes(line)
-            yield f"data: {clean_line}\n\n"
+            # Keep ANSI codes for colored terminal output in frontend
+            yield f"data: {line}\n\n"
 
     except Exception as e:
         yield f"data: [ERROR] Failed to stream logs: {str(e)}\n\n"

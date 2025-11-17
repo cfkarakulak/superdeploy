@@ -4,7 +4,6 @@ from sqlalchemy import (
     Column,
     Integer,
     String,
-    Text,
     ForeignKey,
     DateTime,
     UniqueConstraint,
@@ -13,19 +12,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
-
-
-class Setting(Base):
-    """Application settings model."""
-
-    __tablename__ = "settings"
-
-    id = Column(Integer, primary_key=True, index=True)
-    key = Column(String(100), unique=True, nullable=False, index=True)
-    value = Column(Text, nullable=True)
-    encrypted = Column(Integer, default=0)  # 0 = plain, 1 = encrypted
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Project(Base):

@@ -102,6 +102,7 @@ class ReleasesCommand(ProjectCommand):
                             "deployed_by": release.get("deployed_by", "-"),
                             "deployed_at": deployed_at,
                             "branch": release.get("branch", "-"),
+                            "commit_message": release.get("commit_message", "-"),
                             "status": "CURRENT" if idx == 0 else "PREVIOUS",
                         }
                     )

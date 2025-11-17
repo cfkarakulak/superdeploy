@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import { AppHeader, PageHeader, Button } from "@/components";
 import { 
@@ -14,6 +14,9 @@ import {
   Tag,
   Activity
 } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
+import { X } from "lucide-react";
+import { parseAnsi, segmentToStyle } from "@/lib/ansiParser";
 
 interface Release {
   version: string;
@@ -75,7 +78,11 @@ export default function DeployPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
-  const [appDomain, setAppDomain] = useState<string>(projectName);
+  const [appDomain, setAppDomain] = useState<string>("");
+  const [rollbackDialogOpen, setRollbackDialogOpen] = useState(false);
+  const [rollbackLogs, setRollbackLogs] = useState<string>("");
+  const [selectedVersion, setSelectedVersion] = useState<Release | null>(null);
+  const rollbackLogsEndRef = useRef<HTMLDivElement>(null);
 
   // Fetch app domain
   useEffect(() => {
@@ -115,36 +122,57 @@ export default function DeployPage() {
     }
   }, [projectName, appName]);
 
-  const handleSwitch = async (gitSha: string) => {
-    if (!confirm(`Switch to version ${gitSha.substring(0, 7)}?\n\nThis will:\n- Pull Docker image with this Git SHA\n- Deploy with zero-downtime\n- Auto-rollback if health check fails`)) {
-      return;
-    }
+  const handleSwitch = async (release: Release) => {
+    setSelectedVersion(release);
+    setSwitching(release.git_sha);
+    setRollbackLogs("");
+    setRollbackDialogOpen(true);
 
-    setSwitching(gitSha);
     try {
       const response = await fetch(
         `http://localhost:8401/api/apps/${projectName}/${appName}/switch`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ git_sha: gitSha }),
+          body: JSON.stringify({ git_sha: release.git_sha }),
         }
       );
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || "Failed to switch version");
+        const error = await response.text();
+        setRollbackLogs(prev => prev + `\n❌ Error: ${error}`);
+        return;
       }
 
-      alert("✅ Successfully switched to version " + gitSha.substring(0, 7));
-      // Refresh releases list
+      // Stream the logs (keep ANSI codes for color rendering)
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value);
+          setRollbackLogs(prev => prev + chunk);
+        }
+      }
+
+      // Refresh releases list after successful switch
       await fetchReleases();
     } catch (err) {
-      alert("❌ " + (err instanceof Error ? err.message : "Unknown error"));
+      setRollbackLogs(prev => prev + `\n❌ Error: ${err instanceof Error ? err.message : "Failed to switch version"}`);
     } finally {
       setSwitching(null);
     }
   };
+
+  // Auto-scroll to bottom when new logs appear
+  useEffect(() => {
+    if (rollbackLogsEndRef.current) {
+      rollbackLogsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [rollbackLogs]);
 
   const formatDuration = (seconds?: number) => {
     if (!seconds) return null;
@@ -201,7 +229,7 @@ export default function DeployPage() {
       <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
           <PageHeader
             breadcrumbs={[
-              { label: appDomain || projectName, href: `/project/${projectName}` },
+              { label: appDomain || "Loading...", href: `/project/${projectName}` },
               { label: appName, href: `/project/${projectName}/app/${appName}` },
             ]}
             menuLabel="Deploy"
@@ -226,11 +254,11 @@ export default function DeployPage() {
               
               return (
                 <div key={index} className="border border-[#e3e8ee] rounded-lg transition-all overflow-hidden">
-                  {/* Header */}
+                    {/* Header */}
                   <div className="px-5 py-4 border-b border-[#e3e8ee] flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       {/* Status Dot */}
-                      <div className="flex-shrink-0">
+                      <div className="shrink-0">
                         {isLatest ? (
                           <div className="w-2 h-2 rounded-full bg-green-500"></div>
                         ) : (
@@ -240,27 +268,27 @@ export default function DeployPage() {
                       
                       {/* Version */}
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <Tag className="w-3 h-3 text-[#8b8b8b] flex-shrink-0" />
+                        <Tag className="w-3 h-3 text-[#8b8b8b] shrink-0" />
                         <code className="text-[11px] font-mono text-[#0a0a0a] tracking-[0.03em] font-light">
                           v{release.version}
                         </code>
                       </div>
 
                       {/* Relative Time */}
-                      <span className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light flex-shrink-0">
+                      <span className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light shrink-0">
                         {getRelativeTime(release.deployed_at)}
                       </span>
                     </div>
 
                     {/* Current Badge or Rollback Button */}
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
                       {isLatest ? (
-                        <span className="inline-flex items-center justify-center gap-1.5 rounded-[10px] text-[11px] px-3 py-1.5 font-medium tracking-[0.03em] bg-green-500 text-white flex-shrink-0">
+                        <span className="inline-flex items-center justify-center gap-1.5 rounded-[10px] text-[11px] px-3 py-1.5 font-medium tracking-[0.03em] bg-green-500 text-white shrink-0">
                           Current
                         </span>
                       ) : (
                         <Button
-                          onClick={() => handleSwitch(release.git_sha)}
+                          onClick={() => handleSwitch(release)}
                           disabled={switching !== null}
                           size="sm"
                           variant="primary"
@@ -387,6 +415,72 @@ export default function DeployPage() {
           </div>
         )}
       </div>
+
+      {/* Rollback Dialog */}
+      <Dialog.Root open={rollbackDialogOpen} onOpenChange={setRollbackDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 data-[state=open]:animate-[fade-in_0.2s_ease-out] z-9998" />
+          <Dialog.Content className="fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] bg-white rounded-[16px] shadow-[0_8px_32px_rgba(0,0,0,0.12)] p-0 w-[90vw] max-w-[800px] max-h-[85vh] overflow-hidden data-[state=open]:animate-[dialog-content-show_0.2s_ease-out] z-9999 flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#e3e8ee]">
+              <div>
+                <Dialog.Title className="text-[16px] font-medium text-[#0a0a0a] tracking-[-0.01em]">
+                  Rollback to v{selectedVersion?.version}
+                </Dialog.Title>
+                <Dialog.Description className="text-[12px] text-[#8b8b8b] mt-1">
+                  Rolling back to commit {selectedVersion?.git_sha.substring(0, 7)}
+                </Dialog.Description>
+              </div>
+              <Dialog.Close className="rounded-lg p-2 hover:bg-[#f6f8fa] transition-colors">
+                <X className="w-4 h-4 text-[#8b8b8b]" />
+              </Dialog.Close>
+            </div>
+
+            {/* Terminal Output */}
+            <div className="flex-1 overflow-hidden p-6">
+              <div className="terminal-container scrollbar-custom rounded-lg p-4 text-[13px] leading-relaxed overflow-y-auto h-[500px] max-h-[500px]">
+                {rollbackLogs ? (
+                  <div className="space-y-0.5">
+                    {rollbackLogs.split('\n').map((line, index) => {
+                      const segments = parseAnsi(line);
+                      return (
+                        <div
+                          key={index}
+                          className="px-2 py-0.5 rounded whitespace-pre-wrap break-all"
+                        >
+                          {segments.map((segment, segIndex) => (
+                            <span key={segIndex} style={segmentToStyle(segment)}>
+                              {segment.text}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })}
+                    <div ref={rollbackLogsEndRef} />
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-[#8b8b8b]">
+                    <div className="text-center">
+                      <p>Initializing rollback...</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-[#e3e8ee]">
+              <Button
+                variant="ghost"
+                onClick={() => setRollbackDialogOpen(false)}
+                disabled={switching !== null}
+              >
+                {switching ? "Rolling back..." : "Close"}
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

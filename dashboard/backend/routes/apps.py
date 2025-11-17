@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Project, App
 from pydantic import BaseModel
+from cache import get_cache, set_cache, CACHE_TTL
 
 router = APIRouter(tags=["apps"])
 
@@ -16,10 +17,16 @@ class SwitchVersionRequest(BaseModel):
 @router.get("/{project_name}/list")
 async def list_apps(project_name: str, db: Session = Depends(get_db)):
     """
-    List all apps for a project from database.
+    List all apps for a project from database (with Redis cache).
 
     Database is the master source, not config.yml.
     """
+    # Check cache first
+    cache_key = f"apps:{project_name}"
+    cached = get_cache(cache_key)
+    if cached:
+        return cached
+
     # Get project
     project = db.query(Project).filter(Project.name == project_name).first()
     if not project:
@@ -33,16 +40,17 @@ async def list_apps(project_name: str, db: Session = Depends(get_db)):
         apps_list.append(
             {
                 "name": app.name,
-                "type": app.type,
-                "domain": app.domain,
-                "vm": app.vm,
-                "port": app.port,
                 "repo": app.repo,
                 "owner": app.owner,
             }
         )
 
-    return {"apps": apps_list}
+    response = {"apps": apps_list}
+
+    # Cache for 5 minutes
+    set_cache(cache_key, response, CACHE_TTL["apps"])
+
+    return response
 
 
 @router.get("/{project_name}/ps")
@@ -91,7 +99,6 @@ async def get_releases(project_name: str, app_name: str, db: Session = Depends(g
         from utils.cli import get_cli
         import json
         import httpx
-        from models import Setting
 
         # Get project
         project = db.query(Project).filter(Project.name == project_name).first()
@@ -125,20 +132,21 @@ async def get_releases(project_name: str, app_name: str, db: Session = Depends(g
 
         print(f"DEBUG: Parsed {len(releases_list)} releases from CLI JSON output")
 
-        # Shorten git SHAs (CLI returns full SHA, UI expects short 7-char)
+        # Store full SHAs for GitHub API calls, we'll shorten later
+        full_shas = {}
         for release in releases_list:
             git_sha = release.get("git_sha", "")
-            if git_sha and len(git_sha) > 7:
-                release["git_sha"] = git_sha[:7]
+            if git_sha and git_sha != "-":
+                full_shas[git_sha] = git_sha
 
-        # Enrich with GitHub API data
-        github_token = (
-            db.query(Setting).filter(Setting.key == "REPOSITORY_TOKEN").first()
-        )
+        # Enrich with GitHub API data (use full SHAs if needed)
+        import os
 
-        if github_token and github_token.value and releases_list:
+        github_token_value = os.getenv("GITHUB_TOKEN")
+
+        if github_token_value and releases_list:
             headers = {
-                "Authorization": f"token {github_token.value}",
+                "Authorization": f"token {github_token_value}",
                 "Accept": "application/vnd.github.v3+json",
             }
 
@@ -148,10 +156,10 @@ async def get_releases(project_name: str, app_name: str, db: Session = Depends(g
 
             async with httpx.AsyncClient() as client:
                 for release in releases_list:
-                    sha = release["git_sha"]
-                    if sha and sha != "-" and len(sha) >= 7:
+                    sha = release.get("git_sha", "")
+                    if sha and sha != "-":
                         try:
-                            # Get commit info from GitHub
+                            # Get commit info from GitHub (works with both full and short SHAs)
                             url = f"https://api.github.com/repos/{github_org}/{repo_name}/commits/{sha}"
                             response = await client.get(
                                 url, headers=headers, timeout=5.0
@@ -159,9 +167,12 @@ async def get_releases(project_name: str, app_name: str, db: Session = Depends(g
 
                             if response.status_code == 200:
                                 commit_data = response.json()
-                                release["commit_message"] = commit_data.get(
-                                    "commit", {}
-                                ).get("message", "-")
+                                # Override with GitHub data if available
+                                github_commit_msg = commit_data.get("commit", {}).get(
+                                    "message", ""
+                                )
+                                if github_commit_msg:
+                                    release["commit_message"] = github_commit_msg
                                 release["author"] = {
                                     "login": commit_data.get("author", {}).get(
                                         "login", "unknown"
@@ -171,19 +182,38 @@ async def get_releases(project_name: str, app_name: str, db: Session = Depends(g
                                     ),
                                 }
                             else:
-                                release["commit_message"] = "-"
+                                # Keep CLI commit message if GitHub fails
+                                if (
+                                    not release.get("commit_message")
+                                    or release.get("commit_message") == "-"
+                                ):
+                                    release["commit_message"] = "-"
                                 release["author"] = None
                         except Exception:
-                            release["commit_message"] = "-"
+                            # Keep CLI commit message if GitHub fails
+                            if (
+                                not release.get("commit_message")
+                                or release.get("commit_message") == "-"
+                            ):
+                                release["commit_message"] = "-"
                             release["author"] = None
                     else:
-                        release["commit_message"] = "-"
+                        if not release.get("commit_message"):
+                            release["commit_message"] = "-"
                         release["author"] = None
         else:
-            # No GitHub token or no data - add empty fields
+            # No GitHub token - keep CLI data as-is
             for release in releases_list:
-                release["commit_message"] = "-"
-                release["author"] = None
+                if not release.get("commit_message"):
+                    release["commit_message"] = "-"
+                if not release.get("author"):
+                    release["author"] = None
+
+        # Shorten git SHAs for frontend display (after GitHub API calls)
+        for release in releases_list:
+            git_sha = release.get("git_sha", "")
+            if git_sha and len(git_sha) > 7:
+                release["git_sha"] = git_sha[:7]
 
         return {"releases": releases_list}
 
@@ -205,12 +235,14 @@ async def switch_version(
     Switch app to a different version (rollback/rollforward).
     Uses SuperDeploy CLI switch command for zero-downtime deployment.
 
+    Streams CLI output in real-time for better UX.
+
     Returns:
-    - message: Success/failure message
-    - git_sha: Version switched to
+    - StreamingResponse with CLI output
     """
     try:
         from utils.cli import get_cli
+        from fastapi.responses import StreamingResponse
 
         # Get project
         project = db.query(Project).filter(Project.name == project_name).first()
@@ -229,24 +261,22 @@ async def switch_version(
         # Use centralized CLI executor
         cli = get_cli()
 
-        # Collect output
-        output_lines = []
-        async for line in cli.execute(
-            f"{project_name}:releases:switch",
-            args=["-a", app_name, "-v", request.git_sha, "--force"],
-        ):
-            output_lines.append(line)
+        # Stream CLI output
+        async def generate():
+            try:
+                async for line in cli.execute(
+                    f"{project_name}:releases:switch",
+                    args=["-a", app_name, "-v", request.git_sha, "--force"],
+                ):
+                    yield line
+            except RuntimeError as e:
+                yield f"\n❌ Error: {str(e)}\n"
+            except Exception as e:
+                yield f"\n❌ Unexpected error: {str(e)}\n"
 
-        output = "".join(output_lines)
+        return StreamingResponse(generate(), media_type="text/plain")
 
-        return {
-            "message": f"Successfully switched to {request.git_sha[:7]}",
-            "git_sha": request.git_sha,
-            "output": output,
-        }
-
-    except RuntimeError as e:
-        # CLI execution failed
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

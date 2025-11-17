@@ -144,3 +144,47 @@ async def delete_app_secret(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.post("/sync/{project_name}/{app_name}")
+async def sync_secrets(
+    project_name: str,
+    app_name: str,
+    environment: str = "production",
+):
+    """
+    Sync secrets to GitHub for specific app (vars:sync --app).
+    
+    Streams CLI output in real-time.
+    """
+    from fastapi.responses import StreamingResponse
+    import asyncio
+    
+    async def stream_logs():
+        try:
+            # Execute vars:sync command for specific app
+            process = await asyncio.create_subprocess_exec(
+                "./superdeploy.sh",
+                f"{project_name}:vars:sync",
+                "--app", app_name,
+                "--env", environment,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
+            )
+            
+            # Stream output
+            if process.stdout:
+                while True:
+                    line = await process.stdout.readline()
+                    if not line:
+                        break
+                    yield line
+            
+            await process.wait()
+            
+        except Exception as e:
+            yield f"\nError: {str(e)}\n".encode()
+    
+    return StreamingResponse(stream_logs(), media_type="text/plain")

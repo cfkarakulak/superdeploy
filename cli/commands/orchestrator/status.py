@@ -25,15 +25,57 @@ class OrchestratorStatusCommand(BaseCommand):
 
     def execute(self) -> None:
         """Execute status command."""
-        # JSON output mode - simplified
+        project_root = Path.cwd()
+        shared_dir = project_root / "shared"
+        orchestrator_loader = OrchestratorLoader(shared_dir)
+
+        try:
+            orch_config = orchestrator_loader.load()
+        except FileNotFoundError as e:
+            if self.json_output:
+                self.output_json(
+                    {
+                        "status": "error",
+                        "message": f"Configuration not found: {e}",
+                        "service": "orchestrator",
+                        "vms": [],
+                    }
+                )
+                return
+            self.console.print(f"[red]❌ {e}[/red]")
+            raise SystemExit(1)
+
+        # JSON output mode - return proper data
         if self.json_output:
-            self.output_json(
-                {
-                    "status": "completed",
-                    "message": "Use normal mode for detailed status",
-                    "service": "orchestrator",
-                }
-            )
+            if orch_config.is_deployed():
+                orch_ip = orch_config.get_ip()
+                state = orch_config.state_manager.load_state()
+                vm_info = state.get("vm", {})
+
+                self.output_json(
+                    {
+                        "status": "deployed",
+                        "service": "orchestrator",
+                        "vms": [
+                            {
+                                "name": "orchestrator",
+                                "ip": orch_ip,
+                                "machine_type": vm_info.get("machine_type", "unknown"),
+                                "zone": vm_info.get("zone", "unknown"),
+                                "role": "orchestrator",
+                                "status": "running",
+                            }
+                        ],
+                    }
+                )
+            else:
+                self.output_json(
+                    {
+                        "status": "not_deployed",
+                        "service": "orchestrator",
+                        "vms": [],
+                    }
+                )
             return
 
         self.show_header(title="Orchestrator Status", project="orchestrator")
@@ -41,25 +83,11 @@ class OrchestratorStatusCommand(BaseCommand):
         # Initialize logger
         logger = self.init_logger("orchestrator", "status")
 
-        project_root = Path.cwd()
-        shared_dir = project_root / "shared"
-
-        orchestrator_loader = OrchestratorLoader(shared_dir)
-
         if logger:
             logger.step("Loading orchestrator configuration")
-
-        try:
-            orch_config = orchestrator_loader.load()
-        except FileNotFoundError as e:
-            if logger:
-                logger.log_error(f"Configuration not found: {e}")
-            self.console.print(f"[red]❌ {e}[/red]")
-            raise SystemExit(1)
+            logger.success("Configuration loaded")
 
         if orch_config.is_deployed():
-            if logger:
-                logger.success("Configuration loaded")
             self._display_deployed_status(orch_config, logger)
         else:
             self._display_not_deployed(logger)

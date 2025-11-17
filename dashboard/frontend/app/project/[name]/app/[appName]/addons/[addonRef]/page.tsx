@@ -77,7 +77,7 @@ export default function AddonDetailPage() {
   const [metrics, setMetrics] = useState<ContainerMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [appDomain, setAppDomain] = useState<string>(projectName);
+  const [appDomain, setAppDomain] = useState<string>("");
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [viewingCredential, setViewingCredential] = useState<AddonCredential | null>(null);
 
@@ -174,11 +174,13 @@ export default function AddonDetailPage() {
   };
 
   const formatBytes = (bytes: number): string => {
-    if (!bytes) return '0 B';
+    if (!bytes || bytes <= 0 || isNaN(bytes) || !isFinite(bytes)) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
-    return Math.round((bytes / Math.pow(k, i)) * 10) / 10 + ' ' + sizes[i];
+    const i = Math.max(0, Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1));
+    const formattedValue = Math.round((bytes / Math.pow(k, i)) * 10) / 10;
+    const unit = sizes[i] || 'B';
+    return formattedValue + ' ' + unit;
   };
 
   const logo = addon ? getAddonLogo(addon.type) : null;
@@ -192,7 +194,7 @@ export default function AddonDetailPage() {
         {/* Page Header with Breadcrumb */}
         <PageHeader
           breadcrumbs={[
-            { label: appDomain || projectName, href: `/project/${projectName}` },
+            { label: appDomain || "Loading...", href: `/project/${projectName}` },
             { label: appName, href: `/project/${projectName}/app/${appName}` },
             { label: "Resources", href: `/project/${projectName}/app/${appName}/resources` },
           ]}
@@ -336,18 +338,18 @@ export default function AddonDetailPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-[12px] tracking-[0.03em] font-light">
                     <span className="text-[#8b8b8b]">RX</span>
-                    <span className="text-[#0a0a0a] font-medium">
-                      {metrics?.network_rx_bytes_per_sec !== undefined 
-                        ? formatBytes(metrics.network_rx_bytes_per_sec) + '/s'
-                        : '—'}
+                    <span className="text-[#0a0a0a]">
+                      {metrics?.network_rx_bytes_per_sec !== undefined && metrics?.network_rx_bytes_per_sec !== null
+                        ? formatBytes(Number(metrics.network_rx_bytes_per_sec) || 0) + '/s'
+                        : '0 B/s'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[12px] tracking-[0.03em] font-light">
                     <span className="text-[#8b8b8b]">TX</span>
-                    <span className="text-[#0a0a0a] font-medium">
-                      {metrics?.network_tx_bytes_per_sec !== undefined
-                        ? formatBytes(metrics.network_tx_bytes_per_sec) + '/s'
-                        : '—'}
+                    <span className="text-[#0a0a0a]">
+                      {metrics?.network_tx_bytes_per_sec !== undefined && metrics?.network_tx_bytes_per_sec !== null
+                        ? formatBytes(Number(metrics.network_tx_bytes_per_sec) || 0) + '/s'
+                        : '0 B/s'}
                     </span>
                   </div>
                 </div>
@@ -362,18 +364,18 @@ export default function AddonDetailPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-[12px] tracking-[0.03em] font-light">
                     <span className="text-[#8b8b8b]">Read</span>
-                    <span className="text-[#0a0a0a] font-medium">
-                      {metrics?.fs_read_bytes_per_sec !== undefined
-                        ? formatBytes(metrics.fs_read_bytes_per_sec) + '/s'
-                        : '—'}
+                    <span className="text-[#0a0a0a]">
+                      {metrics?.fs_read_bytes_per_sec !== undefined && metrics?.fs_read_bytes_per_sec !== null
+                        ? formatBytes(Number(metrics.fs_read_bytes_per_sec) || 0) + '/s'
+                        : '0 B/s'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[12px] tracking-[0.03em] font-light">
                     <span className="text-[#8b8b8b]">Write</span>
-                    <span className="text-[#0a0a0a] font-medium">
-                      {metrics?.fs_write_bytes_per_sec !== undefined
-                        ? formatBytes(metrics.fs_write_bytes_per_sec) + '/s'
-                        : '—'}
+                    <span className="text-[#0a0a0a]">
+                      {metrics?.fs_write_bytes_per_sec !== undefined && metrics?.fs_write_bytes_per_sec !== null
+                        ? formatBytes(Number(metrics.fs_write_bytes_per_sec) || 0) + '/s'
+                        : '0 B/s'}
                     </span>
                   </div>
                 </div>

@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import { AppHeader, PageHeader, Button } from "@/components";
 import { Pause, Play, Trash2 } from "lucide-react";
+import { parseAnsi, segmentToStyle } from "@/lib/ansiParser";
 
 export default function LogsPage() {
   const params = useParams();
@@ -13,7 +14,7 @@ export default function LogsPage() {
   const [logs, setLogs] = useState<string[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [appDomain, setAppDomain] = useState<string>(projectName);
+  const [appDomain, setAppDomain] = useState<string>("");
   const logsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const pausedLogsRef = useRef<string[]>([]);
@@ -119,7 +120,7 @@ export default function LogsPage() {
       <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
         <PageHeader
           breadcrumbs={[
-            { label: appDomain || projectName, href: `/project/${projectName}` },
+            { label: appDomain || "Loading...", href: `/project/${projectName}` },
             { label: appName, href: `/project/${projectName}/app/${appName}` },
           ]}
           menuLabel="Logs"
@@ -178,14 +179,21 @@ export default function LogsPage() {
             </div>
           ) : (
             <div className="space-y-0.5">
-              {logs.map((log, index) => (
-                <div
-                  key={index}
-                  className="text-[#444] px-2 py-0.5 rounded whitespace-pre-wrap break-all"
-                >
-                  {log}
-                </div>
-              ))}
+              {logs.map((log, index) => {
+                const segments = parseAnsi(log);
+                return (
+                  <div
+                    key={index}
+                    className="px-2 py-0.5 rounded whitespace-pre-wrap break-all"
+                  >
+                    {segments.map((segment, segIndex) => (
+                      <span key={segIndex} style={segmentToStyle(segment)}>
+                        {segment.text}
+                      </span>
+                    ))}
+                  </div>
+                );
+              })}
               {isPaused && pausedLogsRef.current.length > 0 && (
                 <div className="text-[#f59e0b] px-2 py-1 italic">
                   {pausedLogsRef.current.length} new logs (paused)
@@ -197,10 +205,10 @@ export default function LogsPage() {
         </div>
 
         {/* Footer info */}
-        <div className="text-[11px] text-[#777] leading-tight tracking-[0.02em] mb-[6px] mt-3 font-light">
+        <div className="text-[11px] text-[#777] leading-tight tracking-[0.03em] mb-[6px] mt-3 font-light">
           <p>
-            Showing logs for <strong className="text-[#0a0a0a]">{appName}</strong> in project{" "}
-            <strong className="text-[#0a0a0a]">{projectName}</strong>
+            Showing logs for <span className="text-[#0a0a0a]">{appName}</span> in project{" "}
+            <span className="text-[#0a0a0a]">{projectName}</span>
           </p>
         </div>
       </div>

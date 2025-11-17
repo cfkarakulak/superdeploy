@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import App
 from utils.cli import get_cli
+from cache import get_cache, set_cache, CACHE_TTL
 import yaml
 from pathlib import Path
 
@@ -48,6 +49,7 @@ async def get_app_resources(
     Get application resources: process formation and attached add-ons.
 
     Uses CLI JSON output to get real-time status from VMs.
+    Cached for 1 minute.
 
     Returns:
         {
@@ -56,6 +58,12 @@ async def get_app_resources(
             "app_info": {...}    # App metadata
         }
     """
+    # Check cache
+    cache_key = f"resources:{project_name}:{app_name}"
+    cached = get_cache(cache_key)
+    if cached:
+        return cached
+
     try:
         # Get app from database
         from models import Project
@@ -138,59 +146,14 @@ async def get_app_resources(
         # ================================================================
         addons_response = app_status.get("addons", [])
 
-        # If no addons from CLI, fallback to DB (legacy)
-        if not addons_response:
-            all_addons = db.query(Addon).filter(Addon.project_id == project.id).all()
-
-            for addon in all_addons:
-                # Check if this addon is attached to our app
-                attachments = addon.attachments or []
-
-                matching_attachment = None
-                for att in attachments:
-                    if att.get("app_name") == app_name:
-                        matching_attachment = att
-                        break
-
-                if not matching_attachment:
-                    continue
-
-                # This addon is attached to our app
-                as_prefix = matching_attachment.get("as_prefix", addon.type.upper())
-                access = matching_attachment.get("access", "readwrite")
-
-                # Get credentials
-                credentials = addon.credentials or {}
-
-                # Build reference (category.name format)
-                reference = f"{addon.category}.{addon.name}"
-
-                addons_response.append(
-                    {
-                        "reference": reference,
-                        "name": addon.name,
-                        "type": addon.type,
-                        "category": addon.category,
-                        "version": addon.version or "",
-                        "plan": addon.plan,
-                        "as_prefix": as_prefix,
-                        "access": access,
-                        "status": addon.status,
-                        "host": credentials.get("HOST", ""),
-                        "port": credentials.get("PORT", ""),
-                        "container_name": f"{project_name}_{addon.type}_{addon.name}",
-                        "source": "db",
-                    }
-                )
-
         # ================================================================
         # APP INFO - From CLI status
         # ================================================================
         app_info = {
             "name": app_name,
-            "type": app_status.get("type", app.type or "web"),
-            "port": app_status.get("port", app.port),
-            "vm": app_status.get("vm", app.vm or "app"),
+            "type": app_status.get("type", "web"),
+            "port": app_status.get("port", 8000),
+            "vm": app_status.get("vm", "app"),
             "vm_name": app_status.get("vm_name"),
             "vm_ip": app_status.get("vm_ip"),
             "replicas": app_status.get("replicas", 1),
@@ -199,11 +162,15 @@ async def get_app_resources(
             "resources": app_status.get("resources", {}),
         }
 
-        return {
+        response = {
             "formation": formation,
             "addons": addons_response,
             "app_info": app_info,
         }
+
+        # Cache for 1 minute
+        set_cache(cache_key, response, CACHE_TTL["status"])
+        return response
 
     except HTTPException:
         raise
@@ -217,6 +184,7 @@ async def get_addon_detail(
 ):
     """
     Get detailed information about a specific addon attached to an app.
+    Cached for 1 minute.
 
     Args:
         project_name: Name of the project
@@ -226,6 +194,12 @@ async def get_addon_detail(
     Returns:
         Addon details with credentials (environment variables)
     """
+    # Check cache
+    cache_key = f"addon_detail:{project_name}:{app_name}:{addon_ref}"
+    cached = get_cache(cache_key)
+    if cached:
+        return cached
+
     try:
         # Parse addon_ref (format: "category.name")
         parts = addon_ref.split(".")
@@ -276,17 +250,6 @@ async def get_addon_detail(
                 addon_data = addon_item
                 break
 
-        # Check if addon exists in database (for credentials)
-        db_addon = (
-            db.query(Addon)
-            .filter(
-                Addon.project_id == project.id,
-                Addon.category == category,
-                Addon.name == name,
-            )
-            .first()
-        )
-
         # If found in CLI
         if addon_data:
             # Build base response from CLI data
@@ -326,59 +289,17 @@ async def get_addon_detail(
                 addon_detail["host"] = ""
                 addon_detail["port"] = ""
 
-        # If not found in CLI, try database only
-        elif db_addon:
-            # Check if addon is attached to this app
-            attachments = db_addon.attachments or []
-            matching_attachment = None
-
-            for att in attachments:
-                if att.get("app_name") == app_name:
-                    matching_attachment = att
-                    break
-
-            if not matching_attachment:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Addon '{addon_ref}' is not attached to app '{app_name}'",
-                )
-
-            # Get attachment details
-            as_prefix = matching_attachment.get("as_prefix", db_addon.type.upper())
-            access = matching_attachment.get("access", "readwrite")
-
-            # Get credentials and format them as environment variables
-            credentials_dict = db_addon.credentials or {}
-            credentials_list = []
-
-            for key, value in credentials_dict.items():
-                # Format as environment variable with prefix
-                env_key = f"{as_prefix}_{key}"
-                credentials_list.append({"key": env_key, "value": str(value)})
-
-            # Build response from DB
-            addon_detail = {
-                "reference": addon_ref,
-                "name": db_addon.name,
-                "type": db_addon.type,
-                "category": db_addon.category,
-                "version": db_addon.version or "",
-                "plan": db_addon.plan,
-                "as_prefix": as_prefix,
-                "access": access,
-                "status": db_addon.status,
-                "host": credentials_dict.get("HOST", ""),
-                "port": credentials_dict.get("PORT", ""),
-                "container_name": f"{project_name}_{db_addon.type}_{db_addon.name}",
-                "credentials": credentials_list,
-            }
         else:
             # Addon not found anywhere
             raise HTTPException(
                 status_code=404, detail=f"Addon '{addon_ref}' not found"
             )
 
-        return {"addon": addon_detail}
+        response = {"addon": addon_detail}
+
+        # Cache for 1 minute
+        set_cache(cache_key, response, CACHE_TTL["status"])
+        return response
 
     except HTTPException:
         raise

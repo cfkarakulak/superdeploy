@@ -2,28 +2,34 @@
 
 from fastapi import APIRouter, HTTPException
 import httpx
+import subprocess
+import json
 
 router = APIRouter(tags=["github"])
 
 
-def get_github_token(project_name: str) -> str:
-    """Get GitHub token from Settings table."""
-    from database import SessionLocal
-    from models import Setting
+def get_github_token(project_name: str) -> str | None:
+    """Get GitHub token from secrets.yml.
 
-    db = SessionLocal()
+    Returns None if no token is configured.
+    """
+    import yaml
+    from pathlib import Path
+
     try:
-        setting = db.query(Setting).filter(Setting.key == "github_token").first()
+        secrets_path = Path(
+            f"/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy/projects/{project_name}/secrets.yml"
+        )
+        if secrets_path.exists():
+            with open(secrets_path) as f:
+                data = yaml.safe_load(f) or {}
+                secrets = data.get("secrets", {}).get("shared", {})
+                # Try GITHUB_TOKEN first, then REPOSITORY_TOKEN
+                return secrets.get("GITHUB_TOKEN") or secrets.get("REPOSITORY_TOKEN")
+    except:
+        pass
 
-        if not setting or not setting.value:
-            raise HTTPException(
-                status_code=404, detail="GitHub token not found in settings"
-            )
-
-        return setting.value
-
-    finally:
-        db.close()
+    return None
 
 
 def get_github_repo(project_name: str) -> tuple[str, str]:
@@ -59,33 +65,35 @@ async def get_repo_info(project_name: str, repo_name: str):
 async def get_repo_workflows(project_name: str, repo_name: str):
     """Get GitHub Actions workflow runs for a specific repo."""
     try:
-        from database import SessionLocal
-        from models import Project, App
-
         token = get_github_token(project_name)
+        if not token:
+            return {"workflow_runs": [], "total_count": 0}
 
-        # Get owner and repo from App table
-        db = SessionLocal()
-        try:
-            project = db.query(Project).filter(Project.name == project_name).first()
-            if not project:
-                raise HTTPException(status_code=404, detail="Project not found")
+        # Get app info from apps endpoint (config.yml)
+        owner = "cheapaio"
+        repo = repo_name
 
-            app = (
-                db.query(App)
-                .filter(App.project_id == project.id, App.name == repo_name)
-                .first()
-            )
+        result = subprocess.run(
+            ["./superdeploy.sh", f"{project_name}:app:list", "--json"],
+            capture_output=True,
+            text=True,
+            cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
+            timeout=30,
+        )
 
-            if app and app.owner and app.repo:
-                owner = app.owner
-                repo = app.repo
-            else:
-                # Fallback
-                owner = "cheapaio"
-                repo = repo_name
-        finally:
-            db.close()
+        if result.returncode == 0:
+            try:
+                apps_data = json.loads(result.stdout)
+                apps = apps_data.get("apps", [])
+                app_data = next(
+                    (app for app in apps if app.get("name") == repo_name), None
+                )
+
+                if app_data:
+                    owner = app_data.get("owner", "cheapaio")
+                    repo = app_data.get("repo", repo_name)
+            except:
+                pass
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -122,6 +130,8 @@ async def get_workflow_run(project_name: str, repo_name: str, run_id: int):
         from models import Project, App
 
         token = get_github_token(project_name)
+        if not token:
+            raise HTTPException(status_code=503, detail="GitHub token not configured")
 
         # Get owner and repo from App table
         db = SessionLocal()
@@ -176,6 +186,8 @@ async def get_workflow_run_jobs(project_name: str, repo_name: str, run_id: int):
         from models import Project, App
 
         token = get_github_token(project_name)
+        if not token:
+            raise HTTPException(status_code=503, detail="GitHub token not configured")
 
         # Get owner and repo from App table
         db = SessionLocal()
@@ -238,6 +250,9 @@ async def get_github_actions(project_name: str):
         apps = db.query(App).filter(App.project_id == project.id).all()
 
         token = get_github_token(project_name)
+        if not token:
+            return {"workflow_runs": [], "total_count": 0}
+
         owner, _ = get_github_repo(project_name)
 
         all_workflows = []

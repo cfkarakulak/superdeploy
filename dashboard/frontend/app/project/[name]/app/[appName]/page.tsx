@@ -79,7 +79,7 @@ export default function AppOverviewPage() {
   const [appMetrics, setAppMetrics] = useState<ApplicationMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [appDomain, setAppDomain] = useState<string>(projectName); // Initialize with projectName
+  const [appDomain, setAppDomain] = useState<string>(""); // Will be loaded from API
 
   useEffect(() => {
     const fetchAllMetrics = async () => {
@@ -176,7 +176,7 @@ export default function AppOverviewPage() {
         <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
           <PageHeader
             breadcrumbs={[
-              { label: appDomain || projectName, href: `/project/${projectName}` },
+              { label: appDomain || "Loading...", href: `/project/${projectName}` },
               { label: appName, href: `/project/${projectName}/app/${appName}` },
             ]}
             menuLabel="Overview"
@@ -242,7 +242,7 @@ export default function AppOverviewPage() {
         <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
           <PageHeader
             breadcrumbs={[
-              { label: appDomain || projectName, href: `/project/${projectName}` },
+              { label: appDomain || "Loading...", href: `/project/${projectName}` },
               { label: appName, href: `/project/${projectName}/app/${appName}` },
             ]}
             menuLabel="Overview"
@@ -250,7 +250,7 @@ export default function AppOverviewPage() {
           />
           
           <div className="text-center py-12 text-[#8b8b8b]">
-            <p className="text-[15px]">Failed to load metrics: {error}</p>
+            <p className="text-[11px] tracking-[0.03em] font-light">Failed to load metrics: {error}</p>
           </div>
         </div>
       </div>
@@ -264,7 +264,7 @@ export default function AppOverviewPage() {
       <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
         <PageHeader
           breadcrumbs={[
-            { label: appDomain || projectName, href: `/project/${projectName}` },
+            { label: appDomain || "Loading...", href: `/project/${projectName}` },
             { label: appName, href: `/project/${projectName}/app/${appName}` },
           ]}
           menuLabel="Overview"
@@ -516,13 +516,13 @@ export default function AppOverviewPage() {
                   <div className="pt-3 border-t border-[#e3e8ee]">
                     <div className="flex items-center justify-between text-[12px] mb-1">
                       <span className="text-[#8b8b8b]">Disk Read</span>
-                      <span className="text-[#0a0a0a] font-medium">
+                      <span className="text-[#0a0a0a]">
                         {formatBytes(container.fs_read_bytes_per_sec || 0)}/s
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-[12px]">
                       <span className="text-[#8b8b8b]">Disk Write</span>
-                      <span className="text-[#0a0a0a] font-medium">
+                      <span className="text-[#0a0a0a]">
                         {formatBytes(container.fs_write_bytes_per_sec || 0)}/s
                       </span>
                     </div>

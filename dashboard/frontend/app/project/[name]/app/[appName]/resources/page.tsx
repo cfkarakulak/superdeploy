@@ -88,7 +88,7 @@ export default function ResourcesPage() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [appDomain, setAppDomain] = useState<string>(projectName);
+  const [appDomain, setAppDomain] = useState<string>("");
 
   useEffect(() => {
     const fetchResources = async () => {
@@ -162,7 +162,7 @@ export default function ResourcesPage() {
       <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
         <PageHeader
           breadcrumbs={[
-            { label: appDomain || projectName, href: `/project/${projectName}` },
+            { label: appDomain || "Loading...", href: `/project/${projectName}` },
             { label: appName, href: `/project/${projectName}/app/${appName}` },
           ]}
           menuLabel="Resources"
@@ -199,7 +199,7 @@ export default function ResourcesPage() {
           </div>
         ) : error ? (
           <div className="text-center py-12 text-[#8b8b8b]">
-            <p className="text-[15px]">Failed to load resources: {error}</p>
+            <p className="text-[11px] tracking-[0.03em] font-light">Failed to load resources: {error}</p>
           </div>
         ) : (
           <div className="space-y-6 mt-6">
@@ -215,7 +215,7 @@ export default function ResourcesPage() {
                   <div className="w-16 h-16 bg-[#f6f8fa] rounded-full flex items-center justify-center mx-auto mb-4">
                     <Server className="w-6 h-6 text-[#8b8b8b]" />
                   </div>
-                  <p className="text-[15px] font-medium text-[#0a0a0a] mb-2">No processes configured</p>
+                  <p className="text-[14px] text-[#0a0a0a] mb-2">No processes configured</p>
                   <p className="text-[13px] text-[#8b8b8b] mb-4">Deploy your application to see process formation</p>
                   <Button variant="primary" size="md">
                     Deploy Application
@@ -282,7 +282,7 @@ export default function ResourcesPage() {
                   <div className="w-16 h-16 bg-[#f6f8fa] rounded-full flex items-center justify-center mx-auto mb-4">
                     <Package className="w-6 h-6 text-[#8b8b8b]" />
                   </div>
-                  <p className="text-[15px] font-medium text-[#0a0a0a] mb-2">No add-ons detected</p>
+                  <p className="text-[14px] text-[#0a0a0a] mb-2">No add-ons detected</p>
                   <p className="text-[13px] text-[#8b8b8b] mb-4 max-w-md mx-auto">
                     Add-ons may need to be attached to this app. Install databases, caching, queues, and other services.
                   </p>

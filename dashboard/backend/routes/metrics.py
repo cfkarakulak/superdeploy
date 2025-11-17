@@ -1,12 +1,68 @@
 """Metrics routes for fetching system metrics from Prometheus."""
 
 from fastapi import APIRouter, HTTPException
-from database import SessionLocal
-from models import Project, App
+import subprocess
+import json
+from cache import get_cache, set_cache
 import httpx
 import asyncio
 
 router = APIRouter(tags=["metrics"])
+
+
+def get_orchestrator_ip():
+    """Get orchestrator IP from CLI (5 min cache)."""
+    cache_key = "orchestrator_ip"
+    cached = get_cache(cache_key)
+    if cached:
+        return cached
+
+    try:
+        result = subprocess.run(
+            ["./superdeploy.sh", "orchestrator:status", "--json"],
+            capture_output=True,
+            text=True,
+            cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
+            timeout=30,
+        )
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            if data.get("vms"):
+                for vm in data["vms"]:
+                    if vm.get("name") == "orchestrator":
+                        orch_ip = vm.get("ip")
+                        set_cache(cache_key, orch_ip, 300)
+                        return orch_ip
+        return None
+    except Exception as e:
+        print(f"Failed to get orchestrator IP: {e}")
+        return None
+
+
+def get_project_vms(project_name: str):
+    """Get VMs for project from CLI (5 min cache)."""
+    cache_key = f"project_vms:{project_name}"
+    cached = get_cache(cache_key)
+    if cached:
+        return cached
+
+    try:
+        result = subprocess.run(
+            ["./superdeploy.sh", f"{project_name}:status", "--json"],
+            capture_output=True,
+            text=True,
+            cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
+            timeout=30,
+        )
+        if result.returncode == 0:
+            project_data = json.loads(result.stdout)
+            vms = project_data.get("vms", [])
+            set_cache(cache_key, vms, 300)
+            return vms
+        return []
+    except Exception as e:
+        print(f"Failed to get project VMs: {e}")
+        return []
 
 
 async def query_prometheus(prometheus_url: str, query: str) -> float:
@@ -47,68 +103,31 @@ async def get_app_metrics(project_name: str, app_name: str):
     - Container count
     - Uptime
     """
-    db = SessionLocal()
-
     try:
-        # Verify project exists
-        project = db.query(Project).filter(Project.name == project_name).first()
-        if not project:
+        # Get project VMs from CLI
+        vms = get_project_vms(project_name)
+        if not vms:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        # Get app
-        app = (
-            db.query(App)
-            .filter(App.project_id == project.id, App.name == app_name)
-            .first()
-        )
-        if not app:
+        # Verify app exists in project (just check if VMs exist)
+        if not vms:
             raise HTTPException(status_code=404, detail="App not found")
 
-        # Get VM name from app (can be role or full name)
-        vm_identifier = app.vm
-        if not vm_identifier:
-            raise HTTPException(status_code=404, detail="App has no VM assigned")
+        # Find app VM
+        app_vm = next((vm for vm in vms if vm.get("role") == "app"), None)
+        if not app_vm:
+            app_vm = vms[0]  # Fallback to first VM
 
-        # Get VM from database - try by name first, then by role
-        vm = (
-            db.query(VM)
-            .filter(VM.project_id == project.id, VM.name == vm_identifier)
-            .first()
-        )
+        vm_ip = app_vm.get("ip")
+        if not vm_ip:
+            raise HTTPException(status_code=404, detail="VM has no IP")
 
-        # If not found by name, try by role (e.g., app.vm = "app" -> find VM with role="app")
-        if not vm:
-            # Build full VM name: {project}-{role}-0
-            vm_name = f"{project_name}-{vm_identifier}-0"
-            vm = (
-                db.query(VM)
-                .filter(VM.project_id == project.id, VM.name == vm_name)
-                .first()
-            )
-
-        if not vm or not vm.external_ip:
-            raise HTTPException(
-                status_code=404, detail=f"VM '{vm_identifier}' not found or has no IP"
-            )
-
-        vm_ip = vm.external_ip
-
-        # Get orchestrator VM for Prometheus
-        orchestrator_project = (
-            db.query(Project).filter(Project.name == "orchestrator").first()
-        )
-        if not orchestrator_project:
+        # Get orchestrator IP from CLI
+        orch_ip = get_orchestrator_ip()
+        if not orch_ip:
             raise HTTPException(status_code=500, detail="Orchestrator not found")
 
-        orchestrator_vm = (
-            db.query(VM)
-            .filter(VM.project_id == orchestrator_project.id, VM.name == "orchestrator")
-            .first()
-        )
-        if not orchestrator_vm or not orchestrator_vm.external_ip:
-            raise HTTPException(status_code=500, detail="Orchestrator VM not found")
-
-        prometheus_url = f"http://{orchestrator_vm.external_ip}:9090"
+        prometheus_url = f"http://{orch_ip}:9090"
 
         # Prometheus queries for the specific VM
         instance_filter = f'instance=~".*{vm_ip}.*"'
@@ -159,8 +178,6 @@ async def get_app_metrics(project_name: str, app_name: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
 
 
 @router.get("/{project_name}/vms")
@@ -176,12 +193,10 @@ async def get_project_vms_metrics(project_name: str):
     - Uptime
     - Status (up/down)
     """
-    db = SessionLocal()
-
     try:
-        # Verify project exists
-        project = db.query(Project).filter(Project.name == project_name).first()
-        if not project:
+        # Get project VMs from CLI
+        vms = get_project_vms(project_name)
+        if not vms:
             raise HTTPException(status_code=404, detail="Project not found")
 
         # Get all VMs for this project
@@ -189,22 +204,12 @@ async def get_project_vms_metrics(project_name: str):
         if not vms:
             return {"project": project_name, "vms": []}
 
-        # Get orchestrator VM for Prometheus
-        orchestrator_project = (
-            db.query(Project).filter(Project.name == "orchestrator").first()
-        )
-        if not orchestrator_project:
+        # Get orchestrator IP from CLI
+        orch_ip = get_orchestrator_ip()
+        if not orch_ip:
             raise HTTPException(status_code=500, detail="Orchestrator not found")
 
-        orchestrator_vm = (
-            db.query(VM)
-            .filter(VM.project_id == orchestrator_project.id, VM.name == "orchestrator")
-            .first()
-        )
-        if not orchestrator_vm or not orchestrator_vm.external_ip:
-            raise HTTPException(status_code=500, detail="Orchestrator VM not found")
-
-        prometheus_url = f"http://{orchestrator_vm.external_ip}:9090"
+        prometheus_url = f"http://{orch_ip}:9090"
 
         # Collect metrics for all VMs
         vm_metrics_list = []
@@ -273,8 +278,6 @@ async def get_project_vms_metrics(project_name: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
 
 
 @router.get("/{project_name}/{app_name}/containers")
@@ -296,39 +299,22 @@ async def get_app_container_metrics(
         include_addons: If True, includes all project containers (app + addons).
                        If False (default), only returns app-specific containers.
     """
-    db = SessionLocal()
-
     try:
-        # Verify project exists
-        project = db.query(Project).filter(Project.name == project_name).first()
-        if not project:
+        # Get project VMs from CLI
+        vms = get_project_vms(project_name)
+        if not vms:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        # Get app
-        app = (
-            db.query(App)
-            .filter(App.project_id == project.id, App.name == app_name)
-            .first()
-        )
-        if not app:
+        # Verify app exists in project (just check if VMs exist)
+        if not vms:
             raise HTTPException(status_code=404, detail="App not found")
 
-        # Get orchestrator VM for Prometheus
-        orchestrator_project = (
-            db.query(Project).filter(Project.name == "orchestrator").first()
-        )
-        if not orchestrator_project:
+        # Get orchestrator IP from CLI
+        orch_ip = get_orchestrator_ip()
+        if not orch_ip:
             raise HTTPException(status_code=500, detail="Orchestrator not found")
 
-        orchestrator_vm = (
-            db.query(VM)
-            .filter(VM.project_id == orchestrator_project.id, VM.name == "orchestrator")
-            .first()
-        )
-        if not orchestrator_vm or not orchestrator_vm.external_ip:
-            raise HTTPException(status_code=500, detail="Orchestrator VM not found")
-
-        prometheus_url = f"http://{orchestrator_vm.external_ip}:9090"
+        prometheus_url = f"http://{orch_ip}:9090"
 
         # Query cAdvisor metrics for Docker containers (systemd cgroup paths)
         # Filter: only docker-*.scope containers (not root, not system services)
@@ -405,12 +391,20 @@ async def get_app_container_metrics(
         # Process results into container-specific metrics
         containers = {}
 
+        def safe_float(value_str: str) -> float:
+            """Safely convert string to float, returning 0.0 for invalid values."""
+            try:
+                val = float(value_str)
+                return 0.0 if (val != val or val < 0) else val  # NaN or negative check
+            except (ValueError, TypeError):
+                return 0.0
+
         for result in results.get("cpu_usage", []):
             metric = result.get("metric", {})
             container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
-            containers[container_name]["cpu_percent"] = float(
+            containers[container_name]["cpu_percent"] = safe_float(
                 result.get("value", [None, "0"])[1]
             )
 
@@ -420,7 +414,7 @@ async def get_app_container_metrics(
             if container_name not in containers:
                 containers[container_name] = {}
             containers[container_name]["memory_bytes"] = int(
-                float(result.get("value", [None, "0"])[1])
+                safe_float(result.get("value", [None, "0"])[1])
             )
 
         for result in results.get("memory_limit", []):
@@ -428,7 +422,7 @@ async def get_app_container_metrics(
             container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
-            limit = int(float(result.get("value", [None, "0"])[1]))
+            limit = int(safe_float(result.get("value", [None, "0"])[1]))
             containers[container_name]["memory_limit_bytes"] = limit
             if limit > 0 and "memory_bytes" in containers[container_name]:
                 containers[container_name]["memory_percent"] = (
@@ -440,7 +434,7 @@ async def get_app_container_metrics(
             container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
-            containers[container_name]["network_rx_bytes_per_sec"] = float(
+            containers[container_name]["network_rx_bytes_per_sec"] = safe_float(
                 result.get("value", [None, "0"])[1]
             )
 
@@ -449,7 +443,7 @@ async def get_app_container_metrics(
             container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
-            containers[container_name]["network_tx_bytes_per_sec"] = float(
+            containers[container_name]["network_tx_bytes_per_sec"] = safe_float(
                 result.get("value", [None, "0"])[1]
             )
 
@@ -458,7 +452,7 @@ async def get_app_container_metrics(
             container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
-            containers[container_name]["fs_read_bytes_per_sec"] = float(
+            containers[container_name]["fs_read_bytes_per_sec"] = safe_float(
                 result.get("value", [None, "0"])[1]
             )
 
@@ -467,7 +461,7 @@ async def get_app_container_metrics(
             container_name = get_container_name(metric)
             if container_name not in containers:
                 containers[container_name] = {}
-            containers[container_name]["fs_write_bytes_per_sec"] = float(
+            containers[container_name]["fs_write_bytes_per_sec"] = safe_float(
                 result.get("value", [None, "0"])[1]
             )
 
@@ -482,8 +476,6 @@ async def get_app_container_metrics(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
 
 
 @router.get("/{project_name}/{app_name}/application")
@@ -497,68 +489,31 @@ async def get_app_application_metrics(project_name: str, app_name: str):
     - HTTP error rate (5xx errors)
     - Active requests (in-progress)
     """
-    db = SessionLocal()
-
     try:
-        # Verify project exists
-        project = db.query(Project).filter(Project.name == project_name).first()
-        if not project:
+        # Get project VMs from CLI
+        vms = get_project_vms(project_name)
+        if not vms:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        # Get app
-        app = (
-            db.query(App)
-            .filter(App.project_id == project.id, App.name == app_name)
-            .first()
-        )
-        if not app:
+        # Verify app exists in project (just check if VMs exist)
+        if not vms:
             raise HTTPException(status_code=404, detail="App not found")
 
-        # Get VM name from app (can be role or full name)
-        vm_identifier = app.vm
-        if not vm_identifier:
-            raise HTTPException(status_code=404, detail="App has no VM assigned")
+        # Find app VM
+        app_vm = next((vm for vm in vms if vm.get("role") == "app"), None)
+        if not app_vm:
+            app_vm = vms[0]  # Fallback to first VM
 
-        # Get VM from database - try by name first, then by role
-        vm = (
-            db.query(VM)
-            .filter(VM.project_id == project.id, VM.name == vm_identifier)
-            .first()
-        )
+        vm_ip = app_vm.get("ip")
+        if not vm_ip:
+            raise HTTPException(status_code=404, detail="VM has no IP")
 
-        # If not found by name, try by role (e.g., app.vm = "app" -> find VM with role="app")
-        if not vm:
-            # Build full VM name: {project}-{role}-0
-            vm_name = f"{project_name}-{vm_identifier}-0"
-            vm = (
-                db.query(VM)
-                .filter(VM.project_id == project.id, VM.name == vm_name)
-                .first()
-            )
-
-        if not vm or not vm.external_ip:
-            raise HTTPException(
-                status_code=404, detail=f"VM '{vm_identifier}' not found or has no IP"
-            )
-
-        vm_ip = vm.external_ip
-
-        # Get orchestrator VM for Prometheus
-        orchestrator_project = (
-            db.query(Project).filter(Project.name == "orchestrator").first()
-        )
-        if not orchestrator_project:
+        # Get orchestrator IP from CLI
+        orch_ip = get_orchestrator_ip()
+        if not orch_ip:
             raise HTTPException(status_code=500, detail="Orchestrator not found")
 
-        orchestrator_vm = (
-            db.query(VM)
-            .filter(VM.project_id == orchestrator_project.id, VM.name == "orchestrator")
-            .first()
-        )
-        if not orchestrator_vm or not orchestrator_vm.external_ip:
-            raise HTTPException(status_code=500, detail="Orchestrator VM not found")
-
-        prometheus_url = f"http://{orchestrator_vm.external_ip}:9090"
+        prometheus_url = f"http://{orch_ip}:9090"
 
         # Application metrics queries (from PrometheusMiddleware)
         instance_filter = f'instance=~".*{vm_ip}.*"'
@@ -613,5 +568,3 @@ async def get_app_application_metrics(project_name: str, app_name: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
