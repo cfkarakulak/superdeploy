@@ -5,7 +5,6 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    Float,
     ForeignKey,
     DateTime,
     UniqueConstraint,
@@ -30,28 +29,17 @@ class Setting(Base):
 
 
 class Project(Base):
-    """Project model - minimal metadata."""
+    """Project model."""
 
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)
-    domain = Column(String(200), nullable=True)  # e.g., "cheapa.io"
-    github_org = Column(String(100), nullable=True)  # GitHub organization
+    domain = Column(String(200), nullable=True)
+    github_org = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     apps = relationship("App", back_populates="project", cascade="all, delete-orphan")
-    
-    # Note: VMs, cloud provider, region, zone etc. are fetched from CLI
-
-
-# VM table removed - use CLI `project:status --json` instead
-
-
-# Environment table removed - use hardcoded ["production", "staging"] instead
-
-
-# Secret table removed - use CLI `project:config:list/set/unset` instead
 
 
 class ActivityLog(Base):
@@ -74,11 +62,8 @@ class ActivityLog(Base):
     project = relationship("Project")
 
 
-# MetricsCache table removed - use Prometheus real-time queries instead
-
-
 class App(Base):
-    """Application model - minimal metadata for GitHub integration."""
+    """Application model."""
 
     __tablename__ = "apps"
 
@@ -92,12 +77,6 @@ class App(Base):
     project = relationship("Project", back_populates="apps")
 
     __table_args__ = (UniqueConstraint("project_id", "name", name="uix_project_app"),)
-    
-    # Note: All other app data (type, vm, domain, port, processes, etc.) 
-    # is fetched from CLI: `project:status -a app --json`
-
-
-# Addon table removed - use CLI `project:status -a app --json` instead
 
 
 class DeploymentHistory(Base):
