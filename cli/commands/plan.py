@@ -8,7 +8,12 @@ class PlanCommand(ProjectCommand):
     """Show deployment plan - what will change."""
 
     def __init__(
-        self, project_name: str, detailed: bool = False, verbose: bool = False, json_output: bool = False):
+        self,
+        project_name: str,
+        detailed: bool = False,
+        verbose: bool = False,
+        json_output: bool = False,
+    ):
         super().__init__(project_name, verbose=verbose)
         self.detailed = detailed
 
@@ -38,7 +43,6 @@ class PlanCommand(ProjectCommand):
             raise SystemExit(1)
 
         if logger:
-
             logger.success("Configuration loaded")
 
         # Load state (if exists)
@@ -67,7 +71,6 @@ class PlanCommand(ProjectCommand):
             return
 
         if logger:
-
             logger.success(f"Detected {changes['total_changes']} change(s)")
 
         # Display changes
@@ -162,19 +165,8 @@ class PlanCommand(ProjectCommand):
                     }
                 )
 
-        # Check if secrets file changed
-        secrets_path = (
-            self.project_root / "projects" / self.project_name / "secrets.yml"
-        )
-        if secrets_path.exists():
-            import hashlib
-
-            with open(secrets_path, "rb") as f:
-                current_hash = hashlib.md5(f.read()).hexdigest()
-
-            last_sync_hash = state.get("last_sync_hash")
-            if current_hash != last_sync_hash:
-                changes["needs_sync"] = True
+        # Note: Secrets are now in database, changes are tracked through DB updates
+        # No file hash check needed anymore
 
         # Determine what actions are needed
         if (

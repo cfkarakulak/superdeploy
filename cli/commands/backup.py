@@ -115,7 +115,7 @@ class BackupsCreateCommand(ProjectCommand):
                 project=self.project_name,
                 timestamp=timestamp,
                 backup_date=datetime.now().isoformat(),
-                files=["database.sql", "config.yml", "secrets.yml", "compose/"],
+                files=["database.sql", "config.yml", "secrets.json", "compose/"],
             )
             self._save_manifest(backup_path, metadata)
             progress.advance(task4)
@@ -171,8 +171,15 @@ class BackupsCreateCommand(ProjectCommand):
             # Copy config files
             shutil.copy(project_path / "config.yml", backup_path)
 
-            if (project_path / "secrets.yml").exists():
-                shutil.copy(project_path / "secrets.yml", backup_path)
+            # Export secrets from database to JSON
+            from cli.secret_manager import SecretManager
+            import json
+
+            secret_mgr = SecretManager(self.project_root, self.project_name, "production")
+            secrets_data = secret_mgr.load_secrets()
+            
+            secrets_file = backup_path / "secrets.json"
+            secrets_file.write_text(json.dumps(secrets_data, indent=2))
 
             # Copy compose files
             compose_dir = project_path / "compose"

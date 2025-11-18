@@ -332,6 +332,7 @@ class DownCommand(ProjectCommand):
         project_name: str,
         options: DownOptions,
         verbose: bool = False,
+        json_output: bool = False,
     ):
         """
         Initialize down command.
@@ -340,6 +341,7 @@ class DownCommand(ProjectCommand):
             project_name: Name of the project
             options: DownOptions with configuration
             verbose: Whether to show verbose output
+            json_output: Whether to output in JSON format
         """
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.options = options
@@ -477,7 +479,8 @@ class DownCommand(ProjectCommand):
     is_flag=True,
     help="Keep shared infrastructure (only stop project services)",
 )
-def down(project, yes, verbose, keep_infra):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def down(project, yes, verbose, keep_infra, json_output):
     """
     Stop and destroy project resources (like 'heroku apps:destroy')
 

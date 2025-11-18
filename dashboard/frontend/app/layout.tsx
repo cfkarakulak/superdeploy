@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import "../styles/globals.css";
+import { DeploymentLogProvider } from "@/contexts/DeploymentLogContext";
+import GlobalDeploymentLog from "@/components/GlobalDeploymentLog";
 
 export const metadata: Metadata = {
   title: "SuperDeploy Dashboard",
@@ -14,11 +16,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
-        <div className="min-h-screen">
-          <div className="max-w-[760px] mx-auto px-8 py-6">
-            {children}
+        <DeploymentLogProvider>
+          <div className="min-h-screen">
+            <div className="max-w-[760px] mx-auto px-8 py-6">
+              {children}
+            </div>
           </div>
-        </div>
+          <GlobalDeploymentLog />
+        </DeploymentLogProvider>
       </body>
     </html>
   );

@@ -78,7 +78,7 @@
         - Addon: {{ addon_name }}
         - Required dependency: {{ item }}
         - Enabled addons: {{ enabled_addons | join(', ') }}
-        - Fix: Add '{{ item }}' to enabled_addons in config.yml
+        - Fix: Add '{{ item }}' to enabled_addons in database
         - Docs: See {{ addon_path }}/addon.yml for dependency information
     quiet: true
   loop: "{{ addon_metadata.requires | default([]) }}"

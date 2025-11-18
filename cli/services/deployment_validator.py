@@ -17,7 +17,7 @@ class DeploymentValidator:
         self.project_root = project_root
         self.config_service = config_service
         self.project_name = project_name
-        self.secret_mgr = SecretManager(project_root, project_name)
+        self.secret_mgr = SecretManager(project_root, project_name, "production")
 
     def validate_secrets(self, logger) -> List[str]:
         """
@@ -28,9 +28,9 @@ class DeploymentValidator:
         """
         errors = []
 
-        # Check if secrets file exists
-        if not self.secret_mgr.secrets_file.exists():
-            errors.append("secrets.yml not found")
+        # Check if secrets exist in database
+        if not self.secret_mgr.has_secrets():
+            errors.append("No secrets found in database")
             errors.append(f"Run: superdeploy {self.project_name}:init")
             return errors
 
@@ -38,14 +38,14 @@ class DeploymentValidator:
         try:
             secrets_data = self.secret_mgr.load_secrets()
         except Exception as e:
-            errors.append(f"Failed to load secrets.yml: {e}")
+            errors.append(f"Failed to load secrets from database: {e}")
             return errors
 
         if not secrets_data:
-            errors.append("Invalid secrets.yml structure (missing secrets)")
+            errors.append("Invalid secrets structure (missing secrets)")
             return errors
 
-        shared_secrets = secrets_data.shared.values
+        shared_secrets = secrets_data.get("shared", {})
 
         # Validate required credentials
         errors.extend(self._validate_docker_credentials(shared_secrets))
@@ -63,9 +63,9 @@ class DeploymentValidator:
         docker_token = shared_secrets.get("DOCKER_TOKEN", "").strip()
 
         if not docker_username:
-            errors.append("DOCKER_USERNAME is missing or empty in secrets.yml")
+            errors.append("DOCKER_USERNAME is missing or empty in database")
         if not docker_token:
-            errors.append("DOCKER_TOKEN is missing or empty in secrets.yml")
+            errors.append("DOCKER_TOKEN is missing or empty in database")
 
         return errors
 
@@ -75,7 +75,7 @@ class DeploymentValidator:
 
         github_token = shared_secrets.get("REPOSITORY_TOKEN", "").strip()
         if not github_token:
-            errors.append("REPOSITORY_TOKEN is missing or empty in secrets.yml")
+            errors.append("REPOSITORY_TOKEN is missing or empty in database")
 
         return errors
 
@@ -84,7 +84,7 @@ class DeploymentValidator:
         orchestrator_ip = shared_secrets.get("ORCHESTRATOR_IP", "").strip()
         if not orchestrator_ip:
             logger.log("")
-            logger.log("[yellow]⚠[/yellow] ORCHESTRATOR_IP not set in secrets.yml")
+            logger.log("[yellow]⚠[/yellow] ORCHESTRATOR_IP not set in database")
             logger.log(
                 "[dim]   Run 'superdeploy orchestrator:up' first to set it automatically[/dim]"
             )

@@ -9,7 +9,6 @@ from jinja2 import Template
 
 from cli.base import ProjectCommand
 from cli.secret_manager import SecretManager
-from cli.marker_manager import MarkerManager
 from cli.core.app_type_registry import app_type_registry
 from cli.exceptions import ConfigurationError
 
@@ -25,6 +24,7 @@ class WorkflowConfig:
     secret_keys: list[str]  # List of secret keys for dynamic injection
     repo_org: str
     docker_org: str
+    processes: dict  # Process definitions for marker file
 
 
 class WorkflowGenerator:
@@ -108,13 +108,20 @@ class WorkflowGenerator:
             secret_keys=config.secret_keys,  # Pass as list
             repo_org=config.repo_org,
             docker_org=config.docker_org,
+            processes=config.processes,  # For marker file creation
         )
 
 
 class GenerateCommand(ProjectCommand):
     """Generate deployment files with GitHub Actions workflows."""
 
-    def __init__(self, project_name: str, app: str = None, verbose: bool = False, json_output: bool = False):
+    def __init__(
+        self,
+        project_name: str,
+        app: str = None,
+        verbose: bool = False,
+        json_output: bool = False,
+    ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.app = app
 
@@ -130,42 +137,68 @@ class GenerateCommand(ProjectCommand):
         projects_dir = project_root / "projects"
         project_dir = projects_dir / self.project_name
 
-        # Load config
+        # Load config from database
+        from cli.database import get_db_session, Project
+
+        db = get_db_session()
         try:
-            project_config = self.config_service.load_project_config(self.project_name)
-            self.console.print(f"[dim]✓ Loaded config: {project_dir}/config.yml[/dim]")
-        except FileNotFoundError as e:
-            self.console.print(f"[red]❌ {e}[/red]")
-            return
-        except ValueError as e:
-            self.console.print(f"[red]❌ Invalid configuration: {e}[/red]")
-            return
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
+            )
+            if not project:
+                self.console.print(
+                    f"[red]❌ Project '{self.project_name}' not found in database![/red]"
+                )
+                self.console.print(
+                    "[yellow]Run first:[/yellow] Create project via dashboard or CLI"
+                )
+                return
 
-        config = project_config.raw_config
+            self.console.print("[dim]✓ Loaded config from database[/dim]")
 
-        # Validate apps
-        if not config.get("apps"):
-            self.console.print("[red]❌ No apps defined in config![/red]")
-            return
+            # Build config dict from database
+            config = {
+                "project": {
+                    "name": project.name,
+                    "domain": project.domain,
+                    "gcp_project": project.gcp_project,
+                    "gcp_region": project.gcp_region,
+                },
+                "github": {
+                    "organization": project.github_org,
+                },
+                "docker": {
+                    "registry": project.docker_registry,
+                    "organization": project.docker_organization,
+                },
+                "apps": project.apps_config or {},
+                "addons": project.addons_config or {},
+            }
+
+            # Validate apps
+            if not config.get("apps"):
+                self.console.print("[red]❌ No apps defined in database![/red]")
+                return
+        finally:
+            db.close()
 
         # Initialize secret manager
-        secret_mgr = SecretManager(self.project_root, self.project_name)
+        secret_mgr = SecretManager(self.project_root, self.project_name, "production")
 
-        # Check if secrets.yml exists
-        if not secret_mgr.secrets_file.exists():
-            self.console.print("\n[red]❌ No secrets.yml found![/red]")
+        # Check if secrets exist in database
+        if not secret_mgr.has_secrets():
+            self.console.print("\n[red]❌ No secrets found in database![/red]")
             self.console.print(
                 f"[yellow]Run first:[/yellow] superdeploy {self.project_name}:init"
             )
-            self.console.print("[dim]Or create manually with structure:[/dim]")
-            self.console.print("[dim]secrets:[/dim]")
-            self.console.print("[dim]  shared: {}[/dim]")
-            self.console.print("[dim]  api: {}[/dim]")
+            self.console.print("[dim]Or configure secrets via:[/dim]")
+            self.console.print(
+                f"[dim]superdeploy {self.project_name}:config:set KEY VALUE[/dim]"
+            )
             return
 
-        # Load secrets
-        all_secrets = secret_mgr.load_secrets()
-        self.console.print("\n[dim]✓ Loaded secrets from secrets.yml[/dim]")
+        # Verify secrets exist
+        self.console.print("\n[dim]✓ Secrets verified in database[/dim]")
 
         # Filter apps
         apps_to_generate = config["apps"]
@@ -179,27 +212,13 @@ class GenerateCommand(ProjectCommand):
             f"\n[bold cyan]📝 Generating for {len(apps_to_generate)} app(s)...[/bold cyan]\n"
         )
 
-        # Get GitHub org
-        github_org = config.get("github", {}).get(
-            "organization", f"{self.project_name}io"
-        )
-
         # Generate for each app
         for app_name, app_config in apps_to_generate.items():
-            app_path = Path(app_config["path"]).expanduser().resolve()
-
-            if not app_path.exists():
-                self.console.print(
-                    f"  [yellow]⚠[/yellow] {app_name}: Path not found: {app_path}"
-                )
-                continue
-
             self.console.print(f"[cyan]{app_name}:[/cyan]")
 
-            # 1. Get or detect app type
-            app_type = WorkflowGenerator.get_or_detect_app_type(app_config, app_path)
-            type_source = "explicit" if "type" in app_config else "detected"
-            self.console.print(f"  Type: {app_type} [dim]({type_source})[/dim]")
+            # Get app type from config (default: python)
+            app_type = app_config.get("type", "python")
+            self.console.print(f"  Type: {app_type}")
 
             # 2. Create superdeploy marker (multi-process mode)
             vm_role = app_config.get("vm", "app")
@@ -241,19 +260,13 @@ class GenerateCommand(ProjectCommand):
                     if "replicas" not in proc_config:
                         proc_config["replicas"] = 1
 
-            marker = MarkerManager.create_marker(
-                app_path,
-                self.project_name,
-                app_name,
-                vm_role,
-                processes=processes,
-            )
-
-            # Show marker creation with process info
+            # Note: Marker file (superdeploy) will be created by GitHub Actions workflow
+            # This allows dashboard-based deployments without local app repos
             proc_names = ", ".join(processes.keys())
-            self.console.print(
-                f"  [green]✓[/green] {marker.name} [dim]({proc_names})[/dim]"
-            )
+            self.console.print(f"  Processes: {proc_names}")
+
+            # Store processes in config for workflow generation
+            app_config["processes"] = processes
 
             # 3. Get app secrets (merged)
             app_secrets = secret_mgr.get_app_secrets(app_name)
@@ -278,13 +291,19 @@ class GenerateCommand(ProjectCommand):
                 secret_keys=secret_keys,  # Send as list instead of pre-rendered block
                 repo_org=config.get("github", {}).get("organization", "GITHUB_ORG"),
                 docker_org=config.get("docker", {}).get("organization", "DOCKER_ORG"),
+                processes=processes,  # For marker file generation in workflow
             )
 
             github_workflow = WorkflowGenerator.generate_workflow(workflow_config)
-            github_dir = app_path / ".github" / "workflows"
+
+            # Save workflow to project directory (for manual deployment to GitHub)
+            github_dir = project_dir / ".github" / "workflows"
             github_dir.mkdir(parents=True, exist_ok=True)
-            (github_dir / "deploy.yml").write_text(github_workflow)
-            self.console.print("  [green]✓[/green] .github/workflows/deploy.yml")
+            workflow_file = github_dir / f"{app_name}-deploy.yml"
+            workflow_file.write_text(github_workflow)
+            self.console.print(
+                f"  [green]✓[/green] Workflow saved to: {workflow_file.relative_to(project_root)}"
+            )
 
             self.console.print()
 

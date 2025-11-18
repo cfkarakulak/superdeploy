@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { AppHeader, PageHeader, Table, Button, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components";
+import { AppHeader, PageHeader, Table, Button, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, ToastContainer } from "@/components";
 import { getAddonLogo } from "@/lib/addonLogos";
 import type { Item } from "@/components/Table";
+import { useToast } from "@/hooks/useToast";
 import { 
   Copy,
   CheckCircle2,
@@ -73,6 +74,7 @@ export default function AddonDetailPage() {
   const projectName = params?.name as string;
   const appName = params?.appName as string;
   const addonRef = params?.addonRef as string;
+  const toast = useToast();
   
   const [addon, setAddon] = useState<Addon | null>(null);
   const [metrics, setMetrics] = useState<ContainerMetrics | null>(null);
@@ -204,7 +206,7 @@ export default function AddonDetailPage() {
       setRotatingCredential(null);
     } catch (err) {
       console.error('Failed to rotate credential:', err);
-      alert('Failed to rotate credential. Please try again.');
+      toast.error('Failed to rotate credential. Please try again.');
     } finally {
       setRotating(false);
     }
@@ -228,6 +230,7 @@ export default function AddonDetailPage() {
 
   return (
     <div>
+      <ToastContainer />
       <style dangerouslySetInnerHTML={{ __html: shimmerStyles }} />
       <AppHeader />
       
@@ -450,7 +453,7 @@ export default function AddonDetailPage() {
                       title: "Type",
                       width: "30%",
                       render: (item: Item) => (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-[6px] text-[11px] tracking-[0.03em] font-light bg-[#e0e7ff] text-[#4338ca]">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] tracking-[0.03em] font-light bg-[#e0e7ff] text-[#4338ca]">
                           Addon
                         </span>
                       ),

@@ -131,7 +131,7 @@ export default function ProjectSelector({
 
   return (
     <DropdownMenu.Root>
-      <DropdownMenu.Trigger className="bg-[#dde1e4] p-[9px] rounded-[10px] outline-none min-w-[160px] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 cursor-pointer group">
+      <DropdownMenu.Trigger className="bg-[#dde1e4] h-[36px] p-[9px] pt-[7px] rounded-[10px] outline-none min-w-[160px] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 cursor-pointer group">
 
         <div className="flex items-center gap-3">
           <GradientAvatar
@@ -144,7 +144,7 @@ export default function ProjectSelector({
             </span>
             {variant === "default" && currentAppName && (
               <>
-                <span className="text-[11px] text-[#8b8b8b]">›</span>
+                <span className="text-[14px] text-[#8b8b8b]">›</span>
                 <span className="text-[14px] text-[#8b8b8b]">
                   {currentAppName}
                 </span>

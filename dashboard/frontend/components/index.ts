@@ -4,6 +4,7 @@ export { default as Button } from "./Button";
 export { Input } from "./Input";
 export { default as PageHeader } from "./PageHeader";
 export { default as AppHeader } from "./AppHeader";
+export { default as ProjectHeader } from "./ProjectHeader";
 export { default as ProjectSelector } from "./ProjectSelector";
 export { default as Table } from "./Table";
 export type { Item, TableColumn, TableProps } from "./Table";
@@ -16,6 +17,7 @@ export {
   DialogTitle,
   DialogTrigger,
 } from "./Dialog";
+export { ToastContainer } from "./Toast";
 
 // Yandex Icons
 export {

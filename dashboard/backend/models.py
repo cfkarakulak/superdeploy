@@ -17,15 +17,48 @@ from database import Base
 
 
 class Project(Base):
-    """Project model."""
+    """Project model - stores all project configuration (replaces config.yml)."""
 
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)
+    description = Column(String(500), nullable=True)
     domain = Column(String(200), nullable=True)
+    ssl_email = Column(String(200), nullable=True)
+
+    # GitHub Configuration
     github_org = Column(String(100), nullable=True)
+
+    # GCP Configuration
+    gcp_project = Column(String(100), nullable=True)
+    gcp_region = Column(String(50), nullable=True)
+    gcp_zone = Column(String(50), nullable=True)
+
+    # SSH Configuration
+    ssh_key_path = Column(String(255), nullable=True)
+    ssh_public_key_path = Column(String(255), nullable=True)
+    ssh_user = Column(String(50), nullable=True)
+
+    # Docker Configuration
+    docker_registry = Column(String(200), nullable=True)
+    docker_organization = Column(String(100), nullable=True)
+
+    # Network Configuration
+    vpc_subnet = Column(String(50), nullable=True)
+    docker_subnet = Column(String(50), nullable=True)
+
+    # VMs Configuration (JSON: {core: {count, machine_type, disk_size}, app: {...}})
+    vms = Column(JSON, nullable=True)
+
+    # Apps Configuration (JSON: {app_name: {path, vm, port, env}})
+    apps_config = Column(JSON, nullable=True)
+
+    # Addons Configuration (JSON: {databases: {primary: {type, version, ...}}, ...})
+    addons_config = Column(JSON, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     apps = relationship("App", back_populates="project", cascade="all, delete-orphan")
 
@@ -90,7 +123,7 @@ class DeploymentHistory(Base):
 
 
 class Secret(Base):
-    """Secret storage (replaces secrets.yml)."""
+    """Secret storage in PostgreSQL."""
 
     __tablename__ = "secrets"
 
@@ -113,7 +146,7 @@ class Secret(Base):
 
 
 class SecretAlias(Base):
-    """Secret aliases (replaces env_aliases in secrets.yml)."""
+    """Secret aliases stored in PostgreSQL."""
 
     __tablename__ = "secret_aliases"
 
@@ -130,3 +163,15 @@ class SecretAlias(Base):
             "project_name", "app_name", "alias_key", name="uix_secret_alias"
         ),
     )
+
+
+class Setting(Base):
+    """Global settings (not project-specific)."""
+
+    __tablename__ = "settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(255), nullable=False, unique=True, index=True)
+    value = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

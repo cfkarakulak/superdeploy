@@ -1,9 +1,8 @@
 """
-Project initialization - interactive wizard with secrets management
+Project initialization - interactive wizard with database-backed secrets
 """
 
 import click
-import importlib.util
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, List
@@ -24,21 +23,6 @@ class ProjectSetupConfig:
     addons: Dict[str, Dict[str, Dict[str, any]]]  # category -> instance -> config
 
 
-class StubModuleLoader:
-    """Loads and executes stub generator modules."""
-
-    CLI_ROOT = Path(__file__).resolve().parents[1]
-
-    @classmethod
-    def load_generator(cls, stub_name: str):
-        """Load generator module from stubs directory."""
-        stub_file = cls.CLI_ROOT / "stubs" / "configs" / f"{stub_name}.py"
-        spec = importlib.util.spec_from_file_location(stub_name, stub_file)
-        module = importlib.util.module_from_spec(spec)  # type: ignore
-        spec.loader.exec_module(module)  # type: ignore
-        return module
-
-
 class ProjectInitializer:
     """Handles project initialization workflow."""
 
@@ -46,91 +30,278 @@ class ProjectInitializer:
         self.project_root = project_root
         self.console = console
 
-    def create_config_file(
-        self, project_dir: Path, setup_config: ProjectSetupConfig
-    ) -> Path:
-        """Generate and save config.yml."""
-        config_yml = project_dir / "config.yml"
+    def create_config_in_database(self, setup_config: ProjectSetupConfig) -> bool:
+        """Save project configuration to database (replaces config.yml)."""
+        from cli.database import get_db_session
+        from sqlalchemy import Table, Column, Integer, String, JSON, DateTime, MetaData
+        from datetime import datetime
 
-        generator = StubModuleLoader.load_generator("project_config_generator")
-        config_content = generator.generate_project_config(
-            project_name=setup_config.project_name,
-            gcp_project=setup_config.gcp_project,
-            gcp_region=setup_config.gcp_region,
-            github_org=setup_config.github_org,
-            apps=setup_config.apps,
+        # Build VMs configuration (default setup)
+        vms_config = {
+            "core": {
+                "count": 1,
+                "machine_type": "e2-medium",
+                "disk_size": 20,
+                "services": [],
+            },
+            "app": {
+                "count": 1,
+                "machine_type": "e2-medium",
+                "disk_size": 30,
+                "services": [],
+            },
+        }
+
+        # Determine GCP zone from region
+        gcp_zone = (
+            f"{setup_config.gcp_region}-a"
+            if setup_config.gcp_region
+            else "us-central1-a"
         )
 
-        config_yml.write_text(config_content)
-        return config_yml
+        # Build apps configuration
+        apps_config = {}
+        for app_name, app_data in setup_config.apps.items():
+            apps_config[app_name] = {
+                "path": app_data.get("path"),
+                "vm": app_data.get("vm", "app"),
+                "port": app_data.get("port"),
+            }
+
+        # Build addons configuration
+        addons_config = {}
+        for category, instances in setup_config.addons.items():
+            addons_config[category] = {}
+            for instance_name, instance_config in instances.items():
+                addons_config[category][instance_name] = instance_config
+
+        db = get_db_session()
+        try:
+            # Use raw SQL to insert project (avoid importing full ORM model)
+            metadata = MetaData()
+            projects_table = Table(
+                "projects",
+                metadata,
+                Column("id", Integer, primary_key=True),
+                Column("name", String(100)),
+                Column("description", String(500)),
+                Column("domain", String(200)),
+                Column("ssl_email", String(200)),
+                Column("github_org", String(100)),
+                Column("gcp_project", String(100)),
+                Column("gcp_region", String(50)),
+                Column("gcp_zone", String(50)),
+                Column("ssh_key_path", String(255)),
+                Column("ssh_public_key_path", String(255)),
+                Column("ssh_user", String(50)),
+                Column("docker_registry", String(200)),
+                Column("docker_organization", String(100)),
+                Column("vpc_subnet", String(50)),
+                Column("docker_subnet", String(50)),
+                Column("vms", JSON),
+                Column("apps_config", JSON),
+                Column("addons_config", JSON),
+                Column("created_at", DateTime),
+                Column("updated_at", DateTime),
+            )
+
+            # Check if project already exists
+            result = db.execute(
+                projects_table.select().where(
+                    projects_table.c.name == setup_config.project_name
+                )
+            )
+            existing = result.fetchone()
+
+            if existing:
+                # Update existing project
+                db.execute(
+                    projects_table.update()
+                    .where(projects_table.c.name == setup_config.project_name)
+                    .values(
+                        description=f"{setup_config.project_name} project",
+                        github_org=setup_config.github_org,
+                        gcp_project=setup_config.gcp_project,
+                        gcp_region=setup_config.gcp_region,
+                        gcp_zone=gcp_zone,
+                        ssh_key_path="~/.ssh/superdeploy_deploy",
+                        ssh_public_key_path="~/.ssh/superdeploy_deploy.pub",
+                        ssh_user="superdeploy",
+                        docker_registry="docker.io",
+                        vpc_subnet="10.1.0.0/16",
+                        docker_subnet="172.30.0.0/24",
+                        vms=vms_config,
+                        apps_config=apps_config,
+                        addons_config=addons_config,
+                        updated_at=datetime.utcnow(),
+                    )
+                )
+            else:
+                # Insert new project
+                db.execute(
+                    projects_table.insert().values(
+                        name=setup_config.project_name,
+                        description=f"{setup_config.project_name} project",
+                        github_org=setup_config.github_org,
+                        gcp_project=setup_config.gcp_project,
+                        gcp_region=setup_config.gcp_region,
+                        gcp_zone=gcp_zone,
+                        ssh_key_path="~/.ssh/superdeploy_deploy",
+                        ssh_public_key_path="~/.ssh/superdeploy_deploy.pub",
+                        ssh_user="superdeploy",
+                        docker_registry="docker.io",
+                        vpc_subnet="10.1.0.0/16",
+                        docker_subnet="172.30.0.0/24",
+                        vms=vms_config,
+                        apps_config=apps_config,
+                        addons_config=addons_config,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow(),
+                    )
+                )
+
+            db.commit()
+            return True
+
+        except Exception as e:
+            db.rollback()
+            raise Exception(f"Failed to save config to database: {e}")
+        finally:
+            db.close()
 
     def create_secrets_in_database(
         self, project_name: str, app_names: List[str], addons: dict
     ) -> bool:
-        """Generate and save secrets to database (replaces secrets.yml)."""
+        """Generate and save secrets to database (no YAML - direct DB write)."""
         from cli.database import get_db_session, Secret
-        import yaml
+        import secrets as python_secrets
+        import string
 
-        # Generate secrets content using generator
-        generator = StubModuleLoader.load_generator("project_secrets_generator")
-        secrets_content = generator.generate_project_secrets(
-            project_name=project_name,
-            app_names=app_names,
-            addons=addons,
-        )
-
-        # Parse generated YAML to extract secrets
-        secrets_data = yaml.safe_load(secrets_content)
-        secrets_dict = secrets_data.get("secrets", {})
+        def generate_password(length=32):
+            """Generate a secure random password."""
+            alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+            return "".join(python_secrets.choice(alphabet) for _ in range(length))
 
         db = get_db_session()
         try:
-            # 1. Insert shared secrets
-            shared_secrets = secrets_dict.get("shared", {})
+            # 1. Create shared secrets (placeholders - user must fill in)
+            shared_secrets = {
+                "DOCKER_ORG": "CHANGE_ME",
+                "DOCKER_USERNAME": "CHANGE_ME",
+                "DOCKER_TOKEN": "CHANGE_ME",
+                "REPOSITORY_TOKEN": "CHANGE_ME",
+            }
+
             for key, value in shared_secrets.items():
                 secret = Secret(
                     project_name=project_name,
-                    app_name=None,  # NULL = shared
+                    app_name=None,
                     key=key,
-                    value=str(value),
+                    value=value,
                     environment="production",
                     source="shared",
                     editable=True,
                 )
                 db.add(secret)
 
-            # 2. Insert addon secrets
-            addons_data = secrets_dict.get("addons", {})
-            for addon_type, instances in addons_data.items():
-                for instance_name, credentials in instances.items():
-                    for key, value in credentials.items():
-                        # Create dotted key: postgres.primary.HOST
-                        full_key = f"{addon_type}.{instance_name}.{key}"
+            # 2. Generate addon secrets based on configuration
+            if addons and "databases" in addons:
+                for instance_name, config in addons["databases"].items():
+                    addon_type = config.get("type")
+                    addon_key = f"{addon_type}.{instance_name}"
+
+                    if addon_type == "postgres":
+                        addon_secrets = {
+                            f"{addon_key}.PORT": "5432",
+                            f"{addon_key}.USER": f"{project_name}_user",
+                            f"{addon_key}.PASSWORD": generate_password(),
+                            f"{addon_key}.DATABASE": f"{project_name}_db",
+                        }
+                    elif addon_type == "mysql":
+                        addon_secrets = {
+                            f"{addon_key}.PORT": "3306",
+                            f"{addon_key}.USER": f"{project_name}_user",
+                            f"{addon_key}.PASSWORD": generate_password(),
+                            f"{addon_key}.DATABASE": f"{project_name}_db",
+                        }
+                    elif addon_type == "mongodb":
+                        addon_secrets = {
+                            f"{addon_key}.PORT": "27017",
+                            f"{addon_key}.USER": f"{project_name}_user",
+                            f"{addon_key}.PASSWORD": generate_password(),
+                            f"{addon_key}.DATABASE": f"{project_name}_db",
+                        }
+                    else:
+                        continue
+
+                    for key, value in addon_secrets.items():
                         secret = Secret(
                             project_name=project_name,
-                            app_name=None,  # Addons are shared
-                            key=full_key,
-                            value=str(value),
+                            app_name=None,
+                            key=key,
+                            value=value,
                             environment="production",
                             source="addon",
                             editable=False,
                         )
                         db.add(secret)
 
-            # 3. Insert app-specific secrets
-            apps_data = secrets_dict.get("apps", {})
-            for app_name, app_secrets in apps_data.items():
-                for key, value in app_secrets.items():
-                    secret = Secret(
-                        project_name=project_name,
-                        app_name=app_name,
-                        key=key,
-                        value=str(value),
-                        environment="production",
-                        source="app",
-                        editable=True,
-                    )
-                    db.add(secret)
+            if addons and "queues" in addons:
+                for instance_name, config in addons["queues"].items():
+                    addon_type = config.get("type")
+                    addon_key = f"{addon_type}.{instance_name}"
+
+                    if addon_type == "rabbitmq":
+                        addon_secrets = {
+                            f"{addon_key}.PORT": "5672",
+                            f"{addon_key}.MANAGEMENT_PORT": "15672",
+                            f"{addon_key}.USER": f"{project_name}_user",
+                            f"{addon_key}.PASSWORD": generate_password(),
+                        }
+
+                        for key, value in addon_secrets.items():
+                            secret = Secret(
+                                project_name=project_name,
+                                app_name=None,
+                                key=key,
+                                value=value,
+                                environment="production",
+                                source="addon",
+                                editable=False,
+                            )
+                            db.add(secret)
+
+            if addons and "caches" in addons:
+                for instance_name, config in addons["caches"].items():
+                    addon_type = config.get("type")
+                    addon_key = f"{addon_type}.{instance_name}"
+
+                    if addon_type == "redis":
+                        addon_secrets = {
+                            f"{addon_key}.PORT": "6379",
+                            f"{addon_key}.PASSWORD": generate_password(),
+                        }
+                    elif addon_type == "memcached":
+                        addon_secrets = {
+                            f"{addon_key}.PORT": "11211",
+                        }
+                    else:
+                        continue
+
+                    for key, value in addon_secrets.items():
+                        secret = Secret(
+                            project_name=project_name,
+                            app_name=None,
+                            key=key,
+                            value=value,
+                            environment="production",
+                            source="addon",
+                            editable=False,
+                        )
+                        db.add(secret)
+
+            # 3. App-specific secrets are empty by default
+            # User can add them via: superdeploy project:config:set KEY=VALUE --app=appname
 
             db.commit()
             return True
@@ -143,7 +314,7 @@ class ProjectInitializer:
 
 
 class InitCommand(BaseCommand):
-    """Initialize new project with secrets.yml."""
+    """Initialize new project with database secrets."""
 
     def __init__(
         self, project_name: str, verbose: bool = False, json_output: bool = False
@@ -172,16 +343,15 @@ class InitCommand(BaseCommand):
         app_names = list(setup_config.apps.keys())
         addons = setup_config.addons  # Extract addons dict
 
-        # Initialize project files
+        # Initialize project
         initializer = ProjectInitializer(self.project_root, self.console)
 
-        # Create config.yml
-        config_yml = initializer.create_config_file(project_dir, setup_config)
-        self.console.print(
-            f"\n[dim]✓ Created: {config_yml.relative_to(self.project_root)}[/dim]"
-        )
+        # Create configuration in database
+        self.console.print("\n[dim]Saving configuration to database...[/dim]")
+        initializer.create_config_in_database(setup_config)
+        self.console.print("[dim]✓ Project configuration saved to database[/dim]")
 
-        # Create secrets in database (replaces secrets.yml)
+        # Create secrets in database
         self.console.print("\n[dim]Generating secrets...[/dim]")
         initializer.create_secrets_in_database(self.project_name, app_names, addons)
         self.console.print("[dim]✓ Secrets saved to database[/dim]")
@@ -250,6 +420,7 @@ class InitCommand(BaseCommand):
             }
 
         # Default addons (postgres + rabbitmq + caddy)
+        # All instances named "primary" for consistency
         addons = {
             "databases": {
                 "primary": {
@@ -260,7 +431,7 @@ class InitCommand(BaseCommand):
                 }
             },
             "queues": {
-                "main": {
+                "primary": {
                     "type": "rabbitmq",
                     "version": "3.12-management-alpine",
                     "plan": "standard",
@@ -268,7 +439,7 @@ class InitCommand(BaseCommand):
                 }
             },
             "proxy": {
-                "main": {
+                "primary": {
                     "type": "caddy",
                     "version": "2-alpine",
                     "plan": "standard",
@@ -314,11 +485,11 @@ class InitCommand(BaseCommand):
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
 def init(project, verbose, json_output):
     """
-    Initialize new project with secrets.yml
+    Initialize new project with database secrets
 
     Creates:
     - config.yml (infrastructure config)
-    - secrets.yml (secret management)
+    - Secrets in PostgreSQL database
 
     No more .env files!
     """

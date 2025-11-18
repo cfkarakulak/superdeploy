@@ -319,7 +319,7 @@
           Common Issues:
           --------------
           - Service needs more time to initialize (increase retries/start_period in addon.yml)
-          - Configuration error in addon.yml or config.yml
+          - Configuration error in addon.yml or database
           - Port conflict with another service
           - Missing required environment variables
           - Insufficient resources (memory, CPU)

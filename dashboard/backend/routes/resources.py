@@ -4,11 +4,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from database import get_db
-from models import App
+from models import App, Secret
 from utils.cli import get_cli
 from cache import get_cache, set_cache, CACHE_TTL
-import yaml
-from pathlib import Path
 
 router = APIRouter(tags=["resources"])
 
@@ -17,32 +15,40 @@ class RotateCredentialRequest(BaseModel):
     credential_key: str
 
 
-def _get_addon_credentials_from_secrets(
-    project_name: str, addon_type: str, addon_name: str
+def _get_addon_credentials_from_db(
+    project_name: str,
+    addon_type: str,
+    addon_name: str,
+    db: Session,
+    environment: str = "production",
 ) -> dict:
-    """Read addon credentials from secrets.yml file."""
+    """Read addon credentials from database."""
     try:
-        # Path to superdeploy projects directory
-        superdeploy_root = Path(__file__).parent.parent.parent.parent
-        secrets_file = superdeploy_root / "projects" / project_name / "secrets.yml"
+        # Query addon secrets from database
+        # Format: {addon_type}.{addon_name}.{key}
+        prefix = f"{addon_type}.{addon_name}."
 
-        if not secrets_file.exists():
-            return {}
-
-        with open(secrets_file, "r") as f:
-            secrets_data = yaml.safe_load(f) or {}
-
-        # Navigate: secrets -> addons -> {type} -> {name}
         addon_secrets = (
-            secrets_data.get("secrets", {})
-            .get("addons", {})
-            .get(addon_type, {})
-            .get(addon_name, {})
+            db.query(Secret)
+            .filter(
+                Secret.project_name == project_name,
+                Secret.key.like(f"{prefix}%"),
+                Secret.source == "addon",
+                Secret.environment == environment,
+            )
+            .all()
         )
 
-        return addon_secrets or {}
+        # Convert to dict: {KEY: value}
+        credentials_dict = {}
+        for secret in addon_secrets:
+            # Remove prefix: "postgres.primary.HOST" -> "HOST"
+            key = secret.key.replace(prefix, "")
+            credentials_dict[key] = secret.value
+
+        return credentials_dict
     except Exception as e:
-        print(f"Warning: Failed to read addon secrets: {e}")
+        print(f"Warning: Failed to read addon secrets from DB: {e}")
         return {}
 
 
@@ -131,20 +137,8 @@ async def get_app_resources(
                     break
         except Exception as e:
             print(f"Warning: Failed to get process formation from ps command: {e}")
-
-        # Fallback to DB if no processes found
-        if not formation:
-            processes = app.processes or {}
-            for process_name, process_config in processes.items():
-                formation.append(
-                    {
-                        "name": process_name,
-                        "command": process_config.get("command", ""),
-                        "replicas": process_config.get("replicas", 1),
-                        "port": process_config.get("port"),
-                        "run_on": process_config.get("run_on"),
-                    }
-                )
+            # If ps command fails, formation will be empty
+            # Frontend will handle empty formation gracefully
 
         # ================================================================
         # ADD-ONS - Get from CLI status (includes real runtime status)
@@ -271,11 +265,11 @@ async def get_addon_detail(
                 "container_name": f"{project_name}_{addon_data.get('type')}_{addon_data.get('name')}",
             }
 
-            # Get credentials from secrets.yml
+            # Get credentials from database
             addon_type = addon_data.get("type")
             addon_name = addon_data.get("name")
-            credentials_dict = _get_addon_credentials_from_secrets(
-                project_name, addon_type, addon_name
+            credentials_dict = _get_addon_credentials_from_db(
+                project_name, addon_type, addon_name, db
             )
 
             if credentials_dict:

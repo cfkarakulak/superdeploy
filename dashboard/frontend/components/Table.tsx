@@ -376,7 +376,7 @@ export default function Table({
 
       <div
         ref={scrollContainerRef}
-        className={`relative w-full max-h-[620px] overflow-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent rounded-[20px] bg-white border border-[#ebebeb] shadow-x1 ${isSearchFocused || searchTerm ? "searching" : ""}`}
+        className={`relative w-full max-h-[610px] overflow-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent rounded-[20px] bg-white border border-[#ebebeb] shadow-x1 ${isSearchFocused || searchTerm ? "searching" : ""}`}
         onScroll={handleScroll}
       >
         <table className={`shadow-table min-h-[92px] w-full border-collapse ${tableFixed ? "table-fixed" : "min-w-max"}`}>

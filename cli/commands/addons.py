@@ -5,7 +5,6 @@ Heroku-style addon management with named instances and attachments.
 """
 
 import click
-import yaml
 import subprocess
 from rich.table import Table
 from cli.base import ProjectCommand
@@ -42,20 +41,24 @@ class AddonsListCommand(ProjectCommand):
             for instance in sorted(instances, key=lambda x: (x.category, x.name)):
                 full_name = instance.full_name
                 attached_apps = attachment_map.get(full_name, [])
-                addons_data.append({
-                    "name": full_name,
-                    "type": instance.type,
-                    "version": instance.version,
-                    "plan": instance.plan,
-                    "category": instance.category,
-                    "attached_to": attached_apps if attached_apps else []
-                })
-            
-            self.output_json({
-                "project": self.project_name,
-                "addons": addons_data,
-                "total": len(instances)
-            })
+                addons_data.append(
+                    {
+                        "name": full_name,
+                        "type": instance.type,
+                        "version": instance.version,
+                        "plan": instance.plan,
+                        "category": instance.category,
+                        "attached_to": attached_apps if attached_apps else [],
+                    }
+                )
+
+            self.output_json(
+                {
+                    "project": self.project_name,
+                    "addons": addons_data,
+                    "total": len(instances),
+                }
+            )
             return
 
         self.show_header(
@@ -104,7 +107,13 @@ class AddonsListCommand(ProjectCommand):
 class AddonsInfoCommand(ProjectCommand):
     """Show detailed info about addon instance."""
 
-    def __init__(self, project_name: str, addon: str, verbose: bool = False, json_output: bool = False):
+    def __init__(
+        self,
+        project_name: str,
+        addon: str,
+        verbose: bool = False,
+        json_output: bool = False,
+    ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.addon = addon  # e.g., "databases.primary"
 
@@ -143,8 +152,8 @@ class AddonsInfoCommand(ProjectCommand):
         self.console.print(f"  Version: {instance.version}")
         self.console.print(f"  Plan: {instance.plan}")
 
-        # Credentials (from secrets.yml)
-        secret_mgr = SecretManager(self.project_root, self.project_name)
+        # Credentials (from database)
+        secret_mgr = SecretManager(self.project_root, self.project_name, "production")
         secrets_obj = secret_mgr.load_secrets()
 
         # Convert to dict if it's a SecretConfig object
@@ -297,9 +306,8 @@ class AddonsAddCommand(ProjectCommand):
         )
 
         # Load config
-        config_path = self.project_root / "projects" / self.project_name / "config.yml"
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
+        from cli.database import get_db_session
+        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
 
         # Determine category from type
         category_map = {
@@ -331,19 +339,6 @@ class AddonsAddCommand(ProjectCommand):
 
         version = self.version or default_versions.get(self.addon_type, "latest")
 
-        # Ensure addons section exists
-        if "addons" not in config:
-            config["addons"] = {}
-        if category not in config["addons"]:
-            config["addons"][category] = {}
-
-        # Check if already exists
-        if self.name in config["addons"][category]:
-            self.console.print(
-                f"[yellow]Addon already exists: {category}.{self.name}[/yellow]"
-            )
-            return
-
         # Determine default ports based on addon type
         port_map = {
             "postgres": {"port": 5432},
@@ -367,32 +362,82 @@ class AddonsAddCommand(ProjectCommand):
 
         addon_config["options"] = {}
 
-        config["addons"][category][self.name] = addon_config
+        # Update database
+        db = get_db_session()
+        try:
+            metadata = MetaData()
+            projects_table = Table(
+                "projects",
+                metadata,
+                Column("id", Integer, primary_key=True),
+                Column("name", String(100)),
+                Column("addons_config", JSON),
+            )
 
-        # Save config
-        with open(config_path, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            result = db.execute(
+                projects_table.select().where(
+                    projects_table.c.name == self.project_name
+                )
+            )
+            row = result.fetchone()
 
-        self.console.print(
-            f"[green]✓[/green] Added addon: [cyan]{category}.{self.name}[/cyan]"
-        )
-        self.console.print(f"  Type: {self.addon_type}")
-        self.console.print(f"  Version: {version}")
-        self.console.print(f"  Plan: {self.plan}")
+            if not row:
+                self.console.print(
+                    f"[red]✗ Project '{self.project_name}' not found in database[/red]"
+                )
+                return
 
-        self.console.print("\n[bold]Next steps:[/bold]")
-        self.console.print(
-            f"  1. Deploy: [cyan]superdeploy {self.project_name}:up --addon {category}.{self.name}[/cyan]"
-        )
-        self.console.print(
-            f"  2. Attach: [cyan]superdeploy {self.project_name}:addons:attach {category}.{self.name} --app <app-name>[/cyan]"
-        )
+            addons_config = row.addons_config or {}
+
+            # Ensure category exists
+            if category not in addons_config:
+                addons_config[category] = {}
+
+            # Check if already exists
+            if self.name in addons_config[category]:
+                self.console.print(
+                    f"[yellow]Addon already exists: {category}.{self.name}[/yellow]"
+                )
+                return
+
+            addons_config[category][self.name] = addon_config
+
+            db.execute(
+                projects_table.update()
+                .where(projects_table.c.name == self.project_name)
+                .values(addons_config=addons_config)
+            )
+            db.commit()
+
+            self.console.print(
+                f"[green]✓[/green] Added addon: [cyan]{category}.{self.name}[/cyan]"
+            )
+            self.console.print(f"  Type: {self.addon_type}")
+            self.console.print(f"  Version: {version}")
+            self.console.print(f"  Plan: {self.plan}")
+
+            self.console.print("\n[bold]Next steps:[/bold]")
+            self.console.print(
+                f"  1. Deploy: [cyan]superdeploy {self.project_name}:up --addon {category}.{self.name}[/cyan]"
+            )
+            self.console.print(
+                f"  2. Attach: [cyan]superdeploy {self.project_name}:addons:attach {category}.{self.name} --app <app-name>[/cyan]"
+            )
+
+        finally:
+            db.close()
 
 
 class AddonsRemoveCommand(ProjectCommand):
     """Remove addon instance from config.yml."""
 
-    def __init__(self, project_name: str, addon: str, verbose: bool = False, json_output: bool = False):
+    def __init__(
+        self,
+        project_name: str,
+        addon: str,
+        verbose: bool = False,
+        json_output: bool = False,
+    ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.addon = addon
 
@@ -409,64 +454,96 @@ class AddonsRemoveCommand(ProjectCommand):
             subtitle=f"Removing {self.addon}",
         )
 
-        # Load config
-        config_path = self.project_root / "projects" / self.project_name / "config.yml"
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
+        # Load from database
+        from cli.database import get_db_session
+        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
 
-        # Check if exists
-        if (
-            "addons" not in config
-            or category not in config["addons"]
-            or name not in config["addons"][category]
-        ):
-            self.console.print(f"[red]Addon not found: {self.addon}[/red]")
-            return
-
-        # Check if attached to any apps
-        apps_config = config.get("apps", {})
-        attached_apps = []
-
-        for app_name, app_config in apps_config.items():
-            attachments = self.config_service.parse_app_attachments(app_config)
-            for attachment in attachments:
-                if attachment.addon == self.addon:
-                    attached_apps.append(app_name)
-
-        if attached_apps:
-            self.console.print("[yellow]Warning: Addon is attached to apps:[/yellow]")
-            for app in attached_apps:
-                self.console.print(f"  • {app}")
-            self.console.print(
-                "\n[dim]Detach first with:[/dim] [cyan]superdeploy PROJECT:addons:detach ADDON --app APP[/cyan]"
+        db = get_db_session()
+        try:
+            metadata = MetaData()
+            projects_table = Table(
+                "projects",
+                metadata,
+                Column("id", Integer, primary_key=True),
+                Column("name", String(100)),
+                Column("addons_config", JSON),
+                Column("apps_config", JSON),
             )
 
-            if not click.confirm("\nRemove anyway?"):
-                self.console.print("[yellow]Cancelled[/yellow]")
+            result = db.execute(
+                projects_table.select().where(
+                    projects_table.c.name == self.project_name
+                )
+            )
+            row = result.fetchone()
+
+            if not row:
+                self.console.print(
+                    f"[red]✗ Project '{self.project_name}' not found in database[/red]"
+                )
                 return
 
-        # Remove addon
-        del config["addons"][category][name]
+            addons_config = row.addons_config or {}
+            apps_config = row.apps_config or {}
 
-        # Cleanup empty category
-        if not config["addons"][category]:
-            del config["addons"][category]
+            # Check if exists
+            if category not in addons_config or name not in addons_config[category]:
+                self.console.print(f"[red]Addon not found: {self.addon}[/red]")
+                return
 
-        # Save config
-        with open(config_path, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            # Check if attached to any apps
+            attached_apps = []
+            for app_name, app_config in apps_config.items():
+                attachments = self.config_service.parse_app_attachments(app_config)
+                for attachment in attachments:
+                    if attachment.addon == self.addon:
+                        attached_apps.append(app_name)
 
-        self.console.print(f"[green]✓[/green] Removed addon: [cyan]{self.addon}[/cyan]")
+            if attached_apps:
+                self.console.print(
+                    "[yellow]Warning: Addon is attached to apps:[/yellow]"
+                )
+                for app in attached_apps:
+                    self.console.print(f"  • {app}")
+                self.console.print(
+                    "\n[dim]Detach first with:[/dim] [cyan]superdeploy PROJECT:addons:detach ADDON --app APP[/cyan]"
+                )
 
-        if attached_apps:
-            self.console.print(
-                "\n[yellow]Note: Apps still reference this addon in their config![/yellow]"
+                if not click.confirm("\nRemove anyway?"):
+                    self.console.print("[yellow]Cancelled[/yellow]")
+                    return
+
+            # Remove addon
+            del addons_config[category][name]
+
+            # Cleanup empty category
+            if not addons_config[category]:
+                del addons_config[category]
+
+            # Save to database
+            db.execute(
+                projects_table.update()
+                .where(projects_table.c.name == self.project_name)
+                .values(addons_config=addons_config)
             )
-            self.console.print("[dim]They will fail to start until updated.[/dim]")
+            db.commit()
 
-        self.console.print(
-            f"\n[dim]Run:[/dim] [cyan]superdeploy {self.project_name}:up[/cyan] [dim]to apply changes[/dim]"
-        )
+            self.console.print(
+                f"[green]✓[/green] Removed addon: [cyan]{self.addon}[/cyan]"
+            )
+
+            if attached_apps:
+                self.console.print(
+                    "\n[yellow]Note: Apps still reference this addon in their config![/yellow]"
+                )
+                self.console.print("[dim]They will fail to start until updated.[/dim]")
+
+            self.console.print(
+                f"\n[dim]Run:[/dim] [cyan]superdeploy {self.project_name}:up[/cyan] [dim]to apply changes[/dim]"
+            )
+
+        finally:
+            db.close()
 
 
 class AddonsAttachCommand(ProjectCommand):
@@ -500,66 +577,99 @@ class AddonsAttachCommand(ProjectCommand):
             subtitle=f"Attaching {self.addon} to {self.app}",
         )
 
-        # Load config
-        config_path = self.project_root / "projects" / self.project_name / "config.yml"
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
+        # Load from database
+        from cli.database import get_db_session
+        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
 
-        # Check if addon exists
-        if (
-            "addons" not in config
-            or category not in config["addons"]
-            or name not in config["addons"][category]
-        ):
-            self.console.print(f"[red]Addon not found: {self.addon}[/red]")
-            return
+        db = get_db_session()
+        try:
+            metadata = MetaData()
+            projects_table = Table(
+                "projects",
+                metadata,
+                Column("id", Integer, primary_key=True),
+                Column("name", String(100)),
+                Column("addons_config", JSON),
+                Column("apps_config", JSON),
+            )
 
-        # Check if app exists
-        if "apps" not in config or self.app not in config["apps"]:
-            self.console.print(f"[red]App not found: {self.app}[/red]")
-            return
+            result = db.execute(
+                projects_table.select().where(
+                    projects_table.c.name == self.project_name
+                )
+            )
+            row = result.fetchone()
 
-        # Default as_var based on addon type
-        addon_config = config["addons"][category][name]
-        addon_type = addon_config["type"]
-
-        if not self.as_var:
-            as_var_map = {
-                "postgres": "DATABASE",
-                "redis": "CACHE",
-                "rabbitmq": "QUEUE",
-                "elasticsearch": "SEARCH",
-                "mongodb": "MONGO",
-            }
-            self.as_var = as_var_map.get(addon_type, addon_type.upper())
-
-        # Ensure addons list exists
-        if "addons" not in config["apps"][self.app]:
-            config["apps"][self.app]["addons"] = []
-
-        # Check if already attached
-        existing = config["apps"][self.app]["addons"]
-        for attachment in existing:
-            if isinstance(attachment, dict) and attachment.get("addon") == self.addon:
+            if not row:
                 self.console.print(
-                    f"[yellow]Already attached: {self.addon} to {self.app}[/yellow]"
+                    f"[red]✗ Project '{self.project_name}' not found in database[/red]"
                 )
                 return
 
-        # Add attachment
-        config["apps"][self.app]["addons"].append(
-            {"addon": self.addon, "as": self.as_var, "access": self.access}
-        )
+            addons_config = row.addons_config or {}
+            apps_config = row.apps_config or {}
 
-        # Save config
-        with open(config_path, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            # Check if addon exists
+            if category not in addons_config or name not in addons_config[category]:
+                self.console.print(f"[red]Addon not found: {self.addon}[/red]")
+                return
 
-        self.console.print(
-            f"[green]✓[/green] Attached [cyan]{self.addon}[/cyan] to [cyan]{self.app}[/cyan]"
-        )
-        self.console.print(f"  As: {self.as_var}")
-        self.console.print(f"  Access: {self.access}")
+            # Check if app exists
+            if self.app not in apps_config:
+                self.console.print(f"[red]App not found: {self.app}[/red]")
+                return
+
+            # Default as_var based on addon type
+            addon_config = addons_config[category][name]
+            addon_type = addon_config["type"]
+
+            if not self.as_var:
+                as_var_map = {
+                    "postgres": "DATABASE",
+                    "redis": "CACHE",
+                    "rabbitmq": "QUEUE",
+                    "elasticsearch": "SEARCH",
+                    "mongodb": "MONGO",
+                }
+                self.as_var = as_var_map.get(addon_type, addon_type.upper())
+
+            # Ensure addons list exists
+            if "addons" not in apps_config[self.app]:
+                apps_config[self.app]["addons"] = []
+
+            # Check if already attached
+            existing = apps_config[self.app]["addons"]
+            for attachment in existing:
+                if (
+                    isinstance(attachment, dict)
+                    and attachment.get("addon") == self.addon
+                ):
+                    self.console.print(
+                        f"[yellow]Already attached: {self.addon} to {self.app}[/yellow]"
+                    )
+                    return
+
+            # Add attachment
+            apps_config[self.app]["addons"].append(
+                {"addon": self.addon, "as": self.as_var, "access": self.access}
+            )
+
+            # Save to database
+            db.execute(
+                projects_table.update()
+                .where(projects_table.c.name == self.project_name)
+                .values(apps_config=apps_config)
+            )
+            db.commit()
+
+            self.console.print(
+                f"[green]✓[/green] Attached [cyan]{self.addon}[/cyan] to [cyan]{self.app}[/cyan]"
+            )
+            self.console.print(f"  As: {self.as_var}")
+            self.console.print(f"  Access: {self.access}")
+
+        finally:
+            db.close()
 
         # Automatically regenerate workflows
         self.console.print("\n[bold cyan]→[/bold cyan] Regenerating workflows...")
@@ -643,7 +753,14 @@ class AddonsAttachCommand(ProjectCommand):
 class AddonsDetachCommand(ProjectCommand):
     """Detach addon from app in config.yml."""
 
-    def __init__(self, project_name: str, addon: str, app: str, verbose: bool = False, json_output: bool = False):
+    def __init__(
+        self,
+        project_name: str,
+        addon: str,
+        app: str,
+        verbose: bool = False,
+        json_output: bool = False,
+    ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.addon = addon
         self.app = app
@@ -659,47 +776,82 @@ class AddonsDetachCommand(ProjectCommand):
             subtitle=f"Detaching {self.addon} from {self.app}",
         )
 
-        # Load config
-        config_path = self.project_root / "projects" / self.project_name / "config.yml"
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
+        # Load from database
+        from cli.database import get_db_session
+        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
 
-        # Check if app exists
-        if "apps" not in config or self.app not in config["apps"]:
-            self.console.print(f"[red]App not found: {self.app}[/red]")
-            return
-
-        # Find and remove attachment
-        if "addons" not in config["apps"][self.app]:
-            self.console.print(f"[yellow]No addons attached to {self.app}[/yellow]")
-            return
-
-        attachments = config["apps"][self.app]["addons"]
-        found = False
-
-        for i, attachment in enumerate(attachments):
-            if isinstance(attachment, dict) and attachment.get("addon") == self.addon:
-                del attachments[i]
-                found = True
-                break
-
-        if not found:
-            self.console.print(
-                f"[yellow]Addon not attached to {self.app}: {self.addon}[/yellow]"
+        db = get_db_session()
+        try:
+            metadata = MetaData()
+            projects_table = Table(
+                "projects",
+                metadata,
+                Column("id", Integer, primary_key=True),
+                Column("name", String(100)),
+                Column("apps_config", JSON),
             )
-            return
 
-        # Cleanup empty addons list
-        if not attachments:
-            del config["apps"][self.app]["addons"]
+            result = db.execute(
+                projects_table.select().where(
+                    projects_table.c.name == self.project_name
+                )
+            )
+            row = result.fetchone()
 
-        # Save config
-        with open(config_path, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            if not row:
+                self.console.print(
+                    f"[red]✗ Project '{self.project_name}' not found in database[/red]"
+                )
+                return
 
-        self.console.print(
-            f"[green]✓[/green] Detached [cyan]{self.addon}[/cyan] from [cyan]{self.app}[/cyan]"
-        )
+            apps_config = row.apps_config or {}
+
+            # Check if app exists
+            if self.app not in apps_config:
+                self.console.print(f"[red]App not found: {self.app}[/red]")
+                return
+
+            # Find and remove attachment
+            if "addons" not in apps_config[self.app]:
+                self.console.print(f"[yellow]No addons attached to {self.app}[/yellow]")
+                return
+
+            attachments = apps_config[self.app]["addons"]
+            found = False
+
+            for i, attachment in enumerate(attachments):
+                if (
+                    isinstance(attachment, dict)
+                    and attachment.get("addon") == self.addon
+                ):
+                    del attachments[i]
+                    found = True
+                    break
+
+            if not found:
+                self.console.print(
+                    f"[yellow]Addon not attached to {self.app}: {self.addon}[/yellow]"
+                )
+                return
+
+            # Cleanup empty addons list
+            if not attachments:
+                del apps_config[self.app]["addons"]
+
+            # Save to database
+            db.execute(
+                projects_table.update()
+                .where(projects_table.c.name == self.project_name)
+                .values(apps_config=apps_config)
+            )
+            db.commit()
+
+            self.console.print(
+                f"[green]✓[/green] Detached [cyan]{self.addon}[/cyan] from [cyan]{self.app}[/cyan]"
+            )
+
+        finally:
+            db.close()
 
         # Automatically regenerate workflows
         self.console.print("\n[bold cyan]→[/bold cyan] Regenerating workflows...")
@@ -835,7 +987,15 @@ def addons_add(project, addon_type, name, version, plan, verbose, json_output):
         superdeploy cheapa:addons:add redis --name cache --version 7-alpine
         superdeploy cheapa:addons:add rabbitmq --name queue --plan large
     """
-    cmd = AddonsAddCommand(project, addon_type, name, version, plan, verbose=verbose, json_output=json_output)
+    cmd = AddonsAddCommand(
+        project,
+        addon_type,
+        name,
+        version,
+        plan,
+        verbose=verbose,
+        json_output=json_output,
+    )
     cmd.run()
 
 
@@ -874,7 +1034,9 @@ def addons_attach(project, addon, app, as_var, access, verbose, json_output):
         superdeploy cheapa:addons:attach databases.primary --app api
         superdeploy cheapa:addons:attach databases.primary --app storefront --as DB --access readonly
     """
-    cmd = AddonsAttachCommand(project, addon, app, as_var, access, verbose=verbose, json_output=json_output)
+    cmd = AddonsAttachCommand(
+        project, addon, app, as_var, access, verbose=verbose, json_output=json_output
+    )
     cmd.run()
 
 
@@ -890,7 +1052,9 @@ def addons_detach(project, addon, app, verbose, json_output):
     Examples:
         superdeploy cheapa:addons:detach databases.primary --app api
     """
-    cmd = AddonsDetachCommand(project, addon, app, verbose=verbose, json_output=json_output)
+    cmd = AddonsDetachCommand(
+        project, addon, app, verbose=verbose, json_output=json_output
+    )
     cmd.run()
 
 

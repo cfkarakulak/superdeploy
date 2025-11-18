@@ -52,8 +52,23 @@ class WizardProjectCreate(BaseModel):
 class ProjectResponse(BaseModel):
     id: int
     name: str
+    description: Optional[str] = None
     domain: Optional[str] = None
+    ssl_email: Optional[str] = None
     github_org: Optional[str] = None
+    gcp_project: Optional[str] = None
+    gcp_region: Optional[str] = None
+    gcp_zone: Optional[str] = None
+    ssh_key_path: Optional[str] = None
+    ssh_public_key_path: Optional[str] = None
+    ssh_user: Optional[str] = None
+    docker_registry: Optional[str] = None
+    docker_organization: Optional[str] = None
+    vpc_subnet: Optional[str] = None
+    docker_subnet: Optional[str] = None
+    vms: Optional[dict] = None
+    apps_config: Optional[dict] = None
+    addons_config: Optional[dict] = None
 
     class Config:
         from_attributes = True
@@ -91,6 +106,96 @@ def get_project(project_name: str, db: Session = Depends(get_db)):
     return project
 
 
+@router.get("/{project_name}/apps")
+def get_project_apps(project_name: str, db: Session = Depends(get_db)):
+    """Get all apps for a project."""
+    project = db.query(Project).filter(Project.name == project_name).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    apps = db.query(App).filter(App.project_id == project.id).all()
+    return apps
+
+
+@router.post("/{project_name}/down")
+async def teardown_project(project_name: str, db: Session = Depends(get_db)):
+    """Teardown project infrastructure and delete from database."""
+    from fastapi.responses import StreamingResponse
+    import asyncio
+    import re
+    from models import Secret, App
+
+    project = db.query(Project).filter(Project.name == project_name).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    def strip_ansi_codes(text: str) -> str:
+        """Remove ANSI color codes from text."""
+        ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+        return ansi_escape.sub("", text)
+
+    async def generate_logs():
+        try:
+            # Run CLI down command with --yes flag
+            process = await asyncio.create_subprocess_exec(
+                "superdeploy",
+                f"{project_name}:down",
+                "--yes",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
+            )
+
+            if process.stdout:
+                async for line in process.stdout:
+                    decoded_line = line.decode().strip()
+                    if decoded_line:
+                        # Strip ANSI codes
+                        clean_line = strip_ansi_codes(decoded_line)
+                        if clean_line:
+                            yield f"data: {clean_line}\n\n"
+
+            await process.wait()
+
+            if process.returncode == 0:
+                # Delete from database after successful teardown
+                db.query(Secret).filter(Secret.project_name == project_name).delete()
+                db.query(App).filter(App.project_id == project.id).delete()
+                db.delete(project)
+                db.commit()
+
+                yield f"data: ✓ Project '{project_name}' deleted successfully from database\n\n"
+            else:
+                yield f"data: ✗ Failed to teardown project (exit code: {process.returncode})\n\n"
+
+        except Exception as e:
+            yield f"data: ✗ Error: {str(e)}\n\n"
+
+    return StreamingResponse(generate_logs(), media_type="text/event-stream")
+
+
+@router.delete("/{project_name}")
+def delete_project(project_name: str, db: Session = Depends(get_db)):
+    """Delete a project and all its associated data (without infrastructure teardown)."""
+    from models import Secret, App
+
+    project = db.query(Project).filter(Project.name == project_name).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Delete associated secrets
+    db.query(Secret).filter(Secret.project_name == project_name).delete()
+
+    # Delete associated apps (cascade will handle this, but explicit is better)
+    db.query(App).filter(App.project_id == project.id).delete()
+
+    # Delete project
+    db.delete(project)
+    db.commit()
+
+    return {"message": f"Project '{project_name}' deleted successfully"}
+
+
 # Addon version mapping
 ADDON_VERSIONS = {
     "postgres": {"version": "15-alpine", "vm": "core"},
@@ -108,112 +213,175 @@ ADDON_VERSIONS = {
 def create_project_from_wizard(
     payload: WizardProjectCreate, db: Session = Depends(get_db)
 ):
-    """Create a new project from wizard by generating config files."""
-    import yaml
+    """Create a new project from wizard - all config stored in database."""
     from pathlib import Path
+    from models import Secret
 
     # Check if project already exists
     existing = db.query(Project).filter(Project.name == payload.project_name).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Project already exists")
 
     # Get project root (4 levels up from this file)
     project_root = Path(__file__).parent.parent.parent.parent
     project_dir = project_root / "projects" / payload.project_name
 
-    # Create project directory
+    # Create project directory (for future files like docker-compose, etc)
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Create config.yml
-    config_data = {
-        "project": payload.project_name,
-        "gcp_project": payload.gcp_project,
-        "gcp_region": payload.gcp_region,
-        "github_org": payload.github_org,
-        "apps": {},
-    }
+    # If project exists, update it instead of failing
+    if existing:
+        # Delete existing apps and secrets to recreate
+        db.query(App).filter(App.project_id == existing.id).delete()
+        db.query(Secret).filter(Secret.project_name == payload.project_name).delete()
+        db.flush()
 
-    # Add apps to config
+    # Build apps configuration
+    apps_config = {}
     for app in payload.apps:
-        config_data["apps"][app.name] = {
+        apps_config[app.name] = {
             "repo": app.repo,
             "port": app.port,
             "vm": "app",
+            "type": "python",  # Default type, can be changed in database
         }
 
-    # Add addons to config
+    # Build addons configuration
+    addons_config = {}
     addons_dict = payload.addons.dict()
-    if any(addons_dict.values()):
-        config_data["addons"] = {}
 
-        if addons_dict.get("databases"):
-            config_data["addons"]["databases"] = {
-                addon: {
-                    "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest")
-                }
-                for addon in addons_dict["databases"]
+    if addons_dict.get("databases"):
+        addons_config["databases"] = {}
+        for addon in addons_dict["databases"]:
+            addons_config["databases"][addon] = {
+                "type": addon,
+                "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest"),
+                "vm": ADDON_VERSIONS.get(addon, {}).get("vm", "core"),
             }
 
-        if addons_dict.get("queues"):
-            config_data["addons"]["queues"] = {
-                addon: {
-                    "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest")
-                }
-                for addon in addons_dict["queues"]
+    if addons_dict.get("queues"):
+        addons_config["queues"] = {}
+        for addon in addons_dict["queues"]:
+            addons_config["queues"][addon] = {
+                "type": addon,
+                "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest"),
+                "vm": ADDON_VERSIONS.get(addon, {}).get("vm", "core"),
             }
 
-        if addons_dict.get("caches"):
-            config_data["addons"]["caches"] = {
-                addon: {
-                    "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest")
-                }
-                for addon in addons_dict["caches"]
+    if addons_dict.get("caches"):
+        addons_config["caches"] = {}
+        for addon in addons_dict["caches"]:
+            addons_config["caches"][addon] = {
+                "type": addon,
+                "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest"),
+                "vm": ADDON_VERSIONS.get(addon, {}).get("vm", "core"),
             }
 
-        if addons_dict.get("proxy"):
-            config_data["addons"]["proxy"] = {
-                addon: {
-                    "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest")
-                }
-                for addon in addons_dict["proxy"]
+    if addons_dict.get("proxy"):
+        addons_config["proxy"] = {}
+        for addon in addons_dict["proxy"]:
+            addons_config["proxy"][addon] = {
+                "type": addon,
+                "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest"),
+                "vm": ADDON_VERSIONS.get(addon, {}).get("vm", "core"),
             }
 
-    # Write config.yml
-    config_path = project_dir / "config.yml"
-    with open(config_path, "w") as f:
-        yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
-
-    # 2. Create secrets.yml
-    secrets_data = {
-        "shared": {
-            "DOCKER_ORG": payload.secrets.docker_org,
-            "DOCKER_USERNAME": payload.secrets.docker_username,
-            "DOCKER_TOKEN": payload.secrets.docker_token,
-            "GITHUB_TOKEN": payload.secrets.github_token,
+    # Build VMs configuration (default setup)
+    vms_config = {
+        "core": {
+            "count": 1,
+            "machine_type": "e2-medium",
+            "disk_size": 20,
+            "services": [],
         },
-        "apps": {},
+        "app": {
+            "count": 1,
+            "machine_type": "e2-medium",
+            "disk_size": 30,
+            "services": [],
+        },
     }
 
-    # Add app-specific empty sections
-    for app in payload.apps:
-        secrets_data["apps"][app.name] = {}
+    # Determine GCP zone from region
+    gcp_zone = f"{payload.gcp_region}-a" if payload.gcp_region else "us-central1-a"
 
-    # Write secrets.yml
-    secrets_path = project_dir / "secrets.yml"
-    with open(secrets_path, "w") as f:
-        yaml.dump(secrets_data, f, default_flow_style=False, sort_keys=False)
+    # Create or update project in database with ALL configuration
+    if existing:
+        # Update existing project
+        db_project = existing
+        db_project.description = f"{payload.project_name} project"
+        db_project.domain = payload.domain
+        db_project.ssl_email = f"admin@{payload.domain}" if payload.domain else None
+        db_project.github_org = payload.github_org
+        db_project.gcp_project = payload.gcp_project
+        db_project.gcp_region = payload.gcp_region
+        db_project.gcp_zone = gcp_zone
+        db_project.ssh_key_path = "~/.ssh/superdeploy_deploy"
+        db_project.ssh_public_key_path = "~/.ssh/superdeploy_deploy.pub"
+        db_project.ssh_user = "superdeploy"
+        db_project.docker_registry = "docker.io"
+        db_project.docker_organization = payload.secrets.docker_org
+        db_project.vpc_subnet = "10.1.0.0/16"
+        db_project.docker_subnet = "172.30.0.0/24"
+        db_project.vms = vms_config
+        db_project.apps_config = apps_config
+        db_project.addons_config = addons_config
+        db.flush()
+    else:
+        # Create new project
+        db_project = Project(
+            name=payload.project_name,
+            description=f"{payload.project_name} project",
+            domain=payload.domain,
+            ssl_email=f"admin@{payload.domain}" if payload.domain else None,
+            github_org=payload.github_org,
+            gcp_project=payload.gcp_project,
+            gcp_region=payload.gcp_region,
+            gcp_zone=gcp_zone,
+            ssh_key_path="~/.ssh/superdeploy_deploy",
+            ssh_public_key_path="~/.ssh/superdeploy_deploy.pub",
+            ssh_user="superdeploy",
+            docker_registry="docker.io",
+            docker_organization=payload.secrets.docker_org,
+            vpc_subnet="10.1.0.0/16",
+            docker_subnet="172.30.0.0/24",
+            vms=vms_config,
+            apps_config=apps_config,
+            addons_config=addons_config,
+        )
+        db.add(db_project)
+        db.flush()
 
-    # Set restrictive permissions on secrets.yml
-    secrets_path.chmod(0o600)
+    # Create shared secrets in database
+    shared_secrets = {
+        "DOCKER_ORG": payload.secrets.docker_org,
+        "DOCKER_USERNAME": payload.secrets.docker_username,
+        "DOCKER_TOKEN": payload.secrets.docker_token,
+        "REPOSITORY_TOKEN": payload.secrets.github_token,
+    }
 
-    # 3. Create project in database
-    db_project = Project(
-        name=payload.project_name, domain=payload.domain, github_org=payload.github_org
-    )
-    db.add(db_project)
-    db.flush()
+    # Add SMTP secrets if provided
+    if payload.secrets.smtp_host:
+        shared_secrets["SMTP_HOST"] = payload.secrets.smtp_host
+        shared_secrets["SMTP_PORT"] = payload.secrets.smtp_port
+        shared_secrets["SMTP_USER"] = payload.secrets.smtp_user
+        shared_secrets["SMTP_PASSWORD"] = payload.secrets.smtp_password
 
-    # 4. Create apps in database
+    for key, value in shared_secrets.items():
+        secret = Secret(
+            project_name=payload.project_name,
+            app_name=None,  # Shared secret
+            key=key,
+            value=value,
+            environment="production",
+            source="shared",
+            editable=True,
+        )
+        db.add(secret)
+
+    # NOTE: Addon secrets are NOT generated here
+    # They will be auto-generated by CLI during first deployment (up command)
+    # This keeps dashboard lightweight and follows "lazy generation" principle
+
+    # Create apps in database
     for app_data in payload.apps:
         repo_parts = app_data.repo.split("/")
         owner = repo_parts[0] if len(repo_parts) > 0 else ""
@@ -228,6 +396,64 @@ def create_project_from_wizard(
     db.refresh(db_project)
 
     return db_project
+
+
+@router.post("/{project_name}/deploy")
+async def deploy_project_wizard(project_name: str, db: Session = Depends(get_db)):
+    """Deploy a project from wizard."""
+    from fastapi.responses import StreamingResponse
+    import asyncio
+    import re
+
+    project = db.query(Project).filter(Project.name == project_name).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    def strip_ansi_codes(text: str) -> str:
+        """Remove ANSI color codes from text."""
+        ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+        return ansi_escape.sub("", text)
+
+    async def generate_logs():
+        deployment_failed = False
+        try:
+            # Run CLI up command
+            process = await asyncio.create_subprocess_exec(
+                "superdeploy",
+                f"{project_name}:up",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
+            )
+
+            if process.stdout:
+                async for line in process.stdout:
+                    decoded_line = line.decode().strip()
+                    if decoded_line:
+                        # Strip ANSI codes
+                        clean_line = strip_ansi_codes(decoded_line)
+                        if clean_line:
+                            yield f"data: {clean_line}\n\n"
+
+            await process.wait()
+
+            if process.returncode == 0:
+                yield "data: ✓ Deployment complete!\n\n"
+            else:
+                deployment_failed = True
+                yield f"data: ✗ Deployment failed (exit code: {process.returncode})\n\n"
+
+        except Exception as e:
+            deployment_failed = True
+            yield f"data: ✗ Error: {str(e)}\n\n"
+
+        # If deployment failed, keep project and secrets in database for retry
+        # User can manually delete from settings page if needed
+        if deployment_failed:
+            yield "data: ⚠ Deployment failed - project kept in database for retry\n\n"
+            yield "data: ℹ️  Fix issues and try deploying again from dashboard\n\n"
+
+    return StreamingResponse(generate_logs(), media_type="text/event-stream")
 
 
 @router.get("/{project_name}/vms")

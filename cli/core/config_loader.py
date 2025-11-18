@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, List
-import yaml
 
 
 @dataclass
@@ -91,16 +90,14 @@ class ProjectConfig:
         # Note: Monitoring config removed - now only in orchestrator config
 
     def _save_config(self) -> None:
-        """Save configuration back to yaml file"""
-        if not self.config_path or not self.config_path.exists():
-            return
+        """
+        Save configuration (DEPRECATED - config now stored in database).
 
-        try:
-            with open(self.config_path, "w") as f:
-                yaml.dump(self.raw_config, f, default_flow_style=False, sort_keys=False)
-        except Exception:
-            # Silently fail - not critical
-            pass
+        This method is kept for backward compatibility but does nothing.
+        Config changes should be made through database updates.
+        """
+        # Config is now in database, not in files
+        pass
 
     def _validate(self) -> None:
         """Validate configuration"""
@@ -403,20 +400,119 @@ class ProjectConfig:
 
 
 class ConfigLoader:
-    """Loads and manages project configurations"""
+    """Loads and manages project configurations from database"""
 
     def __init__(self, projects_dir: Path):
         """
         Initialize configuration loader
 
         Args:
-            projects_dir: Path to projects directory
+            projects_dir: Path to projects directory (used for backward compat checks)
         """
         self.projects_dir = Path(projects_dir)
 
+    def _load_from_database(self, project_name: str) -> Dict[str, Any]:
+        """
+        Load project configuration from database.
+
+        Args:
+            project_name: Name of the project
+
+        Returns:
+            Configuration dictionary in config.yml format
+
+        Raises:
+            FileNotFoundError: If project not found in database
+        """
+        from cli.database import get_db_session
+        from sqlalchemy import Table, Column, Integer, String, JSON, DateTime, MetaData
+
+        db = get_db_session()
+        try:
+            metadata = MetaData()
+            projects_table = Table(
+                "projects",
+                metadata,
+                Column("id", Integer, primary_key=True),
+                Column("name", String(100)),
+                Column("description", String(500)),
+                Column("domain", String(200)),
+                Column("ssl_email", String(200)),
+                Column("github_org", String(100)),
+                Column("gcp_project", String(100)),
+                Column("gcp_region", String(50)),
+                Column("gcp_zone", String(50)),
+                Column("ssh_key_path", String(255)),
+                Column("ssh_public_key_path", String(255)),
+                Column("ssh_user", String(50)),
+                Column("docker_registry", String(200)),
+                Column("docker_organization", String(100)),
+                Column("vpc_subnet", String(50)),
+                Column("docker_subnet", String(50)),
+                Column("vms", JSON),
+                Column("apps_config", JSON),
+                Column("addons_config", JSON),
+                Column("created_at", DateTime),
+                Column("updated_at", DateTime),
+            )
+
+            result = db.execute(
+                projects_table.select().where(projects_table.c.name == project_name)
+            )
+            row = result.fetchone()
+
+            if not row:
+                raise FileNotFoundError(
+                    f"Project '{project_name}' not found in database.\n"
+                    f"Run 'superdeploy {project_name}:init' to create it."
+                )
+
+            # Convert database row to config.yml-like dict
+            config_dict = {
+                "project": {
+                    "name": row.name,
+                    "description": row.description or f"{row.name} project",
+                    "created_at": row.created_at.isoformat()
+                    if row.created_at
+                    else None,
+                    "ssl_email": row.ssl_email,
+                },
+                "cloud": {
+                    "gcp": {
+                        "project_id": row.gcp_project,
+                        "region": row.gcp_region,
+                        "zone": row.gcp_zone,
+                    },
+                    "ssh": {
+                        "key_path": row.ssh_key_path,
+                        "public_key_path": row.ssh_public_key_path,
+                        "user": row.ssh_user,
+                    },
+                },
+                "docker": {
+                    "registry": row.docker_registry,
+                    "organization": row.docker_organization,
+                },
+                "github": {
+                    "organization": row.github_org,
+                },
+                "network": {
+                    "vpc_subnet": row.vpc_subnet,
+                    "docker_subnet": row.docker_subnet,
+                },
+                "vms": row.vms or {},
+                "apps": row.apps_config or {},
+                "addons": row.addons_config or {},
+            }
+
+            return config_dict
+
+        finally:
+            db.close()
+
     def load_project(self, project_name: str) -> ProjectConfig:
         """
-        Load a specific project configuration
+        Load a specific project configuration from database.
 
         Args:
             project_name: Name of the project to load
@@ -425,48 +521,50 @@ class ConfigLoader:
             ProjectConfig instance
 
         Raises:
-            FileNotFoundError: If project config file doesn't exist
+            FileNotFoundError: If project doesn't exist in database
             ValueError: If configuration is invalid
         """
-        config_file = self.projects_dir / project_name / "config.yml"
-
-        if not config_file.exists():
-            raise FileNotFoundError(
-                f"Project configuration not found: {config_file}\n"
-                f"Run 'superdeploy {project_name}:init' to create it."
-            )
-
-        with open(config_file, "r") as f:
-            config_dict = yaml.safe_load(f)
+        # Load from database
+        config_dict = self._load_from_database(project_name)
 
         if not config_dict:
-            raise ValueError(f"Empty or invalid configuration file: {config_file}")
+            raise ValueError(f"Empty configuration for project: {project_name}")
 
         project_dir = self.projects_dir / project_name
         return ProjectConfig(project_name, config_dict, project_dir)
 
     def list_projects(self) -> List[str]:
         """
-        List all available projects
+        List all available projects from database.
 
         Returns:
             Sorted list of project names
         """
-        if not self.projects_dir.exists():
-            return []
+        from cli.database import get_db_session
+        from sqlalchemy import Table, Column, Integer, String, MetaData
 
-        projects = []
-        for item in self.projects_dir.iterdir():
-            if item.is_dir() and not item.name.startswith("."):
-                config_file = item / "config.yml"
-                if config_file.exists():
-                    projects.append(item.name)
+        db = get_db_session()
+        try:
+            metadata = MetaData()
+            projects_table = Table(
+                "projects",
+                metadata,
+                Column("id", Integer, primary_key=True),
+                Column("name", String(100)),
+            )
 
-        return sorted(projects)
+            result = db.execute(
+                projects_table.select().where(projects_table.c.name != "orchestrator")
+            )
+            projects = [row.name for row in result.fetchall()]
+            return sorted(projects)
+
+        finally:
+            db.close()
 
     def project_exists(self, project_name: str) -> bool:
         """
-        Check if a project exists
+        Check if a project exists in database.
 
         Args:
             project_name: Name of the project to check
@@ -474,5 +572,8 @@ class ConfigLoader:
         Returns:
             True if project exists, False otherwise
         """
-        config_file = self.projects_dir / project_name / "config.yml"
-        return config_file.exists()
+        try:
+            self._load_from_database(project_name)
+            return True
+        except FileNotFoundError:
+            return False

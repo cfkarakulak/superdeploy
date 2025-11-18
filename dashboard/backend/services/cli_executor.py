@@ -87,12 +87,11 @@ class CLIExecutor:
         """
         Initialize a new project using CLI.
 
-        This creates config.yml and secrets.yml files.
+        This creates config.yml and stores secrets in database.
         """
         # For now, we'll execute the init command non-interactively
         # by preparing the config files directly
         from cli.commands.init import ProjectInitializer, ProjectSetupConfig
-        import yaml
 
         try:
             yield (
@@ -127,17 +126,15 @@ class CLIExecutor:
             initializer.create_config_file(project_dir, setup_config)
             yield json.dumps({"type": "output", "data": "✓ Created config.yml"}) + "\n"
 
-            # Create secrets.yml
+            # Create secrets in database
             yield (
                 json.dumps({"type": "output", "data": "🔐 Generating secrets..."})
                 + "\n"
             )
             app_names = list(apps.keys())
-            secrets_file = initializer.create_secrets_file(
-                project_dir, project_name, app_names, addons
-            )
+            initializer.create_secrets_in_database(project_name, app_names, addons)
 
-            # Update secrets.yml with user-provided secrets
+            # Update database secrets with user-provided secrets
             if secrets:
                 yield (
                     json.dumps(
@@ -149,52 +146,201 @@ class CLIExecutor:
                     + "\n"
                 )
 
-                # Read existing secrets.yml
-                with open(secrets_file, "r") as f:
-                    secrets_data = yaml.safe_load(f)
+                from cli.database import get_db_session, Secret
 
-                # Update shared secrets
-                if "secrets" not in secrets_data:
-                    secrets_data["secrets"] = {}
-                if "shared" not in secrets_data["secrets"]:
-                    secrets_data["secrets"]["shared"] = {}
+                db = get_db_session()
+                try:
+                    # Docker credentials
+                    if secrets.get("docker_org"):
+                        secret = (
+                            db.query(Secret)
+                            .filter(
+                                Secret.project_name == project_name,
+                                Secret.app_name.is_(None),
+                                Secret.key == "DOCKER_ORG",
+                            )
+                            .first()
+                        )
+                        if secret:
+                            secret.value = secrets["docker_org"]
+                        else:
+                            db.add(
+                                Secret(
+                                    project_name=project_name,
+                                    key="DOCKER_ORG",
+                                    value=secrets["docker_org"],
+                                    source="shared",
+                                )
+                            )
 
-                shared = secrets_data["secrets"]["shared"]
+                    if secrets.get("docker_username"):
+                        secret = (
+                            db.query(Secret)
+                            .filter(
+                                Secret.project_name == project_name,
+                                Secret.app_name.is_(None),
+                                Secret.key == "DOCKER_USERNAME",
+                            )
+                            .first()
+                        )
+                        if secret:
+                            secret.value = secrets["docker_username"]
+                        else:
+                            db.add(
+                                Secret(
+                                    project_name=project_name,
+                                    key="DOCKER_USERNAME",
+                                    value=secrets["docker_username"],
+                                    source="shared",
+                                )
+                            )
 
-                # Docker credentials
-                if secrets.get("docker_org"):
-                    shared["DOCKER_ORG"] = secrets["docker_org"]
-                if secrets.get("docker_username"):
-                    shared["DOCKER_USERNAME"] = secrets["docker_username"]
-                if secrets.get("docker_token"):
-                    shared["DOCKER_TOKEN"] = secrets["docker_token"]
+                    if secrets.get("docker_token"):
+                        secret = (
+                            db.query(Secret)
+                            .filter(
+                                Secret.project_name == project_name,
+                                Secret.app_name.is_(None),
+                                Secret.key == "DOCKER_TOKEN",
+                            )
+                            .first()
+                        )
+                        if secret:
+                            secret.value = secrets["docker_token"]
+                        else:
+                            db.add(
+                                Secret(
+                                    project_name=project_name,
+                                    key="DOCKER_TOKEN",
+                                    value=secrets["docker_token"],
+                                    source="shared",
+                                )
+                            )
 
-                # GitHub token
-                if secrets.get("github_token"):
-                    shared["REPOSITORY_TOKEN"] = secrets["github_token"]
+                    if secrets.get("github_token"):
+                        secret = (
+                            db.query(Secret)
+                            .filter(
+                                Secret.project_name == project_name,
+                                Secret.app_name.is_(None),
+                                Secret.key == "REPOSITORY_TOKEN",
+                            )
+                            .first()
+                        )
+                        if secret:
+                            secret.value = secrets["github_token"]
+                        else:
+                            db.add(
+                                Secret(
+                                    project_name=project_name,
+                                    key="REPOSITORY_TOKEN",
+                                    value=secrets["github_token"],
+                                    source="shared",
+                                )
+                            )
 
-                # SMTP credentials (optional)
-                if secrets.get("smtp_host"):
-                    shared["SMTP_HOST"] = secrets["smtp_host"]
-                if secrets.get("smtp_port"):
-                    shared["SMTP_PORT"] = secrets["smtp_port"]
-                if secrets.get("smtp_user"):
-                    shared["SMTP_USER"] = secrets["smtp_user"]
-                if secrets.get("smtp_password"):
-                    shared["SMTP_PASSWORD"] = secrets["smtp_password"]
+                    # SMTP credentials (optional)
+                    if secrets.get("smtp_host"):
+                        secret = (
+                            db.query(Secret)
+                            .filter(
+                                Secret.project_name == project_name,
+                                Secret.app_name.is_(None),
+                                Secret.key == "SMTP_HOST",
+                            )
+                            .first()
+                        )
+                        if secret:
+                            secret.value = secrets["smtp_host"]
+                        else:
+                            db.add(
+                                Secret(
+                                    project_name=project_name,
+                                    key="SMTP_HOST",
+                                    value=secrets["smtp_host"],
+                                    source="shared",
+                                )
+                            )
 
-                # Write updated secrets back
-                with open(secrets_file, "w") as f:
-                    yaml.dump(
-                        secrets_data, f, default_flow_style=False, sort_keys=False
-                    )
+                    if secrets.get("smtp_port"):
+                        secret = (
+                            db.query(Secret)
+                            .filter(
+                                Secret.project_name == project_name,
+                                Secret.app_name.is_(None),
+                                Secret.key == "SMTP_PORT",
+                            )
+                            .first()
+                        )
+                        if secret:
+                            secret.value = str(secrets["smtp_port"])
+                        else:
+                            db.add(
+                                Secret(
+                                    project_name=project_name,
+                                    key="SMTP_PORT",
+                                    value=str(secrets["smtp_port"]),
+                                    source="shared",
+                                )
+                            )
+
+                    if secrets.get("smtp_user"):
+                        secret = (
+                            db.query(Secret)
+                            .filter(
+                                Secret.project_name == project_name,
+                                Secret.app_name.is_(None),
+                                Secret.key == "SMTP_USER",
+                            )
+                            .first()
+                        )
+                        if secret:
+                            secret.value = secrets["smtp_user"]
+                        else:
+                            db.add(
+                                Secret(
+                                    project_name=project_name,
+                                    key="SMTP_USER",
+                                    value=secrets["smtp_user"],
+                                    source="shared",
+                                )
+                            )
+
+                    if secrets.get("smtp_password"):
+                        secret = (
+                            db.query(Secret)
+                            .filter(
+                                Secret.project_name == project_name,
+                                Secret.app_name.is_(None),
+                                Secret.key == "SMTP_PASSWORD",
+                            )
+                            .first()
+                        )
+                        if secret:
+                            secret.value = secrets["smtp_password"]
+                        else:
+                            db.add(
+                                Secret(
+                                    project_name=project_name,
+                                    key="SMTP_PASSWORD",
+                                    value=secrets["smtp_password"],
+                                    source="shared",
+                                )
+                            )
+
+                    db.commit()
+                finally:
+                    db.close()
 
                 yield (
                     json.dumps({"type": "output", "data": "✓ User credentials added"})
                     + "\n"
                 )
 
-            yield json.dumps({"type": "output", "data": "✓ Created secrets.yml"}) + "\n"
+            yield (
+                json.dumps({"type": "output", "data": "✓ Secrets saved to database"})
+                + "\n"
+            )
 
             addon_count = (
                 sum(len(instances) for instances in addons.values()) if addons else 0
@@ -267,7 +413,7 @@ class CLIExecutor:
                         {
                             "name": project_dir.name,
                             "path": str(project_dir),
-                            "has_secrets": (project_dir / "secrets.yml").exists(),
+                            "has_secrets": True,  # Secrets are now in database
                         }
                     )
 

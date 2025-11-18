@@ -21,7 +21,7 @@ class ProjectsDeployCommand(ProjectCommand):
             details={"Services": self.services},
         )
 
-        # Load project secrets from secrets.yml
+        # Load project secrets from database
         from cli.secret_manager import SecretManager
 
         project_path = self.project_root / "projects" / self.project_name
@@ -32,13 +32,13 @@ class ProjectsDeployCommand(ProjectCommand):
             )
             return
 
-        secret_mgr = SecretManager(self.project_root, self.project_name)
+        secret_mgr = SecretManager(self.project_root, self.project_name, "production")
 
         try:
             secrets_data = secret_mgr.load_secrets()
-        except FileNotFoundError:
+        except Exception:
             self.console.print(
-                f"[red]❌ Project secrets not found: {project_path / 'secrets.yml'}[/red]"
+                f"[red]❌ Project secrets not found in database[/red]"
             )
             self.console.print(f"[dim]Run: superdeploy {self.project_name}:init[/dim]")
             return
@@ -141,7 +141,6 @@ def _create_project_deploy_playbook(ansible_dir, console):
         delete: no
         recursive: yes
         rsync_opts:
-          - "--exclude=secrets.yml"
           - "--exclude=*.log"
 
     - name: Sync project provision files (if exists)

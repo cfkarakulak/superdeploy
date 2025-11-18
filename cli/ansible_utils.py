@@ -216,7 +216,7 @@ class AnsibleManager:
 
     def _load_project_secrets(self, project_name: str) -> Dict[str, Any]:
         """
-        Load project secrets from secrets.yml.
+        Load project secrets from database.
 
         Args:
             project_name: Name of the project
@@ -224,17 +224,15 @@ class AnsibleManager:
         Returns:
             Dictionary of secrets
         """
-        secrets_file = self.project_root / "projects" / project_name / "secrets.yml"
-
-        if not secrets_file.exists():
-            return {}
-
         try:
             from cli.secret_manager import SecretManager
 
-            secret_mgr = SecretManager(self.project_root, project_name)
+            secret_mgr = SecretManager(self.project_root, project_name, "production")
+            if not secret_mgr.has_secrets():
+                return {}
+                
             secrets_data = secret_mgr.load_secrets()
-            return secrets_data.to_dict().get("secrets", {})
+            return secrets_data
         except Exception:
             return {}
 

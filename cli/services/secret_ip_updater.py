@@ -5,10 +5,11 @@ from typing import Dict, Any, Optional
 
 from cli.secret_manager import SecretManager
 from cli.state_manager import StateManager
+from cli.database import get_db_session, Secret
 
 
 class SecretIPUpdater:
-    """Updates secrets.yml with VM internal IPs for multi-VM architecture."""
+    """Updates database secrets with VM internal IPs for multi-VM architecture."""
 
     # Service host mappings
     SERVICE_HOSTS = {
@@ -29,12 +30,12 @@ class SecretIPUpdater:
         """
         self.project_root = project_root
         self.project_name = project_name
-        self.secret_mgr = SecretManager(project_root, project_name)
+        self.secret_mgr = SecretManager(project_root, project_name, "production")
         self.state_mgr = StateManager(project_root, project_name)
 
     def update_secrets_with_vm_ips(self, env: Dict[str, Any], logger) -> None:
         """
-        Auto-update secrets.yml with VM internal IPs.
+        Auto-update database secrets with VM internal IPs.
 
         This ensures services like postgres/rabbitmq on core VM can be reached
         from apps on app VM using internal IPs instead of hostnames.
@@ -43,11 +44,6 @@ class SecretIPUpdater:
             env: Environment variables dict
             logger: Logger instance
         """
-        secrets_data = self.secret_mgr.load_secrets()
-
-        if not secrets_data:
-            return
-
         # Get core VM internal IP
         core_internal_ip = self._get_core_internal_ip(env)
         if not core_internal_ip:
@@ -55,20 +51,14 @@ class SecretIPUpdater:
 
         updated = False
 
-        # Update shared secrets (legacy)
-        shared_secrets = secrets_data.shared.values
-        if shared_secrets:
-            updated |= self._update_service_hosts(
-                secrets_data, shared_secrets, core_internal_ip, logger
-            )
+        # Update shared secrets (legacy HOST keys)
+        updated |= self._update_service_hosts(core_internal_ip, logger)
 
-        # Update addon secrets (new architecture)
-        if secrets_data.addons:
-            updated |= self._update_addon_hosts(secrets_data, core_internal_ip, logger)
+        # Update addon secrets (new architecture: addon.name.HOST)
+        updated |= self._update_addon_hosts(core_internal_ip, logger)
 
         if updated:
-            self.secret_mgr.save_secrets(secrets_data)
-            logger.log("  [dim]✓ secrets.yml updated with VM internal IPs[/dim]")
+            logger.log("  [dim]✓ Database secrets updated with VM internal IPs[/dim]")
 
     def _get_core_internal_ip(self, env: Dict[str, Any]) -> Optional[str]:
         """
@@ -93,8 +83,6 @@ class SecretIPUpdater:
 
     def _update_service_hosts(
         self,
-        secrets_data: Any,
-        shared_secrets: Dict[str, str],
         core_internal_ip: str,
         logger,
     ) -> bool:
@@ -102,8 +90,6 @@ class SecretIPUpdater:
         Update service host entries with core VM IP.
 
         Args:
-            secrets_data: Secrets data object
-            shared_secrets: Shared secrets dict
             core_internal_ip: Core VM internal IP
             logger: Logger instance
 
@@ -111,25 +97,36 @@ class SecretIPUpdater:
             True if any updates were made
         """
         updated = False
+        db = get_db_session()
 
-        for host_key, (default_name, service_name) in self.SERVICE_HOSTS.items():
-            if host_key in shared_secrets:
-                current_value = shared_secrets[host_key]
+        try:
+            for host_key, (default_name, service_name) in self.SERVICE_HOSTS.items():
+                # Query existing shared secret
+                secret = (
+                    db.query(Secret)
+                    .filter(
+                        Secret.project_name == self.project_name,
+                        Secret.app_name.is_(None),  # Shared secret
+                        Secret.key == host_key,
+                        Secret.environment == "production",
+                    )
+                    .first()
+                )
 
-                # Update if different from core IP
-                if current_value != core_internal_ip:
-                    old_value = current_value
-                    secrets_data.shared.set(host_key, core_internal_ip)
+                if secret and secret.value != core_internal_ip:
+                    old_value = secret.value
+                    secret.value = core_internal_ip
+                    db.commit()
                     updated = True
                     logger.log(
                         f"  [dim]✓ Updated {service_name} host: {old_value} → {core_internal_ip}[/dim]"
                     )
 
-        return updated
+            return updated
+        finally:
+            db.close()
 
-    def _update_addon_hosts(
-        self, secrets_data: Any, core_internal_ip: str, logger
-    ) -> bool:
+    def _update_addon_hosts(self, core_internal_ip: str, logger) -> bool:
         """
         Update addon HOST credentials with core VM internal IP.
 
@@ -137,7 +134,6 @@ class SecretIPUpdater:
         to core VM internal IP for cross-VM communication.
 
         Args:
-            secrets_data: Secrets data object
             core_internal_ip: Core VM internal IP
             logger: Logger instance
 
@@ -145,34 +141,59 @@ class SecretIPUpdater:
             True if any updates were made
         """
         updated = False
+        db = get_db_session()
 
-        # Addon types that should use core VM IP
-        core_addon_types = ["postgres", "rabbitmq", "mongodb", "redis", "elasticsearch"]
+        try:
+            # Addon types that should use core VM IP
+            core_addon_types = [
+                "postgres",
+                "rabbitmq",
+                "mongodb",
+                "redis",
+                "elasticsearch",
+            ]
 
-        for addon_type in core_addon_types:
-            if addon_type not in secrets_data.addons:
-                continue
+            for addon_type in core_addon_types:
+                # Query addon secrets with HOST key for this addon type
+                # Format: {addon_type}.{instance_name}.HOST
+                host_pattern = f"{addon_type}.%.HOST"
 
-            addon_instances = secrets_data.addons[addon_type]
+                addon_host_secrets = (
+                    db.query(Secret)
+                    .filter(
+                        Secret.project_name == self.project_name,
+                        Secret.key.like(host_pattern),
+                        Secret.source == "addon",
+                        Secret.environment == "production",
+                    )
+                    .all()
+                )
 
-            for instance_name, credentials in addon_instances.items():
-                if "HOST" in credentials:
-                    current_host = credentials["HOST"]
+                for secret in addon_host_secrets:
+                    current_host = secret.value
 
-                    # Update if not already core IP and not empty
+                    # Extract instance name from key: "postgres.primary.HOST" -> "primary"
+                    parts = secret.key.split(".")
+                    instance_name = parts[1] if len(parts) >= 3 else "unknown"
+
+                    # Update if not already core IP
                     if current_host and current_host != core_internal_ip:
                         old_value = current_host
-                        credentials["HOST"] = core_internal_ip
+                        secret.value = core_internal_ip
+                        db.commit()
                         updated = True
                         logger.log(
                             f"  [dim]✓ Updated {addon_type}.{instance_name}.HOST: {old_value} → {core_internal_ip}[/dim]"
                         )
                     elif not current_host:
                         # If empty, set to core IP
-                        credentials["HOST"] = core_internal_ip
+                        secret.value = core_internal_ip
+                        db.commit()
                         updated = True
                         logger.log(
                             f"  [dim]✓ Set {addon_type}.{instance_name}.HOST → {core_internal_ip}[/dim]"
                         )
 
-        return updated
+            return updated
+        finally:
+            db.close()

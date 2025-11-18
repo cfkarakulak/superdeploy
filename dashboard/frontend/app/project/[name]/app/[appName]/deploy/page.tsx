@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
-import { AppHeader, PageHeader, Button } from "@/components";
+import { AppHeader, PageHeader, Button, Dialog as DialogComponent, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components";
 import { 
   GitBranch, 
   GitCommit, 
@@ -14,8 +14,6 @@ import {
   Tag,
   Activity
 } from "lucide-react";
-import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
 import { parseAnsi, segmentToStyle } from "@/lib/ansiParser";
 
 interface Release {
@@ -417,70 +415,55 @@ export default function DeployPage() {
       </div>
 
       {/* Rollback Dialog */}
-      <Dialog.Root open={rollbackDialogOpen} onOpenChange={setRollbackDialogOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50 data-[state=open]:animate-[fade-in_0.2s_ease-out] z-9998" />
-          <Dialog.Content className="fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] bg-white rounded-[16px] shadow-[0_8px_32px_rgba(0,0,0,0.12)] p-0 w-[90vw] max-w-[800px] max-h-[85vh] overflow-hidden data-[state=open]:animate-[dialog-content-show_0.2s_ease-out] z-9999 flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#e3e8ee]">
-              <div>
-                <Dialog.Title className="text-[16px] font-medium text-[#0a0a0a] tracking-[-0.01em]">
-                  Rollback to v{selectedVersion?.version}
-                </Dialog.Title>
-                <Dialog.Description className="text-[12px] text-[#8b8b8b] mt-1">
-                  Rolling back to commit {selectedVersion?.git_sha.substring(0, 7)}
-                </Dialog.Description>
-              </div>
-              <Dialog.Close className="rounded-lg p-2 hover:bg-[#f6f8fa] transition-colors">
-                <X className="w-4 h-4 text-[#8b8b8b]" />
-              </Dialog.Close>
-            </div>
+      <DialogComponent open={rollbackDialogOpen} onOpenChange={setRollbackDialogOpen}>
+        <DialogContent className="max-w-[800px] sm:max-w-[800px] w-[800px]">
+          <DialogHeader>
+            <DialogTitle>Rollback to v{selectedVersion?.version}</DialogTitle>
+          </DialogHeader>
 
-            {/* Terminal Output */}
-            <div className="flex-1 overflow-hidden p-6">
-              <div className="terminal-container scrollbar-custom rounded-lg p-4 text-[13px] leading-relaxed overflow-y-auto h-[500px] max-h-[500px]">
-                {rollbackLogs ? (
-                  <div className="space-y-0.5">
-                    {rollbackLogs.split('\n').map((line, index) => {
-                      const segments = parseAnsi(line);
-                      return (
-                        <div
-                          key={index}
-                          className="px-2 py-0.5 rounded whitespace-pre-wrap break-all"
-                        >
-                          {segments.map((segment, segIndex) => (
-                            <span key={segIndex} style={segmentToStyle(segment)}>
-                              {segment.text}
-                            </span>
-                          ))}
-                        </div>
-                      );
-                    })}
-                    <div ref={rollbackLogsEndRef} />
+          {/* Terminal Output */}
+          <div className="py-4">
+            <div className="terminal-container scrollbar-custom rounded-lg p-4 text-[13px] leading-relaxed overflow-y-auto h-[500px] max-h-[500px]">
+              {rollbackLogs ? (
+                <div className="space-y-0.5">
+                  {rollbackLogs.split('\n').map((line, index) => {
+                    const segments = parseAnsi(line);
+                    return (
+                      <div
+                        key={index}
+                        className="px-2 py-0.5 rounded whitespace-pre-wrap break-all"
+                      >
+                        {segments.map((segment, segIndex) => (
+                          <span key={segIndex} style={segmentToStyle(segment)}>
+                            {segment.text}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })}
+                  <div ref={rollbackLogsEndRef} />
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-[#8b8b8b]">
+                  <div className="text-center">
+                    <p>Initializing rollback...</p>
                   </div>
-                ) : (
-                  <div className="flex items-center justify-center h-full text-[#8b8b8b]">
-                    <div className="text-center">
-                      <p>Initializing rollback...</p>
-                    </div>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
+          </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-[#e3e8ee]">
-              <Button
-                variant="ghost"
-                onClick={() => setRollbackDialogOpen(false)}
-                disabled={switching !== null}
-              >
-                {switching ? "Rolling back..." : "Close"}
-              </Button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setRollbackDialogOpen(false)}
+              disabled={switching !== null}
+            >
+              {switching ? "Rolling back..." : "Close"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </DialogComponent>
     </div>
   );
 }

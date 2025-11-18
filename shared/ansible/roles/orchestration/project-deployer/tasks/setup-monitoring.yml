@@ -13,7 +13,7 @@
       [PROJECT-DEPLOYER] ERROR: Cannot setup monitoring without apps configuration
         - Expected: apps to be defined as a dictionary with at least one app
         - Found: apps={{ apps | default('undefined') }}
-        - Fix: Ensure config.yml contains an 'apps' section
+        - Fix: Ensure database contains apps configuration
     quiet: true
 
 - name: Build monitoring targets list with external IPs

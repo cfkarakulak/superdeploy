@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { AppHeader, PageHeader, Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, Table } from "@/components";
+import { AppHeader, PageHeader, Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, Table, ToastContainer } from "@/components";
 import type { Item } from "@/components";
 import { Link2, Plus, Trash2, Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/useToast";
 
 interface Alias {
   alias_key: string;
@@ -80,6 +81,7 @@ export default function AliasesPage() {
   const params = useParams();
   const projectName = params?.name as string;
   const appName = (params?.app || params?.appName) as string;
+  const toast = useToast();
 
   const [aliases, setAliases] = useState<Alias[]>([]);
   const [loading, setLoading] = useState(true);
@@ -154,7 +156,7 @@ export default function AliasesPage() {
 
   const handleAdd = async () => {
     if (!newAliasKey.trim() || !newTargetKey.trim()) {
-      alert("Alias key and target key are required");
+      toast.error("Alias key and target key are required");
       return;
     }
 
@@ -176,9 +178,9 @@ export default function AliasesPage() {
       setNewTargetKey("");
       setAddModalOpen(false);
       await fetchAliases();
-      alert("Alias added successfully");
+      toast.success("Alias added successfully");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add alias");
+      toast.error(err instanceof Error ? err.message : "Failed to add alias");
     } finally {
       setSavingKey(null);
     }
@@ -204,9 +206,9 @@ export default function AliasesPage() {
       setEditModalOpen(false);
       setEditingAlias(null);
       await fetchAliases();
-      alert("Alias updated successfully");
+      toast.success("Alias updated successfully");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to update alias");
+      toast.error(err instanceof Error ? err.message : "Failed to update alias");
     } finally {
       setSavingKey(null);
     }
@@ -230,9 +232,9 @@ export default function AliasesPage() {
       setDeleteModalOpen(false);
       setDeletingAlias(null);
       await fetchAliases();
-      alert("Alias deleted successfully");
+      toast.success("Alias deleted successfully");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete alias");
+      toast.error(err instanceof Error ? err.message : "Failed to delete alias");
     } finally {
       setSavingKey(null);
     }
@@ -246,7 +248,7 @@ export default function AliasesPage() {
       const selectedAliases = aliases.filter((a) => selectedKeys.includes(a.alias_key));
 
       if (selectedAliases.length === 0) {
-        alert("No aliases selected");
+        toast.error("No aliases selected");
         return;
       }
 
@@ -263,14 +265,15 @@ export default function AliasesPage() {
       setBulkDeleteModalOpen(false);
       setSelectedItems(new Set());
       await fetchAliases();
-      alert(`${selectedAliases.length} alias(es) deleted successfully`);
+      toast.success(`${selectedAliases.length} alias(es) deleted successfully`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete aliases");
+      toast.error(err instanceof Error ? err.message : "Failed to delete aliases");
     }
   };
 
   return (
     <div>
+      <ToastContainer />
       <AppHeader />
 
       {loading ? (
@@ -487,7 +490,7 @@ export default function AliasesPage() {
               Are you sure you want to delete this alias?
             </p>
 
-            <div className="bg-[#fef2f2] border border-[#fee2e2] rounded-lg p-3">
+            <div className="bg-[#fef2f2] rounded-lg p-3">
               <code className="text-[13px] font-mono text-[#ef4444] break-all">
                 {deletingAlias?.alias_key} → {deletingAlias?.target_key}
               </code>

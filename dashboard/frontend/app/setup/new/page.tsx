@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useDeploymentLog } from "@/contexts/DeploymentLogContext";
 import { 
   ChevronRight,
   ChevronLeft,
@@ -27,12 +28,13 @@ import { getAddonLogo } from "@/lib/addonLogos";
 
 interface ProjectConfig {
   project_name: string;
+  domain: string;
   gcp_project: string;
   gcp_region: string;
   apps: Array<{
     name: string;
     repo: string;
-    port: number;
+    port?: number;
   }>;
   addons: {
     databases: string[];
@@ -54,6 +56,7 @@ interface ProjectConfig {
 
 const INITIAL_CONFIG: ProjectConfig = {
   project_name: "",
+  domain: "",
   gcp_project: "",
   gcp_region: "us-central1",
   apps: [],
@@ -108,10 +111,10 @@ interface GroupedRepos {
 
 export default function NewProjectSetup() {
   const router = useRouter();
+  const { addLog, clearLogs, setDeploying: setGlobalDeploying, setTitle } = useDeploymentLog();
   const [step, setStep] = useState(1);
   const [config, setConfig] = useState<ProjectConfig>(INITIAL_CONFIG);
   const [deploying, setDeploying] = useState(false);
-  const [deploymentLog, setDeploymentLog] = useState<string[]>([]);
   const [githubRepos, setGithubRepos] = useState<GroupedRepos>({});
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [repoSearch, setRepoSearch] = useState("");
@@ -119,23 +122,19 @@ export default function NewProjectSetup() {
 
   const totalSteps = 4;
 
-  // Fetch GitHub repos
+  // Fetch GitHub repos (only after token is entered)
   useEffect(() => {
     const fetchRepos = async () => {
+      // Check if GitHub token is entered in config
+      const token = config.secrets.github_token?.trim();
+      if (!token) {
+        // No token yet, user needs to enter it first
+        setGithubRepos({});
+        return;
+      }
+
       setLoadingRepos(true);
       try {
-        const tokenResponse = await fetch("http://localhost:8401/api/settings/github-token");
-        if (!tokenResponse.ok) {
-          setLoadingRepos(false);
-          return;
-        }
-        
-        const { token, configured } = await tokenResponse.json();
-        if (!configured || !token) {
-          setLoadingRepos(false);
-          return;
-        }
-        
         const response = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated", {
           headers: { Authorization: `token ${token}` }
         });
@@ -192,7 +191,7 @@ export default function NewProjectSetup() {
     };
     
     fetchRepos();
-  }, []);
+  }, [config.secrets.github_token]); // Re-fetch when token changes
 
   const updateConfig = (updates: Partial<ProjectConfig>) => {
     setConfig({ ...config, ...updates });
@@ -212,10 +211,16 @@ export default function NewProjectSetup() {
 
   const handleDeploy = async () => {
     setDeploying(true);
-    setDeploymentLog([]);
+    setGlobalDeploying(true);
+    clearLogs();
+    setTitle("Project Deployment");
+
+    const log = (message: string) => {
+      addLog(message);
+    };
 
     try {
-      setDeploymentLog((prev) => [...prev, "💾 Saving configuration..."]);
+      log("💾 Saving configuration...");
       
       const github_org = config.apps.length > 0 && config.apps[0].repo 
         ? config.apps[0].repo.split('/')[0] 
@@ -223,6 +228,7 @@ export default function NewProjectSetup() {
       
       const payload = {
         project_name: config.project_name,
+        domain: config.domain,
         gcp_project: config.gcp_project,
         gcp_region: config.gcp_region,
         github_org,
@@ -243,8 +249,8 @@ export default function NewProjectSetup() {
       }
 
       const project = await createResponse.json();
-      setDeploymentLog((prev) => [...prev, `✓ Project "${project.name}" saved`]);
-      setDeploymentLog((prev) => [...prev, "🚀 Starting deployment..."]);
+      log(`✓ Project "${project.name}" saved`);
+      log("🚀 Starting deployment...");
       
       const deployResponse = await fetch(`http://localhost:8401/api/projects/${config.project_name}/deploy`, {
         method: "POST",
@@ -255,6 +261,7 @@ export default function NewProjectSetup() {
         throw new Error("Failed to start deployment");
       }
 
+      let deploymentSucceeded = false;
       const reader = deployResponse.body?.getReader();
       if (reader) {
         while (true) {
@@ -267,21 +274,34 @@ export default function NewProjectSetup() {
           lines.forEach(line => {
             if (line.startsWith('data: ')) {
               const message = line.substring(6);
-              setDeploymentLog((prev) => [...prev, message]);
+              log(message);
+              
+              // Check for deployment result
+              if (message.includes('✓ Deployment complete')) {
+                deploymentSucceeded = true;
+              } else if (message.includes('✗ Deployment failed')) {
+                deploymentSucceeded = false;
+              }
             }
           });
         }
       }
 
-      setDeploymentLog((prev) => [...prev, "✓ Deployment complete!"]);
+      setGlobalDeploying(false);
+      setDeploying(false); // Always reset deploying state
       
-      setTimeout(() => {
-        router.push(`/project/${config.project_name}`);
-      }, 2000);
+      // Only redirect if deployment succeeded
+      if (deploymentSucceeded) {
+        setTimeout(() => {
+          router.push(`/project/${config.project_name}`);
+        }, 2000);
+      }
+      // If failed, user stays on wizard and can try again
 
     } catch (error) {
-      setDeploymentLog((prev) => [...prev, `❌ Error: ${error instanceof Error ? error.message : "Unknown error"}`]);
+      log(`❌ Error: ${error instanceof Error ? error.message : "Unknown error"}`);
       setDeploying(false);
+      setGlobalDeploying(false);
     }
   };
 
@@ -290,7 +310,7 @@ export default function NewProjectSetup() {
       case 1:
         return config.project_name && config.gcp_project && config.gcp_region;
       case 2:
-        return config.apps.length > 0 && config.apps.every(app => app.name && app.repo && app.port);
+        return config.apps.length > 0 && config.apps.every(app => app.name && app.repo);
       case 3:
         return true; // Optional
       case 4:
@@ -317,7 +337,7 @@ export default function NewProjectSetup() {
   const addApp = () => {
     setConfig({
       ...config,
-      apps: [...config.apps, { name: "", repo: "", port: 8000 }]
+      apps: [...config.apps, { name: "", repo: "" }]
     });
   };
 
@@ -350,21 +370,15 @@ export default function NewProjectSetup() {
   if (deploying) {
     return (
       <div className="min-h-screen flex items-center justify-center p-8">
-        <div className="w-full max-w-2xl">
-          <div className="rounded-lg border border-[#e3e8ee] p-8">
-            <div className="flex items-center gap-3 mb-6">
-              <Loader2 className="w-5 h-5 text-[#8b8b8b] animate-spin" />
-              <h2 className="text-[18px] text-[#222]">
-                Deploying {config.project_name}
-              </h2>
-            </div>
-            
-            <div className="bg-[#0a0a0a] rounded-lg p-4 font-mono text-[12px] text-green-400 max-h-[400px] overflow-y-auto">
-              {deploymentLog.map((log, i) => (
-                <div key={i} className="mb-1">{log}</div>
-              ))}
-              <div className="animate-pulse">▊</div>
-            </div>
+        <div className="w-full max-w-md">
+          <div className="rounded-lg border border-[#e3e8ee] p-12 text-center">
+            <Loader2 className="w-12 h-12 text-[#8b8b8b] animate-spin mx-auto mb-6" />
+            <h2 className="text-[18px] text-[#0a0a0a] mb-2">
+              Deploying {config.project_name}
+            </h2>
+            <p className="text-[11px] text-[#8b8b8b] font-light tracking-[0.03em]">
+              Running command...
+            </p>
           </div>
         </div>
       </div>
@@ -396,7 +410,7 @@ export default function NewProjectSetup() {
                   </p>
                 </div>
                 {index < 3 && (
-                  <ChevronRight className="w-4 h-4 text-[#c1c1c1] flex-shrink-0 mt-1" />
+                  <ChevronRight className="w-4 h-4 text-[#c1c1c1] shrink-0 mt-1" />
                 )}
               </React.Fragment>
             ))}
@@ -481,6 +495,24 @@ export default function NewProjectSetup() {
                   </DropdownMenu.Root>
                 </div>
               </div>
+
+              <div className="border-t border-[#e3e8ee] pt-6">
+                <h3 className="text-[14px] text-[#0a0a0a] mb-4">GitHub Access</h3>
+                <div>
+                  <Input
+                    label={<>GitHub Personal Access Token <span className="text-red-500">*</span></>}
+                    type="password"
+                    value={config.secrets.github_token}
+                    onChange={(e) => {
+                      updateConfig({ 
+                        secrets: { ...config.secrets, github_token: e.target.value } 
+                      });
+                    }}
+                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxxx"
+                    hint="Token will be saved and used to fetch your repositories"
+                  />
+                </div>
+              </div>
             </div>
           )}
 
@@ -537,7 +569,7 @@ export default function NewProjectSetup() {
                             </div>
                           ) : (
                             <DropdownMenu.Root>
-                              <DropdownMenu.Trigger className="bg-white w-full border border-[#e3e8ee] rounded-lg px-3 py-2.5 pr-10 text-left text-[14px] text-[#0a0a0a] outline-none focus:border-[#8b8b8b] transition-colors cursor-pointer hover:border-[#8b8b8b] relative group">
+                              <DropdownMenu.Trigger className="bg-white w-full border border-[#e3e8ee] rounded-lg px-3 py-2.5 pr-10 text-left text-[12px] text-[#0a0a0a] outline-none focus:border-[#8b8b8b] transition-colors cursor-pointer hover:border-[#8b8b8b] relative group font-mono">
                                 <span>{app.repo || "Select repository..."}</span>
                                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b8b8b] transition-transform duration-200 group-data-[state=open]:rotate-180" />
                               </DropdownMenu.Trigger>
@@ -550,20 +582,33 @@ export default function NewProjectSetup() {
                                 >
                                   <div className="mb-2 px-2">
                                     <div className="relative">
-                                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b8b8b]" />
+                                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b8b8b] z-10" />
                                       <input
                                         type="text"
                                         value={repoSearch}
                                         onChange={(e) => setRepoSearch(e.target.value)}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        onPointerDown={(e) => e.stopPropagation()}
                                         placeholder="Search repositories..."
-                                        className="w-full pl-9 pr-3 py-2 bg-white border border-[#e3e8ee] rounded-lg text-[11px] outline-none focus:border-[#8b8b8b]"
+                                        className="w-full pl-9 pr-3 py-2 bg-white border border-[#e3e8ee] rounded-lg text-[12px] outline-none focus:border-[#8b8b8b]"
+                                        autoFocus
                                       />
                                     </div>
                                   </div>
                                   <div className="max-h-[300px] overflow-y-auto scrollbar-thin">
                                     {Object.keys(filteredRepos).length === 0 ? (
-                                      <div className="px-3 py-4 text-[11px] text-[#8b8b8b] font-light tracking-[0.03em] text-center">
-                                        No repositories found
+                                      <div className="px-3 py-4 text-[11px] text-center">
+                                        {!config.secrets.github_token?.trim() ? (
+                                          <>
+                                            <Key className="w-4 h-4 text-[#f59e0b] mx-auto mb-2" />
+                                            <p className="text-[#f59e0b] font-medium mb-1">GitHub Token Required</p>
+                                            <p className="text-[#8b8b8b] font-light tracking-[0.03em]">
+                                              Please enter your GitHub token in <strong>Step 4</strong> to load repositories
+                                            </p>
+                                          </>
+                                        ) : (
+                                          <p className="text-[#8b8b8b] font-light tracking-[0.03em]">No repositories found</p>
+                                        )}
                                       </div>
                                     ) : (
                                       Object.entries(filteredRepos).map(([org, repos]) => (
@@ -574,7 +619,14 @@ export default function NewProjectSetup() {
                                           {repos.map(repo => (
                                             <DropdownMenu.Item
                                               key={repo.full_name}
-                                              onClick={() => updateApp(index, { repo: repo.full_name })}
+                                              onClick={() => {
+                                                // Extract app name from repo (e.g., "cheapa/api" -> "api")
+                                                const appName = repo.full_name.split('/')[1];
+                                                updateApp(index, { 
+                                                  repo: repo.full_name,
+                                                  name: app.name || appName // Only set name if it's empty
+                                                });
+                                              }}
                                               className="flex items-center justify-between px-3 py-2 rounded hover:bg-[#f6f8fa] outline-none cursor-pointer"
                                             >
                                               <span className="text-[11px] text-[#111] font-light tracking-[0.03em]">{repo.name}</span>
@@ -608,10 +660,13 @@ export default function NewProjectSetup() {
                             <Input
                               label="Port"
                               type="number"
-                              value={app.port}
-                              onChange={(e) => updateApp(index, { port: parseInt(e.target.value) || 8000 })}
+                              value={app.port || ""}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                updateApp(index, { port: value ? parseInt(value) : undefined });
+                              }}
                               placeholder="8000"
-                              hint="Application port"
+                              hint="Application port (optional)"
                             />
                           </div>
                         </div>
@@ -655,18 +710,18 @@ export default function NewProjectSetup() {
                           <div className="flex items-start justify-between mb-4">
                             <div className="flex items-center gap-3">
                               {logo ? (
-                                <div className="w-10 h-10 flex items-center p-2 justify-center bg-white rounded-lg border border-[#e3e8ee] flex-shrink-0">
+                                <div className="w-10 h-10 flex items-center p-2 justify-center bg-white rounded-lg border border-[#e3e8ee] shrink-0">
                                   {logo}
                                 </div>
                               ) : (
-                                <div className="w-10 h-10 flex items-center justify-center bg-gray-50 rounded-lg border border-[#e3e8ee] flex-shrink-0">
+                                <div className="w-10 h-10 flex items-center justify-center bg-gray-50 rounded-lg border border-[#e3e8ee] shrink-0">
                                   <Package className="w-6 h-6 text-gray-600" />
                                 </div>
                               )}
                               <div>
                                 <h3 className="text-[13px] text-[#8b8b8b] font-light mb-1">{addon.name}</h3>
                                 <div className="flex items-center gap-1.5">
-                                  <div className={`w-2 h-2 rounded-full ${isSelected ? 'bg-green-500' : 'bg-gray-300'} flex-shrink-0`}></div>
+                                  <div className={`w-2 h-2 rounded-full ${isSelected ? 'bg-green-500' : 'bg-gray-300'} shrink-0`}></div>
                                   <span className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light">
                                     {isSelected ? 'Selected' : 'Available'}
                                   </span>
@@ -762,29 +817,6 @@ export default function NewProjectSetup() {
                       }
                     />
                   </div>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-[#e3e8ee]">
-                <h3 className="text-[14px] text-[#0a0a0a] mb-3">GitHub (Optional)</h3>
-                <div>
-                  <Input
-                    label="Personal Access Token"
-                    type={showSecrets.github ? "text" : "password"}
-                    value={config.secrets.github_token}
-                    onChange={(e) => updateConfig({ secrets: { ...config.secrets, github_token: e.target.value } })}
-                    placeholder="ghp_..."
-                    hint="Personal access token with repo access"
-                    rightIcon={
-                      <button
-                        type="button"
-                        onClick={() => setShowSecrets({ ...showSecrets, github: !showSecrets.github })}
-                        className="text-[#8b8b8b] hover:text-[#0a0a0a] transition-colors"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                    }
-                  />
                 </div>
               </div>
             </div>

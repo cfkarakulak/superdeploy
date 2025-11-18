@@ -109,9 +109,7 @@ class EnvVarHelper:
         expected_token = env_vars.get("REPOSITORY_TOKEN", "")
 
         if not expected_token or expected_token in ["", "your-github-token"]:
-            console.print(
-                "[red]❌ REPOSITORY_TOKEN not configured in secrets.yml[/red]"
-            )
+            console.print("[red]❌ REPOSITORY_TOKEN not configured in database[/red]")
             console.print(
                 "[yellow]Set a valid REPOSITORY_TOKEN to use --no-mask[/yellow]"
             )
@@ -120,7 +118,7 @@ class EnvVarHelper:
         console.print(
             Panel(
                 "[yellow]⚠️  Sensitive data access[/yellow]\n\n"
-                "[white]Enter your REPOSITORY_TOKEN (from secrets.yml):[/white]",
+                "[white]Enter your REPOSITORY_TOKEN (from database):[/white]",
                 border_style="yellow",
             )
         )

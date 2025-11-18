@@ -1,8 +1,8 @@
 """
 Secret Management
 
-Database-backed secret manager (replaces secrets.yml).
-All secrets are now stored in PostgreSQL.
+Database-backed secret manager.
+All secrets are stored in PostgreSQL.
 """
 
 from pathlib import Path
@@ -11,14 +11,11 @@ from cli.database import get_db_session, Secret, SecretAlias
 from sqlalchemy.orm import Session
 
 
-# SecretFormatter removed - no longer needed (secrets.yml is deprecated)
-
-
 class SecretManager:
     """
-    Database-backed secret manager (replaces secrets.yml).
+    Database-backed secret manager.
 
-    All operations now work with PostgreSQL database.
+    All operations work with PostgreSQL database.
     """
 
     def __init__(
@@ -300,12 +297,22 @@ class SecretManager:
 
     def load_secrets(self):
         """
-        Legacy method for compatibility.
+        Load secrets from database and structure them for Ansible.
 
-        Returns a dict-like object with all secrets.
-        Used by old code that expects SecretConfig.
+        Returns a dict with nested addon structure:
+        {
+            "shared": {"DOCKER_ORG": "..."},
+            "apps": {"api": {"KEY": "..."}},
+            "addons": {
+                "postgres": {
+                    "primary": {
+                        "PASSWORD": "...",
+                        "USER": "..."
+                    }
+                }
+            }
+        }
         """
-        # Return a simple dict structure for backwards compatibility
         db = self._get_db()
         try:
             all_secrets = (
@@ -317,16 +324,32 @@ class SecretManager:
                 .all()
             )
 
-            # Group by shared/apps
+            # Group by shared/apps/addons
             result = {"shared": {}, "apps": {}, "addons": {}}
 
             for secret in all_secrets:
                 if secret.app_name is None:
                     if secret.source == "addon":
-                        result["addons"][secret.key] = secret.value
+                        # Convert dotted key to nested structure
+                        # "postgres.primary.PASSWORD" → addons[postgres][primary][PASSWORD]
+                        parts = secret.key.split(".", 2)
+                        if len(parts) == 3:
+                            addon_type, instance_name, field = parts
+                            if addon_type not in result["addons"]:
+                                result["addons"][addon_type] = {}
+                            if instance_name not in result["addons"][addon_type]:
+                                result["addons"][addon_type][instance_name] = {}
+                            result["addons"][addon_type][instance_name][field] = (
+                                secret.value
+                            )
+                        else:
+                            # Fallback: keep flat if format is unexpected
+                            result["addons"][secret.key] = secret.value
                     else:
+                        # Shared secrets remain flat
                         result["shared"][secret.key] = secret.value
                 else:
+                    # App-specific secrets
                     if secret.app_name not in result["apps"]:
                         result["apps"][secret.app_name] = {}
                     result["apps"][secret.app_name][secret.key] = secret.value

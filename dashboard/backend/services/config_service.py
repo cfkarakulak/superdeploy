@@ -8,7 +8,7 @@ import string
 
 
 class ConfigService:
-    """Service for managing config.yml and secrets.yml files."""
+    """Service for managing config.yml and database secrets."""
 
     def __init__(self, project_root: Path):
         self.project_root = project_root
@@ -56,40 +56,70 @@ class ConfigService:
 
     def read_secrets(self, project_name: str) -> Dict[str, Any]:
         """
-        Read secrets.yml for a project.
+        Read secrets from database for a project (legacy compatibility method).
 
         Args:
             project_name: Name of the project
 
         Returns:
-            Secrets dictionary
+            Secrets dictionary in legacy format
         """
-        secrets_file = self.get_project_dir(project_name) / "secrets.yml"
+        from database import SessionLocal
+        from models import Secret
 
-        if not secrets_file.exists():
-            raise FileNotFoundError(f"secrets.yml not found for project {project_name}")
-
+        db = SessionLocal()
         try:
-            with open(secrets_file, "r") as f:
-                return yaml.safe_load(f) or {}
-        except Exception as e:
-            raise Exception(f"Failed to read secrets.yml: {str(e)}")
+            secrets = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_name == project_name,
+                    Secret.environment == "production",
+                )
+                .all()
+            )
+
+            if not secrets:
+                raise FileNotFoundError(f"No secrets found for project {project_name}")
+
+            # Build legacy format
+            result = {"secrets": {"shared": {}, "apps": {}, "addons": {}}}
+
+            for secret in secrets:
+                if secret.app_name is None:
+                    if secret.source == "addon":
+                        result["secrets"]["addons"][secret.key] = secret.value
+                    else:
+                        result["secrets"]["shared"][secret.key] = secret.value
+                else:
+                    if secret.app_name not in result["secrets"]["apps"]:
+                        result["secrets"]["apps"][secret.app_name] = {}
+                    result["secrets"]["apps"][secret.app_name][secret.key] = (
+                        secret.value
+                    )
+
+            return result
+        finally:
+            db.close()
 
     def write_secrets(self, project_name: str, secrets_data: Dict[str, Any]) -> None:
         """
-        Write secrets.yml for a project.
+        Write secrets to database for a project (legacy compatibility method).
 
         Args:
             project_name: Name of the project
-            secrets_data: Secrets dictionary
+            secrets_data: Secrets dictionary in legacy format
         """
-        secrets_file = self.get_project_dir(project_name) / "secrets.yml"
+        from database import SessionLocal
 
+        db = SessionLocal()
         try:
-            with open(secrets_file, "w") as f:
-                yaml.dump(secrets_data, f, default_flow_style=False, sort_keys=False)
-        except Exception as e:
-            raise Exception(f"Failed to write secrets.yml: {str(e)}")
+            # This method is for legacy compatibility
+            # Modern code should use Secret model directly
+            raise NotImplementedError(
+                "write_secrets is deprecated. Use Secret model directly for database operations."
+            )
+        finally:
+            db.close()
 
     def get_app_secrets(self, project_name: str, app_name: str) -> Dict[str, str]:
         """

@@ -94,7 +94,7 @@
         url: "https://api.github.com/orgs/{{ github_org }}/actions/runners"
         method: GET
         headers:
-          Authorization: "Bearer {{ project_secrets.secrets.shared.REPOSITORY_TOKEN }}"
+          Authorization: "Bearer {{ project_secrets.secrets.shared['REPOSITORY_TOKEN'] }}"
           Accept: "application/vnd.github+json"
         status_code: 200
         return_content: yes

@@ -5,7 +5,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 # Local PostgreSQL
-SQLALCHEMY_DATABASE_URL = "postgresql://localhost/superdeploy_dashboard"
+SQLALCHEMY_DATABASE_URL = "postgresql://localhost/superdeploy"
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

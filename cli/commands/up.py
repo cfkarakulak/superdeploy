@@ -49,6 +49,7 @@ class UpCommand(ProjectCommand):
         verbose: bool = False,
         force: bool = False,
         dry_run: bool = False,
+        json_output: bool = False,
     ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.skip_terraform = skip_terraform
@@ -63,6 +64,153 @@ class UpCommand(ProjectCommand):
     def execute(self) -> None:
         """Execute up command."""
         self._execute_deployment()
+
+    def _ensure_addon_secrets(self, logger) -> None:
+        """
+        Auto-generate missing addon secrets before deployment.
+
+        This is idempotent - only creates secrets that don't exist.
+        Follows "lazy generation" principle - secrets created when needed.
+        """
+        from cli.database import get_db_session, Secret
+        import secrets as python_secrets
+        import string
+
+        def generate_password(length=32):
+            """Generate a secure random password."""
+            alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+            return "".join(python_secrets.choice(alphabet) for _ in range(length))
+
+        # Load project config to see which addons are configured
+        config = self.config_service.load_project(self.project_name)
+        addons = config.get("addons", {})
+
+        if not addons:
+            return  # No addons configured
+
+        db = get_db_session()
+        try:
+            # Check which addon secrets already exist
+            existing_secrets = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_name == self.project_name,
+                    Secret.source == "addon",
+                )
+                .all()
+            )
+            existing_keys = {s.key for s in existing_secrets}
+
+            secrets_to_create = []
+
+            # Generate missing addon secrets based on configuration
+            if "databases" in addons:
+                for instance_name, config_data in addons["databases"].items():
+                    addon_type = config_data.get("type")
+                    addon_key = f"{addon_type}.{instance_name}"
+
+                    if addon_type == "postgres":
+                        addon_secrets = {
+                            f"{addon_key}.PORT": "5432",
+                            f"{addon_key}.USER": f"{self.project_name}_user",
+                            f"{addon_key}.PASSWORD": generate_password(),
+                            f"{addon_key}.DATABASE": f"{self.project_name}_db",
+                        }
+                    elif addon_type == "mysql":
+                        addon_secrets = {
+                            f"{addon_key}.PORT": "3306",
+                            f"{addon_key}.USER": f"{self.project_name}_user",
+                            f"{addon_key}.PASSWORD": generate_password(),
+                            f"{addon_key}.DATABASE": f"{self.project_name}_db",
+                        }
+                    elif addon_type == "mongodb":
+                        addon_secrets = {
+                            f"{addon_key}.PORT": "27017",
+                            f"{addon_key}.USER": f"{self.project_name}_user",
+                            f"{addon_key}.PASSWORD": generate_password(),
+                            f"{addon_key}.DATABASE": f"{self.project_name}_db",
+                        }
+                    else:
+                        continue
+
+                    for key, value in addon_secrets.items():
+                        if key not in existing_keys:
+                            secrets_to_create.append(
+                                (key, value, addon_type, instance_name)
+                            )
+
+            if "queues" in addons:
+                for instance_name, config_data in addons["queues"].items():
+                    addon_type = config_data.get("type")
+                    addon_key = f"{addon_type}.{instance_name}"
+
+                    if addon_type == "rabbitmq":
+                        addon_secrets = {
+                            f"{addon_key}.PORT": "5672",
+                            f"{addon_key}.MANAGEMENT_PORT": "15672",
+                            f"{addon_key}.USER": f"{self.project_name}_user",
+                            f"{addon_key}.PASSWORD": generate_password(),
+                        }
+
+                        for key, value in addon_secrets.items():
+                            if key not in existing_keys:
+                                secrets_to_create.append(
+                                    (key, value, addon_type, instance_name)
+                                )
+
+            if "caches" in addons:
+                for instance_name, config_data in addons["caches"].items():
+                    addon_type = config_data.get("type")
+                    addon_key = f"{addon_type}.{instance_name}"
+
+                    if addon_type == "redis":
+                        addon_secrets = {
+                            f"{addon_key}.PORT": "6379",
+                            f"{addon_key}.PASSWORD": generate_password(),
+                        }
+                    elif addon_type == "memcached":
+                        addon_secrets = {
+                            f"{addon_key}.PORT": "11211",
+                        }
+                    else:
+                        continue
+
+                    for key, value in addon_secrets.items():
+                        if key not in existing_keys:
+                            secrets_to_create.append(
+                                (key, value, addon_type, instance_name)
+                            )
+
+            # Create missing secrets in database
+            if secrets_to_create:
+                logger.info(
+                    f"💾 Auto-generating {len(secrets_to_create)} addon credential(s)..."
+                )
+
+                for key, value, addon_type, instance_name in secrets_to_create:
+                    secret = Secret(
+                        project_name=self.project_name,
+                        app_name=None,
+                        key=key,
+                        value=value,
+                        environment="production",
+                        source="addon",
+                        editable=False,
+                    )
+                    db.add(secret)
+                    logger.info(f"  ✓ Generated: {key}")
+
+                db.commit()
+                logger.info("✓ Addon credentials saved to database")
+            else:
+                logger.debug("✓ All addon credentials already exist")
+
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed to generate addon secrets: {e}")
+            raise
+        finally:
+            db.close()
 
     def _execute_deployment(self) -> None:
         """
@@ -87,6 +235,9 @@ class UpCommand(ProjectCommand):
         # Initialize logger
         with DeployLogger(self.project_name, "up", verbose=self.verbose) as logger:
             try:
+                # Auto-generate missing addon secrets before deployment
+                self._ensure_addon_secrets(logger)
+
                 # Validate secrets before deployment
                 validator = DeploymentValidator(
                     self.project_root, self.config_service, self.project_name
@@ -156,16 +307,16 @@ class UpCommand(ProjectCommand):
                         if not changes["has_changes"]:
                             if logger:
                                 logger.success(
-                                "✅ No changes detected. Infrastructure is up to date."
-                            )
+                                    "✅ No changes detected. Infrastructure is up to date."
+                                )
                             return
 
                         # Show changes (mini plan)
                         if changes["vms"]["added"]:
                             if logger:
                                 logger.log(
-                                f"VMs to create: {', '.join(changes['vms']['added'])}"
-                            )
+                                    f"VMs to create: {', '.join(changes['vms']['added'])}"
+                                )
                         if changes["vms"]["modified"]:
                             modified_vms = [
                                 v["name"] for v in changes["vms"]["modified"]
@@ -175,16 +326,15 @@ class UpCommand(ProjectCommand):
                         if changes["addons"]["added"]:
                             if logger:
                                 logger.log(
-                                f"Addons to install: {', '.join(changes['addons']['added'])}"
-                            )
+                                    f"Addons to install: {', '.join(changes['addons']['added'])}"
+                                )
                         if changes["apps"]["added"]:
                             if logger:
                                 logger.log(
-                                f"Apps to setup: {', '.join(changes['apps']['added'])}"
-                            )
+                                    f"Apps to setup: {', '.join(changes['apps']['added'])}"
+                                )
 
                         if logger:
-
                             logger.log("")
                         if logger:
                             logger.log("Run without --dry-run to apply changes")
@@ -206,8 +356,8 @@ class UpCommand(ProjectCommand):
                             logger.log("")
                         if logger:
                             logger.log(
-                            f"To force update: superdeploy {self.project_name}:up --force"
-                        )
+                                f"To force update: superdeploy {self.project_name}:up --force"
+                            )
                         return
 
                     # Show detected changes
@@ -226,33 +376,32 @@ class UpCommand(ProjectCommand):
                     if vms_needing_config:
                         if logger:
                             logger.log(
-                            f"  [yellow]⚙ VMs need configuration:[/yellow] {', '.join(vms_needing_config)}"
-                        )
+                                f"  [yellow]⚙ VMs need configuration:[/yellow] {', '.join(vms_needing_config)}"
+                            )
 
                     if changes["vms"]["added"]:
                         if logger:
                             logger.log(
-                            f"  [green]+ VMs to create:[/green] {', '.join(changes['vms']['added'])}"
-                        )
+                                f"  [green]+ VMs to create:[/green] {', '.join(changes['vms']['added'])}"
+                            )
                     if changes["vms"]["modified"]:
                         modified_vms = [v["name"] for v in changes["vms"]["modified"]]
                         if logger:
                             logger.log(
-                            f"  [yellow]~ VMs to modify:[/yellow] {', '.join(modified_vms)}"
-                        )
+                                f"  [yellow]~ VMs to modify:[/yellow] {', '.join(modified_vms)}"
+                            )
                     if changes["addons"]["added"]:
                         if logger:
                             logger.log(
-                            f"  [green]+ Addons to install:[/green] {', '.join(changes['addons']['added'])}"
-                        )
+                                f"  [green]+ Addons to install:[/green] {', '.join(changes['addons']['added'])}"
+                            )
                     if changes["apps"]["added"]:
                         if logger:
                             logger.log(
-                            f"  [green]+ Apps to setup:[/green] {', '.join(changes['apps']['added'])}"
-                        )
+                                f"  [green]+ Apps to setup:[/green] {', '.join(changes['apps']['added'])}"
+                            )
 
                     if logger:
-
                         logger.log("")
                     if logger:
                         logger.log("Proceeding with deployment...")
@@ -264,15 +413,15 @@ class UpCommand(ProjectCommand):
                         self.skip_terraform = True
                         if logger:
                             logger.log(
-                            "  [dim]⏭ Skipping Terraform (no infrastructure changes)[/dim]"
-                        )
+                                "  [dim]⏭ Skipping Terraform (no infrastructure changes)[/dim]"
+                            )
 
                     if not changes["needs_ansible"]:
                         self.skip_ansible = True
                         if logger:
                             logger.log(
-                            "  [dim]⏭ Skipping Ansible (no service changes)[/dim]"
-                        )
+                                "  [dim]⏭ Skipping Ansible (no service changes)[/dim]"
+                            )
 
                     if not changes["needs_sync"]:
                         if logger:
@@ -301,7 +450,6 @@ class UpCommand(ProjectCommand):
                             raise SystemExit(1)
 
                     if logger:
-
                         logger.log("")
 
                 self._deploy_project(
@@ -321,7 +469,6 @@ class UpCommand(ProjectCommand):
                     state_mgr.update_from_config(project_config)
 
                     if logger:
-
                         logger.log("")
                     if logger:
                         logger.log("💾 State saved")
@@ -329,8 +476,8 @@ class UpCommand(ProjectCommand):
             except Exception as e:
                 if logger:
                     logger.log_error(
-                    str(e), context=f"Project {self.project_name} deployment failed"
-                )
+                        str(e), context=f"Project {self.project_name} deployment failed"
+                    )
                 self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
                 raise SystemExit(1)
 
@@ -364,7 +511,7 @@ class UpCommand(ProjectCommand):
             self.console.print(f"  [red]•[/red] {error}")
         self.console.print("")
         self.console.print(
-            f"[dim]Edit secrets:[/dim] projects/{self.project_name}/secrets.yml"
+            f"[dim]Edit secrets:[/dim] Use 'superdeploy {self.project_name}:config:set KEY VALUE' or dashboard"
         )
         self.console.print("")
 
@@ -388,7 +535,6 @@ def _deploy_project_internal(
     """Internal function for project deployment with logging"""
 
     if logger:
-
         logger.step("[1/4] Setup & Infrastructure")
 
     # Load project config
@@ -418,9 +564,9 @@ def _deploy_project_internal(
         if not orchestrator_config.is_deployed():
             if logger:
                 logger.log_error(
-                "Orchestrator not deployed yet",
-                context="Deploy it first: [red]superdeploy orchestrator up[/red]",
-            )
+                    "Orchestrator not deployed yet",
+                    context="Deploy it first: [red]superdeploy orchestrator up[/red]",
+                )
             raise SystemExit(1)
 
         orchestrator_ip = orchestrator_config.get_ip()
@@ -445,11 +591,11 @@ def _deploy_project_internal(
     # Load project config (using config_service from parameter)
     project_config_obj = config_service.load_project_config(project)
 
-    # Load from secrets.yml instead of .env
-    secret_mgr = SecretManager(project_root, project)
+    # Load from database
+    secret_mgr = SecretManager(project_root, project, "production")
     secrets_data = secret_mgr.load_secrets()
 
-    # Build env dict from config.yml + secrets.yml
+    # Build env dict from config.yml + database secrets
     env = {
         "GCP_PROJECT_ID": project_config_obj.raw_config["cloud"]["gcp"]["project_id"],
         "GCP_REGION": project_config_obj.raw_config["cloud"]["gcp"]["region"],
@@ -458,20 +604,19 @@ def _deploy_project_internal(
     }
 
     # Add secrets to env
-    if secrets_data and secrets_data.shared.values:
-        env.update(secrets_data.shared.values)
+    if secrets_data and secrets_data.get("shared"):
+        env.update(secrets_data["shared"])
 
     # Validate required vars
     required = ["GCP_PROJECT_ID", "GCP_REGION", "SSH_KEY_PATH"]
     if not validate_env_vars(env, required):
         if logger:
             logger.log_error(
-            "Missing required environment variables", context=", ".join(required)
-        )
+                "Missing required environment variables", context=", ".join(required)
+            )
         raise SystemExit(1)
 
     if logger:
-
         logger.log("✓ Environment validated")
 
     # Terraform - Smart skip logic
@@ -585,7 +730,6 @@ def _deploy_project_internal(
                 env[f"{env_key}_INTERNAL_IP"] = ip
 
             if logger:
-
                 logger.log("✓ VM IPs loaded to environment")
 
             # Wait for VMs
@@ -688,7 +832,7 @@ def _deploy_project_internal(
         else:
             console.print("  [dim]✓ Configuration • Environment loaded[/dim]")
 
-    # Auto-update secrets.yml with VM internal IPs (for multi-VM architecture)
+    # Auto-update database secrets with VM internal IPs (for multi-VM architecture)
     ip_updater = SecretIPUpdater(project_root, project)
     ip_updater.update_secrets_with_vm_ips(env, logger)
 
@@ -725,7 +869,6 @@ def _deploy_project_internal(
                             ]
 
                 if logger:
-
                     logger.log("✓ VM IPs loaded from state")
             # else: env already has IPs from terraform outputs above
 
@@ -742,20 +885,37 @@ def _deploy_project_internal(
             ansible_vars = project_config_obj.to_ansible_vars()
             ansible_vars["orchestrator_ip"] = orchestrator_ip
 
-            # Load and pass secrets.yml to Ansible
+            # Load and pass database secrets to Ansible
             from cli.secret_manager import SecretManager
 
-            secret_mgr = SecretManager(project_root, project)
+            secret_mgr = SecretManager(project_root, project, "production")
             all_secrets = secret_mgr.load_secrets()
-            # Pass full secrets structure (including addons) for addon env variables
-            # Read secrets.yml directly to get full structure
-            import yaml
 
-            secrets_file = project_root / "projects" / project / "secrets.yml"
-            with open(secrets_file) as f:
-                secrets_dict = yaml.safe_load(f)
+            # Build secrets structure for Ansible (compatible with old format)
+            secrets_dict = {
+                "secrets": {
+                    "shared": all_secrets.get("shared", {}),
+                    "apps": all_secrets.get("apps", {}),
+                    "addons": all_secrets.get("addons", {}),
+                }
+            }
             ansible_vars["project_secrets"] = secrets_dict
-            ansible_vars["env_aliases"] = all_secrets.env_aliases
+
+            # Get aliases from database
+            from cli.database import get_db_session, SecretAlias
+
+            alias_db = get_db_session()
+            try:
+                aliases = (
+                    alias_db.query(SecretAlias)
+                    .filter(SecretAlias.project_name == project)
+                    .all()
+                )
+                env_aliases = {alias.alias_key: alias.target_key for alias in aliases}
+            finally:
+                alias_db.close()
+
+            ansible_vars["env_aliases"] = env_aliases
 
             ansible_env_vars = {"superdeploy_root": str(project_root)}
 
@@ -780,7 +940,9 @@ def _deploy_project_internal(
                     tag_parts.append("foundation")
                 else:
                     if logger:
-                        logger.log("[dim]✓ Foundation: already complete, skipping[/dim]")
+                        logger.log(
+                            "[dim]✓ Foundation: already complete, skipping[/dim]"
+                        )
 
                 tag_parts.extend(["addons", "project"])
                 ansible_tags = ",".join(tag_parts)
@@ -844,8 +1006,8 @@ def _deploy_project_internal(
                     if result_returncode != 0:
                         if logger:
                             logger.log_error(
-                            "Ansible configuration failed", context="Check logs"
-                        )
+                                "Ansible configuration failed", context="Check logs"
+                            )
                         raise SystemExit(1)
 
                 # Deploy each addon separately for clean tree output
@@ -950,8 +1112,9 @@ def _deploy_project_internal(
                 if result_returncode != 0:
                     if logger:
                         logger.log_error(
-                        "Ansible configuration failed", context="Check logs for details"
-                    )
+                            "Ansible configuration failed",
+                            context="Check logs for details",
+                        )
                     console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
                     console.print(
                         f"[dim]Ansible detailed log:[/dim] {logger.log_path.parent / f'{logger.log_path.stem}_ansible.log'}\n"
@@ -992,7 +1155,7 @@ def _deploy_project_internal(
     # Note: Secret sync removed from automatic deployment due to timeout issues
     # User must manually run: superdeploy {project}:vars:sync
 
-    # env already loaded at the beginning from secrets.yml
+    # env already loaded at the beginning from database
 
     # Orchestrator info
     orchestrator_ip = env.get("ORCHESTRATOR_IP")
@@ -1016,7 +1179,6 @@ def _deploy_project_internal(
             grafana_pass = orch_secrets.get("GRAFANA_ADMIN_PASSWORD", "")
 
             if logger:
-
                 logger.log(f"  Grafana: http://{orchestrator_ip}:3000")
             if grafana_pass:
                 if logger:
@@ -1025,7 +1187,6 @@ def _deploy_project_internal(
                     logger.log(f"    Password: {grafana_pass}")
 
             if logger:
-
                 logger.log(f"  Prometheus: http://{orchestrator_ip}:9090")
         except Exception:
             # Orchestrator config not available yet
@@ -1274,6 +1435,7 @@ def _deploy_project_internal(
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
 @click.option("--force", is_flag=True, help="Force update (ignore state)")
 @click.option("--dry-run", is_flag=True, help="Show what would be done (like plan)")
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
 def up(
     project,
     skip_terraform,
@@ -1285,6 +1447,7 @@ def up(
     verbose,
     force,
     dry_run,
+    json_output,
 ):
     """Deploy infrastructure (like 'heroku create')"""
     cmd = UpCommand(
@@ -1298,5 +1461,6 @@ def up(
         verbose=verbose,
         force=force,
         dry_run=dry_run,
+        json_output=json_output,
     )
     cmd.run()

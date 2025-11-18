@@ -30,7 +30,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
             id={inputId}
             type={type}
             className={cn(
-              "w-full bg-white text-[14px] text-[#0a0a0a] px-3 py-2 rounded-lg shadow-[inset_0_0_0_1px_rgba(10,10,46,0.14)] transition-colors focus:shadow-[0_0_0_2px_#93a2ae]",
+              "w-full bg-white text-[12px] text-[#0a0a0a] px-3 py-2 rounded-lg shadow-[inset_0_0_0_1px_rgba(10,10,46,0.14)] transition-colors focus:shadow-[0_0_0_2px_#93a2ae]",
               " border-none",
               "outline-none focus:border-[#8b8b8b] transition-colors",
               "placeholder:text-[#9b9b9b]",

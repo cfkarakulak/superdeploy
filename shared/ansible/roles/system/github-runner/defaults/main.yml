@@ -9,7 +9,7 @@ superdeploy_group: "superdeploy"
 github_runner_version: "2.311.0"
 
 # Default GitHub organization
-# NO DEFAULT - must be configured in config.yml
+# NO DEFAULT - must be configured in database
 # This ensures framework is project-agnostic
 github_org: ""
 

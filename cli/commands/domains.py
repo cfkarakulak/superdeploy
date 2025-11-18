@@ -138,51 +138,72 @@ class DomainsAddCommand(BaseCommand):
 
     def _add_project_domain(self) -> None:
         """Add domain to project app."""
-        # Load project config
-        project_dir = Path.cwd() / "projects" / self.project
-        config_file = project_dir / "config.yml"
+        from cli.database import get_db_session
+        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
 
-        if not config_file.exists():
-            self.console.print(
-                f"[red]✗ Project '{self.project}' not found at {config_file}[/red]"
+        # Load project config from database
+        db = get_db_session()
+        try:
+            metadata = MetaData()
+            projects_table = Table(
+                "projects",
+                metadata,
+                Column("id", Integer, primary_key=True),
+                Column("name", String(100)),
+                Column("apps_config", JSON),
             )
-            raise click.Abort()
 
-        with open(config_file, "r") as f:
-            config = yaml.safe_load(f)
-
-        # Find app
-        apps = config.get("apps", {})
-        if self.app_name not in apps:
-            self.console.print(
-                f"[red]✗ App '{self.app_name}' not found in project '{self.project}'[/red]"
+            result = db.execute(
+                projects_table.select().where(projects_table.c.name == self.project)
             )
-            self.console.print(f"Available apps: {', '.join(apps.keys())}")
-            raise click.Abort()
+            row = result.fetchone()
 
-        app = apps[self.app_name]
-        vm_role = app.get("vm")
+            if not row:
+                self.console.print(
+                    f"[red]✗ Project '{self.project}' not found in database[/red]"
+                )
+                raise click.Abort()
 
-        # Get VM IP
-        vm_ip = self._get_project_vm_ip(vm_role)
+            apps = row.apps_config or {}
 
-        # Show DNS instruction and confirm
-        self._show_dns_panel(vm_ip)
+            # Find app
+            if self.app_name not in apps:
+                self.console.print(
+                    f"[red]✗ App '{self.app_name}' not found in project '{self.project}'[/red]"
+                )
+                self.console.print(f"Available apps: {', '.join(apps.keys())}")
+                raise click.Abort()
 
-        if not click.confirm(
-            f"Have you added the DNS record for {self.domain}?", default=False
-        ):
-            self.console.print("Aborted. Add the DNS record and try again.")
-            raise click.Abort()
+            app = apps[self.app_name]
+            vm_role = app.get("vm")
 
-        # Update config.yml
-        self.console.print("Updating config.yml...")
-        apps[self.app_name]["domain"] = self.domain
+            # Get VM IP
+            vm_ip = self._get_project_vm_ip(vm_role)
 
-        with open(config_file, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            # Show DNS instruction and confirm
+            self._show_dns_panel(vm_ip)
 
-        self.console.print(f"[green]✓ Updated {config_file}[/green]")
+            if not click.confirm(
+                f"Have you added the DNS record for {self.domain}?", default=False
+            ):
+                self.console.print("Aborted. Add the DNS record and try again.")
+                raise click.Abort()
+
+            # Update database
+            self.console.print("Updating project configuration in database...")
+            apps[self.app_name]["domain"] = self.domain
+
+            db.execute(
+                projects_table.update()
+                .where(projects_table.c.name == self.project)
+                .values(apps_config=apps)
+            )
+            db.commit()
+
+            self.console.print("[green]✓ Updated project configuration[/green]")
+
+        finally:
+            db.close()
 
         # Redeploy Caddy
         self._redeploy_project_caddy()
@@ -679,45 +700,71 @@ class DomainsRemoveCommand(BaseCommand):
 
     def _remove_project_domain(self) -> None:
         """Remove domain from project app."""
-        # Load project config
-        project_dir = Path.cwd() / "projects" / self.project
-        config_file = project_dir / "config.yml"
+        from cli.database import get_db_session
+        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
 
-        if not config_file.exists():
-            self.console.print(f"[red]✗ Project '{self.project}' not found[/red]")
-            raise click.Abort()
-
-        with open(config_file, "r") as f:
-            config = yaml.safe_load(f)
-
-        apps = config.get("apps", {})
-        if self.app_name not in apps:
-            self.console.print(f"[red]✗ App '{self.app_name}' not found[/red]")
-            raise click.Abort()
-
-        app = apps[self.app_name]
-        old_domain = app.get("domain")
-
-        if not old_domain:
-            self.console.print(
-                f"[yellow]App '{self.app_name}' has no domain configured[/yellow]"
+        # Load project config from database
+        db = get_db_session()
+        try:
+            metadata = MetaData()
+            projects_table = Table(
+                "projects",
+                metadata,
+                Column("id", Integer, primary_key=True),
+                Column("name", String(100)),
+                Column("apps_config", JSON),
             )
-            return
 
-        # Confirm removal
-        if not click.confirm(
-            f"Remove domain '{old_domain}' from {self.app_name}?", default=False
-        ):
-            self.console.print("Aborted")
-            raise click.Abort()
+            result = db.execute(
+                projects_table.select().where(projects_table.c.name == self.project)
+            )
+            row = result.fetchone()
 
-        # Remove domain
-        del apps[self.app_name]["domain"]
+            if not row:
+                self.console.print(
+                    f"[red]✗ Project '{self.project}' not found in database[/red]"
+                )
+                raise click.Abort()
 
-        with open(config_file, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            apps = row.apps_config or {}
 
-        self.console.print(f"[green]✓ Removed domain from {config_file}[/green]")
+            if self.app_name not in apps:
+                self.console.print(f"[red]✗ App '{self.app_name}' not found[/red]")
+                raise click.Abort()
+
+            app = apps[self.app_name]
+            old_domain = app.get("domain")
+
+            if not old_domain:
+                self.console.print(
+                    f"[yellow]App '{self.app_name}' has no domain configured[/yellow]"
+                )
+                return
+
+            # Confirm removal
+            if not click.confirm(
+                f"Remove domain '{old_domain}' from {self.app_name}?", default=False
+            ):
+                self.console.print("Aborted")
+                raise click.Abort()
+
+            # Remove domain
+            if "domain" in apps[self.app_name]:
+                del apps[self.app_name]["domain"]
+
+            db.execute(
+                projects_table.update()
+                .where(projects_table.c.name == self.project)
+                .values(apps_config=apps)
+            )
+            db.commit()
+
+            self.console.print(
+                "[green]✓ Removed domain from project configuration[/green]"
+            )
+
+        finally:
+            db.close()
 
         # Redeploy Caddy
         self.console.print("\n[bold yellow]▶[/bold yellow] Redeploying Caddy\n")

@@ -155,7 +155,7 @@ body {
   input[type="number"],
   textarea,
   select {
-    @apply w-full px-4 py-3 text-base bg-white;
+    @apply w-full px-4 py-3 text-[12px] bg-white;
     border: 1px solid var(--color-input);
     border-radius: 10px;
     font-family: var(--font-sans);
@@ -299,6 +299,17 @@ body {
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 
@@ -598,7 +609,7 @@ body {
   /* Dark scrollbar for terminal */
   .scrollbar-dark {
     scrollbar-width: thin;
-    scrollbar-color: #4a5568 transparent;
+    scrollbar-color: #3a3a3a #1a1a1a;
   }
 
   .scrollbar-dark::-webkit-scrollbar {
@@ -607,18 +618,29 @@ body {
   }
 
   .scrollbar-dark::-webkit-scrollbar-track {
-    background: transparent;
+    background: #1a1a1a;
     border-radius: 4px;
   }
 
   .scrollbar-dark::-webkit-scrollbar-thumb {
-    background-color: #4a5568;
+    background-color: #3a3a3a;
     border-radius: 4px;
     transition: background-color 0.2s ease;
   }
 
   .scrollbar-dark::-webkit-scrollbar-thumb:hover {
-    background-color: #718096;
+    background-color: #4a4a4a;
+  }
+
+  /* Terminal text selection (dark theme) */
+  .terminal-selection ::selection {
+    background-color: #3b82f6;
+    color: #ffffff;
+  }
+
+  .terminal-selection ::-moz-selection {
+    background-color: #3b82f6;
+    color: #ffffff;
   }
 
   /* Thin scrollbar variant */

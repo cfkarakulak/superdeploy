@@ -347,7 +347,7 @@ async def sync_secrets(
     """
     Sync secrets to GitHub for specific app.
 
-    Now reads from database (not secrets.yml).
+    Reads from database and syncs to GitHub.
     Streams CLI output in real-time.
     """
     from fastapi.responses import StreamingResponse

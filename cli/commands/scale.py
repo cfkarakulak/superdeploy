@@ -5,7 +5,6 @@ Scale VM count for infrastructure roles.
 """
 
 import click
-import yaml
 from dataclasses import dataclass
 
 from cli.base import ProjectCommand
@@ -72,7 +71,6 @@ class ScaleCommand(ProjectCommand):
         )
 
         if logger:
-
             logger.step("Validating Configuration")
 
         # Get current app config
@@ -110,31 +108,56 @@ class ScaleCommand(ProjectCommand):
             return
 
         if logger:
-
             logger.step("Updating Configuration")
 
-        # Update config.yml
+        # Update database configuration
         try:
-            project_path = self.project_root / "projects" / self.project_name
-            config_yml = project_path / "config.yml"
+            from cli.database import get_db_session
+            from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
 
-            with open(config_yml, "r") as f:
-                config = yaml.safe_load(f)
+            db = get_db_session()
+            try:
+                metadata = MetaData()
+                projects_table = Table(
+                    "projects",
+                    metadata,
+                    Column("id", Integer, primary_key=True),
+                    Column("name", String(100)),
+                    Column("apps_config", JSON),
+                )
 
-            config["apps"][self.options.target_name]["replicas"] = self.options.count
+                result = db.execute(
+                    projects_table.select().where(
+                        projects_table.c.name == self.project_name
+                    )
+                )
+                row = result.fetchone()
 
-            with open(config_yml, "w") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+                if row:
+                    apps_config = row.apps_config or {}
+                    if self.options.target_name in apps_config:
+                        apps_config[self.options.target_name]["replicas"] = (
+                            self.options.count
+                        )
 
-            if logger:
+                        db.execute(
+                            projects_table.update()
+                            .where(projects_table.c.name == self.project_name)
+                            .values(apps_config=apps_config)
+                        )
+                        db.commit()
 
-                logger.log(f"✓ Updated {config_yml}")
+                        if logger:
+                            logger.log("✓ Updated app replicas in database")
+
+            finally:
+                db.close()
+
         except Exception as e:
             self.handle_error(e, "Failed to update configuration")
             raise SystemExit(1)
 
         if logger:
-
             logger.step("Next Steps")
 
         self.console.print("\n[bold yellow]To apply these changes, run:[/bold yellow]")
@@ -142,7 +165,6 @@ class ScaleCommand(ProjectCommand):
         self.console.print()
 
         if logger:
-
             logger.success("Configuration updated")
 
         if not self.verbose:
@@ -165,7 +187,6 @@ class ScaleCommand(ProjectCommand):
         )
 
         if logger:
-
             logger.step("Validating Configuration")
 
         # Get current VM config
@@ -197,7 +218,6 @@ class ScaleCommand(ProjectCommand):
             return
 
         if logger:
-
             logger.step("Updating Configuration")
 
         # Update config.yml
@@ -208,13 +228,11 @@ class ScaleCommand(ProjectCommand):
             raise SystemExit(1)
 
         if logger:
-
             logger.step("Applying Changes")
 
         self._print_next_steps()
 
         if logger:
-
             logger.success("Configuration updated")
 
         if not self.verbose:
@@ -239,25 +257,49 @@ class ScaleCommand(ProjectCommand):
 
     def _update_config_file(self, logger) -> None:
         """
-        Update project configuration file with new VM count.
+        Update project configuration in database with new VM count.
 
         Args:
             logger: Logger instance
         """
-        project_path = self.project_root / "projects" / self.project_name
-        project_yml = project_path / "config.yml"
+        from cli.database import get_db_session
+        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
 
-        with open(project_yml, "r") as f:
-            config = yaml.safe_load(f)
+        db = get_db_session()
+        try:
+            metadata = MetaData()
+            projects_table = Table(
+                "projects",
+                metadata,
+                Column("id", Integer, primary_key=True),
+                Column("name", String(100)),
+                Column("vms", JSON),
+            )
 
-        config["vms"][self.options.target_name]["count"] = self.options.count
+            result = db.execute(
+                projects_table.select().where(
+                    projects_table.c.name == self.project_name
+                )
+            )
+            row = result.fetchone()
 
-        with open(project_yml, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            if row:
+                vms_config = row.vms or {}
+                if self.options.target_name in vms_config:
+                    vms_config[self.options.target_name]["count"] = self.options.count
 
-        if logger:
+                    db.execute(
+                        projects_table.update()
+                        .where(projects_table.c.name == self.project_name)
+                        .values(vms=vms_config)
+                    )
+                    db.commit()
 
-            logger.log(f"✓ Updated {project_yml}")
+                    if logger:
+                        logger.log("✓ Updated VM count in database")
+
+        finally:
+            db.close()
 
     def _print_next_steps(self) -> None:
         """Print next steps for applying changes."""

@@ -189,7 +189,7 @@ class ValidateProjectCommand(ProjectCommand):
 
             if not docker_username or not docker_token:
                 errors.append(
-                    "Missing Docker credentials in secrets.yml (DOCKER_USERNAME and DOCKER_TOKEN required for deployment)"
+                    "Missing Docker credentials in database (DOCKER_USERNAME and DOCKER_TOKEN required for deployment)"
                 )
                 self.console.print("[red]✗[/red] Docker credentials: Missing")
             else:
@@ -220,7 +220,7 @@ class ValidateProjectCommand(ProjectCommand):
             else:
                 self.console.print("[green]✓[/green] SMTP credentials: Configured")
         else:
-            errors.append("secrets.yml not found or invalid")
+            errors.append("Database secrets not found or invalid")
 
         return errors
 

@@ -660,7 +660,7 @@ class ConfigShowCommand(ProjectCommand):
             details={"Masked": "Yes" if self.mask else "No"},
         )
 
-        # Load project secrets from secrets.yml
+        # Load project secrets from database
         try:
             secret_mgr = SecretManager(self.project_root, self.project_name)
             secrets_data = secret_mgr.load_secrets()
@@ -923,7 +923,7 @@ def config_set(
     """
     Set configuration variable (Heroku-like!)
 
-    Updates secrets.yml, syncs to GitHub, and optionally triggers deployment.
+    Updates database secrets, syncs to GitHub, and optionally triggers deployment.
 
     \b
     Examples:

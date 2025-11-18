@@ -48,7 +48,7 @@
     url: "https://api.github.com/orgs/{{ github_org }}/actions/runners"
     method: GET
     headers:
-      Authorization: "Bearer {{ project_secrets.secrets.shared.REPOSITORY_TOKEN }}"
+      Authorization: "Bearer {{ project_secrets.secrets.shared['REPOSITORY_TOKEN'] }}"
       Accept: "application/vnd.github+json"
     status_code: 200
     return_content: yes
@@ -82,7 +82,7 @@
     - name: Remove runner from GitHub API if offline
       command: >
         ./config.sh remove
-        --token {{ project_secrets.secrets.shared.REPOSITORY_TOKEN }}
+        --token {{ project_secrets.secrets.shared['REPOSITORY_TOKEN'] }}
       args:
         chdir: /opt/github-runner
       become_user: "{{ superdeploy_user }}"
@@ -163,7 +163,7 @@
     url: "https://api.github.com/orgs/{{ github_org }}/actions/runners/registration-token"
     method: POST
     headers:
-      Authorization: "Bearer {{ project_secrets.secrets.shared.REPOSITORY_TOKEN }}"
+      Authorization: "Bearer {{ project_secrets.secrets.shared['REPOSITORY_TOKEN'] }}"
       Accept: "application/vnd.github+json"
       X-GitHub-Api-Version: "2022-11-28"
     status_code: 201
@@ -180,8 +180,8 @@
   vars:
     error_msg: |
       Failed to get GitHub runner token.
-      Ensure github.organization is set in config.yml
-      Ensure REPOSITORY_TOKEN is set in secrets.yml with admin:org scope (not just repo)
+      Ensure github.organization is set in database
+      Ensure REPOSITORY_TOKEN is set in database with admin:org scope (not just repo)
 
 - name: Extract runner token
   set_fact:
@@ -210,7 +210,7 @@
   vars:
     error_msg: |
       Failed to configure GitHub runner.
-      Ensure github.organization is set correctly in config.yml
+      Ensure github.organization is set correctly in database
 
 - name: Display runner registration result
   debug:

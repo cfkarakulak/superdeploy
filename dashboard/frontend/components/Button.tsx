@@ -33,8 +33,8 @@ export default function Button({
 
   const sizeStyles = {
     sm: "text-[11px] px-3 py-1.5",
-    md: "text-[13px] px-4 py-2",
-    lg: "text-[15px] px-5 py-2.5",
+    md: "text-[12px] px-4 py-2",
+    lg: "text-[13px] px-5 py-2.5",
   };
 
   return (

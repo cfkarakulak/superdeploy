@@ -438,10 +438,12 @@ class VarsSyncCommand(ProjectCommand):
 
         config = project_config.raw_config
 
-        # Load secrets
-        secret_mgr = SecretManager(self.project_root, self.project_name)
-        if not secret_mgr.secrets_file.exists():
-            self.console.print("[red]❌ No secrets.yml found![/red]")
+        # Load secrets from database
+        secret_mgr = SecretManager(
+            self.project_root, self.project_name, self.environment
+        )
+        if not secret_mgr.has_secrets():
+            self.console.print("[red]❌ No secrets found in database![/red]")
             return
 
         all_secrets = secret_mgr.load_secrets()
@@ -535,7 +537,7 @@ class VarsSyncCommand(ProjectCommand):
                     "  [dim]⚠️  No Docker secrets found in shared config[/dim]\n"
                 )
 
-            # App environment variables (merged .env + secrets.yml)
+            # App environment variables (merged .env + database secrets)
             self.console.print(
                 f"[cyan]App Environment: {app_name} ({self.environment})[/cyan]"
             )
@@ -578,14 +580,14 @@ class VarsSyncCommand(ProjectCommand):
                     f"  [dim]⚠️  No .env file found at {env_file_path}[/dim]"
                 )
 
-            # Get app secrets from secrets.yml (includes shared + app-specific + env_aliases)
-            # Note: get_app_secrets() internally calls get_merged_secrets() which resolves aliases
+            # Get app secrets from database (includes shared + app-specific + resolved aliases)
+            # Note: get_app_secrets() internally resolves aliases to their actual values
             app_secrets_dict = secret_mgr.get_app_secrets(app_name)
             self.console.print(
-                f"  [dim]🔐 Read {len(app_secrets_dict)} secrets from secrets.yml (with aliases)[/dim]"
+                f"  [dim]🔐 Read {len(app_secrets_dict)} secrets from database (with aliases)[/dim]"
             )
 
-            # MERGE: secrets.yml as base, local .env overrides
+            # MERGE: database secrets as base, local .env overrides
             merged_env = {**app_secrets_dict, **local_env}
             self.console.print(
                 f"  [dim]🔀 Merged total: {len(merged_env)} variables[/dim]"
@@ -711,7 +713,7 @@ def vars_sync(project, environment, app, verbose, json_output):
 
     Requirements:
     - gh CLI installed and authenticated
-    - secrets.yml file in project directory
+    - Secrets configured in database (via dashboard or config:set)
     - GitHub Environments created (production/staging)
 
     Note: Use vars:clear first if you want to remove old secrets

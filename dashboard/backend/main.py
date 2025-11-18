@@ -60,63 +60,11 @@ def root():
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup."""
-    from database import init_db, SessionLocal
-    from models import Project
-    from pathlib import Path
+    from database import init_db
 
     try:
         init_db()
         print("✓ Database initialized")
-
-        # Sync projects from filesystem (basic sync only)
-        superdeploy_root = Path(__file__).parent.parent.parent
-        projects_dir = superdeploy_root / "projects"
-        print(f"📂 Looking for projects in: {projects_dir}")
-
-        if not projects_dir.exists():
-            print(f"⚠️  Projects directory does not exist: {projects_dir}")
-            return
-
-        db = SessionLocal()
-        try:
-            synced_count = 0
-
-            for project_dir in projects_dir.iterdir():
-                if not project_dir.is_dir() or project_dir.name.startswith("."):
-                    continue
-
-                # Only sync projects that have config.yml
-                config_file = project_dir / "config.yml"
-                if not config_file.exists():
-                    continue
-
-                # Check if project exists in DB
-                existing = (
-                    db.query(Project).filter(Project.name == project_dir.name).first()
-                )
-
-                if not existing:
-                    # Create project with basic info
-                    domain = "cheapa.io" if project_dir.name == "cheapa" else None
-                    new_project = Project(name=project_dir.name, domain=domain)
-                    db.add(new_project)
-                    db.commit()
-                    synced_count += 1
-                    print(f"✓ Synced project: {project_dir.name}")
-                else:
-                    print(f"✓ Project exists: {project_dir.name}")
-
-            if synced_count > 0:
-                print(f"🔄 Synced {synced_count} new project(s) to database")
-
-        except Exception as e:
-            print(f"❌ Error syncing projects: {e}")
-            import traceback
-
-            traceback.print_exc()
-        finally:
-            db.close()
-
     except Exception as e:
         print(f"❌ Database initialization error: {e}")
         import traceback

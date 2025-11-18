@@ -1,122 +1,129 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import AppHeader from "@/components/AppHeader";
-import PageHeader from "@/components/PageHeader";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { ProjectHeader, PageHeader } from "@/components";
+import { Loader2, Database } from "lucide-react";
+import { getAddonLogo } from "@/lib/addonLogos";
 
 interface Addon {
   name: string;
   type: string;
-  category: string;
-  reference: string;
-  plan: string;
-  attachments: Array<{
-    app_name: string;
-    as_prefix: string | null;
-  }>;
-  status: string;
+  version?: string;
+  port?: number;
+  vm?: string;
 }
 
-// Breadcrumb Skeleton
-const BreadcrumbSkeleton = () => (
-  <div className="flex items-center gap-3 mb-6">
-    <div className="w-5 h-5 bg-[#e3e8ee] rounded skeleton-animated" />
-    <div className="flex items-center gap-2">
-      <div className="w-[80px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-      <div className="w-[8px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-      <div className="w-[100px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-      <div className="w-[8px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-      <div className="w-[80px] h-[16px] bg-[#e3e8ee] rounded skeleton-animated" />
-    </div>
-  </div>
-);
+interface Project {
+  name: string;
+  addons_config?: Record<string, Record<string, any>>;
+}
 
-// Header Skeleton
-const AddonsHeaderSkeleton = () => (
-  <div className="mb-6">
-    <div className="w-[100px] h-[28px] bg-[#e3e8ee] rounded-md mb-2 skeleton-animated" />
-    <div className="w-[320px] h-[20px] bg-[#e3e8ee] rounded-md skeleton-animated" />
-  </div>
-);
+// Shimmer animation styles
+const shimmerStyles = `
+  @keyframes shimmer {
+    0% {
+      background-position: -1000px 0;
+    }
+    100% {
+      background-position: 1000px 0;
+    }
+  }
+  
+  .skeleton-shimmer {
+    animation: shimmer 2s infinite linear;
+    background: linear-gradient(to right, #eef2f5 4%, #ffffff 25%, #eef2f5 36%);
+    background-size: 1000px 100%;
+  }
+`;
 
-// Addon Card Skeleton
-const AddonCardSkeleton = () => (
-  <div className="bg-white rounded-lg p-6 shadow-sm">
-    <div className="flex items-start justify-between mb-4">
-      <div className="flex-1">
-        <div className="w-[180px] h-[24px] bg-[#e3e8ee] rounded-md mb-3 skeleton-animated" />
-        <div className="flex items-center gap-3">
-          <div className="w-[80px] h-[20px] bg-[#e3e8ee] rounded skeleton-animated" />
-          <div className="w-[100px] h-[20px] bg-[#e3e8ee] rounded skeleton-animated" />
-          <div className="w-[70px] h-[20px] bg-[#e3e8ee] rounded skeleton-animated" />
-        </div>
-      </div>
-    </div>
-    <div>
-      <div className="w-[130px] h-[16px] bg-[#e3e8ee] rounded mb-2 skeleton-animated" />
-      <div className="flex flex-wrap gap-2">
-        {Array.from({ length: 2 }, (_, i) => (
-          <div key={`attachment-skeleton-${i}`} className="w-[100px] h-[24px] bg-[#e3e8ee] rounded-full skeleton-animated" />
-        ))}
-      </div>
-    </div>
-  </div>
-);
-
-// Full Page Skeleton
-const AddonsPageSkeleton = () => (
-  <div>
-    <BreadcrumbSkeleton />
-    <AddonsHeaderSkeleton />
-    <div className="grid gap-4">
-      {Array.from({ length: 3 }, (_, i) => (
-        <AddonCardSkeleton key={`addon-skeleton-${i}`} />
-      ))}
-    </div>
-  </div>
-);
-
-export default function AddonsPage() {
+export default function ProjectAddonsPage() {
   const params = useParams();
+  const router = useRouter();
   const projectName = params?.name as string;
-
-  const [addons, setAddons] = useState<Addon[]>([]);
+  const [project, setProject] = useState<Project | null>(null);
+  const [addons, setAddons] = useState<Array<{ category: string; name: string; config: any }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchAddons = async () => {
-    try {
-      const response = await fetch(
-        `http://localhost:8401/api/addons/${projectName}/list`
-      );
-      if (!response.ok) throw new Error("Failed to fetch addons");
-      const data = await response.json();
-      setAddons(data.addons || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch project details
+        const response = await fetch(`http://localhost:8401/api/projects/${projectName}`);
+        if (!response.ok) {
+          throw new Error("Failed to fetch project");
+        }
+        const projectData = await response.json();
+        setProject(projectData);
+
+        // Parse addons from addons_config
+        if (projectData.addons_config) {
+          const addonsList: Array<{ category: string; name: string; config: any }> = [];
+          Object.entries(projectData.addons_config).forEach(([category, instances]: [string, any]) => {
+            if (instances && typeof instances === "object") {
+              Object.entries(instances).forEach(([name, config]: [string, any]) => {
+                addonsList.push({ category, name, config });
+              });
+            }
+          });
+          setAddons(addonsList);
+        }
+      } catch (err) {
+        console.error("Failed to fetch data:", err);
+        setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (projectName) {
-      fetchAddons();
+      fetchData();
     }
   }, [projectName]);
 
   if (loading) {
-    return <AddonsPageSkeleton />;
+    return (
+      <div>
+        <style dangerouslySetInnerHTML={{ __html: shimmerStyles }} />
+        <ProjectHeader />
+        <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+          <PageHeader
+            breadcrumbs={[
+              { label: "Projects", href: "/" },
+              { label: projectName || "Loading...", href: `/project/${projectName}` },
+            ]}
+            menuLabel="Addons"
+            title="Add-ons & Services"
+          />
+
+          {/* Skeleton */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[...Array(3)].map((_, idx) => (
+              <div key={idx} className="h-40 rounded-lg skeleton-shimmer"></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (error) {
     return (
       <div>
-        <div className="bg-red-50 rounded-lg p-4 shadow-sm">
-          <p className="text-red-800">Error: {error}</p>
+        <ProjectHeader />
+        <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+          <PageHeader
+            breadcrumbs={[
+              { label: "Projects", href: "/" },
+              { label: projectName || "Error", href: `/project/${projectName}` },
+            ]}
+            menuLabel="Addons"
+            title="Add-ons & Services"
+          />
+          <div className="text-center py-12 text-[#8b8b8b]">
+            <p className="text-[11px] tracking-[0.03em] font-light">Failed to load addons: {error}</p>
+          </div>
         </div>
       </div>
     );
@@ -124,79 +131,106 @@ export default function AddonsPage() {
 
   return (
     <div>
-      <AppHeader />
-      
-      <PageHeader
-        breadcrumb={{
-          label: projectName,
-          href: `/project/${projectName}`
-        }}
-        title="Add-ons"
-        description="Manage database, cache, queue services and other infrastructure add-ons"
-      />
+      <ProjectHeader />
 
-      {addons.length === 0 ? (
-        <div className="bg-white rounded-[16px] p-[32px] text-center shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
-          <p className="text-[15px] text-[#8b8b8b]">No add-ons installed yet</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {addons.map((addon) => (
-            <div
-              key={addon.reference}
-              className="bg-white rounded-[16px] p-[32px] pt-[25px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]"
-            >
-              <div className="flex items-start justify-between mb-5">
-                <div>
-                  <h3 className="text-[20px] font-semibold text-[#0a0a0a] mb-2">{addon.name}</h3>
-                  <div className="flex items-center gap-3">
-                    <span className="px-2.5 py-1 bg-[#e0e7ff] text-[#4f46e5] rounded text-[12px] ">
-                      {addon.type}
-                    </span>
-                    <span className="text-[13px] text-[#8b8b8b]">Plan: {addon.plan}</span>
-                    <span
-                      className={`px-2.5 py-1 rounded text-[12px]  ${
-                        addon.status === "running"
-                          ? "bg-[#dcfce7] text-[#16a34a]"
-                          : "bg-[#ebebeb] text-[#8b8b8b]"
-                      }`}
-                    >
-                      {addon.status}
-                    </span>
-                  </div>
-                </div>
-              </div>
+      <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
+        <PageHeader
+          breadcrumbs={[
+            { label: "Projects", href: "/" },
+            { label: projectName, href: `/project/${projectName}` },
+          ]}
+          menuLabel="Addons"
+          title="Add-ons & Services"
+        />
 
-              <div>
-                <h4 className="text-[13px]  text-[#8b8b8b] mb-3">
-                  Attached Apps ({addon.attachments.length})
-                </h4>
-                {addon.attachments.length === 0 ? (
-                  <p className="text-[13px] text-[#8b8b8b]">
-                    Not attached to any apps yet
-                  </p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {addon.attachments.map((attachment, idx) => (
-                      <span
-                        key={idx}
-                        className="px-3 py-1 bg-[#dbeafe] text-[#2563eb] rounded-full text-[12px] "
-                      >
-                        {attachment.app_name}
-                        {attachment.as_prefix && (
-                          <span className="ml-1">
-                            (as {attachment.as_prefix})
-                          </span>
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+        {addons.length === 0 ? (
+          <div className="border border-[#e3e8ee] rounded-lg p-16 text-center">
+            <div className="w-16 h-16 bg-[#f6f8fa] rounded-full flex items-center justify-center mx-auto mb-4">
+              <Database className="w-6 h-6 text-[#8b8b8b]" />
             </div>
-          ))}
-        </div>
-      )}
+            <p className="text-[14px] text-[#0a0a0a] mb-2">No add-ons detected</p>
+            <p className="text-[13px] text-[#8b8b8b] max-w-md mx-auto">
+              Add-ons provide databases, caching, queues, and other services to your project
+            </p>
+          </div>
+        ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {addons.map((addon) => {
+              const addonType = addon.config?.type || addon.name;
+              const logo = getAddonLogo(addonType);
+
+              return (
+                <div
+                  key={`${addon.category}-${addon.name}`}
+                  onClick={() =>
+                    router.push(`/project/${projectName}/app/${projectName}/addons/${addon.name}`)
+                  }
+                  className="p-5 border border-[#e3e8ee] hover:border-[#b9c1c6] rounded-lg cursor-pointer"
+                >
+                  {/* Header */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      {logo ? (
+                        <div className="w-10 h-10 flex items-center p-2 justify-center bg-white rounded-lg border border-[#e3e8ee] shrink-0">
+                          {logo}
+                        </div>
+                      ) : (
+                        <div className="w-10 h-10 flex items-center justify-center bg-gray-50 rounded-lg border border-[#e3e8ee] shrink-0">
+                          <Database className="w-6 h-6 text-gray-600" />
+                        </div>
+                      )}
+                      <div>
+                        <h3 className="text-[13px] text-[#8b8b8b] font-light mb-1 capitalize">
+                          {addon.name}
+                        </h3>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Type */}
+                  <div className="flex items-baseline gap-1 mb-3">
+                    <span className="text-[21px] text-[#0a0a0a] capitalize">
+                      {addonType}
+                    </span>
+                  </div>
+
+                  {/* Version - Full Width */}
+                  {addon.config?.version && (
+                    <div className="pt-3 border-t border-[#e3e8ee] mb-3">
+                      <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">Version</p>
+                      <code className="block text-[11px] text-[#0a0a0a] font-mono tracking-[0.03em] font-light">
+                        {addon.config.version}
+                      </code>
+                    </div>
+                  )}
+
+                  {/* Port & VM */}
+                  {(addon.config?.port || addon.config?.vm) && (
+                    <div className={addon.config?.version ? "" : "pt-3 border-t border-[#e3e8ee]"}>
+                      {addon.config?.port && (
+                        <div className="mb-2">
+                          <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">Port</p>
+                          <code className="block text-[11px] text-[#0a0a0a] font-mono tracking-[0.03em] font-light">
+                            {addon.config.port}
+                          </code>
+                        </div>
+                      )}
+                      {addon.config?.vm && (
+                        <div>
+                          <p className="text-[11px] text-[#8b8b8b] tracking-[0.03em] font-light mb-1">VM</p>
+                          <code className="block text-[11px] text-[#0a0a0a] font-mono tracking-[0.03em] font-light capitalize">
+                            {addon.config.vm}
+                          </code>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

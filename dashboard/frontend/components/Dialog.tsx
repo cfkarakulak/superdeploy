@@ -41,7 +41,7 @@ const DialogContent = React.forwardRef<
         "data-[state=closed]:animate-[slide-fade-out-vertical_200ms_ease_forwards]",
         "fixed top-[30%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%]",
         "gap-4 rounded-[16px] bg-white p-8 shadow-sheet",
-        "sm:max-w-lg w-[420px]",
+        "sm:max-w-lg w-[430px]",
         className
       )}
       {...props}

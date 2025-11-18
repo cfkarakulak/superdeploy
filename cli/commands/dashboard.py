@@ -128,7 +128,7 @@ def check_postgres():
 
 
 def ensure_database():
-    """Ensure the superdeploy_dashboard database exists."""
+    """Ensure the superdeploy database exists."""
     import os
 
     try:
@@ -140,10 +140,10 @@ def ensure_database():
             timeout=5,
         )
 
-        if "superdeploy_dashboard" not in result.stdout:
+        if "superdeploy" not in result.stdout:
             click.echo("📦 Creating database...")
             subprocess.run(
-                ["createdb", "superdeploy_dashboard"],
+                ["createdb", "superdeploy"],
                 check=True,
                 capture_output=True,
                 timeout=10,

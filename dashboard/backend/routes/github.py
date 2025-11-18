@@ -1,5 +1,7 @@
 """GitHub API routes."""
 
+from __future__ import annotations
+
 from fastapi import APIRouter, HTTPException
 import httpx
 import subprocess
@@ -9,27 +11,51 @@ router = APIRouter(tags=["github"])
 
 
 def get_github_token(project_name: str) -> str | None:
-    """Get GitHub token from secrets.yml.
+    """Get GitHub token from database.
 
     Returns None if no token is configured.
     """
-    import yaml
-    from pathlib import Path
-
     try:
-        secrets_path = Path(
-            f"/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy/projects/{project_name}/secrets.yml"
-        )
-        if secrets_path.exists():
-            with open(secrets_path) as f:
-                data = yaml.safe_load(f) or {}
-                secrets = data.get("secrets", {}).get("shared", {})
-                # Try GITHUB_TOKEN first, then REPOSITORY_TOKEN
-                return secrets.get("GITHUB_TOKEN") or secrets.get("REPOSITORY_TOKEN")
-    except:
-        pass
+        from database import SessionLocal
+        from models import Secret
 
-    return None
+        db = SessionLocal()
+        try:
+            # Try GITHUB_TOKEN first
+            token_secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_name == project_name,
+                    Secret.app_name.is_(None),  # Shared secret
+                    Secret.key == "GITHUB_TOKEN",
+                    Secret.environment == "production",
+                )
+                .first()
+            )
+
+            if token_secret:
+                return token_secret.value
+
+            # Fallback to REPOSITORY_TOKEN
+            token_secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_name == project_name,
+                    Secret.app_name.is_(None),  # Shared secret
+                    Secret.key == "REPOSITORY_TOKEN",
+                    Secret.environment == "production",
+                )
+                .first()
+            )
+
+            if token_secret:
+                return token_secret.value
+
+            return None
+        finally:
+            db.close()
+    except:
+        return None
 
 
 def get_github_repo(project_name: str) -> tuple[str, str]:

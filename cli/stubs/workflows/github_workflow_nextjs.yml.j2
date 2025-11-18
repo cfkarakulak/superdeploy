@@ -88,7 +88,7 @@ jobs:
           
           echo "📝 Creating .env from ${APP_NAME^^}_ENV_JSON..."          
           # GitHub Actions cannot dynamically access secrets
-          # The secret is created by: superdeploy sync (merges app .env + secrets.yml)
+          # The secret is created by: superdeploy sync (merges app .env + database secrets)
           case "$APP_NAME" in
             {{ app }})
 {{ secret_var_line }}

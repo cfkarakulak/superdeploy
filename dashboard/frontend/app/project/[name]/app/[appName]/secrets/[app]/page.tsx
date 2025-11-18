@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Lock, ChevronDown, X, Trash2, Plus, Loader2, Check, RefreshCw } from "lucide-react";
+import { ArrowLeft, Lock, ChevronDown, X, Trash2, Plus, Loader2, Check, RefreshCw, ArrowUpRight, Copy, CheckCircle2 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { AppHeader, PageHeader, Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, Table } from "@/components";
+import { AppHeader, PageHeader, Button, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, Table, ToastContainer } from "@/components";
 import type { Item, TableColumn } from "@/components";
 import { parseAnsi, segmentToStyle } from "@/lib/ansiParser";
+import { useToast } from "@/hooks/useToast";
 
 interface Secret {
   key: string;
@@ -116,8 +117,10 @@ const SecretsPageSkeleton = () => {
 
 export default function SecretsPage() {
   const params = useParams();
+  const router = useRouter();
   const projectName = params?.name as string;
   const appName = (params?.app || params?.appName) as string;
+  const toast = useToast();
 
   const [configVars, setSecrets] = useState<Secret[]>([]);
   const [loading, setLoading] = useState(true);
@@ -144,6 +147,13 @@ export default function SecretsPage() {
   // Alias modal states
   const [aliasModalOpen, setAliasModalOpen] = useState(false);
   const [viewingAlias, setViewingAlias] = useState<Secret | null>(null);
+
+  // Import/Export modal states
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
 
   // Auto-scroll to bottom when logs update
@@ -221,7 +231,7 @@ export default function SecretsPage() {
 
   const handleAdd = async () => {
     if (!newKey.trim() || !newValue.trim()) {
-      alert("Key and value are required");
+      toast.error("Key and value are required");
       return;
     }
 
@@ -243,9 +253,9 @@ export default function SecretsPage() {
       setNewValue("");
       setAddModalOpen(false);
       await fetchSecrets();
-      alert("Config var added successfully. Containers are restarting...");
+      toast.success("Config var added successfully. Containers are restarting...");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add config var");
+      toast.error(err instanceof Error ? err.message : "Failed to add config var");
     } finally {
       setSavingKey(null);
     }
@@ -288,9 +298,9 @@ export default function SecretsPage() {
       setEditModalOpen(false);
       setEditingSecret(null);
       await fetchSecrets();
-      alert("Config var updated successfully. Containers are restarting...");
+      toast.success("Config var updated successfully. Containers are restarting...");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to update config var");
+      toast.error(err instanceof Error ? err.message : "Failed to update config var");
     } finally {
       setSavingKey(null);
     }
@@ -314,9 +324,9 @@ export default function SecretsPage() {
       setDeleteModalOpen(false);
       setDeletingSecret(null);
       await fetchSecrets();
-      alert("Config var deleted successfully. Containers are restarting...");
+      toast.success("Config var deleted successfully. Containers are restarting...");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete config var");
+      toast.error(err instanceof Error ? err.message : "Failed to delete config var");
     } finally {
       setSavingKey(null);
     }
@@ -332,7 +342,7 @@ export default function SecretsPage() {
       );
 
       if (editableSecrets.length === 0) {
-        alert("No editable secrets selected");
+        toast.error("No editable secrets selected");
         return;
       }
 
@@ -349,10 +359,72 @@ export default function SecretsPage() {
       setBulkDeleteModalOpen(false);
       setSelectedItems(new Set());
       await fetchSecrets();
-      alert(`${editableSecrets.length} config var(s) deleted successfully. Containers are restarting...`);
+      toast.success(`${editableSecrets.length} config var(s) deleted successfully. Containers are restarting...`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete config vars");
+      toast.error(err instanceof Error ? err.message : "Failed to delete config vars");
     }
+  };
+
+  const handleImport = async () => {
+    if (!importText.trim()) {
+      toast.error("Please enter environment variables");
+      return;
+    }
+
+    setImporting(true);
+
+    try {
+      // Parse KEY=VALUE lines
+      const lines = importText.split('\n').filter(line => line.trim());
+      const secrets = lines.map(line => {
+        const [key, ...valueParts] = line.split('=');
+        return {
+          key: key.trim(),
+          value: valueParts.join('=').trim()
+        };
+      }).filter(s => s.key && s.value);
+
+      if (secrets.length === 0) {
+        toast.error("No valid KEY=VALUE pairs found");
+        return;
+      }
+
+      // Import all secrets
+      await Promise.all(
+        secrets.map((secret) =>
+          fetch(
+            `http://localhost:8401/api/secrets/secrets/${projectName}/${appName}?environment=${selectedEnvironment}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(secret),
+            }
+          )
+        )
+      );
+
+      setImportModalOpen(false);
+      setImportText("");
+      await fetchSecrets();
+      toast.success(`${secrets.length} secret(s) imported successfully. Containers are restarting...`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to import secrets");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const getExportText = () => {
+    return configVars
+      .filter(s => s.source === 'app' || s.source === 'shared' || s.source === 'alias')
+      .map(s => `${s.key}=${s.value}`)
+      .join('\n');
+  };
+
+  const copyToClipboard = (text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
   };
 
   const stripAnsi = (str: string) => {
@@ -403,6 +475,7 @@ export default function SecretsPage() {
 
   return (
     <div>
+      <ToastContainer />
       <AppHeader />
       
       {loading ? (
@@ -548,7 +621,7 @@ export default function SecretsPage() {
                     width: "10%",
                     render: (item: Item) => (
                       <div className="flex items-center justify-end">
-                        {item.data.editable && (
+                        {item.data.editable && item.data.source !== 'alias' && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -580,6 +653,25 @@ export default function SecretsPage() {
                 onSelectionChange={setSelectedItems}
                 isRowSelectable={(item) => item.data.editable}
             />
+          )}
+
+          {/* Import/Export Links */}
+          {!environmentLoading && configVars.length > 0 && (
+            <div className="mt-3 flex items-center gap-3 px-1">
+              <button
+                onClick={() => setImportModalOpen(true)}
+                className="text-[11px] tracking-[0.03em] font-light text-[#8b8b8b] hover:text-[#0a0a0a] cursor-pointer transition-none"
+              >
+                Import Variables
+              </button>
+              <span className="text-[11px] text-[#888]">|</span>
+              <button
+                onClick={() => setExportModalOpen(true)}
+                className="text-[11px] tracking-[0.03em] font-light text-[#8b8b8b] hover:text-[#0a0a0a] cursor-pointer transition-none"
+              >
+                Export Variables
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -689,7 +781,7 @@ export default function SecretsPage() {
               Are you sure you want to delete this config variable?
             </p>
             
-            <div className="bg-[#fef2f2] border border-[#fee2e2] rounded-lg p-3">
+            <div className="bg-[#fef2f2] rounded-lg p-3">
               <code className="text-[13px] font-mono text-[#ef4444] break-all">
                 {deletingSecret?.key}
               </code>
@@ -839,14 +931,89 @@ export default function SecretsPage() {
             </Button>
             <Button
               onClick={() => {
-                if (viewingAlias) {
-                  openDeleteModal(viewingAlias);
-                  setAliasModalOpen(false);
-                }
+                router.push(`/project/${projectName}/app/${appName}/aliases`);
+                setAliasModalOpen(false);
               }}
-              className="bg-[#ef4444]! hover:bg-[#dc2626]! text-white!"
+              icon={<ArrowUpRight className="w-3.5 h-3.5" />}
             >
-              Delete Alias
+              Manage Aliases
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Modal */}
+      <Dialog open={importModalOpen} onOpenChange={setImportModalOpen}>
+        <DialogContent className="max-w-[600px] sm:max-w-[600px] w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Import Environment Variables</DialogTitle>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              placeholder="API_KEY=sk-...&#10;"
+              className="w-full h-[300px] px-3 py-2.5 text-[12px] font-mono bg-white leading-[25px] rounded-lg shadow-[inset_0_0_0_1px_rgba(10,10,46,0.14)] transition-colors focus:shadow-[0_0_0_2px_#93a2ae] border-none outline-none placeholder:text-[#9b9b9b] disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-[#f6f8fa] resize-none"
+              disabled={importing}
+            />
+            <p className="text-[11px] tracking-[0.03em] font-light text-[#8b8b8b] mt-2">
+              Paste your environment variables (one per line, KEY=VALUE format)
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setImportModalOpen(false);
+                setImportText("");
+              }}
+              disabled={importing}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleImport}
+              disabled={importing || !importText.trim()}
+              loading={importing}
+            >
+              Import Secrets
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Export Modal */}
+      <Dialog open={exportModalOpen} onOpenChange={setExportModalOpen}>
+        <DialogContent className="max-w-[600px] sm:max-w-[600px] w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Export Environment Variables</DialogTitle>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <textarea
+              value={getExportText()}
+              readOnly
+              className="w-full h-[300px] px-3 py-2.5 text-[12px] font-mono bg-white leading-[25px] rounded-lg shadow-[inset_0_0_0_1px_rgba(10,10,46,0.14)] transition-colors focus:shadow-[0_0_0_2px_#93a2ae] border-none outline-none cursor-text resize-none scrollbar-thin scrollbar-thumb-[#d1d5db] scrollbar-track-transparent"
+            />
+            <p className="text-[11px] tracking-[0.03em] font-light text-[#8b8b8b] mt-2">
+              Click to select all, then copy (Cmd+C or Ctrl+C)
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setExportModalOpen(false)}
+            >
+              Close
+            </Button>
+            <Button
+              onClick={() => copyToClipboard(getExportText(), 'export')}
+              icon={copiedField === 'export' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            >
+              {copiedField === 'export' ? "Copied" : "Copy Values"}
             </Button>
           </DialogFooter>
         </DialogContent>

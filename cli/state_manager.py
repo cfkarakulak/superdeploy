@@ -232,17 +232,32 @@ class StateManager:
             return hashlib.sha256(content).hexdigest()[:12]
 
     def _calculate_secrets_hash(self) -> str:
-        """Calculate SHA256 hash of secrets.yml."""
-        secrets_file = (
-            self.project_root / "projects" / self.project_name / "secrets.yml"
-        )
-
-        if not secrets_file.exists():
-            return ""
-
+        """
+        Calculate hash representing secrets state.
+        Note: Secrets are now in database. Hash is based on last update timestamp.
+        """
         try:
-            with open(secrets_file, "rb") as f:
-                return hashlib.sha256(f.read()).hexdigest()
+            from cli.database import get_db_session, Secret
+            from datetime import datetime
+            
+            db = get_db_session()
+            try:
+                # Get most recent secret update timestamp
+                latest_secret = (
+                    db.query(Secret)
+                    .filter(Secret.project_name == self.project_name)
+                    .order_by(Secret.updated_at.desc())
+                    .first()
+                )
+                
+                if latest_secret and latest_secret.updated_at:
+                    # Use timestamp as hash indicator
+                    timestamp_str = latest_secret.updated_at.isoformat()
+                    return hashlib.sha256(timestamp_str.encode()).hexdigest()
+                
+                return ""
+            finally:
+                db.close()
         except Exception:
             return ""
 
