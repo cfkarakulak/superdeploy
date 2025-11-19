@@ -26,6 +26,7 @@ class OrchestratorUpCommand(BaseCommand):
         tags: str = None,
         verbose: bool = False,
         force: bool = False,
+        json_output: bool = False,
     ):
         super().__init__(verbose=verbose, json_output=json_output)
         self.skip_terraform = skip_terraform
@@ -102,7 +103,8 @@ class OrchestratorUpCommand(BaseCommand):
     is_flag=True,
     help="Force deployment (ignore state, re-run everything)",
 )
-def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose, force):
+@click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
+def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose, force, json_output):
     """Deploy orchestrator VM with monitoring (runs Terraform + Ansible by default)"""
     cmd = OrchestratorUpCommand(
         skip_terraform=skip_terraform,
@@ -111,6 +113,7 @@ def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose, force):
         tags=tags,
         verbose=verbose,
         force=force,
+        json_output=json_output,
     )
     cmd.run()
 
