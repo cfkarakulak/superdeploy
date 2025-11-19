@@ -27,7 +27,9 @@ class AnsibleExtraVars:
     grafana_enabled: bool = False
     github_org: Optional[str] = None
     orchestrator_ip: Optional[str] = None
-    orchestrator_subnet: str = "10.0.0.0/16"  # Default orchestrator subnet for VPC peering
+    orchestrator_subnet: str = (
+        "10.0.0.0/16"  # Default orchestrator subnet for VPC peering
+    )
     enabled_addons: Optional[List[str]] = None
     custom_vars: Dict[str, Any] = field(default_factory=dict)
 

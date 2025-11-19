@@ -35,78 +35,46 @@
 # Port 80 unified routing (when no domains)
 :80 {
 {% for app_name, app_config in apps.items() %}
-{% if app_config.get('vm') == vm_role and app_config.get('port') %}
-    # {{ app_name }} routing
-    handle /{{ app_name }}* {
-        reverse_proxy {{ app_name }}-web:{{ app_config.get('port', 8000) }}
+{% if app_config.get('vm') == vm_role and app_config.processes is defined %}
+{% for process_name, process_config in app_config.processes.items() %}
+{% if process_config.port is defined and process_name == 'web' %}
+    # {{ app_name }} API routing
+    handle /api/* {
+        reverse_proxy {{ app_name }}-{{ process_name }}:{{ process_config.port }} {
+            lb_policy round_robin
+            health_uri /api/health
+            health_interval 10s
+            health_timeout 5s
+        }
     }
+{% endif %}
+{% endfor %}
 {% endif %}
 {% endfor %}
     
-    # Default: route to first web app (storefront or first available)
-{% for app_name, app_config in apps.items() %}
-{% if app_config.get('vm') == vm_role and app_config.get('port') and 'storefront' in app_name %}
-    handle {
-        reverse_proxy {{ app_name }}-web:{{ app_config.get('port', 3000) }}
-    }
-{% endif %}
-{% endfor %}
+    # Default response
+    respond "{{ project_name }} - SuperDeploy" 200
 }
 
 {% endif %}
 
 {% if apps is defined %}
 {% for app_name, app_config in apps.items() %}
-{% if app_config.get('vm') == vm_role and app_config.get('port') %}
+{% if app_config.get('vm') == vm_role and app_config.processes is defined %}
+{% for process_name, process_config in app_config.processes.items() %}
+{% if process_config.port is defined %}
 
-# {{ app_name }} service
-{% if app_config.get('domain') %}
-# Domain-based routing (production)
-{{ app_config.get('domain') }} {
-    # Enable compression
-    encode gzip zstd
-    
-    # Logging
-    log {
-        output file /data/logs/{{ app_name }}-access.log {
-            roll_size 100mb
-            roll_keep 5
-        }
-        format json
-    }
-    
-    # Health check endpoint
-    handle /health {
-        respond "OK" 200
-    }
-    
-    # Proxy to {{ app_name }}-web service (process-based architecture)
-    reverse_proxy {{ app_name }}-web:{{ app_config.get('port', 8000) }} {
-        # Docker Compose service discovery handles load balancing across replicas
+# {{ app_name }}-{{ process_name }} service (Port {{ process_config.port }})
+:{{ process_config.port }} {
+    reverse_proxy {{ app_name }}-{{ process_name }}:{{ process_config.port }} {
         lb_policy round_robin
-        lb_try_duration 5s
-        lb_try_interval 250ms
-        
-        # Standard proxy headers
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-        
-        # Health checks (optional - Docker already tracks container health)
-        health_uri /health
+        health_uri /api/health
         health_interval 10s
         health_timeout 5s
-        health_status 2xx
     }
 }
-{% else %}
-# Port-based routing (development - no domain yet)
-:{{ app_config.get('port', 8000) }} {
-    # Simple pass-through to app-web service (load balanced if replicas > 1)
-    reverse_proxy {{ app_name }}-web:{{ app_config.get('port', 8000) }}
-}
 {% endif %}
+{% endfor %}
 {% endif %}
 {% endfor %}
 {% endif %}

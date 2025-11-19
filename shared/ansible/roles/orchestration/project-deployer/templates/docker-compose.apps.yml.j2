@@ -11,9 +11,9 @@ services:
     image: {{ docker.registry | default('docker.io') }}/{{ docker.organization }}/{{ app_name }}:latest
     command: {{ process_config.command }}
 {% if process_config.port is defined %}
-    # Always use internal expose - Caddy handles external routing (prevents port conflicts)
-    expose:
-      - "{{ process_config.port }}"
+    # Expose port for external access (required for multi-VM setup)
+    ports:
+      - "{{ process_config.port }}:{{ process_config.port }}"
 {% endif %}
     environment:
       - PROJECT_NAME={{ project_name }}
