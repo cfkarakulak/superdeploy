@@ -78,6 +78,15 @@
   debug:
     msg: "Project directory structure created at {{ project_base_path }}"
 
+# Create Docker network for project
+- name: Create project Docker network if not exists
+  shell: |
+    docker network inspect {{ project_name }}-network >/dev/null 2>&1 || \
+    docker network create {{ project_name }}-network --subnet={{ network_subnet }}
+  become_user: "{{ superdeploy_user }}"
+  register: network_create
+  when: apps_for_this_vm | length > 0
+
 # Generate docker-compose.yml for apps
 - name: Generate docker-compose.yml for applications
   template:
