@@ -4,6 +4,7 @@ services:
     image: prom/prometheus:latest
     container_name: superdeploy-prometheus
     restart: always
+    user: "root"  # Needed for docker.sock access
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
