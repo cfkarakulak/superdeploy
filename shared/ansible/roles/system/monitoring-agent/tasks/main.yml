@@ -240,6 +240,28 @@
           - "Health check: http://{{ ansible_host }}:8080/healthz"
   when: docker_installed.rc == 0
 
+- name: Configure UFW to allow Prometheus access (node-exporter and cAdvisor)
+  when: orchestrator_subnet is defined
+  block:
+    - name: Allow Prometheus scraping of node_exporter from orchestrator subnet
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ orchestrator_subnet }}"
+        to_port: "{{ node_exporter_port }}"
+        proto: tcp
+        comment: "Prometheus node-exporter"
+      become: yes
+
+    - name: Allow Prometheus scraping of cAdvisor from orchestrator subnet
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ orchestrator_subnet }}"
+        to_port: "8080"
+        proto: tcp
+        comment: "cAdvisor"
+      become: yes
+      when: docker_installed.rc == 0
+
 - name: Display node_exporter status
   debug:
     msg:

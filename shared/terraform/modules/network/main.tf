@@ -229,11 +229,12 @@ resource "google_compute_firewall" "allow_node_exporter" {
     ports    = ["9100"]  # node_exporter
   }
 
-  # Allow from orchestrator IP if provided, otherwise allow from anywhere (for testing)
-  source_ranges = var.orchestrator_ip != "" ? ["${var.orchestrator_ip}/32"] : ["0.0.0.0/0"]
+  # Allow from orchestrator subnet for VPC peering (internal IPs)
+  # Falls back to orchestrator IP (external), or 0.0.0.0/0 for testing
+  source_ranges = var.orchestrator_subnet != "" ? [var.orchestrator_subnet] : (var.orchestrator_ip != "" ? ["${var.orchestrator_ip}/32"] : ["0.0.0.0/0"])
   target_tags   = var.vm_roles
 
-  description = "Allow node_exporter metrics (9100) for Prometheus monitoring"
+  description = "Allow node_exporter metrics (9100) for Prometheus monitoring from orchestrator subnet"
 }
 
 # VPC Peering: Project VPC <-> Orchestrator VPC

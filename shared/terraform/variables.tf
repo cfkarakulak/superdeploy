@@ -82,9 +82,15 @@ variable "app_ports" {
 }
 
 variable "orchestrator_ip" {
-  description = "Orchestrator VM IP for Prometheus metrics collection"
+  description = "Orchestrator VM IP for Prometheus metrics collection (deprecated, use orchestrator_subnet)"
   type        = string
   default     = ""
+}
+
+variable "orchestrator_subnet" {
+  description = "Orchestrator VPC subnet CIDR for Prometheus metrics collection via VPC peering"
+  type        = string
+  default     = "10.0.0.0/16"
 }
 
 variable "orchestrator_network_name" {

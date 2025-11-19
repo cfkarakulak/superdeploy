@@ -15,7 +15,8 @@ module "network" {
   environment                = var.environment
   vm_roles                   = local.vm_roles  # Pass dynamic VM roles
   app_ports                  = var.app_ports   # Pass app ports from project config
-  orchestrator_ip            = var.orchestrator_ip  # Pass orchestrator IP for metrics
+  orchestrator_ip            = var.orchestrator_ip  # Pass orchestrator IP for metrics (deprecated)
+  orchestrator_subnet        = var.orchestrator_subnet  # Pass orchestrator subnet for VPC peering
   orchestrator_network_name  = var.orchestrator_network_name  # Pass orchestrator network for VPC peering
 }
 

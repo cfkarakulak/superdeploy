@@ -17,9 +17,8 @@ node_exporter_service_enabled: true
 node_exporter_service_state: "started"
 
 # Collector configuration (enable/disable specific collectors)
+# Disabled systemd and processes collectors - they are too slow (2+ minutes response time)
 node_exporter_enabled_collectors:
-  - systemd
-  - processes
   - filesystem
   - diskstats
   - netdev
@@ -28,6 +27,8 @@ node_exporter_enabled_collectors:
   - cpu
 
 node_exporter_disabled_collectors:
+  - systemd
+  - processes
   - mdadm
   - zfs
   - bcache

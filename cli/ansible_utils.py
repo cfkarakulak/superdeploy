@@ -27,6 +27,7 @@ class AnsibleExtraVars:
     grafana_enabled: bool = False
     github_org: Optional[str] = None
     orchestrator_ip: Optional[str] = None
+    orchestrator_subnet: str = "10.0.0.0/16"  # Default orchestrator subnet for VPC peering
     enabled_addons: Optional[List[str]] = None
     custom_vars: Dict[str, Any] = field(default_factory=dict)
 
@@ -56,6 +57,9 @@ class AnsibleExtraVars:
 
         if self.orchestrator_ip:
             result["orchestrator_ip"] = self.orchestrator_ip
+
+        # Always include orchestrator_subnet for UFW and monitoring rules
+        result["orchestrator_subnet"] = self.orchestrator_subnet
 
         if self.enabled_addons:
             result["enabled_addons"] = self.enabled_addons

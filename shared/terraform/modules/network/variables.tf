@@ -41,9 +41,15 @@ variable "app_ports" {
 }
 
 variable "orchestrator_ip" {
-  description = "Orchestrator VM IP for metrics collection"
+  description = "Orchestrator VM IP for metrics collection (deprecated, use orchestrator_subnet)"
   type        = string
   default     = ""
+}
+
+variable "orchestrator_subnet" {
+  description = "Orchestrator VPC subnet CIDR for metrics collection and VPC peering"
+  type        = string
+  default     = "10.0.0.0/16"
 }
 
 variable "orchestrator_network_name" {
