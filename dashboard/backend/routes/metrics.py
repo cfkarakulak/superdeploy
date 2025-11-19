@@ -195,12 +195,16 @@ async def get_project_vms_metrics(project_name: str):
     """
     try:
         # Get project VMs from CLI
-        vms = get_project_vms(project_name)
-        if not vms:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        # Get all VMs for this project
-        vms = db.query(VM).filter(VM.project_id == project.id).all()
+        vms_data = get_project_vms(project_name)
+        if not vms_data:
+            raise HTTPException(status_code=404, detail="Project not found or no VMs")
+        
+        # get_project_vms returns dict with 'vms' key OR just a list
+        if isinstance(vms_data, dict):
+            vms = vms_data.get("vms", [])
+        else:
+            vms = vms_data if isinstance(vms_data, list) else []
+            
         if not vms:
             return {"project": project_name, "vms": []}
 
@@ -215,10 +219,11 @@ async def get_project_vms_metrics(project_name: str):
         vm_metrics_list = []
 
         for vm in vms:
-            if not vm.external_ip:
+            # CLI returns 'ip' field, not 'external_ip'
+            vm_ip = vm.get("ip") or vm.get("external_ip")
+            if not vm_ip:
                 continue
 
-            vm_ip = vm.external_ip
             instance_filter = f'instance=~".*{vm_ip}.*"'
 
             # Prometheus queries for this VM
@@ -249,24 +254,21 @@ async def get_project_vms_metrics(project_name: str):
 
             vm_metrics_list.append(
                 {
-                    "name": vm.name,
-                    "external_ip": vm.external_ip,
-                    "internal_ip": vm.internal_ip,
-                    "machine_type": vm.machine_type,
+                    "name": vm.get("name"),
+                    "ip": vm.get("ip") or vm.get("external_ip"),
+                    "role": vm.get("role"),
                     "status": "up" if metrics.get("status", 0) == 1 else "down",
-                    "metrics": {
-                        "cpu_usage": round(metrics.get("cpu_usage", 0.0), 1),
-                        "memory_usage": round(metrics.get("memory_usage", 0.0), 1),
-                        "disk_usage": round(metrics.get("disk_usage", 0.0), 1),
-                        "uptime_seconds": int(metrics.get("uptime", 0)),
-                        "load_1m": round(metrics.get("load_1m", 0.0), 2),
-                        "network_rx_bytes_per_sec": round(
-                            metrics.get("network_rx", 0.0), 0
-                        ),
-                        "network_tx_bytes_per_sec": round(
-                            metrics.get("network_tx", 0.0), 0
-                        ),
-                    },
+                    "cpu_usage": round(metrics.get("cpu_usage", 0.0), 1),
+                    "memory_usage": round(metrics.get("memory_usage", 0.0), 1),
+                    "disk_usage": round(metrics.get("disk_usage", 0.0), 1),
+                    "uptime_seconds": int(metrics.get("uptime", 0)),
+                    "load_1m": round(metrics.get("load_1m", 0.0), 2),
+                    "network_rx_bytes_per_sec": round(
+                        metrics.get("network_rx", 0.0), 0
+                    ),
+                    "network_tx_bytes_per_sec": round(
+                        metrics.get("network_tx", 0.0), 0
+                    ),
                 }
             )
 

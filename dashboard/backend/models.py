@@ -20,6 +20,8 @@ class Project(Base):
     """Project model - stores all project configuration (replaces config.yml)."""
 
     __tablename__ = "projects"
+    __table_args__ = {'extend_existing': True}
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)
@@ -67,6 +69,7 @@ class ActivityLog(Base):
     """Activity log for audit trail."""
 
     __tablename__ = "activity_logs"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
@@ -87,6 +90,7 @@ class App(Base):
     """Application model."""
 
     __tablename__ = "apps"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
@@ -104,6 +108,7 @@ class DeploymentHistory(Base):
     """Deployment history for rollback capability."""
 
     __tablename__ = "deployment_history"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
@@ -126,6 +131,7 @@ class Secret(Base):
     """Secret storage in PostgreSQL."""
 
     __tablename__ = "secrets"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     project_name = Column(String(100), nullable=False, index=True)
@@ -149,6 +155,7 @@ class SecretAlias(Base):
     """Secret aliases stored in PostgreSQL."""
 
     __tablename__ = "secret_aliases"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     project_name = Column(String(100), nullable=False, index=True)
@@ -169,6 +176,7 @@ class Setting(Base):
     """Global settings (not project-specific)."""
 
     __tablename__ = "settings"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     key = Column(String(255), nullable=False, unique=True, index=True)
