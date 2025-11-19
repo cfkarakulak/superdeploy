@@ -129,7 +129,6 @@ class App(Base):
     repo = Column(String(255), nullable=False)
     owner = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 def get_db_session():
