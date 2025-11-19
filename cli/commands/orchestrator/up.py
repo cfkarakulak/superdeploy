@@ -104,7 +104,9 @@ class OrchestratorUpCommand(BaseCommand):
     help="Force deployment (ignore state, re-run everything)",
 )
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
-def orchestrator_up(skip_terraform, preserve_ip, addon, tags, verbose, force, json_output):
+def orchestrator_up(
+    skip_terraform, preserve_ip, addon, tags, verbose, force, json_output
+):
     """Deploy orchestrator VM with monitoring (runs Terraform + Ansible by default)"""
     cmd = OrchestratorUpCommand(
         skip_terraform=skip_terraform,
@@ -133,7 +135,6 @@ def _deploy_orchestrator(
     """Internal function for orchestrator deployment with logging"""
 
     if logger:
-
         logger.step("[1/3] Setup & Infrastructure")
 
     # Load orchestrator config
@@ -232,7 +233,6 @@ def _deploy_orchestrator(
                         logger.log("  • Prometheus configuration changed")
 
                 if logger:
-
                     logger.log("")
         else:
             if logger:
@@ -343,7 +343,6 @@ def _deploy_orchestrator(
             json.dump(tfvars, f, indent=2)
 
         if logger:
-
             logger.log("Terraform vars written to: orchestrator.auto.tfvars.json")
 
         # Apply
@@ -371,7 +370,9 @@ def _deploy_orchestrator(
             select_workspace("orchestrator", create=False)
         except Exception as e:
             if logger:
-                logger.log_error("Failed to select orchestrator workspace", context=str(e))
+                logger.log_error(
+                    "Failed to select orchestrator workspace", context=str(e)
+                )
             raise SystemExit(1)
 
         # Get outputs from orchestrator workspace
@@ -386,7 +387,9 @@ def _deploy_orchestrator(
 
         if result.returncode != 0:
             if logger:
-                logger.log_error("Failed to get terraform outputs", context=result.stderr)
+                logger.log_error(
+                    "Failed to get terraform outputs", context=result.stderr
+                )
             raise SystemExit(1)
 
         outputs = json.loads(result.stdout)
@@ -453,7 +456,9 @@ def _deploy_orchestrator(
         orchestrator_ip = orch_config.get_ip()
         if not orchestrator_ip:
             if logger:
-                logger.log_error("Orchestrator IP not found. Deploy with Terraform first.")
+                logger.log_error(
+                    "Orchestrator IP not found. Deploy with Terraform first."
+                )
             raise SystemExit(1)
 
         # Show configuration summary with IP (skip-terraform mode)
@@ -522,7 +527,6 @@ ansible_python_interpreter=/usr/bin/python3
         enabled_addons_list = ["monitoring"]
 
     if logger:
-
         logger.log(f"Running ansible with tags: {ansible_tags}")
 
     ansible_cmd = build_ansible_command(
@@ -544,8 +548,8 @@ ansible_python_interpreter=/usr/bin/python3
     if result_returncode != 0:
         if logger:
             logger.log_error(
-            "Ansible configuration failed", context="Check logs for details"
-        )
+                "Ansible configuration failed", context="Check logs for details"
+            )
         console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}")
         console.print(
             f"[dim]Ansible detailed log:[/dim] {logger.log_path.parent / f'{logger.log_path.stem}_ansible.log'}\n"
