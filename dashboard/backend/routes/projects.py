@@ -305,6 +305,20 @@ def create_project_from_wizard(
             "services": [],
         },
     }
+    
+    # CRITICAL: Add Caddy to EVERY VM (required for app routing)
+    # Even if user didn't select proxy in wizard, Caddy must be on every VM
+    if "proxy" not in addons_config:
+        addons_config["proxy"] = {}
+    
+    for vm_name in vms_config.keys():
+        # Add Caddy instance for this VM if not already exists
+        if vm_name not in addons_config["proxy"]:
+            addons_config["proxy"][vm_name] = {
+                "type": "caddy",
+                "version": "2-alpine",
+                "vm": vm_name,
+            }
 
     # Determine GCP zone from region
     gcp_zone = f"{payload.gcp_region}-a" if payload.gcp_region else "us-central1-a"

@@ -419,8 +419,7 @@ class InitCommand(BaseCommand):
                 "port": int(app_port),
             }
 
-        # Default addons (postgres + rabbitmq + caddy)
-        # All instances named "primary" for consistency
+        # Default addons (postgres + rabbitmq + caddy on every VM)
         addons = {
             "databases": {
                 "primary": {
@@ -438,15 +437,18 @@ class InitCommand(BaseCommand):
                     "vm": "core",
                 }
             },
-            "proxy": {
-                "primary": {
-                    "type": "caddy",
-                    "version": "2-alpine",
-                    "plan": "standard",
-                    "vm": "app",
-                }
-            },
+            "proxy": {},  # Caddy instances will be added per-VM below
         }
+        
+        # Add Caddy instance for each VM (required for app routing)
+        for vm_name in vms.keys():
+            vm_role = vms[vm_name].get("role", vm_name)
+            addons["proxy"][f"{vm_name}"] = {
+                "type": "caddy",
+                "version": "2-alpine",
+                "plan": "standard",
+                "vm": vm_name,
+            }
 
         return ProjectSetupConfig(
             project_name=self.project_name,
