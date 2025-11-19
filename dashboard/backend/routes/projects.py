@@ -305,12 +305,12 @@ def create_project_from_wizard(
             "services": [],
         },
     }
-    
+
     # CRITICAL: Add Caddy to EVERY VM (required for app routing)
     # Even if user didn't select proxy in wizard, Caddy must be on every VM
     if "proxy" not in addons_config:
         addons_config["proxy"] = {}
-    
+
     for vm_name in vms_config.keys():
         # Add Caddy instance for this VM if not already exists
         if vm_name not in addons_config["proxy"]:

@@ -16,6 +16,7 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
       - /opt/superdeploy/shared/monitoring/targets.d:/opt/superdeploy/shared/monitoring/targets.d:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker discovery
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

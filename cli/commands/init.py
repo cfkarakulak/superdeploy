@@ -439,7 +439,7 @@ class InitCommand(BaseCommand):
             },
             "proxy": {},  # Caddy instances will be added per-VM below
         }
-        
+
         # Add Caddy instance for each VM (required for app routing)
         for vm_name in vms.keys():
             vm_role = vms[vm_name].get("role", vm_name)
