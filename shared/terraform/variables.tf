@@ -87,3 +87,9 @@ variable "orchestrator_ip" {
   default     = ""
 }
 
+variable "orchestrator_network_name" {
+  description = "Orchestrator VPC network name for VPC peering"
+  type        = string
+  default     = "superdeploy-network"
+}
+

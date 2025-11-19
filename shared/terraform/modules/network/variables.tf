@@ -46,3 +46,9 @@ variable "orchestrator_ip" {
   default     = ""
 }
 
+variable "orchestrator_network_name" {
+  description = "Orchestrator VPC network name for peering"
+  type        = string
+  default     = ""
+}
+

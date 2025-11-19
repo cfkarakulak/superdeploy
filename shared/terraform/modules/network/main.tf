@@ -236,3 +236,29 @@ resource "google_compute_firewall" "allow_node_exporter" {
   description = "Allow node_exporter metrics (9100) for Prometheus monitoring"
 }
 
+# VPC Peering: Project VPC <-> Orchestrator VPC
+# This allows Prometheus (orchestrator) to reach project VMs via internal IPs
+resource "google_compute_network_peering" "project_to_orchestrator" {
+  count = var.orchestrator_network_name != "" && var.network_name != "superdeploy-network" ? 1 : 0
+  
+  name         = "${var.network_name}-to-orchestrator"
+  network      = google_compute_network.vpc.self_link
+  peer_network = "projects/${var.project_id}/global/networks/${var.orchestrator_network_name}"
+
+  export_custom_routes = false
+  import_custom_routes = false
+}
+
+resource "google_compute_network_peering" "orchestrator_to_project" {
+  count = var.orchestrator_network_name != "" && var.network_name != "superdeploy-network" ? 1 : 0
+  
+  name         = "orchestrator-to-${var.network_name}"
+  network      = "projects/${var.project_id}/global/networks/${var.orchestrator_network_name}"
+  peer_network = google_compute_network.vpc.self_link
+
+  export_custom_routes = false
+  import_custom_routes = false
+
+  depends_on = [google_compute_network_peering.project_to_orchestrator]
+}
+

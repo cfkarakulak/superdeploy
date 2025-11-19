@@ -7,15 +7,16 @@ locals {
 module "network" {
   source = "./modules/network"
 
-  project_id          = var.project_id
-  region              = var.region
-  network_name        = var.network_name
-  subnet_cidr         = var.subnet_cidr
-  admin_source_ranges = var.admin_source_ranges
-  environment         = var.environment
-  vm_roles            = local.vm_roles  # Pass dynamic VM roles
-  app_ports           = var.app_ports   # Pass app ports from project config
-  orchestrator_ip     = var.orchestrator_ip  # Pass orchestrator IP for metrics
+  project_id                 = var.project_id
+  region                     = var.region
+  network_name               = var.network_name
+  subnet_cidr                = var.subnet_cidr
+  admin_source_ranges        = var.admin_source_ranges
+  environment                = var.environment
+  vm_roles                   = local.vm_roles  # Pass dynamic VM roles
+  app_ports                  = var.app_ports   # Pass app ports from project config
+  orchestrator_ip            = var.orchestrator_ip  # Pass orchestrator IP for metrics
+  orchestrator_network_name  = var.orchestrator_network_name  # Pass orchestrator network for VPC peering
 }
 
 # Dynamic VM creation based on project configuration
