@@ -519,7 +519,7 @@ class VarsSyncCommand(ProjectCommand):
             # Repository-level secrets (Docker + GitHub access)
             # Note: DOCKER_REGISTRY, DOCKER_ORG, and DOCKER_USERNAME are moved to workflow vars to avoid GitHub secret masking
             # Note: REPOSITORY_TOKEN must have repo, workflow, packages, and read:org scopes for private repos
-            shared_secrets = all_secrets.get('shared', {})
+            shared_secrets = all_secrets.get("shared", {})
             repo_secrets = {
                 "DOCKER_TOKEN": shared_secrets.get("DOCKER_TOKEN"),
                 "REPOSITORY_TOKEN": shared_secrets.get("REPOSITORY_TOKEN"),

@@ -115,14 +115,18 @@ async def get_app_resources(
 
         # Get process definitions from ps command (reads from marker file)
         try:
+            print(f"[DEBUG] Executing ps command for {project_name}")
             ps_data = await cli.execute_json(f"{project_name}:ps")
+            print(f"[DEBUG] ps_data: {ps_data}")
             apps_data = ps_data.get("apps", [])
+            print(f"[DEBUG] Found {len(apps_data)} apps")
 
             # Find our app in the ps output
             for app_data in apps_data:
                 if app_data.get("name") == app_name:
                     # Get processes from marker file
                     processes_dict = app_data.get("processes", {})
+                    print(f"[DEBUG] Found {len(processes_dict)} processes for {app_name}")
 
                     for process_name, process_config in processes_dict.items():
                         formation.append(
@@ -136,7 +140,9 @@ async def get_app_resources(
                         )
                     break
         except Exception as e:
-            print(f"Warning: Failed to get process formation from ps command: {e}")
+            print(f"ERROR: Failed to get process formation from ps command: {e}")
+            import traceback
+            traceback.print_exc()
             # If ps command fails, formation will be empty
             # Frontend will handle empty formation gracefully
 
