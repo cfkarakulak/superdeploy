@@ -237,11 +237,17 @@ def create_project_from_wizard(
     # Build apps configuration
     apps_config = {}
     for app in payload.apps:
+        # Parse repo owner/name
+        repo_parts = app.repo.split("/")
+        owner = repo_parts[0] if len(repo_parts) > 0 else payload.github_org
+        repo_name = repo_parts[1] if len(repo_parts) > 1 else app.repo
+
         apps_config[app.name] = {
             "repo": app.repo,
             "port": app.port,
             "vm": "app",
             "type": "python",  # Default type, can be changed in database
+            "path": f"~/repos/{owner}/{repo_name}",  # Required for marker file reading
         }
 
     # Build addons configuration

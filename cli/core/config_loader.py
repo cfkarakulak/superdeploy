@@ -386,6 +386,27 @@ class ProjectConfig:
         """
         addons = self.get_addons()
 
+        # Get docker configuration from secrets (DOCKER_ORG, DOCKER_USERNAME)
+        from cli.database import get_db_session
+        from sqlalchemy import text
+
+        db = get_db_session()
+        try:
+            result = db.execute(
+                text(
+                    "SELECT key, value FROM secrets WHERE project_name = :project AND key IN ('DOCKER_ORG', 'DOCKER_USERNAME')"
+                ),
+                {"project": self.project_name},
+            )
+            docker_secrets = {row[0]: row[1] for row in result}
+            docker_config = {
+                "organization": docker_secrets.get("DOCKER_ORG")
+                or docker_secrets.get("DOCKER_USERNAME", ""),
+                "registry": "docker.io",
+            }
+        finally:
+            db.close()
+
         return {
             "project_name": self.project_name,
             "project_config": self.raw_config,
@@ -396,6 +417,7 @@ class ProjectConfig:
             "network_config": self.get_network_config(),
             "apps": self.get_apps(),
             "monitoring": self.get_monitoring_config(),
+            "docker": docker_config,
         }
 
 

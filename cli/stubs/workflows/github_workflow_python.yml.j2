@@ -70,6 +70,12 @@ jobs:
       - {% raw %}${{ needs.build.outputs.vm_role }}{% endraw %}
     
     steps:
+      - name: Checkout {{ app }} repository
+        uses: actions/checkout@v4
+        with:
+{% raw %}          token: ${{ secrets.REPOSITORY_TOKEN }}{% endraw %}
+          path: {{ app }}
+
       - name: Validate runner
         run: |
           echo "🔍 Validating deployment environment..."
@@ -116,7 +122,7 @@ jobs:
           
           echo "🔄 Updating docker-compose.yml for $APP_NAME from marker..."
           
-          sudo python3 - "$APP_NAME" "$COMPOSE_FILE" "superdeploy" << 'PYSCRIPT'
+          sudo python3 - "$APP_NAME" "$COMPOSE_FILE" "{{ app }}/superdeploy" << 'PYSCRIPT'
           import yaml
           import sys
           
@@ -127,17 +133,24 @@ jobs:
           try:
               with open(marker_file, 'r') as f:
                   marker = yaml.safe_load(f)
-              
+
               with open(compose_file, 'r') as f:
                   compose = yaml.safe_load(f)
-              
+
+              # Extract project name from marker file
+              project_name = marker.get('project', app_name)
+
+              # Ensure services exists
+              if compose.get('services') is None:
+                  compose['services'] = {}
+
               for process_name, process_config in marker.items():
                   if process_name in ['project', 'app', 'vm']:
                       continue
                   
                   service_name = f"{app_name}-{process_name}"
                   
-                  if service_name in compose.get('services', {}):
+                  if service_name in (compose.get('services') or {}):
                       service = compose['services'][service_name]
                       
                       if 'deploy' not in service:
@@ -156,25 +169,20 @@ jobs:
                       # Add network alias for Caddy service discovery (enables round-robin across replicas)
                       network_alias = f"{app_name}-{process_name}"
                       network_name = f"{project_name}-network"
+
+                      # Safely handle networks - initialize if missing or invalid
+                      if not isinstance(service.get('networks'), dict):
+                          service['networks'] = {}
                       
-                      # Handle both list and dict network formats
-                      if 'networks' not in service or not service['networks']:
-                          service['networks'] = {network_name: {'aliases': [network_alias]}}
-                      elif isinstance(service['networks'], list):
-                          # Convert list to dict with aliases
-                          service['networks'] = {network_name: {'aliases': [network_alias]}}
-                      elif isinstance(service['networks'], dict):
-                          # Update existing dict
-                          if network_name not in service['networks']:
-                              service['networks'][network_name] = {'aliases': [network_alias]}
-                          elif isinstance(service['networks'][network_name], dict):
-                              if 'aliases' not in service['networks'][network_name]:
-                                  service['networks'][network_name]['aliases'] = [network_alias]
-                              elif network_alias not in service['networks'][network_name]['aliases']:
-                                  service['networks'][network_name]['aliases'].append(network_alias)
-                          else:
-                              # Network was null or simple string, convert to dict with aliases
-                              service['networks'][network_name] = {'aliases': [network_alias]}
+                      # Ensure network exists with proper structure
+                      if network_name not in service['networks'] or not isinstance(service['networks'].get(network_name), dict):
+                          service['networks'][network_name] = {'aliases': []}
+                      
+                      # Add alias if not present
+                      if 'aliases' not in service['networks'][network_name]:
+                          service['networks'][network_name]['aliases'] = []
+                      if network_alias not in service['networks'][network_name]['aliases']:
+                          service['networks'][network_name]['aliases'].append(network_alias)
                       
                       print(f"✅ Updated {service_name}: replicas={replicas}, port={port}, alias={network_alias}")
               
@@ -184,7 +192,10 @@ jobs:
               print(f"✅ docker-compose.yml updated for {app_name}")
               
           except Exception as e:
+              import traceback
               print(f"⚠️  Failed to update compose: {e}")
+              print(f"⚠️  Traceback:")
+              traceback.print_exc()
               print(f"⚠️  Will use existing compose file")
               sys.exit(0)
           PYSCRIPT{% endraw %}

@@ -72,7 +72,7 @@ class UpCommand(ProjectCommand):
         This is idempotent - only creates secrets that don't exist.
         Follows "lazy generation" principle - secrets created when needed.
         """
-        from cli.database import get_db_session, Secret
+        from cli.database import get_db_session, Secret, Project
         import secrets as python_secrets
         import string
 
@@ -81,13 +81,24 @@ class UpCommand(ProjectCommand):
             alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
             return "".join(python_secrets.choice(alphabet) for _ in range(length))
 
-        # Load project config to see which addons are configured
-        config = self.config_service.load_project(self.project_name)
-        addons = config.get("addons", {})
+        # Load project config from database to see which addons are configured
+        db = get_db_session()
+        try:
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
+            )
+            if not project:
+                logger.warning(f"Project '{self.project_name}' not found in database")
+                return
+
+            addons = project.addons_config or {}
+        finally:
+            db.close()
 
         if not addons:
             return  # No addons configured
 
+        # Re-open DB connection for secret operations
         db = get_db_session()
         try:
             # Check which addon secrets already exist
@@ -183,7 +194,7 @@ class UpCommand(ProjectCommand):
 
             # Create missing secrets in database
             if secrets_to_create:
-                logger.info(
+                logger.log(
                     f"💾 Auto-generating {len(secrets_to_create)} addon credential(s)..."
                 )
 
@@ -198,16 +209,16 @@ class UpCommand(ProjectCommand):
                         editable=False,
                     )
                     db.add(secret)
-                    logger.info(f"  ✓ Generated: {key}")
+                    logger.log(f"  ✓ Generated: {key}")
 
                 db.commit()
-                logger.info("✓ Addon credentials saved to database")
+                logger.log("✓ Addon credentials saved to database")
             else:
-                logger.debug("✓ All addon credentials already exist")
+                logger.log("✓ All addon credentials already exist", level="DEBUG")
 
         except Exception as e:
             db.rollback()
-            logger.error(f"Failed to generate addon secrets: {e}")
+            logger.log_error(f"Failed to generate addon secrets: {e}")
             raise
         finally:
             db.close()

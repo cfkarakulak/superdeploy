@@ -206,6 +206,7 @@ class DeployCommand(ProjectCommand):
         build: bool = True,
         push: bool = True,
         verbose: bool = False,
+        json_output: bool = False,
     ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.app_name = app_name
@@ -319,7 +320,7 @@ class DeployCommand(ProjectCommand):
                 f"No secrets found. Run 'superdeploy {self.project_name}:init' first"
             )
 
-        shared_secrets = secrets.shared.values
+        shared_secrets = secrets.get('shared', {})
 
         # Load project config
         project_config = self.config_service.load_project_config(self.project_name)
@@ -376,7 +377,8 @@ class DeployCommand(ProjectCommand):
 
     def _find_target_vm(self, vm_role: str) -> VMTarget:
         """Find target VM for deployment."""
-        state = self.state_service.load_state()
+        state_service = self.ensure_state_service()
+        state = state_service.load_state()
         vms = state.get("vms", {})
 
         # Find VM matching the role

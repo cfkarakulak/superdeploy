@@ -193,6 +193,7 @@ class AnsibleManager:
             "monitoring",
             "addon_configs",
             "vm_config",
+            "docker",
         ]:
             if key in project_config:
                 extra_vars.custom_vars[key] = project_config[key]
@@ -230,7 +231,7 @@ class AnsibleManager:
             secret_mgr = SecretManager(self.project_root, project_name, "production")
             if not secret_mgr.has_secrets():
                 return {}
-                
+
             secrets_data = secret_mgr.load_secrets()
             return secrets_data
         except Exception:

@@ -299,7 +299,7 @@ class GenerateCommand(ProjectCommand):
             # Save workflow to project directory (for manual deployment to GitHub)
             github_dir = project_dir / ".github" / "workflows"
             github_dir.mkdir(parents=True, exist_ok=True)
-            workflow_file = github_dir / f"{app_name}-deploy.yml"
+            workflow_file = github_dir / "deploy.yml"
             workflow_file.write_text(github_workflow)
             self.console.print(
                 f"  [green]✓[/green] Workflow saved to: {workflow_file.relative_to(project_root)}"
