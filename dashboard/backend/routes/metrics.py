@@ -227,14 +227,21 @@ async def get_project_vms_metrics(project_name: str):
                     targets_data = targets_response.json()
                     for target in targets_data.get("data", {}).get("activeTargets", []):
                         labels = target.get("labels", {})
-                        if labels.get("project") == project_name and labels.get("job") == "project-nodes":
+                        if (
+                            labels.get("project") == project_name
+                            and labels.get("job") == "project-nodes"
+                        ):
                             instance = labels.get("instance", "")
                             if instance:
                                 # Extract internal IP (format: "10.1.0.3:9100")
-                                internal_ip = instance.split(":")[0] if ":" in instance else instance
+                                internal_ip = (
+                                    instance.split(":")[0]
+                                    if ":" in instance
+                                    else instance
+                                )
                                 vm_instances[instance] = {
                                     "internal_ip": internal_ip,
-                                    "instance": instance
+                                    "instance": instance,
                                 }
         except Exception as e:
             print(f"Failed to get VM instances from Prometheus: {e}")
@@ -524,10 +531,6 @@ async def get_app_application_metrics(project_name: str, app_name: str):
         if not vms:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        # Verify app exists in project (just check if VMs exist)
-        if not vms:
-            raise HTTPException(status_code=404, detail="App not found")
-
         # Find app VM
         app_vm = next((vm for vm in vms if vm.get("role") == "app"), None)
         if not app_vm:
@@ -544,8 +547,27 @@ async def get_app_application_metrics(project_name: str, app_name: str):
 
         prometheus_url = f"http://{orch_ip}:9090"
 
-        # Application metrics queries (from PrometheusMiddleware)
-        instance_filter = f'instance=~".*{vm_ip}.*"'
+        # Get internal IP from Prometheus targets (same approach as VM metrics)
+        app_instance = None
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                targets_response = await client.get(f"{prometheus_url}/api/v1/targets")
+                if targets_response.status_code == 200:
+                    targets_data = targets_response.json()
+                    for target in targets_data.get("data", {}).get("activeTargets", []):
+                        labels = target.get("labels", {})
+                        if labels.get("project") == project_name and labels.get("job") == "project-apps":
+                            app_instance = labels.get("instance", "")
+                            if app_instance:
+                                break
+        except Exception as e:
+            print(f"Failed to get app instance from Prometheus: {e}")
+
+        # Use exact instance if found, otherwise use project filter
+        if app_instance:
+            instance_filter = f'instance="{app_instance}"'
+        else:
+            instance_filter = f'project="{project_name}",job="project-apps"'
 
         queries = {
             "request_rate": f"sum(rate(app_http_requests_total{{{instance_filter}}}[5m]))",
