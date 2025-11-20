@@ -372,8 +372,8 @@ class DownCommand(ProjectCommand):
         # Load config for GCP details
         region = self._load_region_config(logger)
 
-        # Execute cleanup in 3 steps
-        total_steps = 3
+        # Execute cleanup in 4 steps
+        total_steps = 4
 
         # Step 1: GCP Resource Cleanup
         if logger:
@@ -390,6 +390,11 @@ class DownCommand(ProjectCommand):
         if logger:
             logger.step(f"[3/{total_steps}] Local Files Cleanup")
         self._execute_local_cleanup(logger)
+
+        # Step 4: Database Cleanup
+        if logger:
+            logger.step(f"[4/{total_steps}] Database Cleanup")
+        self._execute_database_cleanup(logger)
 
         if not self.verbose:
             self.console.print("\n[color(248)]Project destroyed.[/color(248)]")
@@ -469,6 +474,16 @@ class DownCommand(ProjectCommand):
             self.project_name, self.project_root, self.console, logger
         )
         cleaner.cleanup()
+
+    def _execute_database_cleanup(self, logger) -> None:
+        """Execute database cleanup - VMs config is preserved as part of project configuration."""
+        # NOTE: VMs configuration is part of the project definition and should NOT be deleted
+        # on teardown. It will be reused on next 'up' command.
+        # Only runtime state (Terraform state, GCP resources, local files) is cleaned.
+
+        if logger:
+            logger.log("[dim]✓ Database preserved (VMs config retained)[/dim]")
+        self.console.print("  [dim]✓ Database preserved (VMs config retained)[/dim]")
 
 
 @click.command()

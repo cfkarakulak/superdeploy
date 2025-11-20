@@ -123,7 +123,7 @@ class StatusCommand(ProjectCommand):
                                 container_name = parts[0]
                                 status = parts[1] if len(parts) > 1 else "unknown"
 
-                                # Detect addon containers (project_postgres_*, project_rabbitmq_*, etc.)
+                                # Detect addon containers (project_postgres_*, project_rabbitmq_*, project_caddy_*, etc.)
                                 for instance in addon_instances:
                                     addon_container_prefix = (
                                         f"{self.project_name}_{instance.type}_"
@@ -135,6 +135,31 @@ class StatusCommand(ProjectCommand):
                                             "container": container_name,
                                             "status": status,
                                             "instance": instance,
+                                            "vm": vm_name_iter,
+                                        }
+                                
+                                # Special handling for Caddy (proxy addon)
+                                if container_name.startswith(f"{self.project_name}_caddy_"):
+                                    # Extract caddy instance name from container
+                                    # Format: cheapa_caddy_core or cheapa_caddy_app
+                                    caddy_name = container_name.replace(f"{self.project_name}_caddy_", "")
+                                    
+                                    # Create a pseudo-instance for Caddy if not already in addon_instances
+                                    caddy_ref = f"caddy.{caddy_name}"
+                                    if caddy_ref not in running_addons:
+                                        from cli.services.addon_config import AddonInstance
+                                        caddy_instance = AddonInstance(
+                                            type="caddy",
+                                            name=caddy_name,
+                                            category="proxy",
+                                            version="latest",
+                                            plan="standard",
+                                            vm=vm_name_iter,
+                                        )
+                                        running_addons[caddy_ref] = {
+                                            "container": container_name,
+                                            "status": status,
+                                            "instance": caddy_instance,
                                             "vm": vm_name_iter,
                                         }
 

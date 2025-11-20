@@ -243,6 +243,13 @@
 - name: Configure UFW to allow Prometheus access (node-exporter and cAdvisor)
   when: orchestrator_subnet is defined
   block:
+    - name: Install UFW if not present
+      apt:
+        name: ufw
+        state: present
+        update_cache: yes
+      become: yes
+      
     - name: Allow Prometheus scraping of node_exporter from orchestrator subnet
       community.general.ufw:
         rule: allow

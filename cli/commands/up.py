@@ -946,8 +946,9 @@ def _deploy_project_internal(
                 ansible_tags = tags
             else:
                 # Smart foundation skip: if foundation already complete, skip it
+                # BUT: always run foundation if --force flag is set
                 tag_parts = []
-                if changes and changes.get("needs_foundation", True):
+                if force or (changes and changes.get("needs_foundation", True)):
                     tag_parts.append("foundation")
                 else:
                     if logger:

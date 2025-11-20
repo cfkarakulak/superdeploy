@@ -206,7 +206,8 @@ jobs:
                           }
                       }
                       if port:
-                          compose['services'][service_name]['expose'] = [str(port)]
+                          # Use ports for external access, not just expose
+                          compose['services'][service_name]['ports'] = [f"{port}:{port}"]
                       print(f"✅ Created {service_name}: replicas={replicas}, port={port}, command={command}")
                   else:
                       # UPDATE EXISTING SERVICE
@@ -222,7 +223,8 @@ jobs:
                       if port:
                           service.pop('ports', None)
                           service.pop('expose', None)
-                          service['expose'] = [str(port)]
+                          # Use ports for external access, not just expose
+                          service['ports'] = [f"{port}:{port}"]
 
                       # Safely handle networks
                       network_alias = f"{app_name}-{process_name}"
