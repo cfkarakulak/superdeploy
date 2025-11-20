@@ -135,6 +135,8 @@ async def teardown_project(project_name: str, db: Session = Depends(get_db)):
         return ansi_escape.sub("", text)
 
     async def generate_logs():
+        current_line_buffer = ""
+        
         try:
             # Run CLI down command with --yes flag
             process = await asyncio.create_subprocess_exec(
@@ -148,7 +150,15 @@ async def teardown_project(project_name: str, db: Session = Depends(get_db)):
 
             if process.stdout:
                 async for line in process.stdout:
-                    decoded_line = line.decode().strip()
+                    decoded_line = line.decode()
+                    
+                    # Handle carriage returns - split by \r and take last part
+                    if '\r' in decoded_line:
+                        parts = decoded_line.split('\r')
+                        # Last part is the one that should be displayed
+                        decoded_line = parts[-1]
+                    
+                    decoded_line = decoded_line.strip()
                     if decoded_line:
                         # Strip ANSI codes
                         clean_line = strip_ansi_codes(decoded_line)
@@ -436,6 +446,8 @@ async def deploy_project_wizard(project_name: str, db: Session = Depends(get_db)
 
     async def generate_logs():
         deployment_failed = False
+        current_line_buffer = ""
+        
         try:
             # Run CLI up command
             process = await asyncio.create_subprocess_exec(
@@ -448,7 +460,15 @@ async def deploy_project_wizard(project_name: str, db: Session = Depends(get_db)
 
             if process.stdout:
                 async for line in process.stdout:
-                    decoded_line = line.decode().strip()
+                    decoded_line = line.decode()
+                    
+                    # Handle carriage returns - split by \r and take last part
+                    if '\r' in decoded_line:
+                        parts = decoded_line.split('\r')
+                        # Last part is the one that should be displayed
+                        decoded_line = parts[-1]
+                    
+                    decoded_line = decoded_line.strip()
                     if decoded_line:
                         # Strip ANSI codes
                         clean_line = strip_ansi_codes(decoded_line)

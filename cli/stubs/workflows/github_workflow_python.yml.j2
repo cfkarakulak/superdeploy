@@ -206,10 +206,16 @@ jobs:
           
           APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
           
+          # Debug: Show docker-compose.yml content
+          echo "🔍 DEBUG: docker-compose.yml content:"
+          cat docker-compose.yml | head -20
+
           # Check if any process services exist for this app (pattern: app-*)
           if ! grep -q "^  ${APP_NAME}-" docker-compose.yml; then
-            echo "⏭️  Skipping: App not configured on this VM"
-            exit 0
+            echo "⚠️  WARNING: No services found for ${APP_NAME} in docker-compose.yml"
+            echo "⚠️  This might be first deployment - continuing anyway..."
+            # Don't exit - let deployment fail naturally if there's a real problem
+            # exit 0
           fi
           
           # Create empty .env files for other apps to prevent docker-compose errors
