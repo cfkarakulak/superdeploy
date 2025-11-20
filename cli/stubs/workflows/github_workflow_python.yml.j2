@@ -118,8 +118,9 @@ jobs:
         run: |
 {% raw %}          APP_NAME="${{ needs.build.outputs.app }}"
           PROJECT="${{ needs.build.outputs.project }}"
-          COMPOSE_FILE="/opt/superdeploy/projects/$PROJECT/compose/docker-compose.yml"
-          MARKER_FILE="${GITHUB_WORKSPACE}/{% endraw %}{{ app }}{% raw %}/superdeploy"
+          COMPOSE_FILE="/opt/superdeploy/projects/$PROJECT/compose/docker-compose.yml"{% endraw %}
+          MARKER_FILE="${GITHUB_WORKSPACE}/{{ app }}/superdeploy"
+{% raw %}
           
           echo "🔄 Updating docker-compose.yml for $APP_NAME from marker..."
           echo "📁 Marker file: $MARKER_FILE"
