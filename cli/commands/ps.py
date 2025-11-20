@@ -28,28 +28,15 @@ class ProcessStatusCommand(ProjectCommand):
 
         # JSON output mode
         if self.json_output:
-            from cli.marker_manager import MarkerManager
-            from pathlib import Path
-
             apps_data = []
             for app_name, app_config in apps.items():
                 app_type = app_config.get("type")
                 if not app_type:
                     app_type = "web" if app_config.get("port") else "worker"
 
-                # Read process definitions from marker file
-                processes = {}
-                app_path = app_config.get("path")
-                if app_path:
-                    try:
-                        app_path_obj = Path(app_path).expanduser().resolve()
-                        marker = MarkerManager.load_marker(app_path_obj)
-                        if marker and marker.processes:
-                            # Convert ProcessDefinition objects to dicts
-                            for name, proc_def in marker.processes.items():
-                                processes[name] = proc_def.to_dict()
-                    except Exception:
-                        pass
+                # Get process definitions from apps_config (database)
+                # apps_config already contains processes from database
+                processes = app_config.get("processes", {})
 
                 apps_data.append(
                     {
@@ -59,7 +46,7 @@ class ProcessStatusCommand(ProjectCommand):
                         "port": app_config.get("port"),
                         "vm": app_config.get("vm", "app"),
                         "status": "configured",  # TODO: Check actual Docker container status
-                        "processes": processes,  # Process definitions from marker
+                        "processes": processes,  # Process definitions from database
                     }
                 )
 

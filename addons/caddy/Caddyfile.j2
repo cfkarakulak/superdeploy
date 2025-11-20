@@ -42,9 +42,6 @@
     handle /api/* {
         reverse_proxy {{ app_name }}-{{ process_name }}:{{ process_config.port }} {
             lb_policy round_robin
-            health_uri /api/health
-            health_interval 10s
-            health_timeout 5s
         }
     }
 {% endif %}
@@ -68,9 +65,6 @@
 :{{ process_config.port }} {
     reverse_proxy {{ app_name }}-{{ process_name }}:{{ process_config.port }} {
         lb_policy round_robin
-        health_uri /api/health
-        health_interval 10s
-        health_timeout 5s
     }
 }
 {% endif %}
