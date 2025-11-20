@@ -291,6 +291,7 @@ class AddonsAddCommand(ProjectCommand):
         version: str = None,
         plan: str = "standard",
         verbose: bool = False,
+        json_output: bool = False,
     ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.addon_type = addon_type
@@ -557,6 +558,7 @@ class AddonsAttachCommand(ProjectCommand):
         as_var: str = None,
         access: str = "readwrite",
         verbose: bool = False,
+        json_output: bool = False,
     ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.addon = addon

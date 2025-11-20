@@ -137,17 +137,24 @@ class StatusCommand(ProjectCommand):
                                             "instance": instance,
                                             "vm": vm_name_iter,
                                         }
-                                
+
                                 # Special handling for Caddy (proxy addon)
-                                if container_name.startswith(f"{self.project_name}_caddy_"):
+                                if container_name.startswith(
+                                    f"{self.project_name}_caddy_"
+                                ):
                                     # Extract caddy instance name from container
                                     # Format: cheapa_caddy_core or cheapa_caddy_app
-                                    caddy_name = container_name.replace(f"{self.project_name}_caddy_", "")
-                                    
+                                    caddy_name = container_name.replace(
+                                        f"{self.project_name}_caddy_", ""
+                                    )
+
                                     # Create a pseudo-instance for Caddy if not already in addon_instances
                                     caddy_ref = f"caddy.{caddy_name}"
                                     if caddy_ref not in running_addons:
-                                        from cli.services.addon_config import AddonInstance
+                                        from cli.services.addon_config import (
+                                            AddonInstance,
+                                        )
+
                                         caddy_instance = AddonInstance(
                                             type="caddy",
                                             name=caddy_name,

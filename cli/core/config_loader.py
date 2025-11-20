@@ -309,13 +309,21 @@ class ProjectConfig:
                 vm_groups[vm_key] = vm_config
 
         # Extract app ports from apps configuration
+        # Read from processes definitions in marker files (via DB)
         apps_config = self.raw_config.get("apps", {})
         app_ports = []
         for app_name, app_config in apps_config.items():
-            # Support both 'port' and 'external_port'
-            port = app_config.get("external_port") or app_config.get("port")
-            if port:
-                app_ports.append(str(port))
+            # Get ports from processes definitions
+            processes = app_config.get("processes", {})
+            for process_name, process_config in processes.items():
+                port = process_config.get("port")
+                if port:
+                    app_ports.append(str(port))
+            
+            # Also support legacy 'port' and 'external_port' at app level
+            legacy_port = app_config.get("external_port") or app_config.get("port")
+            if legacy_port:
+                app_ports.append(str(legacy_port))
 
         # Remove duplicates and sort
         app_ports = sorted(list(set(app_ports)))
