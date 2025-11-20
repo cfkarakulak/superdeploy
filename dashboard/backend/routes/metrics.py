@@ -556,7 +556,10 @@ async def get_app_application_metrics(project_name: str, app_name: str):
                     targets_data = targets_response.json()
                     for target in targets_data.get("data", {}).get("activeTargets", []):
                         labels = target.get("labels", {})
-                        if labels.get("project") == project_name and labels.get("job") == "project-apps":
+                        if (
+                            labels.get("project") == project_name
+                            and labels.get("job") == "project-apps"
+                        ):
                             app_instance = labels.get("instance", "")
                             if app_instance:
                                 break

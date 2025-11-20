@@ -84,15 +84,25 @@ export default function AppOverviewPage() {
   useEffect(() => {
     const fetchAllMetrics = async () => {
       try {
-        // Fetch VM metrics
+        // Fetch VM metrics (all VMs in project)
         const vmResponse = await fetch(
-          `http://localhost:8401/api/metrics/${projectName}/${appName}/metrics`
+          `http://localhost:8401/api/metrics/${projectName}/vms`
         );
         
         if (vmResponse.ok) {
-          const vmData: MetricsResponse = await vmResponse.json();
-          setMetrics(vmData.metrics);
-          setVmIp(vmData.vm_ip);
+          const vmData = await vmResponse.json();
+          // Find the app VM (or first VM if no role specified)
+          const appVm = vmData.vms?.find((vm: any) => vm.role === 'app') || vmData.vms?.[0];
+          if (appVm) {
+            setMetrics({
+              cpu_usage: appVm.cpu_usage || 0,
+              memory_usage: appVm.memory_usage || 0,
+              disk_usage: appVm.disk_usage || 0,
+              container_count: 0,
+              uptime_seconds: appVm.uptime_seconds || 0,
+            });
+            setVmIp(appVm.ip);
+          }
         }
 
         // Fetch container metrics (cAdvisor)
