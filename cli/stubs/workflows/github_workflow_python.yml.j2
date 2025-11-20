@@ -211,6 +211,9 @@ jobs:
                   else:
                       # UPDATE EXISTING SERVICE
                       service = compose['services'][service_name]
+                      
+                      # Update command from marker file
+                      service['command'] = command
 
                       if 'deploy' not in service:
                           service['deploy'] = {}
