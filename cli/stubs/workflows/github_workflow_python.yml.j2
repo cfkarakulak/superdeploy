@@ -119,15 +119,24 @@ jobs:
 {% raw %}          APP_NAME="${{ needs.build.outputs.app }}"
           PROJECT="${{ needs.build.outputs.project }}"
           COMPOSE_FILE="/opt/superdeploy/projects/$PROJECT/compose/docker-compose.yml"
-          MARKER_FILE="${GITHUB_WORKSPACE}/superdeploy"
+          MARKER_FILE="${GITHUB_WORKSPACE}/{% endraw %}{{ app }}{% raw %}/superdeploy"
           
           echo "🔄 Updating docker-compose.yml for $APP_NAME from marker..."
           echo "📁 Marker file: $MARKER_FILE"
+          echo "📁 GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "📁 Checking if marker file exists..."
           
           if [ ! -f "$MARKER_FILE" ]; then
             echo "❌ ERROR: Marker file not found at $MARKER_FILE"
+            echo "📁 Current directory: $(pwd)"
+            echo "📁 Listing GITHUB_WORKSPACE:"
+            ls -la "$GITHUB_WORKSPACE/" || true
+            echo "📁 Listing GITHUB_WORKSPACE/{% endraw %}{{ app }}{% raw %}:"
+            ls -la "$GITHUB_WORKSPACE/{% endraw %}{{ app }}{% raw %}/" || true
             exit 1
           fi
+          
+          echo "✅ Marker file found!"
           
           sudo python3 - "$APP_NAME" "$COMPOSE_FILE" "$MARKER_FILE" << 'PYSCRIPT'
           import yaml
