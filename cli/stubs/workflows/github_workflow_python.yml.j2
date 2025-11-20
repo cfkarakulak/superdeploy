@@ -119,10 +119,17 @@ jobs:
 {% raw %}          APP_NAME="${{ needs.build.outputs.app }}"
           PROJECT="${{ needs.build.outputs.project }}"
           COMPOSE_FILE="/opt/superdeploy/projects/$PROJECT/compose/docker-compose.yml"
+          MARKER_FILE="${GITHUB_WORKSPACE}/superdeploy"
           
           echo "🔄 Updating docker-compose.yml for $APP_NAME from marker..."
+          echo "📁 Marker file: $MARKER_FILE"
           
-          sudo python3 - "$APP_NAME" "$COMPOSE_FILE" "{{ app }}/superdeploy" << 'PYSCRIPT'
+          if [ ! -f "$MARKER_FILE" ]; then
+            echo "❌ ERROR: Marker file not found at $MARKER_FILE"
+            exit 1
+          fi
+          
+          sudo python3 - "$APP_NAME" "$COMPOSE_FILE" "$MARKER_FILE" << 'PYSCRIPT'
           import yaml
           import sys
           
@@ -144,9 +151,13 @@ jobs:
               if compose.get('services') is None:
                   compose['services'] = {}
 
-              for process_name, process_config in marker.items():
-                  if process_name in ['project', 'app', 'vm']:
-                      continue
+              # Get processes from marker file
+              processes = marker.get('processes', {})
+              if not processes:
+                  print(f"⚠️  WARNING: No processes found in marker file")
+                  sys.exit(0)
+
+              for process_name, process_config in processes.items():
                   
                   service_name = f"{app_name}-{process_name}"
                   
