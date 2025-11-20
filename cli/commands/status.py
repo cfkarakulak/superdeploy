@@ -87,6 +87,31 @@ class StatusCommand(ProjectCommand):
         config_attachments = self.config_service.parse_app_attachments(app_config)
         addon_instances = self.config_service.parse_addons(config)
 
+        # Build addons list from config FIRST (before runtime check)
+        # This ensures addons show even if deployment state doesn't exist
+        for attachment in config_attachments:
+            addon_instance = None
+            for instance in addon_instances:
+                if instance.full_name == attachment.addon:
+                    addon_instance = instance
+                    break
+
+            if addon_instance:
+                app_status["addons"].append(
+                    {
+                        "reference": attachment.addon,
+                        "name": addon_instance.name,
+                        "type": addon_instance.type,
+                        "category": addon_instance.category,
+                        "version": addon_instance.version,
+                        "plan": addon_instance.plan,
+                        "as": attachment.as_,
+                        "access": attachment.access,
+                        "status": "unknown",  # Will be updated if runtime check succeeds
+                        "source": "config",
+                    }
+                )
+
         # Try to get runtime status from VM
         try:
             self.require_deployment()
@@ -170,37 +195,17 @@ class StatusCommand(ProjectCommand):
                                             "vm": vm_name_iter,
                                         }
 
-                # Build addons list - prioritize config attachments but also show running addons
+                # Update addon status from runtime (addons were already added from config)
                 seen_addons = set()
 
-                # First, add configured attachments
-                for attachment in config_attachments:
-                    addon_instance = None
-                    for instance in addon_instances:
-                        if instance.full_name == attachment.addon:
-                            addon_instance = instance
-                            break
-
-                    if addon_instance:
-                        runtime_status = "not running"
-                        if attachment.addon in running_addons:
-                            runtime_status = running_addons[attachment.addon]["status"]
-
-                        app_status["addons"].append(
-                            {
-                                "reference": attachment.addon,
-                                "name": addon_instance.name,
-                                "type": addon_instance.type,
-                                "category": addon_instance.category,
-                                "version": addon_instance.version,
-                                "plan": addon_instance.plan,
-                                "as": attachment.as_,
-                                "access": attachment.access,
-                                "status": runtime_status,
-                                "source": "config",
-                            }
-                        )
-                        seen_addons.add(attachment.addon)
+                # Update status for already-added config attachments
+                for addon_entry in app_status["addons"]:
+                    addon_ref = addon_entry["reference"]
+                    if addon_ref in running_addons:
+                        addon_entry["status"] = running_addons[addon_ref]["status"]
+                    else:
+                        addon_entry["status"] = "not running"
+                    seen_addons.add(addon_ref)
 
                 # Then, add running addons that aren't in config (auto-detected)
                 for addon_ref, addon_info in running_addons.items():
