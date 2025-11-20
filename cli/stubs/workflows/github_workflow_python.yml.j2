@@ -167,44 +167,75 @@ jobs:
                   sys.exit(0)
 
               for process_name, process_config in processes.items():
-                  
                   service_name = f"{app_name}-{process_name}"
+                  replicas = process_config.get('replicas', 1)
+                  port = process_config.get('port')
+                  command = process_config.get('command', '')
                   
-                  if service_name in (compose.get('services') or {}):
+                  # Create or update service
+                  if service_name not in compose['services']:
+                      # CREATE NEW SERVICE
+                      compose['services'][service_name] = {
+                          'image': f"docker.io/c100394/{app_name}:latest",
+                          'command': command,
+                          'env_file': f"/opt/superdeploy/projects/{project_name}/data/{app_name}/.env",
+                          'volumes': [
+                              f"/opt/superdeploy/projects/{project_name}/data/{app_name}:/app/data",
+                              f"/opt/superdeploy/projects/{project_name}/logs/{app_name}:/app/logs"
+                          ],
+                          'networks': {
+                              f"{project_name}-network": {
+                                  'aliases': [f"{app_name}-{process_name}"]
+                              }
+                          },
+                          'deploy': {
+                              'mode': 'replicated',
+                              'replicas': replicas,
+                              'update_config': {
+                                  'parallelism': 1,
+                                  'delay': '10s',
+                                  'order': 'start-first',
+                                  'failure_action': 'rollback'
+                              },
+                              'restart_policy': {
+                                  'condition': 'on-failure',
+                                  'delay': '5s',
+                                  'max_attempts': 3
+                              }
+                          }
+                      }
+                      if port:
+                          compose['services'][service_name]['expose'] = [str(port)]
+                      print(f"✅ Created {service_name}: replicas={replicas}, port={port}, command={command}")
+                  else:
+                      # UPDATE EXISTING SERVICE
                       service = compose['services'][service_name]
-                      
+
                       if 'deploy' not in service:
                           service['deploy'] = {}
-                      service['deploy']['replicas'] = process_config.get('replicas', 1)
-                      
-                      replicas = process_config.get('replicas', 1)
-                      port = process_config.get('port')
-                      
+                      service['deploy']['replicas'] = replicas
+
                       if port:
                           service.pop('ports', None)
                           service.pop('expose', None)
-                          # Always use internal expose - Caddy handles external routing
                           service['expose'] = [str(port)]
-                      
-                      # Add network alias for Caddy service discovery (enables round-robin across replicas)
+
+                      # Safely handle networks
                       network_alias = f"{app_name}-{process_name}"
                       network_name = f"{project_name}-network"
 
-                      # Safely handle networks - initialize if missing or invalid
                       if not isinstance(service.get('networks'), dict):
                           service['networks'] = {}
-                      
-                      # Ensure network exists with proper structure
+
                       if network_name not in service['networks'] or not isinstance(service['networks'].get(network_name), dict):
                           service['networks'][network_name] = {'aliases': []}
-                      
-                      # Add alias if not present
+
                       if 'aliases' not in service['networks'][network_name]:
                           service['networks'][network_name]['aliases'] = []
                       if network_alias not in service['networks'][network_name]['aliases']:
                           service['networks'][network_name]['aliases'].append(network_alias)
-                      
-                      print(f"✅ Updated {service_name}: replicas={replicas}, port={port}, alias={network_alias}")
+
+                      print(f"✅ Updated {service_name}: replicas={replicas}, port={port}")
               
               with open(compose_file, 'w') as f:
                   yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
