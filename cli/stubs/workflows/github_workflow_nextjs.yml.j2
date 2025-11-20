@@ -112,11 +112,11 @@ jobs:
           echo "📊 Total variables: $(wc -l < "$ENV_DIR/.env")"{% endraw %}
       
       - name: Update compose file with dynamic values
-        run: |{% raw %}
-          PROJECT_NAME="${{ needs.build.outputs.project }}"
-          APP_NAME="${{ needs.build.outputs.app }}"
+        run: |
+          PROJECT_NAME="{% raw %}${{ needs.build.outputs.project }}{% endraw %}"
+          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
           COMPOSE_DIR="/opt/superdeploy/projects/${PROJECT_NAME}/compose"
-          MARKER_FILE="${{ github.workspace }}/superdeploy"
+          MARKER_FILE="{% raw %}${{ github.workspace }}{% endraw %}/superdeploy"
           
           cd "$COMPOSE_DIR"
           
@@ -127,67 +127,67 @@ jobs:
           fi
           
           sudo python3 - "$APP_NAME" "docker-compose.yml" "$MARKER_FILE" << 'PYSCRIPT'
-import sys
-import yaml
-import os
-
-app_name = sys.argv[1]
-compose_file = sys.argv[2]
-marker_file = sys.argv[3]
-project_name = os.environ.get('PROJECT_NAME', 'project')
-
-try:
-    # Load marker file
-    with open(marker_file, 'r') as f:
-        marker = yaml.safe_load(f)
-    
-    # Load compose file
-    with open(compose_file, 'r') as f:
-        compose = yaml.safe_load(f)
-    
-    if not compose or 'services' not in compose:
-        compose = {'services': {}, 'networks': {f'{project_name}-network': {'external': True}}}
-    
-    # Get processes from marker
-    processes = marker.get('processes', {})
-    
-    for process_name, process_config in processes.items():
-        service_name = f"{app_name}-{process_name}"
-        command = process_config.get('command', '')
-        replicas = process_config.get('replicas', 1)
-        port = process_config.get('port')
-        
-        if service_name in compose['services']:
-            # UPDATE EXISTING SERVICE
-            service = compose['services'][service_name]
-            
-            # Update command from marker file
-            service['command'] = command
-            
-            if 'deploy' not in service:
-                service['deploy'] = {}
-            service['deploy']['replicas'] = replicas
-            
-            if port:
-                service.pop('ports', None)
-                service.pop('expose', None)
-                # Use ports for external access, not just expose
-                service['ports'] = [f"{port}:{port}"]
-            
-            print(f"✅ Updated {service_name}: replicas={replicas}, port={port}")
-    
-    with open(compose_file, 'w') as f:
-        yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
-    
-    print(f"✅ docker-compose.yml updated for {app_name}")
-    
-except Exception as e:
-    import traceback
-    print(f"⚠️  Failed to update compose: {e}")
-    traceback.print_exc()
-    print(f"⚠️  Will use existing compose file")
-    sys.exit(0)
-PYSCRIPT{% endraw %}
+          import sys
+          import yaml
+          import os
+          
+          app_name = sys.argv[1]
+          compose_file = sys.argv[2]
+          marker_file = sys.argv[3]
+          project_name = os.environ.get('PROJECT_NAME', 'project')
+          
+          try:
+              # Load marker file
+              with open(marker_file, 'r') as f:
+                  marker = yaml.safe_load(f)
+              
+              # Load compose file
+              with open(compose_file, 'r') as f:
+                  compose = yaml.safe_load(f)
+              
+              if not compose or 'services' not in compose:
+                  compose = {'services': {}, 'networks': {f'{project_name}-network': {'external': True}}}
+              
+              # Get processes from marker
+              processes = marker.get('processes', {})
+              
+              for process_name, process_config in processes.items():
+                  service_name = f"{app_name}-{process_name}"
+                  command = process_config.get('command', '')
+                  replicas = process_config.get('replicas', 1)
+                  port = process_config.get('port')
+                  
+                  if service_name in compose['services']:
+                      # UPDATE EXISTING SERVICE
+                      service = compose['services'][service_name]
+                      
+                      # Update command from marker file
+                      service['command'] = command
+                      
+                      if 'deploy' not in service:
+                          service['deploy'] = {}
+                      service['deploy']['replicas'] = replicas
+                      
+                      if port:
+                          service.pop('ports', None)
+                          service.pop('expose', None)
+                          # Use ports for external access, not just expose
+                          service['ports'] = [f"{port}:{port}"]
+                      
+                      print(f"✅ Updated {service_name}: replicas={replicas}, port={port}")
+              
+              with open(compose_file, 'w') as f:
+                  yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
+              
+              print(f"✅ docker-compose.yml updated for {app_name}")
+              
+          except Exception as e:
+              import traceback
+              print(f"⚠️  Failed to update compose: {e}")
+              traceback.print_exc()
+              print(f"⚠️  Will use existing compose file")
+              sys.exit(0)
+          PYSCRIPT
       
       - name: Deploy application (zero-downtime with replicas)
         run: |

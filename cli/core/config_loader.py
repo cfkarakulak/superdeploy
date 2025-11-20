@@ -319,7 +319,7 @@ class ProjectConfig:
                 port = process_config.get("port")
                 if port:
                     app_ports.append(str(port))
-            
+
             # Also support legacy 'port' and 'external_port' at app level
             legacy_port = app_config.get("external_port") or app_config.get("port")
             if legacy_port:
