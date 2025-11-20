@@ -198,13 +198,13 @@ async def get_project_vms_metrics(project_name: str):
         vms_data = get_project_vms(project_name)
         if not vms_data:
             raise HTTPException(status_code=404, detail="Project not found or no VMs")
-        
+
         # get_project_vms returns dict with 'vms' key OR just a list
         if isinstance(vms_data, dict):
             vms = vms_data.get("vms", [])
         else:
             vms = vms_data if isinstance(vms_data, list) else []
-            
+
         if not vms:
             return {"project": project_name, "vms": []}
 
@@ -218,13 +218,40 @@ async def get_project_vms_metrics(project_name: str):
         # Collect metrics for all VMs
         vm_metrics_list = []
 
-        for vm in vms:
-            # CLI returns 'ip' field, not 'external_ip'
-            vm_ip = vm.get("ip") or vm.get("external_ip")
-            if not vm_ip:
+        # Get internal IPs from Prometheus targets for this project
+        vm_instances = {}  # {instance: {internal_ip, role}}
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                targets_response = await client.get(f"{prometheus_url}/api/v1/targets")
+                if targets_response.status_code == 200:
+                    targets_data = targets_response.json()
+                    for target in targets_data.get("data", {}).get("activeTargets", []):
+                        labels = target.get("labels", {})
+                        if labels.get("project") == project_name and labels.get("job") == "project-nodes":
+                            instance = labels.get("instance", "")
+                            if instance:
+                                # Extract internal IP (format: "10.1.0.3:9100")
+                                internal_ip = instance.split(":")[0] if ":" in instance else instance
+                                vm_instances[instance] = {
+                                    "internal_ip": internal_ip,
+                                    "instance": instance
+                                }
+        except Exception as e:
+            print(f"Failed to get VM instances from Prometheus: {e}")
+
+        # Match VMs with their Prometheus instances
+        for i, vm in enumerate(vms):
+            vm_name = vm.get("name")
+            if not vm_name:
                 continue
 
-            instance_filter = f'instance=~".*{vm_ip}.*"'
+            # Try to find matching instance by order (same order as targets)
+            if i < len(vm_instances):
+                instance_data = list(vm_instances.values())[i]
+                instance_filter = f'instance="{instance_data["instance"]}"'
+            else:
+                # Fallback: use project filter
+                instance_filter = f'project="{project_name}"'
 
             # Prometheus queries for this VM
             queries = {
@@ -232,7 +259,7 @@ async def get_project_vms_metrics(project_name: str):
                 "memory_usage": f"(1 - (node_memory_MemAvailable_bytes{{{instance_filter}}} / node_memory_MemTotal_bytes{{{instance_filter}}})) * 100",
                 "disk_usage": f'(node_filesystem_size_bytes{{mountpoint="/",{instance_filter}}} - node_filesystem_avail_bytes{{mountpoint="/",{instance_filter}}}) / node_filesystem_size_bytes{{mountpoint="/",{instance_filter}}} * 100',
                 "uptime": f"node_time_seconds{{{instance_filter}}} - node_boot_time_seconds{{{instance_filter}}}",
-                "status": f'up{{instance=~".*{vm_ip}.*",job="project-nodes"}}',
+                "status": f'up{{{instance_filter},job="project-nodes"}}',
                 "network_rx": f'rate(node_network_receive_bytes_total{{device="eth0",{instance_filter}}}[5m])',
                 "network_tx": f'rate(node_network_transmit_bytes_total{{device="eth0",{instance_filter}}}[5m])',
                 "load_1m": f"node_load1{{{instance_filter}}}",
