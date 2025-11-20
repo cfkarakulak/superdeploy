@@ -176,42 +176,14 @@ class ProjectConfig:
 
     def get_apps(self) -> Dict[str, Dict[str, Any]]:
         """
-        Get application configurations with process definitions from marker files
+        Get application configurations with process definitions from database
 
         Returns:
-            Dictionary of application configurations enriched with marker data
+            Dictionary of application configurations (processes already in database)
         """
-        from cli.marker_manager import MarkerManager
-
-        apps = self.raw_config.get("apps", {}).copy()
-
-        # Enrich apps with process definitions from marker files
-        for app_name, app_config in apps.items():
-            app_path = app_config.get("path")
-            if not app_path:
-                continue
-
-            # Read marker file to get process definitions
-            from pathlib import Path
-
-            app_path_obj = Path(app_path).expanduser().resolve()
-            marker_file = app_path_obj / "superdeploy"
-
-            if marker_file.exists():
-                try:
-                    marker = MarkerManager.load_marker(app_path_obj)
-                    # Inject process definitions from marker into app config
-                    if marker and marker.processes:
-                        # Convert ProcessDefinition objects to dicts for Ansible
-                        processes_dict = {}
-                        for name, proc_def in marker.processes.items():
-                            processes_dict[name] = proc_def.to_dict()
-                        app_config["processes"] = processes_dict
-                except Exception:
-                    # If marker read fails, continue without processes
-                    pass
-
-        return apps
+        # Apps are already in raw_config with processes from database
+        # No need to read marker files - they're already synced to database
+        return self.raw_config.get("apps", {})
 
     def get_vms(self) -> Dict[str, Dict[str, Any]]:
         """
