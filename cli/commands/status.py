@@ -272,11 +272,11 @@ class StatusCommand(ProjectCommand):
                 # We need to get all containers and filter by app name
                 # First, get process names from config
                 processes = app_config.get("processes", {})
-                
+
                 # Get all containers and filter by app name pattern
                 result = ssh_service.execute_command(
                     vm_ip,
-                    f"docker ps -a --format '{{{{.Names}}}}\\t{{{{.Status}}}}\\t{{{{.ID}}}}'",
+                    "docker ps -a --format '{{.Names}}\\t{{.Status}}\\t{{.ID}}'",
                     timeout=5,
                 )
 
@@ -293,16 +293,20 @@ class StatusCommand(ProjectCommand):
                             # Examples: compose-api-web-1, cheapa-api-web-1, api-web-1
                             app_name = self.app_filter
                             is_app_container = False
-                            
+
                             # Check if container name contains app name and a process name
                             for process_name in processes.keys():
                                 # Match patterns like: *-api-web-* or api-web-*
-                                if f"-{app_name}-{process_name}" in container_name or \
-                                   f"{app_name}-{process_name}-" in container_name or \
-                                   container_name.startswith(f"{app_name}-{process_name}"):
+                                if (
+                                    f"-{app_name}-{process_name}" in container_name
+                                    or f"{app_name}-{process_name}-" in container_name
+                                    or container_name.startswith(
+                                        f"{app_name}-{process_name}"
+                                    )
+                                ):
                                     is_app_container = True
                                     break
-                            
+
                             if is_app_container:
                                 app_status["processes"].append(
                                     {

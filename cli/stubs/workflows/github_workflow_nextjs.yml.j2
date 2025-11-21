@@ -81,29 +81,20 @@ jobs:
           
           echo "✅ Correct VM for project: $RUNNER_PROJECT"
       
-      - name: Create .env from merged secrets
+      - name: Create .env from GitHub Environment Secrets
+        env:
+{% raw %}          SECRETS_JSON: ${{ toJSON(secrets) }}{% endraw %}
         run: |
-          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
-          ENV_DIR="/opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}/data/$APP_NAME"
+{% raw %}          APP_NAME="${{ needs.build.outputs.app }}"
+          PROJECT="${{ needs.build.outputs.project }}"
+          ENV_DIR="/opt/superdeploy/projects/$PROJECT/data/$APP_NAME"
           
-          echo "📝 Creating .env from ${APP_NAME^^}_ENV_JSON..."          
-          # GitHub Actions cannot dynamically access secrets
-          # The secret is created by: superdeploy sync (merges app .env + database secrets)
-          case "$APP_NAME" in
-            {{ app }})
-{{ secret_var_line }}
-              ;;
-            *)
-              echo "❌ App '$APP_NAME' not configured in workflow"
-              exit 1
-              ;;
-          esac
-{% raw %}          
-          # Convert JSON to .env format
-          echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
-          
-          # Write to VM directory
+          echo "📝 Creating .env from GitHub secrets..."
           sudo mkdir -p "$ENV_DIR"
+          
+          # Get all secrets from GitHub and convert to .env format
+          echo "$SECRETS_JSON" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
+          
           sudo cp /tmp/final.env "$ENV_DIR/.env"
           sudo chown superdeploy:superdeploy "$ENV_DIR/.env"
           sudo chmod 600 "$ENV_DIR/.env"
@@ -175,6 +166,41 @@ jobs:
                           service['ports'] = [f"{port}:{port}"]
                       
                       print(f"✅ Updated {service_name}: replicas={replicas}, port={port}")
+                  else:
+                      # CREATE NEW SERVICE
+                      compose['services'][service_name] = {
+                          'image': f"docker.io/c100394/{app_name}:latest",
+                          'command': command,
+                          'env_file': f"/opt/superdeploy/projects/{project_name}/data/{app_name}/.env",
+                          'volumes': [
+                              f"/opt/superdeploy/projects/{project_name}/data/{app_name}:/app/data",
+                              f"/opt/superdeploy/projects/{project_name}/logs/{app_name}:/app/logs"
+                          ],
+                          'networks': {
+                              f"{project_name}-network": {
+                                  'aliases': [f"{app_name}-{process_name}"]
+                              }
+                          },
+                          'deploy': {
+                              'mode': 'replicated',
+                              'replicas': replicas,
+                              'update_config': {
+                                  'parallelism': 1,
+                                  'delay': '10s',
+                                  'order': 'start-first',
+                                  'failure_action': 'rollback'
+                              },
+                              'restart_policy': {
+                                  'condition': 'on-failure',
+                                  'delay': '5s',
+                                  'max_attempts': 3
+                              }
+                          }
+                      }
+                      if port:
+                          # Use ports for external access, not just expose
+                          compose['services'][service_name]['ports'] = [f"{port}:{port}"]
+                      print(f"✅ Created {service_name}: replicas={replicas}, port={port}, command={command}")
               
               with open(compose_file, 'w') as f:
                   yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
