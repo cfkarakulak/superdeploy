@@ -49,138 +49,206 @@ class StatusCommand(ProjectCommand):
             )
 
         if logger:
-            logger.step("Loading app configuration")
+            logger.step("Loading app configuration from database")
 
-        # Get app config
-        config = self.config_service.get_raw_config(self.project_name)
-        apps = config.get("apps", {})
+        # Get app config from DATABASE
+        from cli.database import get_db_session
+        from sqlalchemy import text
 
-        if self.app_filter not in apps:
-            if self.json_output:
-                self.output_json(
-                    {"error": f"App '{self.app_filter}' not found"}, exit_code=1
-                )
-            else:
-                self.print_error(f"App '{self.app_filter}' not found")
-            raise SystemExit(1)
+        db = get_db_session()
 
-        app_config = apps[self.app_filter]
+        try:
+            # Get app details
+            result = db.execute(
+                text("""
+                SELECT a.id, a.name, a.repo, a.owner, v.name as vm_name
+                FROM apps a
+                JOIN vms v ON a.project_id = v.project_id
+                WHERE a.project_id = (SELECT id FROM projects WHERE name = :project)
+                AND a.name = :app
+                LIMIT 1
+            """),
+                {"project": self.project_name, "app": self.app_filter},
+            )
 
-        # Build app status data
-        app_status = {
-            "app": self.app_filter,
-            "type": app_config.get(
-                "type", "web" if app_config.get("port") else "worker"
-            ),
-            "repo": app_config.get("repo"),
-            "owner": app_config.get("owner"),
-            "port": app_config.get("port"),
-            "vm": app_config.get("vm", "app"),
-            "replicas": app_config.get("replicas", 1),
-            "addons": [],
-            "processes": [],
-            "resources": {},
-            "deployment": {},
-        }
+            app_row = result.fetchone()
+            if not app_row:
+                if self.json_output:
+                    self.output_json(
+                        {"error": f"App '{self.app_filter}' not found"}, exit_code=1
+                    )
+                else:
+                    self.print_error(f"App '{self.app_filter}' not found")
+                raise SystemExit(1)
+
+            app_id = app_row[0]
+            app_vm = app_row[4] if app_row[4] else "app"
+
+            # Get process definitions (to determine app type, port, replicas)
+            process_result = db.execute(
+                text("""
+                SELECT name, command, replicas, port
+                FROM processes
+                WHERE app_id = :app_id
+            """),
+                {"app_id": app_id},
+            )
+
+            processes_dict = {}
+            app_port = None
+            total_replicas = 0
+
+            for row in process_result.fetchall():
+                process_name = row[0]
+                processes_dict[process_name] = {
+                    "command": row[1],
+                    "replicas": row[2],
+                    "port": row[3],
+                }
+                if row[3]:  # has port
+                    app_port = row[3]
+                total_replicas += row[2]
+
+            # Determine app type (web if has port, worker otherwise)
+            app_type = "web" if app_port else "worker"
+
+            # Build app status data
+            app_status = {
+                "app": self.app_filter,
+                "type": app_type,
+                "repo": app_row[2],
+                "owner": app_row[3],
+                "port": app_port,
+                "vm": app_vm,
+                "replicas": total_replicas if total_replicas > 0 else 1,
+                "addons": [],
+                "processes": [],
+                "process_definitions": processes_dict,  # Store process definitions
+                "resources": {},
+                "deployment": {},
+            }
+
+        finally:
+            db.close()
 
         # Get addon attachments from DATABASE (aliases table)
         from cli.database import get_db_session
         from sqlalchemy import text
-        
+
         db = get_db_session()
         seen_addon_refs = set()
-        
+
         try:
             # Get app VM name
-            result = db.execute(text("""
+            result = db.execute(
+                text("""
                 SELECT v.name
                 FROM apps a
                 JOIN vms v ON a.project_id = v.project_id
                 WHERE a.project_id = (SELECT id FROM projects WHERE name = :project)
                 AND a.name = :app
                 LIMIT 1
-            """), {"project": self.project_name, "app": self.app_filter})
-            
+            """),
+                {"project": self.project_name, "app": self.app_filter},
+            )
+
             vm_row = result.fetchone()
             app_vm = vm_row[0] if vm_row else "app"
-            
+
             # Get attached addons from aliases (these are explicitly attached)
-            result = db.execute(text("""
+            result = db.execute(
+                text("""
                 SELECT DISTINCT target_key
                 FROM aliases
                 WHERE project_name = :project
                 AND app_name = :app
                 AND target_source = 'addon'
                 ORDER BY target_key
-            """), {"project": self.project_name, "app": self.app_filter})
-            
+            """),
+                {"project": self.project_name, "app": self.app_filter},
+            )
+
             attached_addons = {}
             for row in result.fetchall():
                 # Extract addon from target_key (e.g., "postgres.primary.HOST" -> "postgres.primary")
-                parts = row[0].split('.')
+                parts = row[0].split(".")
                 if len(parts) >= 2:
                     addon_ref = f"{parts[0]}.{parts[1]}"
                     if addon_ref not in attached_addons:
                         attached_addons[addon_ref] = parts[0]  # Store addon_type
-            
+
             # Get addon details and add to app_status
             for addon_ref, addon_type in attached_addons.items():
-                addon_instance = addon_ref.split('.')[1]
-                
+                addon_instance = addon_ref.split(".")[1]
+
                 # Get addon version from addon_secrets
-                result = db.execute(text("""
+                result = db.execute(
+                    text("""
                     SELECT key, value
                     FROM addon_secrets
                     WHERE project_name = :project
                     AND addon_type = :type
                     AND addon_instance = :instance
                     LIMIT 1
-                """), {"project": self.project_name, "type": addon_type, "instance": addon_instance})
-                
-                if result.fetchone():
-                    app_status["addons"].append({
-                        "reference": addon_ref,
-                        "name": addon_instance,
+                """),
+                    {
+                        "project": self.project_name,
                         "type": addon_type,
-                        "category": addon_type,  # Use type as category
-                        "version": "latest",
-                        "plan": "standard",
-                        "as": addon_type.upper(),
-                        "access": "default",
-                        "status": "unknown",
-                        "source": "database",
-                    })
+                        "instance": addon_instance,
+                    },
+                )
+
+                if result.fetchone():
+                    app_status["addons"].append(
+                        {
+                            "reference": addon_ref,
+                            "name": addon_instance,
+                            "type": addon_type,
+                            "category": addon_type,  # Use type as category
+                            "version": "latest",
+                            "plan": "standard",
+                            "as": addon_type.upper(),
+                            "access": "default",
+                            "status": "unknown",
+                            "source": "database",
+                        }
+                    )
                     seen_addon_refs.add(addon_ref)
-            
+
             # Always add Caddy for all apps (default addon)
-            result = db.execute(text("""
+            result = db.execute(
+                text("""
                 SELECT addon_instance
                 FROM addon_secrets
                 WHERE project_name = :project
                 AND addon_type = 'caddy'
                 LIMIT 1
-            """), {"project": self.project_name})
-            
+            """),
+                {"project": self.project_name},
+            )
+
             caddy_row = result.fetchone()
             if caddy_row:
                 caddy_instance = caddy_row[0]
                 caddy_ref = f"proxy.{caddy_instance}"
-                
+
                 if caddy_ref not in seen_addon_refs:
-                    app_status["addons"].append({
-                        "reference": caddy_ref,
-                        "name": caddy_instance,
-                        "type": "caddy",
-                        "category": "proxy",
-                        "version": "2-alpine",
-                        "plan": "standard",
-                        "as": "CADDY",
-                        "access": "default",
-                        "status": "unknown",
-                        "source": "database",
-                    })
+                    app_status["addons"].append(
+                        {
+                            "reference": caddy_ref,
+                            "name": caddy_instance,
+                            "type": "caddy",
+                            "category": "proxy",
+                            "version": "2-alpine",
+                            "plan": "standard",
+                            "as": "CADDY",
+                            "access": "default",
+                            "status": "unknown",
+                            "source": "database",
+                        }
+                    )
                     seen_addon_refs.add(caddy_ref)
-        
+
         finally:
             db.close()
 
@@ -237,55 +305,25 @@ class StatusCommand(ProjectCommand):
                                 container_name = parts[0]
                                 status = parts[1] if len(parts) > 1 else "unknown"
 
-                                # Detect addon containers (project_postgres_*, project_rabbitmq_*, project_caddy_*, etc.)
-                                for instance in addon_instances:
-                                    addon_container_prefix = (
-                                        f"{self.project_name}_{instance.type}_"
+                                # Detect addon containers by checking against our addon list
+                                for addon in app_status["addons"]:
+                                    addon_type = addon["type"]
+                                    addon_name = addon["name"]
+                                    addon_ref = addon["reference"]
+
+                                    addon_container_name = (
+                                        f"{self.project_name}_{addon_type}_{addon_name}"
                                     )
-                                    if container_name.startswith(
-                                        addon_container_prefix
+
+                                    if (
+                                        container_name == addon_container_name
+                                        or container_name.startswith(
+                                            addon_container_name
+                                        )
                                     ):
-                                        running_addons[instance.full_name] = {
+                                        running_addons[addon_ref] = {
                                             "container": container_name,
                                             "status": status,
-                                            "instance": instance,
-                                            "vm": vm_name_iter,
-                                        }
-
-                                # Special handling for Caddy (proxy addon) - only if not already detected
-                                if container_name.startswith(
-                                    f"{self.project_name}_caddy_"
-                                ):
-                                    # Extract caddy instance name from container
-                                    # Format: cheapa_caddy_core or cheapa_caddy_app
-                                    caddy_name = container_name.replace(
-                                        f"{self.project_name}_caddy_", ""
-                                    )
-
-                                    # Check if this caddy is already detected as proxy.*
-                                    proxy_ref = f"proxy.{caddy_name}"
-                                    if proxy_ref in running_addons:
-                                        # Already detected via addon_instances, skip
-                                        continue
-
-                                    # Create a pseudo-instance for Caddy if not already in addon_instances
-                                    caddy_ref = f"caddy.{caddy_name}"
-                                    if caddy_ref not in running_addons:
-                                        from cli.core.addon_instance import (
-                                            AddonInstance,
-                                        )
-
-                                        caddy_instance = AddonInstance(
-                                            category="proxy",
-                                            name=caddy_name,
-                                            type="caddy",
-                                            version="latest",
-                                            plan="standard",
-                                        )
-                                        running_addons[caddy_ref] = {
-                                            "container": container_name,
-                                            "status": status,
-                                            "instance": caddy_instance,
                                             "vm": vm_name_iter,
                                         }
 
@@ -301,8 +339,8 @@ class StatusCommand(ProjectCommand):
                 # Get app container status
                 # Docker Compose creates containers with pattern: {directory}-{app}-{process}-{replica}
                 # We need to get all containers and filter by app name
-                # First, get process names from config
-                processes = app_config.get("processes", {})
+                # Use process definitions from app_status
+                processes = app_status.get("process_definitions", {})
 
                 # Get all containers and filter by app name pattern
                 result = ssh_service.execute_command(
