@@ -268,9 +268,15 @@ class StatusCommand(ProjectCommand):
                         addon_entry["status"] = "not running"
 
                 # Get app container status
+                # Docker Compose creates containers with pattern: {directory}-{app}-{process}-{replica}
+                # We need to get all containers and filter by app name
+                # First, get process names from config
+                processes = app_config.get("processes", {})
+                
+                # Get all containers and filter by app name pattern
                 result = ssh_service.execute_command(
                     vm_ip,
-                    f"docker ps -a --filter name={self.project_name}-{self.app_filter} --format '{{{{.Names}}}}\\t{{{{.Status}}}}\\t{{{{.ID}}}}'",
+                    f"docker ps -a --format '{{{{.Names}}}}\\t{{{{.Status}}}}\\t{{{{.ID}}}}'",
                     timeout=5,
                 )
 
@@ -282,13 +288,29 @@ class StatusCommand(ProjectCommand):
                             status = parts[1] if len(parts) > 1 else "unknown"
                             container_id = parts[2] if len(parts) > 2 else ""
 
-                            app_status["processes"].append(
-                                {
-                                    "container": container_name,
-                                    "status": status,
-                                    "id": container_id[:12],
-                                }
-                            )
+                            # Check if container belongs to this app
+                            # Pattern: {anything}-{app}-{process}-{replica} or {app}-{process}
+                            # Examples: compose-api-web-1, cheapa-api-web-1, api-web-1
+                            app_name = self.app_filter
+                            is_app_container = False
+                            
+                            # Check if container name contains app name and a process name
+                            for process_name in processes.keys():
+                                # Match patterns like: *-api-web-* or api-web-*
+                                if f"-{app_name}-{process_name}" in container_name or \
+                                   f"{app_name}-{process_name}-" in container_name or \
+                                   container_name.startswith(f"{app_name}-{process_name}"):
+                                    is_app_container = True
+                                    break
+                            
+                            if is_app_container:
+                                app_status["processes"].append(
+                                    {
+                                        "container": container_name,
+                                        "status": status,
+                                        "id": container_id[:12],
+                                    }
+                                )
 
                 # Get version info
                 version_result = ssh_service.execute_command(

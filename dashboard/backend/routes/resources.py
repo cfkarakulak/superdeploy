@@ -116,7 +116,7 @@ async def get_app_resources(
         # Only show formation if app has running processes (is deployed)
         # This ensures we don't show config-based process definitions for non-deployed apps
         running_processes = app_status.get("processes", [])
-        
+
         if running_processes:
             # App is deployed, get process definitions from config
             try:
