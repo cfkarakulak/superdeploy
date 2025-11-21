@@ -90,13 +90,13 @@ class StatusCommand(ProjectCommand):
         # Build addons list from config
         # Show: attached addons + Caddy (default, only the one on same VM)
         seen_addon_refs = set()
-        
+
         # Get app VM
         app_vm = app_config.get("vm", "app")
-        
+
         # Get addons config to check VM assignments
         addons_config = config.get("addons", {})
-        
+
         for instance in addon_instances:
             # Check if this addon is attached to the app
             attachment = None
@@ -104,7 +104,7 @@ class StatusCommand(ProjectCommand):
                 if att.addon == instance.full_name:
                     attachment = att
                     break
-            
+
             if attachment:
                 # Attached addon: show it (regardless of VM)
                 app_status["addons"].append(
@@ -133,7 +133,7 @@ class StatusCommand(ProjectCommand):
                             if addon_name == instance.name:
                                 addon_vm = addon_config.get("vm")
                                 break
-                
+
                 # Only show if on same VM
                 if addon_vm == app_vm:
                     as_prefix = instance.type.upper()

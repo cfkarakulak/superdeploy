@@ -109,36 +109,40 @@ async def get_app_resources(
             app_status = {}
 
         # ================================================================
-        # FORMATION - Process definitions from marker file (via ps command)
+        # FORMATION - Only show if app is deployed (has running processes)
         # ================================================================
         formation = []
 
-        # Get process definitions from ps command (reads from marker file)
-        try:
-            ps_data = await cli.execute_json(f"{project_name}:ps")
-            apps_data = ps_data.get("apps", [])
+        # Only show formation if app has running processes (is deployed)
+        # This ensures we don't show config-based process definitions for non-deployed apps
+        running_processes = app_status.get("processes", [])
+        
+        if running_processes:
+            # App is deployed, get process definitions from config
+            try:
+                ps_data = await cli.execute_json(f"{project_name}:ps")
+                apps_data = ps_data.get("apps", [])
 
-            # Find our app in the ps output
-            for app_data in apps_data:
-                if app_data.get("name") == app_name:
-                    # Get processes from marker file
-                    processes_dict = app_data.get("processes", {})
+                # Find our app in the ps output
+                for app_data in apps_data:
+                    if app_data.get("name") == app_name:
+                        # Get processes from config
+                        processes_dict = app_data.get("processes", {})
 
-                    for process_name, process_config in processes_dict.items():
-                        formation.append(
-                            {
-                                "name": process_name,
-                                "command": process_config.get("command", ""),
-                                "replicas": process_config.get("replicas", 1),
-                                "port": process_config.get("port"),
-                                "run_on": process_config.get("run_on"),
-                            }
-                        )
-                    break
-        except Exception as e:
-            print(f"Warning: Failed to get process formation from ps command: {e}")
-            # If ps command fails, formation will be empty
-            # Frontend will handle empty formation gracefully
+                        for process_name, process_config in processes_dict.items():
+                            formation.append(
+                                {
+                                    "name": process_name,
+                                    "command": process_config.get("command", ""),
+                                    "replicas": process_config.get("replicas", 1),
+                                    "port": process_config.get("port"),
+                                    "run_on": process_config.get("run_on"),
+                                }
+                            )
+                        break
+            except Exception as e:
+                print(f"Warning: Failed to get process formation from ps command: {e}")
+                # If ps command fails, formation will be empty
 
         # ================================================================
         # ADD-ONS - Get from CLI status (includes real runtime status)
