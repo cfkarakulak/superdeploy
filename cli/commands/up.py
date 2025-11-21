@@ -731,6 +731,75 @@ def _deploy_project_internal(
                 vm_ips={"external": public_ips, "internal": internal_ips},
             )
 
+            # Save VMs to database
+            vms_by_role = outputs.get("vms_by_role", {}).get("value", {})
+            if vms_by_role:
+                from cli.database import get_db_session
+                from sqlalchemy import text
+
+                db = get_db_session()
+                try:
+                    # Get project ID
+                    project_result = db.execute(
+                        text("SELECT id FROM projects WHERE name = :project"),
+                        {"project": project}
+                    )
+                    project_row = project_result.fetchone()
+                    if project_row:
+                        project_id = project_row[0]
+                        
+                        # Insert/Update VMs
+                        for role, vms in vms_by_role.items():
+                            for vm in vms:
+                                # Check if VM exists
+                                check = db.execute(
+                                    text("SELECT id FROM vms WHERE name = :name"),
+                                    {"name": vm["name"]}
+                                )
+                                existing = check.fetchone()
+                                
+                                if existing:
+                                    # Update
+                                    db.execute(
+                                        text("""
+                                            UPDATE vms 
+                                            SET external_ip = :external_ip, 
+                                                internal_ip = :internal_ip,
+                                                role = :role,
+                                                status = 'running'
+                                            WHERE name = :name
+                                        """),
+                                        {
+                                            "name": vm["name"],
+                                            "external_ip": vm["external_ip"],
+                                            "internal_ip": vm["internal_ip"],
+                                            "role": role
+                                        }
+                                    )
+                                else:
+                                    # Insert
+                                    db.execute(
+                                        text("""
+                                            INSERT INTO vms (project_id, name, role, external_ip, internal_ip, machine_type, status)
+                                            VALUES (:project_id, :name, :role, :external_ip, :internal_ip, :machine_type, :status)
+                                        """),
+                                        {
+                                            "project_id": project_id,
+                                            "name": vm["name"],
+                                            "role": role,
+                                            "external_ip": vm["external_ip"],
+                                            "internal_ip": vm["internal_ip"],
+                                            "machine_type": "e2-medium",  # TODO: Get from config
+                                            "status": "running"
+                                        }
+                                    )
+                        
+                        db.commit()
+                        if logger:
+                            logger.log("✓ VMs saved to database")
+                finally:
+                    db.close()
+
             # Add IPs to env dict for Ansible
             for vm_key, ip in sorted(public_ips.items()):
                 env_key = vm_key.upper().replace("-", "_")
