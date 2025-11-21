@@ -88,7 +88,7 @@ class StatusCommand(ProjectCommand):
         addon_instances = self.config_service.parse_addons(config)
 
         # Build addons list from config
-        # Show only addons relevant to this app: either attached OR on same VM
+        # Show: attached addons + Caddy (default, only the one on same VM)
         seen_addon_refs = set()
         
         # Get app VM
@@ -105,37 +105,37 @@ class StatusCommand(ProjectCommand):
                     attachment = att
                     break
             
-            # Get addon VM
-            addon_vm = None
-            for category, addons in addons_config.items():
-                if category == instance.category:
-                    for addon_name, addon_config in addons.items():
-                        if addon_name == instance.name:
-                            addon_vm = addon_config.get("vm")
-                            break
-            
-            # Show addon if: attached to app OR on same VM as app
-            show_addon = attachment is not None or (addon_vm == app_vm)
-            
-            if show_addon:
-                if attachment:
-                    # Use attachment info
-                    app_status["addons"].append(
-                        {
-                            "reference": instance.full_name,
-                            "name": instance.name,
-                            "type": instance.type,
-                            "category": instance.category,
-                            "version": instance.version,
-                            "plan": instance.plan,
-                            "as": attachment.as_,
-                            "access": attachment.access,
-                            "status": "unknown",
-                            "source": "config",
-                        }
-                    )
-                else:
-                    # Default addon (on same VM)
+            if attachment:
+                # Attached addon: show it (regardless of VM)
+                app_status["addons"].append(
+                    {
+                        "reference": instance.full_name,
+                        "name": instance.name,
+                        "type": instance.type,
+                        "category": instance.category,
+                        "version": instance.version,
+                        "plan": instance.plan,
+                        "as": attachment.as_,
+                        "access": attachment.access,
+                        "status": "unknown",
+                        "source": "config",
+                    }
+                )
+                seen_addon_refs.add(instance.full_name)
+            elif instance.category == "proxy":
+                # Caddy is default for all apps
+                # But only show the instance on the same VM as the app
+                # Get addon VM
+                addon_vm = None
+                for category, addons in addons_config.items():
+                    if category == instance.category:
+                        for addon_name, addon_config in addons.items():
+                            if addon_name == instance.name:
+                                addon_vm = addon_config.get("vm")
+                                break
+                
+                # Only show if on same VM
+                if addon_vm == app_vm:
                     as_prefix = instance.type.upper()
                     app_status["addons"].append(
                         {
@@ -151,7 +151,7 @@ class StatusCommand(ProjectCommand):
                             "source": "config",
                         }
                     )
-                seen_addon_refs.add(instance.full_name)
+                    seen_addon_refs.add(instance.full_name)
 
         # Try to get runtime status from VM
         try:
