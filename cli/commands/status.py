@@ -114,7 +114,22 @@ class StatusCommand(ProjectCommand):
 
         # Try to get runtime status from VM
         try:
-            self.require_deployment()
+            # Check if VMs exist in DB (don't require deployment state file)
+            from cli.database import get_db_session
+            from sqlalchemy import text
+            
+            db = get_db_session()
+            try:
+                vm_check = db.execute(
+                    text("SELECT COUNT(*) FROM vms WHERE project_id = (SELECT id FROM projects WHERE name = :project)"),
+                    {"project": self.project_name}
+                )
+                vm_count = vm_check.fetchone()[0]
+                if vm_count == 0:
+                    raise SystemExit("No VMs found in database")
+            finally:
+                db.close()
+            
             vm_service = self.ensure_vm_service()
             ssh_service = vm_service.get_ssh_service()
 
@@ -163,7 +178,7 @@ class StatusCommand(ProjectCommand):
                                             "vm": vm_name_iter,
                                         }
 
-                                # Special handling for Caddy (proxy addon)
+                                # Special handling for Caddy (proxy addon) - only if not already detected
                                 if container_name.startswith(
                                     f"{self.project_name}_caddy_"
                                 ):
@@ -173,20 +188,23 @@ class StatusCommand(ProjectCommand):
                                         f"{self.project_name}_caddy_", ""
                                     )
 
+                                    # Check if this caddy is already detected as proxy.*
+                                    proxy_ref = f"proxy.{caddy_name}"
+                                    if proxy_ref in running_addons:
+                                        # Already detected via addon_instances, skip
+                                        continue
+                                    
                                     # Create a pseudo-instance for Caddy if not already in addon_instances
                                     caddy_ref = f"caddy.{caddy_name}"
                                     if caddy_ref not in running_addons:
-                                        from cli.services.addon_config import (
-                                            AddonInstance,
-                                        )
+                                        from cli.core.addon_instance import AddonInstance
 
                                         caddy_instance = AddonInstance(
-                                            type="caddy",
-                                            name=caddy_name,
                                             category="proxy",
+                                            name=caddy_name,
+                                            type="caddy",
                                             version="latest",
                                             plan="standard",
-                                            vm=vm_name_iter,
                                         )
                                         running_addons[caddy_ref] = {
                                             "container": container_name,
