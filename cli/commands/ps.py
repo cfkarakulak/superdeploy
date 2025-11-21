@@ -8,9 +8,113 @@ import click
 from rich.table import Table
 
 from cli.base import ProjectCommand
+import yaml
 
 
 class ProcessStatusCommand(ProjectCommand):
+    def _read_processes_from_marker(self, app_name: str, app_config: dict) -> dict:
+        """Read processes from marker file (local path, VM, or GitHub)."""
+        processes = {}
+
+        try:
+            # Try local path first (if running from code directory)
+            app_path = app_config.get("path")
+            if app_path:
+                from pathlib import Path
+                from cli.marker_manager import MarkerManager
+                import os
+
+                # Expand ~ and resolve path
+                expanded_path = (
+                    Path(os.path.expanduser(app_path)).expanduser().resolve()
+                )
+
+                # Try original path first
+                marker = MarkerManager.load_marker(expanded_path)
+                if marker and marker.processes:
+                    processes = {
+                        name: proc.to_dict() for name, proc in marker.processes.items()
+                    }
+                    return processes
+
+                # Try alternative paths (common code locations)
+                alt_paths = [
+                    Path.home() / "Desktop" / "cheapa.io" / "code" / app_name,
+                    Path.home() / "code" / app_name,
+                    Path("/Users") / os.getenv("USER", "") / "code" / app_name,
+                ]
+
+                for alt_path in alt_paths:
+                    if alt_path.exists():
+                        marker = MarkerManager.load_marker(alt_path)
+                        if marker and marker.processes:
+                            processes = {
+                                name: proc.to_dict()
+                                for name, proc in marker.processes.items()
+                            }
+                            return processes
+
+            # Try VM
+            vm_service = self.ensure_vm_service()
+            ssh_service = vm_service.get_ssh_service()
+
+            try:
+                vm_name, vm_ip = self.get_vm_for_app(app_name)
+                marker_path = f"/opt/superdeploy/projects/{self.project_name}/data/{app_name}/superdeploy"
+
+                marker_result = ssh_service.execute_command(
+                    vm_ip,
+                    f"cat {marker_path} 2>/dev/null || echo ''",
+                    timeout=5,
+                )
+
+                if marker_result.returncode == 0 and marker_result.stdout.strip():
+                    marker_data = yaml.safe_load(marker_result.stdout)
+                    if marker_data and "processes" in marker_data:
+                        processes = marker_data["processes"]
+                        return processes
+            except Exception:
+                pass
+
+            # Try GitHub if VM failed
+            app_repo = app_config.get("repo") or app_name
+            app_owner = app_config.get("owner")
+
+            if app_owner:
+                try:
+                    import os
+                    import urllib.request
+                    import urllib.error
+
+                    github_token = os.getenv("GITHUB_TOKEN")
+                    if github_token:
+                        for branch in ["main", "master"]:
+                            url = f"https://api.github.com/repos/{app_owner}/{app_repo}/contents/superdeploy?ref={branch}"
+
+                            req = urllib.request.Request(url)
+                            req.add_header("Authorization", f"token {github_token}")
+                            req.add_header("Accept", "application/vnd.github.v3.raw")
+
+                            try:
+                                with urllib.request.urlopen(req, timeout=5) as response:
+                                    if response.status == 200:
+                                        marker_text = response.read().decode("utf-8")
+                                        marker_data = yaml.safe_load(marker_text)
+
+                                        if marker_data and "processes" in marker_data:
+                                            processes = marker_data["processes"]
+                                            return processes
+                            except (urllib.error.HTTPError, Exception):
+                                continue
+                except Exception:
+                    pass
+
+        except Exception as e:
+            if self.verbose:
+                print(f"Warning: Failed to read marker file for {app_name}: {e}")
+
+        return processes
+
     """Show application process status with replicas."""
 
     def execute(self) -> None:
@@ -30,23 +134,30 @@ class ProcessStatusCommand(ProjectCommand):
         if self.json_output:
             apps_data = []
             for app_name, app_config in apps.items():
+                # Read processes from MARKER FILE (not DB!)
+                processes = self._read_processes_from_marker(app_name, app_config)
+
+                # Determine app type and port from processes
+                app_port = None
+                total_replicas = 0
+                for proc_name, proc_config in processes.items():
+                    if proc_config.get("port"):
+                        app_port = proc_config.get("port")
+                    total_replicas += proc_config.get("replicas", 1)
+
                 app_type = app_config.get("type")
                 if not app_type:
-                    app_type = "web" if app_config.get("port") else "worker"
-
-                # Get process definitions from apps_config (database)
-                # apps_config already contains processes from database
-                processes = app_config.get("processes", {})
+                    app_type = "web" if app_port else "worker"
 
                 apps_data.append(
                     {
                         "name": app_name,
                         "type": app_type,
-                        "replicas": app_config.get("replicas", 1),
-                        "port": app_config.get("port"),
+                        "replicas": total_replicas if total_replicas > 0 else 1,
+                        "port": app_port,
                         "vm": app_config.get("vm", "app"),
                         "status": "configured",  # TODO: Check actual Docker container status
-                        "processes": processes,  # Process definitions from database
+                        "processes": processes,  # Process definitions from marker file
                     }
                 )
 

@@ -97,6 +97,171 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     return db_project
 
 
+@router.get("/{project_name}/deployment-history")
+async def get_deployment_history(project_name: str, db: Session = Depends(get_db)):
+    """Get recent deployment history for all apps in project."""
+    from models import DeploymentHistory
+    from sqlalchemy import desc, text
+
+    # Get project
+    project = db.query(Project).filter(Project.name == project_name).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Get recent deployments (last 50)
+    deployments = (
+        db.query(DeploymentHistory)
+        .filter(DeploymentHistory.project_id == project.id)
+        .order_by(desc(DeploymentHistory.deployed_at))
+        .limit(50)
+        .all()
+    )
+
+    # Count total and deployed apps
+    apps = db.query(App).filter(App.project_id == project.id).all()
+    total_apps = len(apps)
+
+    # Count deployed apps by checking running containers
+    deployed_apps = 0
+    try:
+        # Get all apps
+        app_names = [app.name for app in apps]
+
+        # Check if containers exist for each app
+        from cli.services.vm_service import VMService
+        from cli.services.config_service import ConfigService
+        from pathlib import Path
+
+        # Get VM service - project root is parent of dashboard directory
+        dashboard_dir = Path(
+            __file__
+        ).parent.parent.parent  # dashboard/backend/routes -> dashboard
+        project_root = dashboard_dir.parent  # dashboard -> superdeploy
+        config_service = ConfigService(project_root)
+        vm_service = VMService(project_name, config_service)
+        ssh_service = vm_service.get_ssh_service()
+
+        # Get all VMs
+        all_vms = vm_service.get_all_vms()
+        running_apps = set()
+
+        # Check containers on each VM
+        for vm_name, vm_data in all_vms.items():
+            vm_ip = vm_data.get("external_ip")
+            if not vm_ip:
+                continue
+
+            try:
+                # Get running containers
+                result = ssh_service.execute_command(
+                    vm_ip,
+                    "docker ps --format '{{.Names}}'",
+                    timeout=5,
+                )
+
+                if result.returncode == 0 and result.stdout.strip():
+                    for container_name in result.stdout.strip().split("\n"):
+                        if not container_name:
+                            continue
+                        # Check if it's an app container (compose-{app}-{process}-{replica})
+                        if container_name.startswith("compose-"):
+                            parts = container_name.split("-")
+                            if len(parts) >= 3:
+                                app_name = parts[1]
+                                if app_name in app_names:
+                                    running_apps.add(app_name)
+            except Exception:
+                # Skip if SSH fails
+                continue
+
+        deployed_apps = len(running_apps) if running_apps else 0
+    except Exception as e:
+        print(f"Warning: Failed to check deployed apps via containers: {e}")
+        # Fallback: assume all apps are deployed if we have containers running
+        # Check if any containers exist at all
+        try:
+            from cli.services.vm_service import VMService
+            from cli.services.config_service import ConfigService
+            from pathlib import Path
+
+            # Get VM service - project root is parent of dashboard directory
+            dashboard_dir = Path(
+                __file__
+            ).parent.parent.parent  # dashboard/backend/routes -> dashboard
+            project_root = dashboard_dir.parent  # dashboard -> superdeploy
+            config_service = ConfigService(project_root)
+            vm_service = VMService(project_name, config_service)
+            ssh_service = vm_service.get_ssh_service()
+            all_vms = vm_service.get_all_vms()
+
+            has_containers = False
+            for vm_name, vm_data in all_vms.items():
+                vm_ip = vm_data.get("external_ip")
+                if vm_ip:
+                    try:
+                        result = ssh_service.execute_command(
+                            vm_ip,
+                            "docker ps --format '{{.Names}}' | head -1",
+                            timeout=3,
+                        )
+                        if result.returncode == 0 and result.stdout.strip():
+                            has_containers = True
+                            break
+                    except:
+                        pass
+
+            # If containers exist, assume apps are deployed
+            if has_containers:
+                deployed_apps = total_apps
+            else:
+                deployed_apps = 0
+        except:
+            # Final fallback: count apps with successful deployments
+            deployed_apps_result = db.execute(
+                text("""
+                    SELECT COUNT(DISTINCT app_name)
+                    FROM deployment_history
+                    WHERE project_id = :project_id
+                    AND status = 'success'
+                """),
+                {"project_id": project.id},
+            )
+            deployed_apps = deployed_apps_result.scalar() or 0
+
+    # Get last deployment time
+    last_deployment = None
+    if deployments:
+        last_deployment = (
+            deployments[0].deployed_at.isoformat()
+            if deployments[0].deployed_at
+            else None
+        )
+
+    deployment_list = []
+    for d in deployments:
+        deployment_list.append(
+            {
+                "app_name": d.app_name,
+                "version": d.version,
+                "git_sha": d.git_sha[:7] if d.git_sha else "-",
+                "branch": d.branch or "-",
+                "deployed_at": d.deployed_at.isoformat() if d.deployed_at else None,
+                "deployed_by": d.deployed_by or "system",
+                "status": d.status,
+                "duration": d.duration,
+            }
+        )
+
+    return {
+        "stats": {
+            "total_apps": total_apps,
+            "deployed_apps": deployed_apps,
+            "last_deployment": last_deployment,
+        },
+        "deployments": deployment_list,
+    }
+
+
 @router.get("/{project_name}", response_model=ProjectResponse)
 def get_project(project_name: str, db: Session = Depends(get_db)):
     """Get a single project by name."""

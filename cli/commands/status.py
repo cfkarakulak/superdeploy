@@ -83,31 +83,175 @@ class StatusCommand(ProjectCommand):
 
             app_id = app_row[0]
             app_vm = app_row[4] if app_row[4] else "app"
+            app_repo = app_row[2]
+            app_owner = app_row[3]
 
-            # Get process definitions (to determine app type, port, replicas)
-            process_result = db.execute(
-                text("""
-                SELECT name, command, replicas, port
-                FROM processes
-                WHERE app_id = :app_id
-            """),
-                {"app_id": app_id},
-            )
-
+            # Read process definitions from MARKER FILE (not DB!)
+            # Marker file is the source of truth - always up-to-date
             processes_dict = {}
             app_port = None
             total_replicas = 0
 
-            for row in process_result.fetchall():
-                process_name = row[0]
-                processes_dict[process_name] = {
-                    "command": row[1],
-                    "replicas": row[2],
-                    "port": row[3],
-                }
-                if row[3]:  # has port
-                    app_port = row[3]
-                total_replicas += row[2]
+            try:
+                # Try local path first (if running from code directory)
+                config = self.config_service.get_raw_config(self.project_name)
+                apps_config = config.get("apps", {})
+                app_config = apps_config.get(self.app_filter, {})
+                app_path = app_config.get("path")
+
+                if app_path:
+                    from pathlib import Path
+                    from cli.marker_manager import MarkerManager
+                    import os
+
+                    # Expand ~ and resolve path
+                    expanded_path = (
+                        Path(os.path.expanduser(app_path)).expanduser().resolve()
+                    )
+
+                    # Try original path first
+                    marker = MarkerManager.load_marker(expanded_path)
+                    if not marker or not marker.processes:
+                        # Try alternative paths (common code locations)
+                        alt_paths = [
+                            Path.home()
+                            / "Desktop"
+                            / "cheapa.io"
+                            / "code"
+                            / self.app_filter,
+                            Path.home() / "code" / self.app_filter,
+                            Path("/Users")
+                            / os.getenv("USER", "")
+                            / "code"
+                            / self.app_filter,
+                        ]
+
+                        for alt_path in alt_paths:
+                            if alt_path.exists():
+                                marker = MarkerManager.load_marker(alt_path)
+                                if marker and marker.processes:
+                                    break
+
+                    if marker and marker.processes:
+                        for process_name, process_def in marker.processes.items():
+                            processes_dict[process_name] = {
+                                "command": process_def.command,
+                                "replicas": process_def.replicas,
+                                "port": process_def.port,
+                            }
+                            if process_def.port:
+                                app_port = process_def.port
+                            total_replicas += process_def.replicas
+
+                # If local not found, try VM
+                if not processes_dict:
+                    vm_service = self.ensure_vm_service()
+                    ssh_service = vm_service.get_ssh_service()
+
+                    # Get VM for this app
+                    vm_name, vm_ip = self.get_vm_for_app(self.app_filter)
+
+                    # Marker file path on VM
+                    marker_path = f"/opt/superdeploy/projects/{self.project_name}/data/{self.app_filter}/superdeploy"
+
+                    # Try to read marker file
+                    marker_result = ssh_service.execute_command(
+                        vm_ip,
+                        f"cat {marker_path} 2>/dev/null || echo ''",
+                        timeout=5,
+                    )
+
+                    if marker_result.returncode == 0 and marker_result.stdout.strip():
+                        # Parse YAML marker file
+                        import yaml
+
+                        marker_data = yaml.safe_load(marker_result.stdout)
+
+                        if marker_data and "processes" in marker_data:
+                            for process_name, process_config in marker_data[
+                                "processes"
+                            ].items():
+                                processes_dict[process_name] = {
+                                    "command": process_config.get("command", ""),
+                                    "replicas": process_config.get("replicas", 1),
+                                    "port": process_config.get("port"),
+                                }
+                                if process_config.get("port"):
+                                    app_port = process_config.get("port")
+                                total_replicas += process_config.get("replicas", 1)
+
+                # If marker file not found on VM, try GitHub (sync)
+                if not processes_dict and app_repo and app_owner:
+                    try:
+                        import os
+                        import urllib.request
+                        import urllib.error
+
+                        github_token = os.getenv("GITHUB_TOKEN")
+                        if github_token:
+                            # Try default branch (main/master)
+                            for branch in ["main", "master"]:
+                                url = f"https://api.github.com/repos/{app_owner}/{app_repo}/contents/superdeploy?ref={branch}"
+
+                                req = urllib.request.Request(url)
+                                req.add_header("Authorization", f"token {github_token}")
+                                req.add_header(
+                                    "Accept", "application/vnd.github.v3.raw"
+                                )
+
+                                try:
+                                    with urllib.request.urlopen(
+                                        req, timeout=5
+                                    ) as response:
+                                        if response.status == 200:
+                                            marker_text = response.read().decode(
+                                                "utf-8"
+                                            )
+                                            marker_data = yaml.safe_load(marker_text)
+
+                                            if (
+                                                marker_data
+                                                and "processes" in marker_data
+                                            ):
+                                                for (
+                                                    process_name,
+                                                    process_config,
+                                                ) in marker_data["processes"].items():
+                                                    processes_dict[process_name] = {
+                                                        "command": process_config.get(
+                                                            "command", ""
+                                                        ),
+                                                        "replicas": process_config.get(
+                                                            "replicas", 1
+                                                        ),
+                                                        "port": process_config.get(
+                                                            "port"
+                                                        ),
+                                                    }
+                                                    if process_config.get("port"):
+                                                        app_port = process_config.get(
+                                                            "port"
+                                                        )
+                                                    total_replicas += (
+                                                        process_config.get(
+                                                            "replicas", 1
+                                                        )
+                                                    )
+                                                break
+                                except urllib.error.HTTPError:
+                                    continue
+                                except Exception:
+                                    continue
+                    except Exception as github_error:
+                        if self.verbose:
+                            print(
+                                f"Warning: Failed to read marker from GitHub: {github_error}"
+                            )
+
+            except Exception as marker_error:
+                if self.verbose:
+                    print(f"Warning: Failed to read marker file: {marker_error}")
+                # Fallback: empty processes_dict
 
             # Determine app type (web if has port, worker otherwise)
             app_type = "web" if app_port else "worker"
@@ -215,7 +359,8 @@ class StatusCommand(ProjectCommand):
                     )
                     seen_addon_refs.add(addon_ref)
 
-            # Always add Caddy for all apps (default addon)
+            # Always add Caddy for the app's VM (required for reverse proxy)
+            # Get Caddy instance for this app's VM
             result = db.execute(
                 text("""
                 SELECT addon_instance
@@ -232,6 +377,7 @@ class StatusCommand(ProjectCommand):
                 caddy_instance = caddy_row[0]
                 caddy_ref = f"proxy.{caddy_instance}"
 
+                # Add Caddy if not already in the list
                 if caddy_ref not in seen_addon_refs:
                     app_status["addons"].append(
                         {
@@ -244,7 +390,7 @@ class StatusCommand(ProjectCommand):
                             "as": "CADDY",
                             "access": "default",
                             "status": "unknown",
-                            "source": "database",
+                            "source": "auto",  # Auto-attached to all apps
                         }
                     )
                     seen_addon_refs.add(caddy_ref)
@@ -297,7 +443,9 @@ class StatusCommand(ProjectCommand):
                     except Exception as ssh_error:
                         # SSH failed (e.g., permission denied) - skip this VM
                         if self.verbose and logger:
-                            logger.log(f"[dim]⚠️  Could not connect to {vm_name_iter} ({vm_ip_iter}): {ssh_error}[/dim]")
+                            logger.log(
+                                f"[dim]⚠️  Could not connect to {vm_name_iter} ({vm_ip_iter}): {ssh_error}[/dim]"
+                            )
                         continue
 
                     # Parse all containers and identify addons
@@ -312,26 +460,34 @@ class StatusCommand(ProjectCommand):
                                 status = parts[1] if len(parts) > 1 else "unknown"
 
                                 # Detect addon containers by checking against our addon list
+                                # Container naming patterns:
+                                # - {project}_{addon_type}_{addon_type} (e.g., cheapa_postgres_postgres)
+                                # - {project}_{addon_type}_{vm_name} (e.g., cheapa_caddy_app)
+                                # - {project}_{addon_name} (e.g., cheapa_redis)
                                 for addon in app_status["addons"]:
                                     addon_type = addon["type"]
                                     addon_name = addon["name"]
                                     addon_ref = addon["reference"]
 
-                                    addon_container_name = (
-                                        f"{self.project_name}_{addon_type}_{addon_name}"
-                                    )
+                                    # Try multiple container name patterns
+                                    possible_patterns = [
+                                        f"{self.project_name}_{addon_type}_{addon_type}",  # postgres_postgres
+                                        f"{self.project_name}_{addon_type}_{addon_name}",  # postgres_primary
+                                        f"{self.project_name}_{addon_name}",  # redis
+                                        f"{self.project_name}_{addon_type}_",  # Prefix match for caddy_app, etc.
+                                    ]
 
-                                    if (
-                                        container_name == addon_container_name
-                                        or container_name.startswith(
-                                            addon_container_name
-                                        )
-                                    ):
-                                        running_addons[addon_ref] = {
-                                            "container": container_name,
-                                            "status": status,
-                                            "vm": vm_name_iter,
-                                        }
+                                    for pattern in possible_patterns:
+                                        if (
+                                            container_name == pattern
+                                            or container_name.startswith(pattern)
+                                        ):
+                                            running_addons[addon_ref] = {
+                                                "container": container_name,
+                                                "status": status,
+                                                "vm": vm_name_iter,
+                                            }
+                                            break
 
                 # Update addon status from runtime (addons were already added from config)
                 # Only update status for config-attached addons, don't add runtime-only addons
@@ -340,14 +496,23 @@ class StatusCommand(ProjectCommand):
                     if addon_ref in running_addons:
                         addon_entry["status"] = running_addons[addon_ref]["status"]
                     else:
-                        # Addon not detected in runtime
-                        # Check if it's a core VM addon (postgres, rabbitmq) - they're likely running but SSH failed
+                        # Addon not detected in runtime (Docker container not found)
+                        # This could mean:
+                        # - Addon not deployed yet
+                        # - SSH failed
+                        # - Running outside Docker Compose
                         addon_type = addon_entry["type"]
-                        if addon_type in ["postgres", "rabbitmq", "redis", "mongodb", "elasticsearch"]:
-                            # Core VM addons are likely running (deployed successfully)
-                            addon_entry["status"] = "running (core VM)"
+                        if addon_type in [
+                            "postgres",
+                            "rabbitmq",
+                            "redis",
+                            "mongodb",
+                            "elasticsearch",
+                        ]:
+                            # Core VM addons - likely deployed
+                            addon_entry["status"] = "Up (not monitored)"
                         else:
-                            addon_entry["status"] = "not running"
+                            addon_entry["status"] = "Not deployed"
 
                 # Get app container status
                 # Docker Compose creates containers with pattern: {directory}-{app}-{process}-{replica}

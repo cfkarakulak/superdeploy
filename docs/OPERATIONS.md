@@ -19,7 +19,7 @@ superdeploy myproject:sync
 
 # 5. App repo'ya commit et
 cd ~/code/myorg/newapp
-git add .superdeploy .github/workflows/deploy.yml
+git add superdeploy .github/workflows/deploy.yml
 git commit -m "Add SuperDeploy"
 git push origin main
 

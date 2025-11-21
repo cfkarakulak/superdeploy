@@ -82,13 +82,14 @@ class AppMarker:
             project: cheapa
             app: api
             vm: app
-            web:
-              command: python craft serve --host 0.0.0.0 --port 8000
-              port: 8000
-              replicas: 2
-            worker:
-              command: python craft queue:work --tries=3
-              replicas: 3
+            processes:
+              web:
+                command: python craft serve --host 0.0.0.0 --port 8000
+                port: 8000
+                replicas: 2
+              worker:
+                command: python craft queue:work --tries=3
+                replicas: 3
         """
         result = {
             "project": self.project,
@@ -96,9 +97,11 @@ class AppMarker:
             "vm": self.vm,
         }
 
-        # Add all processes as root-level keys
-        for name, proc_def in self.processes.items():
-            result[name] = proc_def.to_dict()
+        # Add processes under 'processes:' key
+        if self.processes:
+            result["processes"] = {
+                name: proc_def.to_dict() for name, proc_def in self.processes.items()
+            }
 
         return result
 
@@ -109,13 +112,14 @@ class AppMarker:
         app = data.get("app", "")
         vm = data.get("vm", "app")
 
-        # Parse root-level process keys (web, worker, release, etc.)
+        # Parse processes from 'processes:' key
         processes = {}
-        reserved_keys = {"project", "app", "vm"}
+        processes_data = data.get("processes", {})
 
-        for key, value in data.items():
-            if key not in reserved_keys and isinstance(value, dict):
-                processes[key] = ProcessDefinition.from_dict(value)
+        if isinstance(processes_data, dict):
+            for name, proc_config in processes_data.items():
+                if isinstance(proc_config, dict):
+                    processes[name] = ProcessDefinition.from_dict(proc_config)
 
         return cls(
             project=project,

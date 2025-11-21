@@ -54,7 +54,7 @@ superdeploy myproject:sync
 ### 2. Application Deployment (`git push production`)
 
 - **Build job** (GitHub-hosted runner):
-  - Reads `.superdeploy` marker file for project/app/vm_role
+  - Reads `superdeploy` marker file for project/app/vm_role
   - Builds Docker image
   - Pushes to Docker registry
   - Outputs project metadata
@@ -210,7 +210,7 @@ superdeploy myproject:generate --app newapp
 4. **Commit workflow** to app repo:
 ```bash
 cd ~/code/myorg/newapp
-git add .superdeploy .github/workflows/deploy.yml
+git add superdeploy .github/workflows/deploy.yml
 git commit -m "Add SuperDeploy"
 ```
 

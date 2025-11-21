@@ -1,4 +1,4 @@
-name: Deploy to {{ project }}
+name: Deploy to receet
 
 on:
   push:
@@ -9,26 +9,26 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      project: {% raw %}${{ steps.config.outputs.project }}{% endraw %}
-      app: {% raw %}${{ steps.config.outputs.app }}{% endraw %}
-      vm_role: {% raw %}${{ steps.config.outputs.vm_role }}{% endraw %}
+      project: ${{ steps.config.outputs.project }}
+      app: ${{ steps.config.outputs.app }}
+      vm_role: ${{ steps.config.outputs.vm_role }}
     
     steps:
-      - name: Checkout {{ app_name }} repository
+      - name: Checkout bot repository
         uses: actions/checkout@v4
         with:
-          token: {% raw %}${{ secrets.REPOSITORY_TOKEN }}{% endraw %}
-          path: {{ app_name }}
+          token: ${{ secrets.REPOSITORY_TOKEN }}
+          path: bot
       
       - name: Checkout commons models (shared workspace)
         uses: actions/checkout@v4
         with:
-          repository: {{ repo_org }}/commons
-          token: {% raw %}${{ secrets.REPOSITORY_TOKEN }}{% endraw %}
+          repository: receetio/commons
+          token: ${{ secrets.REPOSITORY_TOKEN }}
           path: commons
       
       - name: Read app configuration
-        working-directory: {{ app_name }}
+        working-directory: bot
         id: config
         run: |
           PROJECT=$(grep "^project:" superdeploy | cut -d: -f2 | xargs)
@@ -44,37 +44,37 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: {% raw %}${{ vars.DOCKER_USERNAME }}{% endraw %}
-          password: {% raw %}${{ secrets.DOCKER_TOKEN }}{% endraw %}
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
       
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./{{ app_name }}/Dockerfile
+          file: ./bot/Dockerfile
           push: true
           tags: |
-            {% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:latest
-            {% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:{% raw %}${{ github.sha }}{% endraw %}
-          cache-from: type=registry,ref={% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:buildcache
-          cache-to: type=registry,ref={% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:buildcache,mode=max
+            ${{ vars.DOCKER_ORG }}/${{ steps.config.outputs.app }}:latest
+            ${{ vars.DOCKER_ORG }}/${{ steps.config.outputs.app }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ vars.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache
+          cache-to: type=registry,ref=${{ vars.DOCKER_ORG }}/${{ steps.config.outputs.app }}:buildcache,mode=max
 
   deploy:
     name: Deploy service (zero-downtime with replicas)
     needs: build
-    environment: {% raw %}${{ github.ref_name }}{% endraw %}
+    environment: ${{ github.ref_name }}
     runs-on: 
       - self-hosted
       - superdeploy
-      - {% raw %}${{ needs.build.outputs.project }}{% endraw %}
-      - {% raw %}${{ needs.build.outputs.vm_role }}{% endraw %}
+      - ${{ needs.build.outputs.project }}
+      - ${{ needs.build.outputs.vm_role }}
     
     steps:
-      - name: Checkout {{ app }} repository
+      - name: Checkout bot repository
         uses: actions/checkout@v4
         with:
-{% raw %}          token: ${{ secrets.REPOSITORY_TOKEN }}{% endraw %}
-          path: {{ app }}
+          token: ${{ secrets.REPOSITORY_TOKEN }}
+          path: bot
 
       - name: Validate runner
         run: |
@@ -86,8 +86,8 @@ jobs:
           fi
           
           RUNNER_PROJECT=$(cat /opt/superdeploy/.project)
-          if [ "$RUNNER_PROJECT" != "{% raw %}${{ needs.build.outputs.project }}{% endraw %}" ]; then
-            echo "❌ ERROR: Wrong project! Expected {% raw %}${{ needs.build.outputs.project }}{% endraw %}, got $RUNNER_PROJECT"
+          if [ "$RUNNER_PROJECT" != "${{ needs.build.outputs.project }}" ]; then
+            echo "❌ ERROR: Wrong project! Expected ${{ needs.build.outputs.project }}, got $RUNNER_PROJECT"
             exit 1
           fi
           
@@ -95,9 +95,9 @@ jobs:
       
       - name: Create .env from GitHub Environment Secrets
         env:
-{% raw %}          SECRETS_JSON: ${{ toJSON(secrets) }}{% endraw %}
+          SECRETS_JSON: ${{ toJSON(secrets) }}
         run: |
-{% raw %}          APP_NAME="${{ needs.build.outputs.app }}"
+          APP_NAME="${{ needs.build.outputs.app }}"
           PROJECT="${{ needs.build.outputs.project }}"
           ENV_DIR="/opt/superdeploy/projects/$PROJECT/data/$APP_NAME"
           
@@ -112,14 +112,14 @@ jobs:
           sudo chmod 600 "$ENV_DIR/.env"
           
           echo "✅ Environment file created at $ENV_DIR/.env"
-          echo "📊 Total variables: $(wc -l < "$ENV_DIR/.env")"{% endraw %}
+          echo "📊 Total variables: $(wc -l < "$ENV_DIR/.env")"
       
       - name: Update docker-compose.yml from marker file
         run: |
-          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
-          PROJECT="{% raw %}${{ needs.build.outputs.project }}{% endraw %}"
+          APP_NAME="${{ needs.build.outputs.app }}"
+          PROJECT="${{ needs.build.outputs.project }}"
           COMPOSE_FILE="/opt/superdeploy/projects/$PROJECT/compose/docker-compose.yml"
-          MARKER_FILE="${GITHUB_WORKSPACE}/{{ app }}/superdeploy"
+          MARKER_FILE="${GITHUB_WORKSPACE}/bot/superdeploy"
           
           echo "🔄 Updating docker-compose.yml for $APP_NAME from marker..."
           echo "📁 Marker file: $MARKER_FILE"
@@ -131,8 +131,8 @@ jobs:
             echo "📁 Current directory: $(pwd)"
             echo "📁 Listing GITHUB_WORKSPACE:"
             ls -la "$GITHUB_WORKSPACE/" || true
-            echo "📁 Listing GITHUB_WORKSPACE/{{ app }}:"
-            ls -la "$GITHUB_WORKSPACE/{{ app }}/" || true
+            echo "📁 Listing GITHUB_WORKSPACE/bot:"
+            ls -la "$GITHUB_WORKSPACE/bot/" || true
             exit 1
           fi
           
@@ -258,9 +258,9 @@ jobs:
       
       - name: Deploy application (zero-downtime with replicas)
         run: |
-          cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}/compose
+          cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}/compose
           
-          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
+          APP_NAME="${{ needs.build.outputs.app }}"
           
           # Debug: Show docker-compose.yml content
           echo "🔍 DEBUG: docker-compose.yml content:"
@@ -294,7 +294,7 @@ jobs:
           
           # Pull new image first (same image for all processes)
           echo "📦 Step 1/3: Pulling new image..."
-          docker pull {% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/${APP_NAME}:latest
+          docker pull ${{ vars.DOCKER_ORG }}/${APP_NAME}:latest
           
           # Deploy all process services with Docker Compose rolling update
           echo "🚀 Step 2/3: Deploying all processes (rolling update)..."
@@ -316,8 +316,8 @@ jobs:
           TOTAL_RUNNING=0
           TOTAL_EXPECTED=0
           for service in $SERVICES; do
-            RUNNING=$(docker compose ps $service --status running --format '{% raw %}{{.Name}}{% endraw %}' 2>/dev/null | wc -l)
-            EXPECTED=$(docker compose ps $service --format '{% raw %}{{.Name}}{% endraw %}' 2>/dev/null | wc -l)
+            RUNNING=$(docker compose ps $service --status running --format '{{.Name}}' 2>/dev/null | wc -l)
+            EXPECTED=$(docker compose ps $service --format '{{.Name}}' 2>/dev/null | wc -l)
             TOTAL_RUNNING=$((TOTAL_RUNNING + RUNNING))
             TOTAL_EXPECTED=$((TOTAL_EXPECTED + EXPECTED))
             echo "  $service: $RUNNING/$EXPECTED replicas running"
@@ -328,7 +328,7 @@ jobs:
             
             # Show logs from first service
             FIRST_SERVICE=$(echo $SERVICES | awk '{print $1}')
-            FIRST_CONTAINER=$(docker compose ps $FIRST_SERVICE --format '{% raw %}{{.Name}}{% endraw %}' 2>/dev/null | head -1)
+            FIRST_CONTAINER=$(docker compose ps $FIRST_SERVICE --format '{{.Name}}' 2>/dev/null | head -1)
             if [ -n "$FIRST_CONTAINER" ]; then
               echo ""
               echo "📋 Recent logs from $FIRST_CONTAINER:"
@@ -350,9 +350,9 @@ jobs:
       
       - name: Calculate and update version
         run: |
-          PROJECT_DIR="/opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}"
+          PROJECT_DIR="/opt/superdeploy/projects/${{ needs.build.outputs.project }}"
           RELEASES_FILE="$PROJECT_DIR/releases.json"
-          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
+          APP_NAME="${{ needs.build.outputs.app }}"
           
           # Initialize releases.json if it doesn't exist
           sudo mkdir -p "$PROJECT_DIR"
@@ -367,7 +367,7 @@ jobs:
           echo "Current version: $CURRENT_VERSION"
           
           # Determine version bump type from commit message
-          COMMIT_MSG="{% raw %}${{ github.event.head_commit.message }}{% endraw %}"
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
           
           if echo "$COMMIT_MSG" | grep -qiE '^\[major\]|^breaking:'; then
             BUMP_TYPE="major"
@@ -404,7 +404,7 @@ jobs:
           echo "📌 Updating version: $APP_NAME v$NEW_VERSION"
           
           # Create new release entry
-          NEW_RELEASE=$(jq -n --arg ver "$NEW_VERSION" --arg deployed "$DEPLOYED_AT" --arg sha "{% raw %}${{ github.sha }}{% endraw %}" --arg actor "{% raw %}${{ github.actor }}{% endraw %}" --arg branch "{% raw %}${{ github.ref_name }}{% endraw %}" --arg commit "{% raw %}${{ github.event.head_commit.message }}{% endraw %}" '{
+          NEW_RELEASE=$(jq -n --arg ver "$NEW_VERSION" --arg deployed "$DEPLOYED_AT" --arg sha "${{ github.sha }}" --arg actor "${{ github.actor }}" --arg branch "${{ github.ref_name }}" --arg commit "${{ github.event.head_commit.message }}" '{
             version: $ver,
             deployed_at: $deployed,
             git_sha: $sha,
@@ -427,10 +427,10 @@ jobs:
       - name: Run deployment hooks
         run: |
           # Post-deployment hooks run after successful deployment
-          # Configure in projects/{{ project }}/config.yml:
+          # Configure in projects/receet/config.yml:
           #
           # apps:
-          #   {{ app }}:
+          #   bot:
           #     hooks:
           #       after_deploy:
           #         - python craft migrate              # Run database migrations
@@ -440,14 +440,14 @@ jobs:
           # Hooks run inside the container using docker compose exec
           # If any hook fails, deployment is marked as failed
           
-          cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}
+          cd /opt/superdeploy/projects/${{ needs.build.outputs.project }}
           
           if [ ! -f config.yml ]; then
             echo "⏭️  No config.yml found, skipping hooks"
             exit 0
           fi
           
-          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
+          APP_NAME="${{ needs.build.outputs.app }}"
           
           cat > /tmp/read_hooks.py <<'PYEOF'
           import yaml
@@ -470,11 +470,11 @@ jobs:
           HOOKS=$(APP_NAME="$APP_NAME" python3 /tmp/read_hooks.py)
           
           if [ -z "$HOOKS" ]; then
-            echo "⏭️  No post-deployment hooks configured for {% raw %}${{ needs.build.outputs.app }}{% endraw %}"
+            echo "⏭️  No post-deployment hooks configured for ${{ needs.build.outputs.app }}"
             exit 0
           fi
           
-          echo "🔧 Running post-deployment hooks for {% raw %}${{ needs.build.outputs.app }}{% endraw %}..."
+          echo "🔧 Running post-deployment hooks for ${{ needs.build.outputs.app }}..."
           cd compose
           
           # Find first web or release process service for running hooks
@@ -506,5 +506,4 @@ jobs:
           fi
           
           echo "✅ Post-deployment hooks completed"
-
 

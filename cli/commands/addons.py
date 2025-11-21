@@ -16,24 +16,121 @@ class AddonsListCommand(ProjectCommand):
     """List all addon instances for project."""
 
     def execute(self) -> None:
-        # Load config
-        config = self.config_service.get_raw_config(self.project_name)
+        # Read addons from DATABASE (not config)
+        from cli.database import get_db_session
+        from sqlalchemy import text
 
-        # Parse addon instances
-        instances = self.config_service.parse_addons(config)
+        db = get_db_session()
 
-        # Parse app attachments to show which apps use which addons
-        apps_config = config.get("apps", {})
-        attachment_map = {}  # addon.full_name → [app1, app2]
+        try:
+            # Get unique addon instances from addon_secrets table
+            result = db.execute(
+                text("""
+                    SELECT DISTINCT addon_type, addon_instance
+                    FROM addon_secrets
+                    WHERE project_name = :project_name
+                    ORDER BY addon_type, addon_instance
+                """),
+                {"project_name": self.project_name},
+            )
 
-        for app_name, app_config in apps_config.items():
-            attachments = self.config_service.parse_app_attachments(app_config)
-            for attachment in attachments:
-                if attachment.addon not in attachment_map:
-                    attachment_map[attachment.addon] = []
-                attachment_map[attachment.addon].append(
-                    f"{app_name} ({attachment.as_})"
+            addon_rows = result.fetchall()
+
+            # Build addon instances list
+            from dataclasses import dataclass
+
+            @dataclass
+            class AddonInstance:
+                type: str
+                name: str
+                category: str
+                version: str = "latest"
+                plan: str = "standard"
+
+                @property
+                def full_name(self):
+                    return f"{self.category}.{self.name}"
+
+            instances = []
+            seen_caddy = False  # Track if we've already added Caddy
+
+            for row in addon_rows:
+                addon_type = row[0]
+                addon_name = row[1]
+
+                # For Caddy, only show once (even if multiple instances exist)
+                if addon_type == "caddy":
+                    if seen_caddy:
+                        continue  # Skip duplicate Caddy instances
+                    seen_caddy = True
+
+                # Map type to category
+                category_map = {
+                    "postgres": "databases",
+                    "redis": "caches",
+                    "rabbitmq": "queues",
+                    "mongodb": "databases",
+                    "elasticsearch": "search",
+                    "caddy": "proxy",
+                }
+                category = category_map.get(addon_type, addon_type)
+
+                instances.append(
+                    AddonInstance(
+                        type=addon_type,
+                        name=addon_name,
+                        category=category,
+                        version="latest",
+                        plan="standard",
+                    )
                 )
+
+            # Get app attachments from aliases table
+            result = db.execute(
+                text("""
+                    SELECT DISTINCT target_key, app_name
+                    FROM aliases
+                    WHERE project_name = :project_name
+                    AND target_source = 'addon'
+                    ORDER BY target_key, app_name
+                """),
+                {"project_name": self.project_name},
+            )
+
+            attachment_rows = result.fetchall()
+
+            # Build attachment map: "category.name" → ["app1", "app2"]
+            attachment_map = {}
+            for row in attachment_rows:
+                target_key = row[0]  # e.g., "postgres.primary.HOST"
+                app_name = row[1]
+
+                # Extract addon reference: "postgres.primary"
+                parts = target_key.split(".")
+                if len(parts) >= 2:
+                    addon_type = parts[0]
+                    addon_name = parts[1]
+
+                    # Map to category
+                    category_map = {
+                        "postgres": "databases",
+                        "redis": "caches",
+                        "rabbitmq": "queues",
+                        "mongodb": "databases",
+                        "elasticsearch": "search",
+                        "caddy": "proxy",
+                    }
+                    category = category_map.get(addon_type, addon_type)
+                    full_name = f"{category}.{addon_name}"
+
+                    if full_name not in attachment_map:
+                        attachment_map[full_name] = []
+
+                    if app_name not in attachment_map[full_name]:
+                        attachment_map[full_name].append(app_name)
+
+        finally:
+            db.close()
 
         # JSON output mode
         if self.json_output:

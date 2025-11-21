@@ -384,7 +384,7 @@ def generate(project, app, verbose, json_output):
     Features:
     - Secret hierarchy (shared + app-specific)
     - GitHub self-hosted runners
-    - .superdeploy marker files
+    - superdeploy marker files
     - Smart VM selection based on labels
 
     Example:

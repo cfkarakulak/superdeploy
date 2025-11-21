@@ -117,7 +117,7 @@ class ConfigService:
 
     def get_ssh_config(self, project_name: str) -> Dict[str, str]:
         """
-        Get SSH configuration.
+        Get SSH configuration from database.
 
         Args:
             project_name: Project name
@@ -125,16 +125,36 @@ class ConfigService:
         Returns:
             SSH config with key_path, user, etc.
         """
-        config = self.get_raw_config(project_name)
-        ssh_config = config.get("cloud", {}).get("ssh", {})
+        # Read SSH config directly from database (not file-based config)
+        from cli.database import get_db_session
+        from sqlalchemy import text
 
-        # Defaults from constants
+        db = get_db_session()
+        try:
+            result = db.execute(
+                text("""
+                    SELECT ssh_key_path, ssh_public_key_path, ssh_user
+                    FROM projects
+                    WHERE name = :project_name
+                """),
+                {"project_name": project_name},
+            )
+            row = result.fetchone()
+
+            if row:
+                return {
+                    "key_path": row[0] or DEFAULT_SSH_KEY_PATH,
+                    "public_key_path": row[1] or DEFAULT_SSH_PUBLIC_KEY_PATH,
+                    "user": row[2] or DEFAULT_SSH_USER,
+                }
+        finally:
+            db.close()
+
+        # Fallback to defaults if not in database
         return {
-            "key_path": ssh_config.get("key_path", DEFAULT_SSH_KEY_PATH),
-            "public_key_path": ssh_config.get(
-                "public_key_path", DEFAULT_SSH_PUBLIC_KEY_PATH
-            ),
-            "user": ssh_config.get("user", DEFAULT_SSH_USER),
+            "key_path": DEFAULT_SSH_KEY_PATH,
+            "public_key_path": DEFAULT_SSH_PUBLIC_KEY_PATH,
+            "user": DEFAULT_SSH_USER,
         }
 
     def get_gcp_config(self, project_name: str) -> Dict[str, str]:

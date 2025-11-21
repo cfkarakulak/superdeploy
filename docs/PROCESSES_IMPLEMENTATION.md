@@ -2,7 +2,7 @@
 
 ## 🎯 Overview
 
-SuperDeploy now supports **Heroku Procfile-like process definitions** via the `.superdeploy` marker file. This allows a single codebase to define multiple processes (web, worker, release, etc.) without duplicating app entries in `config.yml`.
+SuperDeploy now supports **Heroku Procfile-like process definitions** via the `superdeploy` marker file. This allows a single codebase to define multiple processes (web, worker, release, etc.) without duplicating app entries in `config.yml`.
 
 ---
 
@@ -37,29 +37,26 @@ apps:
         run_on: deploy  # Runs once on deployment
 ```
 
-### **Generated .superdeploy Marker**
+### **Generated superdeploy Marker**
 
 ```yaml
-# /path/to/api/.superdeploy (auto-generated)
+# /path/to/api/superdeploy (auto-generated)
 project: cheapa
 app: api
 vm: app
-managed_by: superdeploy
-version: v3
-
-# Process definitions as root-level keys (clean syntax)
-web:
-  command: gunicorn app:app --bind 0.0.0.0:$PORT --workers 4
-  port: 8000
-  replicas: 2
-
-worker:
-  command: python craft queue:work --tries=3
-  replicas: 5
-
-release:
-  command: python craft migrate --force
-  run_on: deploy
+processes:
+  web:
+    command: gunicorn app:app --bind 0.0.0.0:$PORT --workers 4
+    port: 8000
+    replicas: 2
+  
+  worker:
+    command: python craft queue:work --tries=3
+    replicas: 5
+  
+  release:
+    command: python craft migrate --force
+    run_on: deploy
 ```
 
 ---
@@ -93,7 +90,7 @@ superdeploy myproject:generate
 ```
 myapp:
   Type: python (explicit)
-  ✓ .superdeploy (2 processes)
+  ✓ superdeploy (2 processes)
   Secrets: 10
   ✓ .github/workflows/deploy.yml
 ```
@@ -306,7 +303,7 @@ apps:
 superdeploy myproject:generate
 ```
 
-This creates/updates `.superdeploy` with processes.
+This creates/updates `superdeploy` with processes.
 
 ### Step 3: Deploy
 

@@ -275,7 +275,7 @@ superdeploy myproject:sync
 superdeploy myproject:generate
 
 # Ne olacak:
-# ✓ Her app repo'sunda .superdeploy marker file oluşturulacak
+# ✓ Her app repo'sunda superdeploy marker file oluşturulacak
 # ✓ Her app repo'sunda .github/workflows/deploy.yml oluşturulacak
 # ✓ App type'a göre (Python, Next.js) optimize edilmiş workflow
 ```
@@ -285,13 +285,13 @@ superdeploy myproject:generate
 ```bash
 # API repo
 cd ~/code/myorg/api
-git add .superdeploy .github/workflows/deploy.yml
+git add superdeploy .github/workflows/deploy.yml
 git commit -m "Add SuperDeploy deployment"
 git push origin main
 
 # Storefront repo
 cd ~/code/myorg/storefront
-git add .superdeploy .github/workflows/deploy.yml
+git add superdeploy .github/workflows/deploy.yml
 git commit -m "Add SuperDeploy deployment"
 git push origin main
 ```

@@ -430,7 +430,7 @@ App Type Resolution
     ├── Priority 2: Auto-detection from app path
     └── Priority 3: Default fallback (python)
     ↓
-Create .superdeploy marker (project, app, vm_role)
+Create superdeploy marker (project, app, vm_role)
     ↓
 Generate GitHub workflow (type-specific template)
     ├── Build job (GitHub-hosted runner)
@@ -483,7 +483,7 @@ Developer Push
     ↓
 GitHub Actions Workflow
     ├── Build Job (ubuntu-latest):
-    │   ├── Read .superdeploy marker
+    │   ├── Read superdeploy marker
     │   ├── Build Docker image
     │   ├── Push to registry
     │   └── Output: project, app, vm_role

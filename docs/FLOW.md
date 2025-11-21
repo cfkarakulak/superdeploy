@@ -19,7 +19,7 @@ Visual guide to understand how code becomes running containers.
 │ 2. GITHUB ACTIONS (Build Job - GitHub-hosted runner)           │
 │                                                                 │
 │  ✓ Checkout code                                               │
-│  ✓ Read .superdeploy marker                                    │
+│  ✓ Read superdeploy marker                                     │
 │     → project: cheapa                                          │
 │     → app: api                                                 │
 │     → vm_role: app                                             │
@@ -107,11 +107,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Read .superdeploy marker
+      - name: Read superdeploy marker
         run: |
-          PROJECT=$(grep "^project:" .superdeploy | cut -d: -f2 | xargs)
-          APP=$(grep "^app:" .superdeploy | cut -d: -f2 | xargs)
-          VM_ROLE=$(grep "^vm:" .superdeploy | cut -d: -f2 | xargs)
+          PROJECT=$(grep "^project:" superdeploy | cut -d: -f2 | xargs)
+          APP=$(grep "^app:" superdeploy | cut -d: -f2 | xargs)
+          VM_ROLE=$(grep "^vm:" superdeploy | cut -d: -f2 | xargs)
           echo "project=$PROJECT" >> $GITHUB_OUTPUT
           echo "app=$APP" >> $GITHUB_OUTPUT
           echo "vm_role=$VM_ROLE" >> $GITHUB_OUTPUT
@@ -243,7 +243,7 @@ docker ps | grep api
 │  superdeploy myproject:generate                                │
 │    ↓                                                           │
 │  For each app:                                                 │
-│    ✓ Create .superdeploy marker                               │
+│    ✓ Create superdeploy marker                                │
 │    ✓ Detect app type (Python, Next.js)                        │
 │    ✓ Generate .github/workflows/deploy.yml                    │
 └─────────────────────────────────────────────────────────────────┘

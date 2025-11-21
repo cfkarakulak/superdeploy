@@ -27,6 +27,7 @@ module "vms" {
   for_each = var.vm_groups
 
   project_id    = var.project_id
+  region        = var.region
   zone          = var.zone
   name          = "${var.project_name}-${each.key}"  # each.key already contains "role-index"
   machine_type  = each.value.machine_type

@@ -284,7 +284,6 @@ class DeployCommand(ProjectCommand):
                 return
 
             if logger:
-
                 logger.success("Deployment completed successfully")
 
             if not self.verbose:
@@ -320,7 +319,7 @@ class DeployCommand(ProjectCommand):
                 f"No secrets found. Run 'superdeploy {self.project_name}:init' first"
             )
 
-        shared_secrets = secrets.get('shared', {})
+        shared_secrets = secrets.get("shared", {})
 
         # Load project config
         project_config = self.config_service.load_project_config(self.project_name)
@@ -431,7 +430,7 @@ def deploy(project, app, build, push, verbose, json_output):
     Quick local deployment - Build, push, and deploy an app
 
     This command will:
-    1. Read app configuration from .superdeploy marker
+    1. Read app configuration from superdeploy marker
     2. Build Docker image (if --build)
     3. Push to registry (if --push)
     4. Deploy to target VM via SSH
@@ -441,5 +440,7 @@ def deploy(project, app, build, push, verbose, json_output):
         superdeploy cheapa:deploy -a storefront --no-build
         superdeploy cheapa:deploy -a api -v
     """
-    cmd = DeployCommand(project, app, build=build, push=push, verbose=verbose, json_output=json_output)
+    cmd = DeployCommand(
+        project, app, build=build, push=push, verbose=verbose, json_output=json_output
+    )
     cmd.run()
