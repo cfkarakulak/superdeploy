@@ -59,7 +59,7 @@
 {% for app_name, app_config in apps.items() %}
 {% if app_config.get('vm') == vm_role and app_config.processes is defined %}
 {% for process_name, process_config in app_config.processes.items() %}
-{% if process_config.port is defined %}
+{% if process_config.port is defined and process_config.port %}
 
 # {{ app_name }}-{{ process_name }} service (Port {{ process_config.port }})
 :{{ process_config.port }} {
