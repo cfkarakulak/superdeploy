@@ -27,9 +27,9 @@ jobs:
       - name: Read app configuration
         id: config
         run: |
-          PROJECT=$(grep "^project:" .superdeploy | cut -d: -f2 | xargs)
-          APP=$(grep "^app:" .superdeploy | cut -d: -f2 | xargs)
-          VM_ROLE=$(grep "^vm:" .superdeploy | cut -d: -f2 | xargs)
+          PROJECT=$(grep "^project:" superdeploy | cut -d: -f2 | xargs)
+          APP=$(grep "^app:" superdeploy | cut -d: -f2 | xargs)
+          VM_ROLE=$(grep "^vm:" superdeploy | cut -d: -f2 | xargs)
 {% raw %}          echo "project=$PROJECT" >> $GITHUB_OUTPUT
           echo "app=$APP" >> $GITHUB_OUTPUT
           echo "vm_role=$VM_ROLE" >> $GITHUB_OUTPUT{% endraw %}

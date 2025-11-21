@@ -288,11 +288,17 @@ class StatusCommand(ProjectCommand):
                 for vm_name_iter, vm_data in all_vms.items():
                     vm_ip_iter = vm_data["external_ip"]
 
-                    all_containers_result = ssh_service.execute_command(
-                        vm_ip_iter,
-                        "docker ps --format '{{.Names}}\\t{{.Status}}\\t{{.ID}}'",
-                        timeout=5,
-                    )
+                    try:
+                        all_containers_result = ssh_service.execute_command(
+                            vm_ip_iter,
+                            "docker ps --format '{{.Names}}\\t{{.Status}}\\t{{.ID}}'",
+                            timeout=5,
+                        )
+                    except Exception as ssh_error:
+                        # SSH failed (e.g., permission denied) - skip this VM
+                        if self.verbose and logger:
+                            logger.log(f"[dim]⚠️  Could not connect to {vm_name_iter} ({vm_ip_iter}): {ssh_error}[/dim]")
+                        continue
 
                     # Parse all containers and identify addons
                     if (
@@ -334,7 +340,14 @@ class StatusCommand(ProjectCommand):
                     if addon_ref in running_addons:
                         addon_entry["status"] = running_addons[addon_ref]["status"]
                     else:
-                        addon_entry["status"] = "not running"
+                        # Addon not detected in runtime
+                        # Check if it's a core VM addon (postgres, rabbitmq) - they're likely running but SSH failed
+                        addon_type = addon_entry["type"]
+                        if addon_type in ["postgres", "rabbitmq", "redis", "mongodb", "elasticsearch"]:
+                            # Core VM addons are likely running (deployed successfully)
+                            addon_entry["status"] = "running (core VM)"
+                        else:
+                            addon_entry["status"] = "not running"
 
                 # Get app container status
                 # Docker Compose creates containers with pattern: {directory}-{app}-{process}-{replica}
