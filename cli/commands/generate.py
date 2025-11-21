@@ -305,6 +305,59 @@ class GenerateCommand(ProjectCommand):
                 f"  [green]✓[/green] Workflow saved to: {workflow_file.relative_to(project_root)}"
             )
 
+            # Sync processes to database
+            from cli.database import get_db_session
+            from sqlalchemy import text
+
+            db = get_db_session()
+            try:
+                # Get app_id
+                result = db.execute(
+                    text("""
+                    SELECT id FROM apps 
+                    WHERE project_id = (SELECT id FROM projects WHERE name = :project)
+                    AND name = :app
+                """),
+                    {"project": self.project_name, "app": app_name},
+                )
+
+                app_row = result.fetchone()
+                if app_row:
+                    app_id = app_row[0]
+
+                    # Delete existing processes
+                    db.execute(
+                        text("DELETE FROM processes WHERE app_id = :app_id"),
+                        {"app_id": app_id},
+                    )
+
+                    # Insert new processes
+                    for process_name, process_config in processes.items():
+                        command = process_config.get("command", "")
+                        replicas = process_config.get("replicas", 1)
+                        port = process_config.get("port")
+
+                        db.execute(
+                            text("""
+                            INSERT INTO processes (app_id, name, command, replicas, port)
+                            VALUES (:app_id, :name, :command, :replicas, :port)
+                        """),
+                            {
+                                "app_id": app_id,
+                                "name": process_name,
+                                "command": command,
+                                "replicas": replicas,
+                                "port": port,
+                            },
+                        )
+
+                    db.commit()
+                    self.console.print(
+                        f"  [dim]✓ Synced {len(processes)} process(es) to database[/dim]"
+                    )
+            finally:
+                db.close()
+
             self.console.print()
 
         # Summary
