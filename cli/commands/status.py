@@ -83,75 +83,106 @@ class StatusCommand(ProjectCommand):
             "deployment": {},
         }
 
-        # Parse addon attachments from config (if any)
-        config_attachments = self.config_service.parse_app_attachments(app_config)
-        addon_instances = self.config_service.parse_addons(config)
-
-        # Build addons list from config
-        # Show: attached addons + Caddy (default, only the one on same VM)
+        # Get addon attachments from DATABASE (aliases table)
+        from cli.database import get_db_session
+        from sqlalchemy import text
+        
+        db = get_db_session()
         seen_addon_refs = set()
-
-        # Get app VM
-        app_vm = app_config.get("vm", "app")
-
-        # Get addons config to check VM assignments
-        addons_config = config.get("addons", {})
-
-        for instance in addon_instances:
-            # Check if this addon is attached to the app
-            attachment = None
-            for att in config_attachments:
-                if att.addon == instance.full_name:
-                    attachment = att
-                    break
-
-            if attachment:
-                # Attached addon: show it (regardless of VM)
-                app_status["addons"].append(
-                    {
-                        "reference": instance.full_name,
-                        "name": instance.name,
-                        "type": instance.type,
-                        "category": instance.category,
-                        "version": instance.version,
-                        "plan": instance.plan,
-                        "as": attachment.as_,
-                        "access": attachment.access,
+        
+        try:
+            # Get app VM name
+            result = db.execute(text("""
+                SELECT v.name
+                FROM apps a
+                JOIN vms v ON a.project_id = v.project_id
+                WHERE a.project_id = (SELECT id FROM projects WHERE name = :project)
+                AND a.name = :app
+                LIMIT 1
+            """), {"project": self.project_name, "app": self.app_filter})
+            
+            vm_row = result.fetchone()
+            app_vm = vm_row[0] if vm_row else "app"
+            
+            # Get attached addons from aliases (these are explicitly attached)
+            result = db.execute(text("""
+                SELECT DISTINCT target_key
+                FROM aliases
+                WHERE project_name = :project
+                AND app_name = :app
+                AND target_source = 'addon'
+                ORDER BY target_key
+            """), {"project": self.project_name, "app": self.app_filter})
+            
+            attached_addons = {}
+            for row in result.fetchall():
+                # Extract addon from target_key (e.g., "postgres.primary.HOST" -> "postgres.primary")
+                parts = row[0].split('.')
+                if len(parts) >= 2:
+                    addon_ref = f"{parts[0]}.{parts[1]}"
+                    if addon_ref not in attached_addons:
+                        attached_addons[addon_ref] = parts[0]  # Store addon_type
+            
+            # Get addon details and add to app_status
+            for addon_ref, addon_type in attached_addons.items():
+                addon_instance = addon_ref.split('.')[1]
+                
+                # Get addon version from addon_secrets
+                result = db.execute(text("""
+                    SELECT key, value
+                    FROM addon_secrets
+                    WHERE project_name = :project
+                    AND addon_type = :type
+                    AND addon_instance = :instance
+                    LIMIT 1
+                """), {"project": self.project_name, "type": addon_type, "instance": addon_instance})
+                
+                if result.fetchone():
+                    app_status["addons"].append({
+                        "reference": addon_ref,
+                        "name": addon_instance,
+                        "type": addon_type,
+                        "category": addon_type,  # Use type as category
+                        "version": "latest",
+                        "plan": "standard",
+                        "as": addon_type.upper(),
+                        "access": "default",
                         "status": "unknown",
-                        "source": "config",
-                    }
-                )
-                seen_addon_refs.add(instance.full_name)
-            elif instance.category == "proxy":
-                # Caddy is default for all apps
-                # But only show the instance on the same VM as the app
-                # Get addon VM
-                addon_vm = None
-                for category, addons in addons_config.items():
-                    if category == instance.category:
-                        for addon_name, addon_config in addons.items():
-                            if addon_name == instance.name:
-                                addon_vm = addon_config.get("vm")
-                                break
-
-                # Only show if on same VM
-                if addon_vm == app_vm:
-                    as_prefix = instance.type.upper()
-                    app_status["addons"].append(
-                        {
-                            "reference": instance.full_name,
-                            "name": instance.name,
-                            "type": instance.type,
-                            "category": instance.category,
-                            "version": instance.version,
-                            "plan": instance.plan,
-                            "as": as_prefix,
-                            "access": "default",
-                            "status": "unknown",
-                            "source": "config",
-                        }
-                    )
-                    seen_addon_refs.add(instance.full_name)
+                        "source": "database",
+                    })
+                    seen_addon_refs.add(addon_ref)
+            
+            # Always add Caddy for all apps (default addon)
+            result = db.execute(text("""
+                SELECT addon_instance
+                FROM addon_secrets
+                WHERE project_name = :project
+                AND addon_type = 'caddy'
+                LIMIT 1
+            """), {"project": self.project_name})
+            
+            caddy_row = result.fetchone()
+            if caddy_row:
+                caddy_instance = caddy_row[0]
+                caddy_ref = f"proxy.{caddy_instance}"
+                
+                if caddy_ref not in seen_addon_refs:
+                    app_status["addons"].append({
+                        "reference": caddy_ref,
+                        "name": caddy_instance,
+                        "type": "caddy",
+                        "category": "proxy",
+                        "version": "2-alpine",
+                        "plan": "standard",
+                        "as": "CADDY",
+                        "access": "default",
+                        "status": "unknown",
+                        "source": "database",
+                    })
+                    seen_addon_refs.add(caddy_ref)
+        
+        finally:
+            db.close()
 
         # Try to get runtime status from VM
         try:
