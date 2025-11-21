@@ -117,19 +117,21 @@ class StatusCommand(ProjectCommand):
             # Check if VMs exist in DB (don't require deployment state file)
             from cli.database import get_db_session
             from sqlalchemy import text
-            
+
             db = get_db_session()
             try:
                 vm_check = db.execute(
-                    text("SELECT COUNT(*) FROM vms WHERE project_id = (SELECT id FROM projects WHERE name = :project)"),
-                    {"project": self.project_name}
+                    text(
+                        "SELECT COUNT(*) FROM vms WHERE project_id = (SELECT id FROM projects WHERE name = :project)"
+                    ),
+                    {"project": self.project_name},
                 )
                 vm_count = vm_check.fetchone()[0]
                 if vm_count == 0:
                     raise SystemExit("No VMs found in database")
             finally:
                 db.close()
-            
+
             vm_service = self.ensure_vm_service()
             ssh_service = vm_service.get_ssh_service()
 
@@ -193,11 +195,13 @@ class StatusCommand(ProjectCommand):
                                     if proxy_ref in running_addons:
                                         # Already detected via addon_instances, skip
                                         continue
-                                    
+
                                     # Create a pseudo-instance for Caddy if not already in addon_instances
                                     caddy_ref = f"caddy.{caddy_name}"
                                     if caddy_ref not in running_addons:
-                                        from cli.core.addon_instance import AddonInstance
+                                        from cli.core.addon_instance import (
+                                            AddonInstance,
+                                        )
 
                                         caddy_instance = AddonInstance(
                                             category="proxy",
@@ -214,38 +218,13 @@ class StatusCommand(ProjectCommand):
                                         }
 
                 # Update addon status from runtime (addons were already added from config)
-                seen_addons = set()
-
-                # Update status for already-added config attachments
+                # Only update status for config-attached addons, don't add runtime-only addons
                 for addon_entry in app_status["addons"]:
                     addon_ref = addon_entry["reference"]
                     if addon_ref in running_addons:
                         addon_entry["status"] = running_addons[addon_ref]["status"]
                     else:
                         addon_entry["status"] = "not running"
-                    seen_addons.add(addon_ref)
-
-                # Then, add running addons that aren't in config (auto-detected)
-                for addon_ref, addon_info in running_addons.items():
-                    if addon_ref not in seen_addons:
-                        instance = addon_info["instance"]
-                        # Auto-detect "as" prefix
-                        as_prefix = instance.type.upper()
-
-                        app_status["addons"].append(
-                            {
-                                "reference": addon_ref,
-                                "name": instance.name,
-                                "type": instance.type,
-                                "category": instance.category,
-                                "version": instance.version,
-                                "plan": instance.plan,
-                                "as": as_prefix,
-                                "access": "auto-detected",
-                                "status": addon_info["status"],
-                                "source": "runtime",
-                            }
-                        )
 
                 # Get app container status
                 result = ssh_service.execute_command(

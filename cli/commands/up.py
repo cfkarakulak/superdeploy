@@ -742,22 +742,22 @@ def _deploy_project_internal(
                     # Get project ID
                     project_result = db.execute(
                         text("SELECT id FROM projects WHERE name = :project"),
-                        {"project": project}
+                        {"project": project},
                     )
                     project_row = project_result.fetchone()
                     if project_row:
                         project_id = project_row[0]
-                        
+
                         # Insert/Update VMs
                         for role, vms in vms_by_role.items():
                             for vm in vms:
                                 # Check if VM exists
                                 check = db.execute(
                                     text("SELECT id FROM vms WHERE name = :name"),
-                                    {"name": vm["name"]}
+                                    {"name": vm["name"]},
                                 )
                                 existing = check.fetchone()
-                                
+
                                 if existing:
                                     # Update
                                     db.execute(
@@ -773,8 +773,8 @@ def _deploy_project_internal(
                                             "name": vm["name"],
                                             "external_ip": vm["external_ip"],
                                             "internal_ip": vm["internal_ip"],
-                                            "role": role
-                                        }
+                                            "role": role,
+                                        },
                                     )
                                 else:
                                     # Insert
@@ -790,10 +790,10 @@ def _deploy_project_internal(
                                             "external_ip": vm["external_ip"],
                                             "internal_ip": vm["internal_ip"],
                                             "machine_type": "e2-medium",  # TODO: Get from config
-                                            "status": "running"
-                                        }
+                                            "status": "running",
+                                        },
                                     )
-                        
+
                         db.commit()
                         if logger:
                             logger.log("✓ VMs saved to database")
