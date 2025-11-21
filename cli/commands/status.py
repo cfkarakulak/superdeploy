@@ -89,6 +89,9 @@ class StatusCommand(ProjectCommand):
 
         # Build addons list from config FIRST (before runtime check)
         # This ensures addons show even if deployment state doesn't exist
+        seen_addon_refs = set()
+        
+        # 1. Add attached addons (e.g., postgres, rabbitmq)
         for attachment in config_attachments:
             addon_instance = None
             for instance in addon_instances:
@@ -108,9 +111,55 @@ class StatusCommand(ProjectCommand):
                         "as": attachment.as_,
                         "access": attachment.access,
                         "status": "unknown",  # Will be updated if runtime check succeeds
-                        "source": "config",
+                        "source": "attached",
                     }
                 )
+                seen_addon_refs.add(attachment.addon)
+        
+        # 2. Add infrastructure addons (e.g., proxy/Caddy) that are NOT attached but available
+        # Get app VM from config
+        app_vm_role = app_config.get("vm", "app")
+        
+        # Get addon config to check which VM each addon is on
+        addons_config = config.get("addons", {})
+        
+        for instance in addon_instances:
+            # Skip if already added as attached
+            if instance.full_name in seen_addon_refs:
+                continue
+            
+            # Check if this addon is on the same VM as the app (infrastructure addons)
+            # Only include proxy addons that are on the same VM as the app
+            if instance.category == "proxy":
+                # Get the VM for this addon from addons_config
+                addon_vm = None
+                for category, addons in addons_config.items():
+                    if category == instance.category:
+                        for addon_name, addon_config in addons.items():
+                            if addon_name == instance.name:
+                                addon_vm = addon_config.get("vm")
+                                break
+                
+                # Only include if on the same VM as the app
+                if addon_vm == app_vm_role:
+                    # Determine "as" prefix based on addon name
+                    as_prefix = f"{instance.type.upper()}"
+                    
+                    app_status["addons"].append(
+                        {
+                            "reference": instance.full_name,
+                            "name": instance.name,
+                            "type": instance.type,
+                            "category": instance.category,
+                            "version": instance.version,
+                            "plan": instance.plan,
+                            "as": as_prefix,
+                            "access": "infrastructure",
+                            "status": "unknown",  # Will be updated if runtime check succeeds
+                            "source": "infrastructure",
+                        }
+                    )
+                    seen_addon_refs.add(instance.full_name)
 
         # Try to get runtime status from VM
         try:
