@@ -87,12 +87,16 @@ class StatusCommand(ProjectCommand):
         config_attachments = self.config_service.parse_app_attachments(app_config)
         addon_instances = self.config_service.parse_addons(config)
 
-        # Build addons list from config FIRST (before runtime check)
-        # This ensures addons show even if deployment state doesn't exist
+        # Build addons list from config
+        # Show only addons relevant to this app: either attached OR on same VM
         seen_addon_refs = set()
         
-        # Add all addon instances that are available
-        # This includes both attached addons (postgres, rabbitmq) and default addons (Caddy)
+        # Get app VM
+        app_vm = app_config.get("vm", "app")
+        
+        # Get addons config to check VM assignments
+        addons_config = config.get("addons", {})
+        
         for instance in addon_instances:
             # Check if this addon is attached to the app
             attachment = None
@@ -101,42 +105,52 @@ class StatusCommand(ProjectCommand):
                     attachment = att
                     break
             
-            if attachment:
-                # Use attachment info (as, access)
-                app_status["addons"].append(
-                    {
-                        "reference": instance.full_name,
-                        "name": instance.name,
-                        "type": instance.type,
-                        "category": instance.category,
-                        "version": instance.version,
-                        "plan": instance.plan,
-                        "as": attachment.as_,
-                        "access": attachment.access,
-                        "status": "unknown",
-                        "source": "config",
-                    }
-                )
-                seen_addon_refs.add(instance.full_name)
-            else:
-                # Default addons (like Caddy) - not explicitly attached but available
-                # Auto-detect "as" prefix
-                as_prefix = instance.type.upper()
-                
-                app_status["addons"].append(
-                    {
-                        "reference": instance.full_name,
-                        "name": instance.name,
-                        "type": instance.type,
-                        "category": instance.category,
-                        "version": instance.version,
-                        "plan": instance.plan,
-                        "as": as_prefix,
-                        "access": "default",
-                        "status": "unknown",
-                        "source": "config",
-                    }
-                )
+            # Get addon VM
+            addon_vm = None
+            for category, addons in addons_config.items():
+                if category == instance.category:
+                    for addon_name, addon_config in addons.items():
+                        if addon_name == instance.name:
+                            addon_vm = addon_config.get("vm")
+                            break
+            
+            # Show addon if: attached to app OR on same VM as app
+            show_addon = attachment is not None or (addon_vm == app_vm)
+            
+            if show_addon:
+                if attachment:
+                    # Use attachment info
+                    app_status["addons"].append(
+                        {
+                            "reference": instance.full_name,
+                            "name": instance.name,
+                            "type": instance.type,
+                            "category": instance.category,
+                            "version": instance.version,
+                            "plan": instance.plan,
+                            "as": attachment.as_,
+                            "access": attachment.access,
+                            "status": "unknown",
+                            "source": "config",
+                        }
+                    )
+                else:
+                    # Default addon (on same VM)
+                    as_prefix = instance.type.upper()
+                    app_status["addons"].append(
+                        {
+                            "reference": instance.full_name,
+                            "name": instance.name,
+                            "type": instance.type,
+                            "category": instance.category,
+                            "version": instance.version,
+                            "plan": instance.plan,
+                            "as": as_prefix,
+                            "access": "default",
+                            "status": "unknown",
+                            "source": "config",
+                        }
+                    )
                 seen_addon_refs.add(instance.full_name)
 
         # Try to get runtime status from VM
