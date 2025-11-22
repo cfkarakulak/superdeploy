@@ -245,8 +245,8 @@ async def get_app_metrics(project_name: str, app_name: str):
                 "metrics": metrics,
             }
 
-        # Apply 5 second timeout to entire endpoint
-        return await asyncio.wait_for(_fetch_metrics(), timeout=5.0)
+        # Apply 10 second timeout to entire endpoint
+        return await asyncio.wait_for(_fetch_metrics(), timeout=10.0)
 
     except asyncio.TimeoutError:
         raise HTTPException(
