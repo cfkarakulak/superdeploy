@@ -132,7 +132,7 @@ class SuperdeployCLI:
         return output, process.returncode
 
     async def execute_json(
-        self, command: str, args: Optional[List[str]] = None
+        self, command: str, args: Optional[List[str]] = None, timeout: int = 30
     ) -> dict:
         """
         Execute a superdeploy CLI command with --json flag and return parsed JSON.
@@ -140,16 +140,18 @@ class SuperdeployCLI:
         Args:
             command: The superdeploy command (e.g., "cheapa:ps")
             args: Additional arguments for the command (--json will be added automatically)
+            timeout: Maximum seconds to wait for command (default: 30)
 
         Returns:
             Parsed JSON dictionary
 
         Raises:
             RuntimeError: If command fails or output is not valid JSON
+            asyncio.TimeoutError: If command exceeds timeout
 
         Example:
             cli = SuperdeployCLI()
-            data = await cli.execute_json("cheapa:ps")
+            data = await cli.execute_json("cheapa:ps", timeout=15)
             print(data)
         """
         import json
@@ -170,7 +172,7 @@ class SuperdeployCLI:
             "LINES": "50",
         }
 
-        # Execute
+        # Execute with timeout
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -179,7 +181,16 @@ class SuperdeployCLI:
             env=env,
         )
 
-        stdout, stderr = await process.communicate()
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            raise RuntimeError(
+                f"Command '{' '.join(cmd)}' timed out after {timeout} seconds"
+            )
 
         # Check for errors
         if process.returncode != 0:
