@@ -217,7 +217,7 @@ class StatusCommand(ProjectCommand):
                                                     process_name,
                                                     process_config,
                                                 ) in marker_data["processes"].items():
-                processes_dict[process_name] = {
+                                                    processes_dict[process_name] = {
                                                         "command": process_config.get(
                                                             "command", ""
                                                         ),
