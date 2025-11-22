@@ -229,8 +229,8 @@ class SSHService:
             ssh_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
+            text=False,  # Use binary mode for better compatibility
+            bufsize=0,  # Unbuffered for immediate output
         )
 
     def docker_exec(

@@ -218,7 +218,7 @@ class LogsCommand(ProjectCommand):
             )
 
         try:
-            self.console.print("[dim]→ Streaming logs... Press Ctrl+C to stop[/dim]\n")
+            self.console.print(f"[dim]→ Streaming logs from {container_name}... Press Ctrl+C to stop[/dim]\n")
 
             # Start streaming logs
             self.process = ssh_service.docker_logs(
@@ -227,6 +227,19 @@ class LogsCommand(ProjectCommand):
                 follow=self.options.follow,
                 tail=self.options.lines,
             )
+
+            # Give it a moment to start
+            import time
+            time.sleep(0.5)
+            
+            # Check if process started successfully
+            if self.process.poll() is not None:
+                # Process ended immediately, read stderr
+                error_output = self.process.stderr.read() if self.process.stderr else b""
+                if error_output:
+                    error_msg = error_output.decode('utf-8', errors='ignore')
+                    raise Exception(f"Docker logs failed: {error_msg}")
+                raise Exception(f"Container {container_name} may not be running or has no logs")
 
             self._stream_logs()
 
@@ -238,23 +251,55 @@ class LogsCommand(ProjectCommand):
 
     def _find_container(self, ssh_service, vm_ip: str) -> Optional[str]:
         """
-        Find container by Superdeploy labels.
+        Find container by Superdeploy labels or Docker Compose naming.
 
-        Uses Superdeploy custom labels to find the exact container:
-        - com.superdeploy.project={project_name}
-        - com.superdeploy.app={app_name}
+        Uses multiple strategies:
+        1. Superdeploy custom labels
+        2. Docker Compose naming pattern: compose-{app}-{process}-{replica}
+        3. Direct container name match
         """
-        # Try to find by Superdeploy labels
+        # Strategy 1: Try Superdeploy labels
         cmd = (
             f'docker ps --filter "label=com.superdeploy.project={self.project_name}" '
             f'--filter "label=com.superdeploy.app={self.options.app_name}" '
             '--format "{{.Names}}" | head -1'
         )
 
-        result = ssh_service.execute_command(vm_ip, cmd)
+        result = ssh_service.execute_command(vm_ip, cmd, timeout=5)
 
         if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
+            container_name = result.stdout.strip()
+            self.console.print(f"[dim]Found container by labels: {container_name}[/dim]")
+            return container_name
+
+        # Strategy 2: Try Docker Compose naming pattern
+        # Pattern: compose-{app}-{process}-{replica}
+        # We'll try web process first, then any process
+        compose_patterns = [
+            f"compose-{self.options.app_name}-web-1",
+            f"compose-{self.options.app_name}-web-",
+            f"compose-{self.options.app_name}-",
+        ]
+        
+        for pattern in compose_patterns:
+            cmd = f'docker ps --filter "name={pattern}" --format "{{{{.Names}}}}" | head -1'
+            result = ssh_service.execute_command(vm_ip, cmd, timeout=5)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                container_name = result.stdout.strip()
+                self.console.print(f"[dim]Found container by pattern: {container_name}[/dim]")
+                return container_name
+
+        # Strategy 3: List all containers and try to match
+        cmd = 'docker ps --format "{{.Names}}"'
+        result = ssh_service.execute_command(vm_ip, cmd, timeout=5)
+        
+        if result.returncode == 0:
+            containers = result.stdout.strip().split('\n')
+            for container in containers:
+                if self.options.app_name.lower() in container.lower():
+                    self.console.print(f"[dim]Found container by name match: {container}[/dim]")
+                    return container.strip()
 
         return None
 
@@ -281,23 +326,45 @@ class LogsCommand(ProjectCommand):
         if not self.process or not self.process.stdout:
             return
 
-        for line in self.process.stdout:
-            if not line.strip():
-                continue
+        import sys
+        
+        # Read logs line by line (blocking, but that's OK for streaming)
+        try:
+            while True:
+                line = self.process.stdout.readline()
+                if not line:
+                    # Check if process ended
+                    if self.process.poll() is not None:
+                        break
+                    # No data yet, continue waiting
+                    continue
+                
+                line_str = line.rstrip() if isinstance(line, str) else line.decode('utf-8', errors='ignore').rstrip()
+                if not line_str:
+                    continue
 
-            # Parse log line
-            parsed = self.parser.parse(line)
+                # Parse log line
+                parsed = self.parser.parse(line_str)
 
-            # Apply filters
-            if not self.filter.matches(parsed, line):
-                continue
+                # Apply filters
+                if not self.filter.matches(parsed, line_str):
+                    continue
 
-            # Colorize and print
-            colored_line = self.colorizer.colorize(parsed)
-            print(colored_line)
-            self.line_count += 1
-
-        self.process.wait()
+                # Colorize and print
+                colored_line = self.colorizer.colorize(parsed)
+                print(colored_line)
+                sys.stdout.flush()  # Ensure immediate output
+                self.line_count += 1
+                
+        except KeyboardInterrupt:
+            # User interrupted, handled by caller
+            raise
+        except Exception as e:
+            self.console.print(f"[red]Error streaming logs: {e}[/red]")
+        finally:
+            # Clean up if process is still running
+            if self.process and self.process.poll() is None:
+                self.process.terminate()
 
     def _handle_stop(self) -> None:
         """Handle stopping log stream."""
