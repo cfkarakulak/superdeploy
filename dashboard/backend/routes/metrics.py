@@ -194,8 +194,15 @@ async def get_app_metrics(project_name: str, app_name: str):
 
             prometheus_url = f"http://{orch_ip}:9090"
 
-            # Prometheus queries for the specific VM
-            instance_filter = f'instance=~".*{vm_ip}.*"'
+            # Get internal IP for accurate metrics (node-exporter uses internal IP)
+            vm_internal_ip = app_vm.get("internal_ip")
+            
+            # Prometheus queries - use internal IP for node-exporter
+            if vm_internal_ip and vm_internal_ip.startswith("10."):
+                instance_filter = f'instance="{vm_internal_ip}:9100"'
+            else:
+                # Fallback: use external IP pattern matching
+                instance_filter = f'instance=~".*{vm_ip}.*"'
 
             # Query metrics from Prometheus in parallel
             cpu_query = f'100 - (avg by (instance) (rate(node_cpu_seconds_total{{mode="idle",{instance_filter}}}[5m])) * 100)'
