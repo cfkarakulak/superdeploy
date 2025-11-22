@@ -101,7 +101,7 @@ class TunnelCommand(ProjectCommand):
             [
                 "ssh",
                 "-i",
-                str(ssh_service.ssh_key_path),
+                ssh_service.key_path,
                 "-N",  # No remote command
                 "-o",
                 "StrictHostKeyChecking=no",
@@ -109,7 +109,7 @@ class TunnelCommand(ProjectCommand):
                 "UserKnownHostsFile=/dev/null",
             ]
             + tunnel_args
-            + [f"{ssh_service.ssh_user}@{vm_ip}"]
+            + [f"{ssh_service.user}@{vm_ip}"]
         )
 
         # Show connection info
