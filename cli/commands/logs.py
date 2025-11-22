@@ -190,7 +190,9 @@ class LogsCommand(ProjectCommand):
         self.filter = LogFilter(options.filter_level, options.grep_pattern)
         self.line_count = 0
         self.process: Optional[subprocess.Popen] = None
-        self.processes: list[tuple[str, subprocess.Popen]] = []  # For multi-process streaming
+        self.processes: list[
+            tuple[str, subprocess.Popen]
+        ] = []  # For multi-process streaming
 
     def execute(self) -> None:
         """Execute logs command."""
@@ -240,6 +242,7 @@ class LogsCommand(ProjectCommand):
 
             # Give it a moment to start
             import time
+
             time.sleep(0.5)
 
             # Check if any process started successfully
@@ -248,13 +251,11 @@ class LogsCommand(ProjectCommand):
                 if process.poll() is None:
                     all_failed = False
                     break
-            
+
             if all_failed:
                 error_messages = []
                 for container_name, process in self.processes:
-                    error_output = (
-                        process.stderr.read() if process.stderr else b""
-                    )
+                    error_output = process.stderr.read() if process.stderr else b""
                     if error_output:
                         error_msg = error_output.decode("utf-8", errors="ignore")
                         error_messages.append(f"{container_name}: {error_msg}")
@@ -273,25 +274,25 @@ class LogsCommand(ProjectCommand):
     def _find_all_containers(self, ssh_service, vm_ip: str) -> list[str]:
         """
         Find ALL containers for this app (all processes: web, worker, etc.).
-        
+
         Returns list of container names.
         """
         containers = []
-        
+
         # Strategy 1: Find by Docker Compose pattern (compose-{app}-{process}-{replica})
         # This will find all processes: web, worker, etc.
         cmd = f'docker ps --filter "name=compose-{self.options.app_name}-" --format "{{{{.Names}}}}"'
         result = ssh_service.execute_command(vm_ip, cmd, timeout=5)
-        
+
         if result.returncode == 0 and result.stdout.strip():
-            found_containers = result.stdout.strip().split('\n')
+            found_containers = result.stdout.strip().split("\n")
             containers.extend([c.strip() for c in found_containers if c.strip()])
             if containers:
                 self.console.print(
                     f"[dim]Found {len(containers)} containers by pattern: {', '.join(containers)}[/dim]"
                 )
                 return containers
-        
+
         # Strategy 2: Try Superdeploy labels
         cmd = (
             f'docker ps --filter "label=com.superdeploy.project={self.project_name}" '
@@ -299,33 +300,33 @@ class LogsCommand(ProjectCommand):
             '--format "{{.Names}}"'
         )
         result = ssh_service.execute_command(vm_ip, cmd, timeout=5)
-        
+
         if result.returncode == 0 and result.stdout.strip():
-            found_containers = result.stdout.strip().split('\n')
+            found_containers = result.stdout.strip().split("\n")
             containers.extend([c.strip() for c in found_containers if c.strip()])
             if containers:
                 self.console.print(
                     f"[dim]Found {len(containers)} containers by labels: {', '.join(containers)}[/dim]"
                 )
                 return containers
-        
+
         # Strategy 3: List all containers and match by app name
         cmd = 'docker ps --format "{{.Names}}"'
         result = ssh_service.execute_command(vm_ip, cmd, timeout=5)
-        
+
         if result.returncode == 0:
-            all_containers = result.stdout.strip().split('\n')
+            all_containers = result.stdout.strip().split("\n")
             for container in all_containers:
                 container = container.strip()
                 if container and self.options.app_name.lower() in container.lower():
                     if container not in containers:
                         containers.append(container)
-        
+
         if containers:
             self.console.print(
                 f"[dim]Found {len(containers)} containers by name match: {', '.join(containers)}[/dim]"
             )
-        
+
         return containers
 
     def _find_container(self, ssh_service, vm_ip: str) -> Optional[str]:
@@ -408,46 +409,43 @@ class LogsCommand(ProjectCommand):
 
     def _stream_logs_multi(self) -> None:
         """Stream logs from multiple containers (all processes)."""
-        if not hasattr(self, 'processes') or not self.processes:
+        if not hasattr(self, "processes") or not self.processes:
             return
 
         import sys
         import select
-        from collections import deque
 
         # Map container names to their processes
         container_processes = {name: proc for name, proc in self.processes}
-        
+
         # Use select for non-blocking multi-stream reading
         try:
             while True:
                 # Check if all processes ended
                 if all(proc.poll() is not None for _, proc in self.processes):
                     break
-                
+
                 # Check which streams have data available
                 readable_streams = []
                 for container_name, process in self.processes:
                     if process.poll() is None and process.stdout:
                         readable_streams.append((container_name, process.stdout))
-                
+
                 if not readable_streams:
                     import time
+
                     time.sleep(0.1)
                     continue
-                
+
                 # Use select to check for available data (non-blocking)
                 try:
                     ready, _, _ = select.select(
-                        [stream for _, stream in readable_streams],
-                        [],
-                        [],
-                        0.1
+                        [stream for _, stream in readable_streams], [], [], 0.1
                     )
                 except (OSError, ValueError):
                     # select failed, fall back to simple readline
                     ready = []
-                
+
                 # Read from ready streams
                 for container_name, stream in readable_streams:
                     if stream in ready or not ready:  # If no select, try all
@@ -460,8 +458,12 @@ class LogsCommand(ProjectCommand):
                             )
                             if line_str:
                                 # Prefix with container name for multi-process logs
-                                prefix = f"[{container_name}] " if len(self.processes) > 1 else ""
-                                
+                                prefix = (
+                                    f"[{container_name}] "
+                                    if len(self.processes) > 1
+                                    else ""
+                                )
+
                                 # Parse log line
                                 parsed = self.parser.parse(line_str)
 
@@ -487,7 +489,7 @@ class LogsCommand(ProjectCommand):
 
     def _stream_logs(self) -> None:
         """Stream logs from a single container (legacy method)."""
-        if not hasattr(self, 'process') or not self.process or not self.process.stdout:
+        if not hasattr(self, "process") or not self.process or not self.process.stdout:
             return
 
         import sys
@@ -540,7 +542,7 @@ class LogsCommand(ProjectCommand):
             f"\n[dim]✓ Stopped (displayed {self.line_count} lines)[/dim]"
         )
         # Stop all processes
-        if hasattr(self, 'processes') and self.processes:
+        if hasattr(self, "processes") and self.processes:
             for container_name, process in self.processes:
                 if process.poll() is None:
                     process.terminate()

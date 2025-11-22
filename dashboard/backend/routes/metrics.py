@@ -11,18 +11,36 @@ router = APIRouter(tags=["metrics"])
 
 
 def get_orchestrator_ip():
-    """Get orchestrator IP from CLI (5 min cache)."""
+    """Get orchestrator IP from state.yml or CLI (5 min cache)."""
     cache_key = "orchestrator_ip"
     cached = get_cache(cache_key)
     if cached:
         return cached
 
     try:
+        # Try state.yml first (fastest, no external calls)
+        from pathlib import Path
+
+        # Get project root dynamically (dashboard/backend/routes/metrics.py -> ../../../../)
+        project_root = Path(__file__).parent.parent.parent.parent
+        state_file = project_root / "shared" / "orchestrator" / "state.yml"
+
+        if state_file.exists():
+            import yaml
+
+            with open(state_file, "r") as f:
+                state = yaml.safe_load(f)
+                if state and state.get("orchestrator_ip"):
+                    orch_ip = state["orchestrator_ip"]
+                    set_cache(cache_key, orch_ip, 300)
+                    return orch_ip
+
+        # Fallback to CLI
         result = subprocess.run(
             ["./superdeploy.sh", "orchestrator:status", "--json"],
             capture_output=True,
             text=True,
-            cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
+            cwd=str(project_root),
             timeout=30,
         )
         if result.returncode == 0:
@@ -40,19 +58,64 @@ def get_orchestrator_ip():
 
 
 def get_project_vms(project_name: str):
-    """Get VMs for project from CLI (5 min cache)."""
+    """Get VMs for project from database or CLI (5 min cache)."""
     cache_key = f"project_vms:{project_name}"
     cached = get_cache(cache_key)
     if cached:
         return cached
 
     try:
+        # Try database first (faster)
+        import os
+
+        os.environ.setdefault(
+            "SUPERDEPLOY_DB_URL",
+            "postgresql://postgres:postgres@localhost:5432/superdeploy",
+        )
+        from cli.database import get_db_session
+        from sqlalchemy import text
+
+        db = get_db_session()
+        try:
+            result = db.execute(
+                text("""
+                SELECT v.name, v.external_ip, v.internal_ip, v.role
+                FROM vms v
+                JOIN projects p ON v.project_id = p.id
+                WHERE p.name = :project_name
+                ORDER BY v.name
+            """),
+                {"project_name": project_name},
+            )
+            vms = []
+            for row in result.fetchall():
+                vms.append(
+                    {
+                        "name": row[0],
+                        "ip": row[1],
+                        "external_ip": row[1],
+                        "internal_ip": row[2],
+                        "role": row[3] or row[0].split("-")[0]
+                        if "-" in row[0]
+                        else row[0],
+                    }
+                )
+            if vms:
+                set_cache(cache_key, vms, 300)
+                return vms
+        finally:
+            db.close()
+
+        # Fallback to CLI (slower)
+        from pathlib import Path
+
+        project_root = Path(__file__).parent.parent.parent.parent
         result = subprocess.run(
             ["./superdeploy.sh", f"{project_name}:status", "--json"],
             capture_output=True,
             text=True,
-            cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
-            timeout=30,
+            cwd=str(project_root),
+            timeout=5,  # Reduced timeout
         )
         if result.returncode == 0:
             project_data = json.loads(result.stdout)
@@ -104,78 +167,91 @@ async def get_app_metrics(project_name: str, app_name: str):
     - Uptime
     """
     try:
-        # Get project VMs from CLI
-        vms = get_project_vms(project_name)
-        if not vms:
-            raise HTTPException(status_code=404, detail="Project not found")
+        # Wrap in timeout - max 5 seconds for entire endpoint
+        async def _fetch_metrics():
+            # Get project VMs from CLI
+            vms = get_project_vms(project_name)
+            if not vms:
+                raise HTTPException(status_code=404, detail="Project not found")
 
-        # Verify app exists in project (just check if VMs exist)
-        if not vms:
-            raise HTTPException(status_code=404, detail="App not found")
+            # Verify app exists in project (just check if VMs exist)
+            if not vms:
+                raise HTTPException(status_code=404, detail="App not found")
 
-        # Find app VM
-        app_vm = next((vm for vm in vms if vm.get("role") == "app"), None)
-        if not app_vm:
-            app_vm = vms[0]  # Fallback to first VM
+            # Find app VM
+            app_vm = next((vm for vm in vms if vm.get("role") == "app"), None)
+            if not app_vm:
+                app_vm = vms[0]  # Fallback to first VM
 
-        vm_ip = app_vm.get("ip")
-        if not vm_ip:
-            raise HTTPException(status_code=404, detail="VM has no IP")
+            vm_ip = app_vm.get("ip")
+            if not vm_ip:
+                raise HTTPException(status_code=404, detail="VM has no IP")
 
-        # Get orchestrator IP from CLI
-        orch_ip = get_orchestrator_ip()
-        if not orch_ip:
-            raise HTTPException(status_code=500, detail="Orchestrator not found")
+            # Get orchestrator IP from CLI
+            orch_ip = get_orchestrator_ip()
+            if not orch_ip:
+                raise HTTPException(status_code=500, detail="Orchestrator not found")
 
-        prometheus_url = f"http://{orch_ip}:9090"
+            prometheus_url = f"http://{orch_ip}:9090"
 
-        # Prometheus queries for the specific VM
-        instance_filter = f'instance=~".*{vm_ip}.*"'
+            # Prometheus queries for the specific VM
+            instance_filter = f'instance=~".*{vm_ip}.*"'
 
-        # Query metrics from Prometheus in parallel
-        cpu_query = f'100 - (avg by (instance) (rate(node_cpu_seconds_total{{mode="idle",{instance_filter}}}[5m])) * 100)'
-        memory_query = f"(1 - (node_memory_MemAvailable_bytes{{{instance_filter}}} / node_memory_MemTotal_bytes{{{instance_filter}}})) * 100"
-        disk_query = f'(node_filesystem_size_bytes{{mountpoint="/",{instance_filter}}} - node_filesystem_avail_bytes{{mountpoint="/",{instance_filter}}}) / node_filesystem_size_bytes{{mountpoint="/",{instance_filter}}} * 100'
-        uptime_query = f"node_time_seconds{{{instance_filter}}} - node_boot_time_seconds{{{instance_filter}}}"
+            # Query metrics from Prometheus in parallel
+            cpu_query = f'100 - (avg by (instance) (rate(node_cpu_seconds_total{{mode="idle",{instance_filter}}}[5m])) * 100)'
+            memory_query = f"(1 - (node_memory_MemAvailable_bytes{{{instance_filter}}} / node_memory_MemTotal_bytes{{{instance_filter}}})) * 100"
+            disk_query = f'(node_filesystem_size_bytes{{mountpoint="/",{instance_filter}}} - node_filesystem_avail_bytes{{mountpoint="/",{instance_filter}}}) / node_filesystem_size_bytes{{mountpoint="/",{instance_filter}}} * 100'
+            uptime_query = f"node_time_seconds{{{instance_filter}}} - node_boot_time_seconds{{{instance_filter}}}"
 
-        # Container count - count running containers for this app
-        container_query = f'count(container_last_seen{{name=~".*{app_name}.*"}})'
+            # Container count - count running containers for this app
+            container_query = f'count(container_last_seen{{name=~".*{app_name}.*"}})'
 
-        # Execute all queries in parallel
-        results = await asyncio.gather(
-            query_prometheus(prometheus_url, cpu_query),
-            query_prometheus(prometheus_url, memory_query),
-            query_prometheus(prometheus_url, disk_query),
-            query_prometheus(prometheus_url, uptime_query),
-            query_prometheus(prometheus_url, container_query),
-            return_exceptions=True,
+            # Execute all queries in parallel
+            results = await asyncio.gather(
+                query_prometheus(prometheus_url, cpu_query),
+                query_prometheus(prometheus_url, memory_query),
+                query_prometheus(prometheus_url, disk_query),
+                query_prometheus(prometheus_url, uptime_query),
+                query_prometheus(prometheus_url, container_query),
+                return_exceptions=True,
+            )
+
+            cpu_usage, memory_usage, disk_usage, uptime_seconds, container_count = (
+                results
+            )
+
+            # Handle any exceptions
+            metrics = {
+                "cpu_usage": cpu_usage if not isinstance(cpu_usage, Exception) else 0.0,
+                "memory_usage": memory_usage
+                if not isinstance(memory_usage, Exception)
+                else 0.0,
+                "disk_usage": disk_usage
+                if not isinstance(disk_usage, Exception)
+                else 0.0,
+                "container_count": int(container_count)
+                if not isinstance(container_count, Exception)
+                else 0,
+                "uptime_seconds": uptime_seconds
+                if not isinstance(uptime_seconds, Exception)
+                else 0.0,
+            }
+
+            return {
+                "app": app_name,
+                "project": project_name,
+                "vm_ip": vm_ip,
+                "prometheus_url": prometheus_url,
+                "metrics": metrics,
+            }
+
+        # Apply 5 second timeout to entire endpoint
+        return await asyncio.wait_for(_fetch_metrics(), timeout=5.0)
+
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504, detail="Request timeout - Prometheus not responding"
         )
-
-        cpu_usage, memory_usage, disk_usage, uptime_seconds, container_count = results
-
-        # Handle any exceptions
-        metrics = {
-            "cpu_usage": cpu_usage if not isinstance(cpu_usage, Exception) else 0.0,
-            "memory_usage": memory_usage
-            if not isinstance(memory_usage, Exception)
-            else 0.0,
-            "disk_usage": disk_usage if not isinstance(disk_usage, Exception) else 0.0,
-            "container_count": int(container_count)
-            if not isinstance(container_count, Exception)
-            else 0,
-            "uptime_seconds": uptime_seconds
-            if not isinstance(uptime_seconds, Exception)
-            else 0.0,
-        }
-
-        return {
-            "app": app_name,
-            "project": project_name,
-            "vm_ip": vm_ip,
-            "prometheus_url": prometheus_url,
-            "metrics": metrics,
-        }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
