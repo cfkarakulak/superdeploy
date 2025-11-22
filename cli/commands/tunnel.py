@@ -101,7 +101,7 @@ class TunnelCommand(ProjectCommand):
             [
                 "ssh",
                 "-i",
-                ssh_service.key_path,
+                str(ssh_service.config.key_path_expanded),
                 "-N",  # No remote command
                 "-o",
                 "StrictHostKeyChecking=no",
@@ -109,7 +109,7 @@ class TunnelCommand(ProjectCommand):
                 "UserKnownHostsFile=/dev/null",
             ]
             + tunnel_args
-            + [f"{ssh_service.user}@{vm_ip}"]
+            + [f"{ssh_service.config.user}@{vm_ip}"]
         )
 
         # Show connection info
@@ -117,6 +117,106 @@ class TunnelCommand(ProjectCommand):
 
         self.console.print("\n[bold green]✓ Tunnels active![/bold green]")
         self.console.print("[dim]Press Ctrl+C to stop tunnels...[/dim]\n")
+
+        # Print detailed connection information
+        self.console.print("[bold cyan]📋 Connection Details:[/bold cyan]\n")
+
+        for svc in services_to_tunnel:
+            local_port, _ = TUNNEL_PORT_MAPPINGS[svc]
+            svc_info = TUNNEL_SERVICE_INFO[svc]
+
+            self.console.print(f"[bold yellow]{svc_info['name']}:[/bold yellow]")
+
+            if svc == "postgres":
+                try:
+                    from cli.database import get_db_session
+                    from sqlalchemy import text
+
+                    db = get_db_session()
+                    try:
+                        # Try to get from addon_secrets first
+                        result = db.execute(
+                            text("""
+                                SELECT key, value 
+                                FROM addon_secrets 
+                                WHERE project_name=:project 
+                                AND addon_type='postgres' 
+                                AND addon_instance='postgres'
+                            """),
+                            {"project": self.project_name},
+                        )
+                        secrets = {row[0]: row[1] for row in result}
+
+                        db_user = secrets.get("USER", "postgres")
+                        db_pass = secrets.get("PASSWORD", "password")
+                        db_name = secrets.get("DATABASE", f"{self.project_name}_db")
+                    finally:
+                        db.close()
+
+                    self.console.print("  [green]Host:[/green] localhost")
+                    self.console.print(f"  [green]Port:[/green] {local_port}")
+                    self.console.print(f"  [green]User:[/green] {db_user}")
+                    self.console.print(f"  [green]Password:[/green] {db_pass}")
+                    self.console.print(f"  [green]Database:[/green] {db_name}")
+                    self.console.print(
+                        "\n  [bold cyan]📦 TablePlus Connection:[/bold cyan]"
+                    )
+                    self.console.print("  [dim]Connection Type:[/dim] PostgreSQL")
+                    self.console.print("  [dim]Copy this string:[/dim]")
+                    self.console.print(
+                        f"  [green]postgresql://{db_user}:{db_pass}@localhost:{local_port}/{db_name}[/green]\n"
+                    )
+                except Exception as e:
+                    self.console.print(
+                        f"  [yellow]Warning: Could not fetch credentials: {e}[/yellow]"
+                    )
+                    self.console.print(f"  {svc_info['connection']}\n")
+
+            elif svc == "rabbitmq":
+                try:
+                    from cli.database import get_db_session
+                    from sqlalchemy import text
+
+                    db = get_db_session()
+                    try:
+                        # Try to get from addon_secrets first
+                        result = db.execute(
+                            text("""
+                                SELECT key, value 
+                                FROM addon_secrets 
+                                WHERE project_name=:project 
+                                AND addon_type='rabbitmq' 
+                                AND addon_instance='rabbitmq'
+                            """),
+                            {"project": self.project_name},
+                        )
+                        secrets = {row[0]: row[1] for row in result}
+
+                        rmq_user = secrets.get("USER", "guest")
+                        rmq_pass = secrets.get("PASSWORD", "guest")
+                    finally:
+                        db.close()
+
+                    self.console.print(
+                        f"  [green]Management UI:[/green] http://localhost:{local_port}"
+                    )
+                    self.console.print(f"  [green]User:[/green] {rmq_user}")
+                    self.console.print(f"  [green]Password:[/green] {rmq_pass}")
+                    self.console.print("  [green]AMQP Port:[/green] 5672")
+                    self.console.print(
+                        "\n  [bold cyan]📦 TablePlus Connection:[/bold cyan]"
+                    )
+                    self.console.print("  [dim]Connection Type:[/dim] RabbitMQ")
+                    self.console.print(
+                        f"  [dim]Management URL:[/dim] http://localhost:{local_port}\n"
+                    )
+                except Exception as e:
+                    self.console.print(
+                        f"  [yellow]Warning: Could not fetch credentials: {e}[/yellow]"
+                    )
+                    self.console.print(f"  {svc_info['connection']}\n")
+            else:
+                self.console.print(f"  {svc_info['connection']}\n")
 
         # Run SSH tunnel (blocking)
         try:

@@ -588,8 +588,8 @@ class VarsSyncCommand(ProjectCommand):
                 f"  [dim]🔐 Read {len(app_secrets_dict)} secrets from database (with aliases)[/dim]"
             )
 
-            # MERGE: database secrets as base, local .env overrides
-            merged_env = {**app_secrets_dict, **local_env}
+            # MERGE: local .env as base, database addon secrets override (correct priority)
+            merged_env = {**local_env, **app_secrets_dict}
             self.console.print(
                 f"  [dim]🔀 Merged total: {len(merged_env)} variables[/dim]"
             )
