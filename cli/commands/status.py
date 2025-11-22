@@ -424,17 +424,17 @@ class StatusCommand(ProjectCommand):
 
                 # Set default statuses for addons
                 for addon_entry in app_status["addons"]:
-                        addon_type = addon_entry["type"]
-                        if addon_type in [
-                            "postgres",
-                            "rabbitmq",
-                            "redis",
-                            "mongodb",
-                            "elasticsearch",
+                    addon_type = addon_entry["type"]
+                    if addon_type in [
+                        "postgres",
+                        "rabbitmq",
+                        "redis",
+                        "mongodb",
+                        "elasticsearch",
                         "caddy",
-                        ]:
+                    ]:
                         addon_entry["status"] = "Up (database)"
-                        else:
+                    else:
                         addon_entry["status"] = "Unknown"
 
                 # Generate mock process data from process definitions
@@ -443,9 +443,9 @@ class StatusCommand(ProjectCommand):
                     replicas = process_config.get("replicas", 1)
                     for i in range(1, replicas + 1):
                         container_name = f"compose-{self.app_filter}-{process_name}-{i}"
-                                app_status["processes"].append(
-                                    {
-                                        "container": container_name,
+                        app_status["processes"].append(
+                            {
+                                "container": container_name,
                                 "status": "Up (assumed)",
                                 "id": f"mock{i:02d}",
                             }
