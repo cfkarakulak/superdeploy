@@ -26,7 +26,7 @@ on:
         default: 'DOCKER_USERNAME'
     secrets:
       REPOSITORY_TOKEN:
-        required: true
+        required: false
 
 jobs:
   deploy:

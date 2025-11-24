@@ -14,9 +14,9 @@ on:
         default: 'DOCKER_USERNAME'
     secrets:
       REPOSITORY_TOKEN:
-        required: true
+        required: false
       DOCKER_TOKEN:
-        required: true
+        required: false
     outputs:
       project:
         description: 'Project name from superdeploy marker'
