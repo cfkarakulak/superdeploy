@@ -36,6 +36,7 @@ class RunCommand(ProjectCommand):
         project_name: str,
         options: RunCommandOptions,
         verbose: bool = False,
+        json_output: bool = False,
     ):
         """
         Initialize run command.
@@ -44,6 +45,7 @@ class RunCommand(ProjectCommand):
             project_name: Name of the project
             options: RunCommandOptions with configuration
             verbose: Whether to show verbose output
+            json_output: Whether to output in JSON format
         """
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.options = options
