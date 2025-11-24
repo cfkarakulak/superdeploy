@@ -159,11 +159,23 @@ jobs:
                           service['deploy'] = {}
                       service['deploy']['replicas'] = replicas
                       
+                      # Update healthcheck based on process type
                       if port:
+                          # Web process: HTTP healthcheck
+                          service['healthcheck'] = {
+                              'test': ['CMD', 'curl', '-f', f'http://localhost:{port}/'],
+                              'interval': '30s',
+                              'timeout': '10s',
+                              'retries': 3,
+                              'start_period': '40s'
+                          }
                           service.pop('ports', None)
                           service.pop('expose', None)
                           # Use ports for external access, not just expose
                           service['ports'] = [f"{port}:{port}"]
+                      else:
+                          # Worker process: Disable healthcheck
+                          service['healthcheck'] = {'disable': True}
                       
                       print(f"✅ Updated {service_name}: replicas={replicas}, port={port}")
                   else:
@@ -197,9 +209,23 @@ jobs:
                               }
                           }
                       }
+                      
+                      # Add healthcheck based on process type
                       if port:
+                          # Web process: HTTP healthcheck
+                          compose['services'][service_name]['healthcheck'] = {
+                              'test': ['CMD', 'curl', '-f', f'http://localhost:{port}/'],
+                              'interval': '30s',
+                              'timeout': '10s',
+                              'retries': 3,
+                              'start_period': '40s'
+                          }
                           # Use ports for external access, not just expose
                           compose['services'][service_name]['ports'] = [f"{port}:{port}"]
+                      else:
+                          # Worker process: Disable healthcheck
+                          compose['services'][service_name]['healthcheck'] = {'disable': True}
+                      
                       print(f"✅ Created {service_name}: replicas={replicas}, port={port}, command={command}")
               
               with open(compose_file, 'w') as f:
