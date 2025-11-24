@@ -43,6 +43,14 @@ jobs:
           name: workspace
           path: .
 
+      - name: Debug - Show artifact structure
+        run: |
+          echo "📁 Artifact structure after download:"
+          ls -laR
+          echo ""
+          echo "📍 Looking for superdeploy marker:"
+          find . -name "superdeploy" -type f
+
       - name: Read app configuration
         id: config
         run: |
@@ -78,7 +86,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./${{ steps.config.outputs.app }}
+          context: .
           file: ./${{ steps.config.outputs.app }}/Dockerfile
           push: true
           tags: |
