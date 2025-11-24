@@ -215,17 +215,20 @@ class SSHService:
         docker_cmd_parts.append(container_name)
         docker_cmd = " ".join(docker_cmd_parts) + " 2>&1"
 
+        # Use script command to create pseudo-tty for unbuffered output
+        # This fixes buffering without requiring interactive terminal (-tt)
+        docker_cmd_wrapped = f"script -q -c '{docker_cmd}' /dev/null"
+        
         ssh_cmd = [
             "ssh",
-            "-tt",  # Force pseudo-terminal allocation (fixes buffering)
             "-i",
             str(self.config.key_path_expanded),
             "-o",
             "StrictHostKeyChecking=no",
             "-o",
-            "LogLevel=QUIET",  # Suppress SSH messages
+            "LogLevel=QUIET",
             f"{self.config.user}@{host}",
-            docker_cmd,
+            docker_cmd_wrapped,
         ]
 
         return subprocess.Popen(
