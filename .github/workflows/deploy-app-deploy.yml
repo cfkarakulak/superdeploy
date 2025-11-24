@@ -24,6 +24,11 @@ on:
         required: false
         type: string
         default: 'DOCKER_USERNAME'
+      environment:
+        description: 'GitHub environment name for secrets'
+        required: false
+        type: string
+        default: 'production'
     secrets:
       REPOSITORY_TOKEN:
         required: false
@@ -31,6 +36,7 @@ on:
 jobs:
   deploy:
     name: Deploy service (zero-downtime with replicas)
+    environment: ${{ inputs.environment }}
     runs-on:
       - self-hosted
       - superdeploy
