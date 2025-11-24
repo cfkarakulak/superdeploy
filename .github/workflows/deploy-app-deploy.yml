@@ -175,7 +175,8 @@ jobs:
                           }
                       }
                       if port:
-                          compose['services'][service_name]['ports'] = [f"{port}:{port}"]
+                          # Use expose for internal network only (Caddy handles external routing)
+                          compose['services'][service_name]['expose'] = [str(port)]
                       print(f"✅ Created {service_name}: replicas={replicas}, port={port}, command={command}")
                   else:
                       # UPDATE EXISTING SERVICE
@@ -191,7 +192,8 @@ jobs:
                       if port:
                           service.pop('ports', None)
                           service.pop('expose', None)
-                          service['ports'] = [f"{port}:{port}"]
+                          # Use expose for internal network only (Caddy handles external routing)
+                          service['expose'] = [str(port)]
 
                       # Safely handle networks
                       network_alias = f"{app_name}-{process_name}"
