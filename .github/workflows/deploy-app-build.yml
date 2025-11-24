@@ -36,6 +36,7 @@ jobs:
       app: ${{ steps.config.outputs.app }}
       vm_role: ${{ steps.config.outputs.vm_role }}
       context: ${{ steps.config.outputs.context }}
+      dockerfile: ${{ steps.config.outputs.dockerfile }}
 
     steps:
       - name: Download workspace artifact
@@ -73,15 +74,21 @@ jobs:
           echo "app=$APP" >> $GITHUB_OUTPUT
           echo "vm_role=$VM_ROLE" >> $GITHUB_OUTPUT
           
-          # Determine build context: if app directory exists, use it; otherwise use root
+          # Determine build context and Dockerfile location
           if [ -d "$APP" ]; then
-            BUILD_CONTEXT="$APP"
-            echo "context=$APP" >> $GITHUB_OUTPUT
-            echo "✅ Config: project=$PROJECT, app=$APP, vm=$VM_ROLE, context=$APP (single repo)"
-          else
+            # Multi-repo: app/ and commons/ directories exist
             BUILD_CONTEXT="."
+            DOCKERFILE_PATH="./$APP/Dockerfile"
             echo "context=." >> $GITHUB_OUTPUT
-            echo "✅ Config: project=$PROJECT, app=$APP, vm=$VM_ROLE, context=. (multi-repo with commons)"
+            echo "dockerfile=$DOCKERFILE_PATH" >> $GITHUB_OUTPUT
+            echo "✅ Config: project=$PROJECT, app=$APP, vm=$VM_ROLE, context=. (multi-repo)"
+          else
+            # Single repo: files are in root (no app/ subdirectory)
+            BUILD_CONTEXT="."
+            DOCKERFILE_PATH="./Dockerfile"
+            echo "context=." >> $GITHUB_OUTPUT
+            echo "dockerfile=$DOCKERFILE_PATH" >> $GITHUB_OUTPUT
+            echo "✅ Config: project=$PROJECT, app=$APP, vm=$VM_ROLE, context=. (single repo)"
           fi
 
       - name: Set up Docker Buildx
@@ -96,9 +103,10 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          # Dynamic context: app dir for single repo, root for multi-repo (with commons)
+          # Context is always . (root) - contains either app files or app/ + commons/ dirs
           context: ${{ steps.config.outputs.context }}
-          file: ${{ steps.config.outputs.app }}/Dockerfile
+          # Dockerfile path: ./Dockerfile for single repo, ./app/Dockerfile for multi-repo
+          file: ${{ steps.config.outputs.dockerfile }}
           push: true
           tags: |
             ${{ inputs.docker_org }}/${{ steps.config.outputs.app }}:latest
