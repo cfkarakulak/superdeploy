@@ -217,10 +217,13 @@ class SSHService:
 
         ssh_cmd = [
             "ssh",
+            "-tt",  # Force pseudo-terminal allocation (fixes buffering)
             "-i",
             str(self.config.key_path_expanded),
             "-o",
             "StrictHostKeyChecking=no",
+            "-o",
+            "LogLevel=QUIET",  # Suppress SSH messages
             f"{self.config.user}@{host}",
             docker_cmd,
         ]
