@@ -31,7 +31,6 @@ on:
 jobs:
   deploy:
     name: Deploy service (zero-downtime with replicas)
-    environment: ${{ github.ref_name }}
     runs-on:
       - self-hosted
       - superdeploy
