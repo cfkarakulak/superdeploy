@@ -79,6 +79,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ./${{ steps.config.outputs.app }}/Dockerfile
           push: true
           tags: |
             ${{ inputs.docker_org }}/${{ steps.config.outputs.app }}:latest
