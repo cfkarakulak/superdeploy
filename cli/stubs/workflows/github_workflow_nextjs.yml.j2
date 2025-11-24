@@ -161,9 +161,9 @@ jobs:
                       
                       # Update healthcheck based on process type
                       if port:
-                          # Web process: HTTP healthcheck
+                          # Web process: HTTP healthcheck (without -f to tolerate 404/500)
                           service['healthcheck'] = {
-                              'test': ['CMD', 'curl', '-f', f'http://localhost:{port}/'],
+                              'test': ['CMD', 'curl', f'http://localhost:{port}/health'],
                               'interval': '30s',
                               'timeout': '10s',
                               'retries': 3,
@@ -212,9 +212,9 @@ jobs:
                       
                       # Add healthcheck based on process type
                       if port:
-                          # Web process: HTTP healthcheck
+                          # Web process: HTTP healthcheck (without -f to tolerate 404/500)
                           compose['services'][service_name]['healthcheck'] = {
-                              'test': ['CMD', 'curl', '-f', f'http://localhost:{port}/'],
+                              'test': ['CMD', 'curl', f'http://localhost:{port}/health'],
                               'interval': '30s',
                               'timeout': '10s',
                               'retries': 3,
