@@ -309,7 +309,7 @@ class LogsCommand(ProjectCommand):
             # Find all project containers on this VM (excluding superdeploy infra)
             # Strategy: Find both addon containers (project_name_*) and app containers (compose-*)
             cmd = f'docker ps --format "{{{{.Names}}}}" | grep -E "^{self.project_name}_|^compose-" || true'
-            result = ssh_service.execute_command(vm_ip, cmd, timeout=5)
+            result = ssh_service.execute_command(vm_ip, cmd, timeout=30)
 
             if result.returncode == 0 and result.stdout.strip():
                 found_containers = result.stdout.strip().split("\n")
