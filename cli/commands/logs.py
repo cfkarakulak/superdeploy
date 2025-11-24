@@ -18,7 +18,7 @@ from cli.base import ProjectCommand
 class LogsOptions:
     """Options for logs command."""
 
-    app_name: str
+    app_name: Optional[str] = None  # Optional: if None, show all project containers
     lines: int = 100
     follow: bool = True
     filter_level: Optional[str] = None
@@ -199,46 +199,64 @@ class LogsCommand(ProjectCommand):
         self._print_header()
         self.require_deployment()
 
-        # Get VM and IP for app
-        try:
-            vm_name, vm_ip = self.get_vm_for_app(self.options.app_name)
-        except Exception as e:
-            self.handle_error(e)
-            raise SystemExit(1)
-
         # Get SSH service
         vm_service = self.ensure_vm_service()
         ssh_service = vm_service.get_ssh_service()
 
-        # Find ALL containers for this app (all processes: web, worker, etc.)
-        containers = self._find_all_containers(ssh_service, vm_ip)
+        # If app_name is None, show logs from ALL project containers across ALL VMs
+        if self.options.app_name is None:
+            containers_by_vm = self._find_all_project_containers(ssh_service)
+            if not containers_by_vm:
+                raise Exception(
+                    f"No containers found for project {self.project_name}. "
+                    f"Make sure the project is running."
+                )
+        else:
+            # Get VM and IP for specific app
+            try:
+                vm_name, vm_ip = self.get_vm_for_app(self.options.app_name)
+            except Exception as e:
+                self.handle_error(e)
+                raise SystemExit(1)
 
-        if not containers:
-            raise Exception(
-                f"No containers found for {self.project_name}/{self.options.app_name}. "
-                f"Make sure the app is running."
-            )
+            # Find ALL containers for this app (all processes: web, worker, etc.)
+            containers = self._find_all_containers(ssh_service, vm_ip)
+
+            if not containers:
+                raise Exception(
+                    f"No containers found for {self.project_name}/{self.options.app_name}. "
+                    f"Make sure the app is running."
+                )
+
+            containers_by_vm = {vm_ip: containers}
 
         try:
-            if len(containers) > 1:
+            # Count total containers
+            total_containers = sum(
+                len(containers) for containers in containers_by_vm.values()
+            )
+
+            if total_containers > 1:
                 self.console.print(
-                    f"[dim]→ Streaming logs from {len(containers)} processes: {', '.join(containers)}... Press Ctrl+C to stop[/dim]\n"
+                    f"[dim]→ Streaming logs from {total_containers} containers across {len(containers_by_vm)} VM(s)... Press Ctrl+C to stop[/dim]\n"
                 )
             else:
+                container_name = list(containers_by_vm.values())[0][0]
                 self.console.print(
-                    f"[dim]→ Streaming logs from {containers[0]}... Press Ctrl+C to stop[/dim]\n"
+                    f"[dim]→ Streaming logs from {container_name}... Press Ctrl+C to stop[/dim]\n"
                 )
 
-            # Start streaming logs from all containers
+            # Start streaming logs from all containers across all VMs
             self.processes = []
-            for container_name in containers:
-                process = ssh_service.docker_logs(
-                    vm_ip,
-                    container_name,
-                    follow=self.options.follow,
-                    tail=self.options.lines,
-                )
-                self.processes.append((container_name, process))
+            for vm_ip, containers in containers_by_vm.items():
+                for container_name in containers:
+                    process = ssh_service.docker_logs(
+                        vm_ip,
+                        container_name,
+                        follow=self.options.follow,
+                        tail=self.options.lines,
+                    )
+                    self.processes.append((container_name, process))
 
             # Give it a moment to start
             import time
@@ -270,6 +288,40 @@ class LogsCommand(ProjectCommand):
         except Exception as e:
             self.handle_error(e, "Failed to fetch logs")
             raise SystemExit(1)
+
+    def _find_all_project_containers(self, ssh_service) -> dict[str, list[str]]:
+        """
+        Find ALL containers for this project across ALL VMs.
+
+        Returns dict of {vm_ip: [container_names]}
+        """
+        containers_by_vm = {}
+
+        # Get all VMs for this project
+        state = self.state_service.load_state()
+
+        for vm_name, vm_data in state.vms.items():
+            # Use external IP for SSH connections (internal IPs are not accessible)
+            vm_ip = vm_data.external_ip
+            if not vm_ip:
+                continue
+
+            # Find all project containers on this VM (excluding superdeploy infra)
+            # Strategy: Find both addon containers (project_name_*) and app containers (compose-*)
+            cmd = f'docker ps --format "{{{{.Names}}}}" | grep -E "^{self.project_name}_|^compose-" || true'
+            result = ssh_service.execute_command(vm_ip, cmd, timeout=5)
+
+            if result.returncode == 0 and result.stdout.strip():
+                found_containers = result.stdout.strip().split("\n")
+                containers = [
+                    c.strip()
+                    for c in found_containers
+                    if c.strip() and "superdeploy-" not in c
+                ]
+                if containers:
+                    containers_by_vm[vm_ip] = containers
+
+        return containers_by_vm
 
     def _find_all_containers(self, ssh_service, vm_ip: str) -> list[str]:
         """
@@ -400,10 +452,16 @@ class LogsCommand(ProjectCommand):
         filter_str = f" | {', '.join(filters)}" if filters else ""
 
         self.console.print()
-        self.console.print(
-            f"[bold cyan]📋 {self.project_name}/{self.options.app_name}[/bold cyan]",
-            end="",
-        )
+        if self.options.app_name:
+            self.console.print(
+                f"[bold cyan]📋 {self.project_name}/{self.options.app_name}[/bold cyan]",
+                end="",
+            )
+        else:
+            self.console.print(
+                f"[bold cyan]📋 {self.project_name} (all containers)[/bold cyan]",
+                end="",
+            )
         self.console.print(f" [dim](streaming{filter_str})[/dim]")
         self.console.print()
 
@@ -551,7 +609,12 @@ class LogsCommand(ProjectCommand):
 
 
 @click.command()
-@click.option("-a", "--app", required=True, help="App name (api, storefront, services)")
+@click.option(
+    "-a",
+    "--app",
+    required=False,
+    help="App name (api, storefront, services). If omitted, shows all project containers",
+)
 @click.option(
     "-n",
     "--lines",
@@ -572,25 +635,29 @@ def logs(project, app, lines, level, grep_pattern, verbose, json_output):
     - Search logs with --grep flag (supports regex)
     - Clean, colorful output
     - Press Ctrl+C to stop
+    - If -a is omitted, streams ALL project containers across ALL VMs
 
     Examples:
-        # Stream logs (starts from last 100 lines)
+        # Stream logs from ALL project containers
+        superdeploy cheapa:logs
+
+        # Stream logs from specific app (starts from last 100 lines)
         superdeploy cheapa:logs -a api
 
         # Stream from last 500 lines
         superdeploy cheapa:logs -a api -n 500
 
-        # Only show errors while streaming
-        superdeploy cheapa:logs -a api --level ERROR
+        # Only show errors while streaming (all containers)
+        superdeploy cheapa:logs --level ERROR
 
-        # Search for specific pattern
-        superdeploy cheapa:logs -a api --grep "database"
+        # Search for specific pattern across all containers
+        superdeploy cheapa:logs --grep "database"
 
         # Combine filters (grep + level)
         superdeploy cheapa:logs -a api --grep "GET.*200" --level INFO
 
-        # Monitor errors in real-time
-        superdeploy cheapa:logs -a storefront --level ERROR
+        # Monitor errors in real-time from all containers
+        superdeploy cheapa:logs --level ERROR
     """
     options = LogsOptions(
         app_name=app,

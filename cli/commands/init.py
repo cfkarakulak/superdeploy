@@ -437,18 +437,17 @@ class InitCommand(BaseCommand):
                     "vm": "core",
                 }
             },
-            "proxy": {},  # Caddy instances will be added per-VM below
+            "proxy": {},  # Caddy will be added as primary instance
         }
 
-        # Add Caddy instance for each VM (required for app routing)
-        for vm_name in vms.keys():
-            vm_role = vms[vm_name].get("role", vm_name)
-            addons["proxy"][f"{vm_name}"] = {
-                "type": "caddy",
-                "version": "2-alpine",
-                "plan": "standard",
-                "vm": vm_name,
-            }
+        # CRITICAL: Add Caddy as "primary" instance (required for app routing)
+        # Caddy should be added as a single primary instance, not per-VM
+        addons["proxy"]["primary"] = {
+            "type": "caddy",
+            "version": "2-alpine",
+            "plan": "standard",
+            "vm": "core",  # Default to core VM
+        }
 
         return ProjectSetupConfig(
             project_name=self.project_name,

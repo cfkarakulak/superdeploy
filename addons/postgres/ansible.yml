@@ -168,7 +168,7 @@
 
 - name: Verify {{ instance_name }} is accessible
   shell: |
-    docker exec {{ container_name }} pg_isready -U {{ addon_env_vars.POSTGRES_USER }}
+    docker exec {{ container_name }} pg_isready -U {{ env_vars.POSTGRES_USER }}
   register: postgres_health_check
   until: postgres_health_check.rc == 0
   retries: 5
@@ -178,12 +178,12 @@
 
 - name: Verify {{ instance_name }} database exists
   shell: |
-    docker exec {{ container_name }} psql -U {{ addon_env_vars.POSTGRES_USER }} -lqt | cut -d \| -f 1 | grep -qw {{ addon_env_vars.POSTGRES_DB }}
+    docker exec {{ container_name }} psql -U {{ env_vars.POSTGRES_USER }} -lqt | cut -d \| -f 1 | grep -qw {{ env_vars.POSTGRES_DB }}
   register: db_check
   changed_when: false
   failed_when: false
 
-- name: "🗄️  PostgreSQL ready → Database: {{ addon_env_vars.POSTGRES_DB }} • User: {{ addon_env_vars.POSTGRES_USER }} • Port: {{ addon_env_vars.PORT }}"
+- name: "🗄️  PostgreSQL ready → Database: {{ env_vars.POSTGRES_DB }} • User: {{ env_vars.POSTGRES_USER }} • Port: {{ env_vars.PORT }}"
   set_fact:
     _postgres_ready: true
   changed_when: false

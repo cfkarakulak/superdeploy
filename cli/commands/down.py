@@ -235,7 +235,9 @@ class GCPResourceCleaner:
 class TerraformCleaner:
     """Cleans up Terraform state and workspaces."""
 
-    def __init__(self, project_name: str, project_root: Path, console):
+    def __init__(
+        self, project_name: str, project_root: Path, console, project_config=None
+    ):
         """
         Initialize Terraform cleaner.
 
@@ -243,28 +245,87 @@ class TerraformCleaner:
             project_name: Name of the project
             project_root: Path to project root
             console: Rich console for output
+            project_config: Optional ProjectConfig instance (for terraform destroy)
         """
         self.project_name = project_name
         self.project_root = project_root
         self.console = console
         self.terraform_dir = project_root / "shared" / "terraform"
+        self.project_config = project_config
 
     def cleanup(self) -> None:
-        """Clean up Terraform state files."""
+        """Clean up Terraform state files and destroy resources."""
+        from cli.terraform_utils import TerraformManager
+
+        manager = TerraformManager(self.project_root)
+
+        # Check if workspace exists
+        try:
+            workspaces = manager.list_workspaces()
+            workspace_exists = self.project_name in workspaces
+        except Exception:
+            # Terraform might not be initialized, that's okay
+            workspace_exists = False
+
+        if workspace_exists:
+            # Initialize Terraform if needed
+            try:
+                manager.init(upgrade=False, migrate_state=False)
+            except Exception:
+                # Init might fail if already initialized, that's okay
+                pass
+
+            # Select workspace
+            try:
+                manager.select_workspace(self.project_name, create=False)
+
+                # Try to destroy Terraform-managed resources first
+                if self.project_config:
+                    try:
+                        self.console.print("  [dim]Running terraform destroy...[/dim]")
+                        result = manager.destroy(self.project_config, auto_approve=True)
+                        if result.is_success:
+                            self.console.print(
+                                "  [dim]✓ Terraform resources destroyed[/dim]"
+                            )
+                        else:
+                            # If destroy fails, continue anyway (resources might already be deleted)
+                            error_msg = (
+                                result.stderr[:200]
+                                if result.stderr
+                                else "Unknown error"
+                            )
+                            self.console.print(
+                                f"  [yellow]⚠ Terraform destroy had issues: {error_msg}[/yellow]"
+                            )
+                    except Exception as e:
+                        # If destroy fails, continue anyway
+                        self.console.print(
+                            f"  [yellow]⚠ Could not run terraform destroy: {e}[/yellow]"
+                        )
+                        self.console.print("  [dim]Continuing with cleanup...[/dim]")
+                else:
+                    self.console.print(
+                        "  [yellow]⚠ No project config available, skipping terraform destroy[/yellow]"
+                    )
+            except Exception as e:
+                self.console.print(
+                    f"  [yellow]⚠ Could not select workspace: {e}[/yellow]"
+                )
+
         # Switch to default workspace
-        subprocess.run(
-            "terraform workspace select default 2>/dev/null || true",
-            shell=True,
-            cwd=self.terraform_dir,
-            capture_output=True,
-        )
+        try:
+            manager.select_workspace("default", create=False)
+        except Exception:
+            # Default workspace might not exist, that's okay
+            pass
 
         # Remove workspace directory
         workspace_dir = self.terraform_dir / "terraform.tfstate.d" / self.project_name
         if workspace_dir.exists():
             shutil.rmtree(workspace_dir)
             self.console.print("  [dim]✓ Terraform workspace cleaned[/dim]")
-        else:
+        elif not workspace_exists:
             self.console.print("  [dim]✓ No Terraform workspace found[/dim]")
 
 
@@ -369,22 +430,23 @@ class DownCommand(ProjectCommand):
 
         self.console.print()
 
-        # Load config for GCP details
+        # Load config for GCP details and Terraform
         region = self._load_region_config(logger)
+        project_config = self._load_project_config(logger)
 
         # Execute cleanup in 4 steps
         total_steps = 4
 
-        # Step 1: GCP Resource Cleanup
+        # Step 1: Terraform Destroy (destroy Terraform-managed resources first)
         if logger:
-            logger.step(f"[1/{total_steps}] GCP Resource Cleanup")
+            logger.step(f"[1/{total_steps}] Terraform Destroy")
         self.console.print("  [dim]✓ Configuration loaded[/dim]")
-        self._execute_gcp_cleanup(logger, region)
+        self._execute_terraform_cleanup(logger, project_config)
 
-        # Step 2: Terraform State Cleanup
+        # Step 2: GCP Resource Cleanup (clean up any remaining resources)
         if logger:
-            logger.step(f"[2/{total_steps}] Terraform State Cleanup")
-        self._execute_terraform_cleanup(logger)
+            logger.step(f"[2/{total_steps}] GCP Resource Cleanup")
+        self._execute_gcp_cleanup(logger, region)
 
         # Step 3: Local Files Cleanup
         if logger:
@@ -412,6 +474,18 @@ class DownCommand(ProjectCommand):
             if logger:
                 logger.log("[dim]No config found, using defaults for cleanup[/dim]")
             return "us-central1"
+
+    def _load_project_config(self, logger):
+        """Load ProjectConfig instance for Terraform operations."""
+        try:
+            from cli.core.config_loader import ConfigLoader
+
+            loader = ConfigLoader(self.project_root)
+            return loader.load_project(self.project_name)
+        except Exception as e:
+            if logger:
+                logger.log(f"[dim]Could not load ProjectConfig: {e}[/dim]")
+            return None
 
     def _show_resources_to_destroy(self) -> None:
         """Show resources that will be destroyed."""
@@ -463,9 +537,11 @@ class DownCommand(ProjectCommand):
         else:
             self.console.print("  [dim]✓ No GCP resources found[/dim]")
 
-    def _execute_terraform_cleanup(self, logger) -> None:
+    def _execute_terraform_cleanup(self, logger, project_config=None) -> None:
         """Execute Terraform state cleanup."""
-        cleaner = TerraformCleaner(self.project_name, self.project_root, self.console)
+        cleaner = TerraformCleaner(
+            self.project_name, self.project_root, self.console, project_config
+        )
         cleaner.cleanup()
 
     def _execute_local_cleanup(self, logger) -> None:
@@ -480,6 +556,11 @@ class DownCommand(ProjectCommand):
         # NOTE: VMs configuration is part of the project definition and should NOT be deleted
         # on teardown. It will be reused on next 'up' command.
         # Only runtime state (Terraform state, GCP resources, local files) is cleaned.
+
+        # Clear actual_state JSON to reflect that infrastructure is down
+        from cli.sync import clear_actual_state
+
+        clear_actual_state(self.project_name)
 
         if logger:
             logger.log("[dim]✓ Database preserved (VMs config retained)[/dim]")

@@ -152,7 +152,15 @@ async def get_releases(project_name: str, app_name: str, db: Session = Depends(g
 
             # Get app's repo info
             repo_name = app.repo or app_name
-            github_org = project.github_org or "cheapaio"
+            github_org = project.github_org
+
+            if not github_org:
+                # No github_org configured - skip GitHub enrichment
+                for release in releases_list:
+                    if not release.get("commit_message"):
+                        release["commit_message"] = "-"
+                    release["author"] = None
+                return {"releases": releases_list}
 
             async with httpx.AsyncClient() as client:
                 for release in releases_list:

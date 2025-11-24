@@ -10,7 +10,7 @@ services:
   {{ app_name }}-{{ process_name }}:
     image: {{ docker.registry | default('docker.io') }}/{{ docker.organization }}/{{ app_name }}:latest
     command: {{ process_config.command }}
-{% if process_config.port is defined %}
+{% if process_config.port is defined and process_config.port %}
     # Always use internal expose - Caddy on same VM handles routing
     expose:
       - "{{ process_config.port }}"
@@ -19,7 +19,7 @@ services:
       - PROJECT_NAME={{ project_name }}
       - APP_NAME={{ app_name }}
       - PROCESS_TYPE={{ process_name }}
-{% if process_config.port is defined %}
+{% if process_config.port is defined and process_config.port %}
       - PORT={{ process_config.port }}
 {% endif %}
 {% if process_config.env is defined %}
@@ -40,11 +40,11 @@ services:
       - "com.superdeploy.project={{ project_name }}"
       - "com.superdeploy.app={{ app_name }}"
       - "com.superdeploy.process={{ process_name }}"
-{% if process_config.port is defined %}
+{% if process_config.port is defined and process_config.port %}
       - "com.superdeploy.port={{ process_config.port }}"
 {% endif %}
       - "com.superdeploy.replicas={{ process_config.replicas | default(1) }}"
-{% if monitoring_enabled and process_config.port is defined %}
+{% if monitoring_enabled and process_config.port is defined and process_config.port %}
       - "prometheus.scrape=true"
       - "prometheus.port={{ process_config.port }}"
       - "prometheus.path=/metrics"

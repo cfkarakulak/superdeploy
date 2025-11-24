@@ -69,6 +69,7 @@ class ProjectResponse(BaseModel):
     vms: Optional[dict] = None
     apps_config: Optional[dict] = None
     addons_config: Optional[dict] = None
+    actual_state: Optional[dict] = None
 
     class Config:
         from_attributes = True
@@ -429,10 +430,11 @@ def create_project_from_wizard(
     addons_config = {}
     addons_dict = payload.addons.dict()
 
+    # First instance of each category should always be named "primary"
     if addons_dict.get("databases"):
         addons_config["databases"] = {}
         for addon in addons_dict["databases"]:
-            addons_config["databases"][addon] = {
+            addons_config["databases"]["primary"] = {
                 "type": addon,
                 "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest"),
                 "vm": ADDON_VERSIONS.get(addon, {}).get("vm", "core"),
@@ -441,7 +443,7 @@ def create_project_from_wizard(
     if addons_dict.get("queues"):
         addons_config["queues"] = {}
         for addon in addons_dict["queues"]:
-            addons_config["queues"][addon] = {
+            addons_config["queues"]["primary"] = {
                 "type": addon,
                 "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest"),
                 "vm": ADDON_VERSIONS.get(addon, {}).get("vm", "core"),
@@ -450,7 +452,7 @@ def create_project_from_wizard(
     if addons_dict.get("caches"):
         addons_config["caches"] = {}
         for addon in addons_dict["caches"]:
-            addons_config["caches"][addon] = {
+            addons_config["caches"]["primary"] = {
                 "type": addon,
                 "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest"),
                 "vm": ADDON_VERSIONS.get(addon, {}).get("vm", "core"),
@@ -459,7 +461,7 @@ def create_project_from_wizard(
     if addons_dict.get("proxy"):
         addons_config["proxy"] = {}
         for addon in addons_dict["proxy"]:
-            addons_config["proxy"][addon] = {
+            addons_config["proxy"]["primary"] = {
                 "type": addon,
                 "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest"),
                 "vm": ADDON_VERSIONS.get(addon, {}).get("vm", "core"),
@@ -481,19 +483,18 @@ def create_project_from_wizard(
         },
     }
 
-    # CRITICAL: Add Caddy to EVERY VM (required for app routing)
-    # Even if user didn't select proxy in wizard, Caddy must be on every VM
+    # CRITICAL: Add Caddy as "primary" instance (required for app routing)
+    # Even if user didn't select proxy in wizard, Caddy must be added
     if "proxy" not in addons_config:
         addons_config["proxy"] = {}
 
-    for vm_name in vms_config.keys():
-        # Add Caddy instance for this VM if not already exists
-        if vm_name not in addons_config["proxy"]:
-            addons_config["proxy"][vm_name] = {
-                "type": "caddy",
-                "version": "2-alpine",
-                "vm": vm_name,
-            }
+    # Only add Caddy if it doesn't already exist
+    if "primary" not in addons_config["proxy"]:
+        addons_config["proxy"]["primary"] = {
+            "type": "caddy",
+            "version": "2-alpine",
+            "vm": "core",  # Default to core VM
+        }
 
     # Determine GCP zone from region
     gcp_zone = f"{payload.gcp_region}-a" if payload.gcp_region else "us-central1-a"

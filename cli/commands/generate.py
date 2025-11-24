@@ -296,14 +296,55 @@ class GenerateCommand(ProjectCommand):
 
             github_workflow = WorkflowGenerator.generate_workflow(workflow_config)
 
-            # Save workflow to project directory (for manual deployment to GitHub)
-            github_dir = project_dir / ".github" / "workflows"
+            # Get app path from apps table (normalized)
+            from cli.database import get_db_session
+            from sqlalchemy import text as sql_text
+
+            db = get_db_session()
+            app_path = None
+            try:
+                result = db.execute(
+                    sql_text("""
+                        SELECT path FROM apps 
+                        WHERE project_id = (SELECT id FROM projects WHERE name = :project)
+                        AND name = :app
+                    """),
+                    {"project": self.project_name, "app": app_name},
+                )
+                row = result.fetchone()
+                if row and row[0]:
+                    app_path = Path(row[0]).expanduser().resolve()
+            finally:
+                db.close()
+
+            # Fallback to apps_config if not in apps table (backward compatibility)
+            if not app_path:
+                app_path_str = app_config.get("path")
+                if app_path_str:
+                    app_path = Path(app_path_str).expanduser().resolve()
+
+            if not app_path:
+                self.console.print(
+                    f"  [red]❌ App '{app_name}' has no path configured![/red]"
+                )
+                self.console.print(
+                    "  [yellow]Please add path to apps table or apps_config[/yellow]"
+                )
+                continue
+
+            if not app_path.exists():
+                self.console.print(
+                    f"  [yellow]⚠[/yellow] App path does not exist: {app_path}"
+                )
+                self.console.print("  [dim]Creating directory structure...[/dim]")
+                app_path.mkdir(parents=True, exist_ok=True)
+
+            # Save workflow to app repository
+            github_dir = app_path / ".github" / "workflows"
             github_dir.mkdir(parents=True, exist_ok=True)
             workflow_file = github_dir / "deploy.yml"
             workflow_file.write_text(github_workflow)
-            self.console.print(
-                f"  [green]✓[/green] Workflow saved to: {workflow_file.relative_to(project_root)}"
-            )
+            self.console.print(f"  [green]✓[/green] Workflow saved to: {workflow_file}")
 
             # Sync processes to database
             from cli.database import get_db_session

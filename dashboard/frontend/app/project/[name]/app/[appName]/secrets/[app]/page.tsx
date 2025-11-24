@@ -640,8 +640,8 @@ export default function SecretsPage() {
                     ),
                   },
                 ]}
-                data={configVars.map((configVar) => ({
-                  id: configVar.key,
+                data={configVars.map((configVar, index) => ({
+                  id: configVar.id || `${configVar.key}-${configVar.source}-${index}`,
                   type: "secret",
                   data: configVar,
                 }))}

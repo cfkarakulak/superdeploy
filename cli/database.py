@@ -114,6 +114,11 @@ class Project(Base):
     # Addons Configuration (JSON: {databases: {primary: {type, version, ...}}, ...})
     addons_config = Column(JSON, nullable=True)
 
+    # Actual State (JSON: runtime state of VMs, addons, apps)
+    # This is populated by sync.py after deployment events
+    # Structure: {vms: {name: {ip, status}}, addons: {name: {status}}, apps: {name: {status}}}
+    actual_state = Column(JSON, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -447,10 +447,11 @@ async def get_app_container_metrics(
 
         if include_addons:
             # Include ALL containers in the project (app + addons)
-            app_filter = f'id=~"/system.slice/docker-.*\\\\.scope",name!="",name!~".*cadvisor.*",project="{project_name}"'
+            app_filter = f'id=~"/system.slice/docker-.*\\\\.scope",name!="",name!~".*cadvisor.*",name=~".*{project_name}.*"'
         else:
-            # Only app-specific containers (filter by superdeploy_app label)
-            app_filter = f'id=~"/system.slice/docker-.*\\\\.scope",name!="",name!~".*cadvisor.*",project="{project_name}",container_label_com_superdeploy_app="{app_name}"'
+            # Only app-specific containers (filter by container name pattern)
+            # Pattern: compose-{app}-{process}-{replica} or {project}_{addon}_{instance}
+            app_filter = f'id=~"/system.slice/docker-.*\\\\.scope",name!="",name!~".*cadvisor.*",name=~"(compose-{app_name}-.*|.*{app_name}.*)"'
 
         queries = {
             "cpu_usage": f"rate(container_cpu_usage_seconds_total{{{app_filter}}}[5m]) * 100",

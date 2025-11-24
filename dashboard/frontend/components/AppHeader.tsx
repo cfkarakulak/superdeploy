@@ -2,13 +2,71 @@
 
 import { useParams, usePathname } from "next/navigation";
 import Link from "next/link";
+import { ExternalLink } from "lucide-react";
+import { useEffect, useState } from "react";
 import ProjectSelector from "./ProjectSelector";
+
+interface AppDetails {
+  name: string;
+  url?: string;
+  port?: number;
+}
 
 export default function AppHeader() {
   const params = useParams();
   const pathname = usePathname();
   const projectName = params?.name as string;
   const appName = params?.appName as string;
+  const [appDetails, setAppDetails] = useState<AppDetails | null>(null);
+
+  useEffect(() => {
+    if (projectName && appName) {
+      // Fetch app details to get URL
+      fetch(`http://localhost:8401/api/projects/${projectName}`)
+        .then((res) => res.json())
+        .then((data) => {
+          const apps = data.apps_config || {};
+          const app = apps[appName];
+          if (app) {
+            // Get URL from app config or construct from VM IP + port
+            let appUrl = app.url;
+            if (!appUrl && app.processes?.web?.port) {
+              // Find the VM this app is deployed on
+              // Apps are on 'app' VMs, addons are on 'core' VMs
+              const vmRole = app.vm || 'app';
+              
+              // Get VMs from actual_state (live data)
+              const actualState = data.actual_state || {};
+              const vms = actualState.vms || {};
+              
+              // Find VM by role - try both formats: 'app-0' and 'projectname-app-0'
+              let vm = vms[`${vmRole}-0`] || vms[`${projectName}-${vmRole}-0`];
+              
+              if (vm?.external_ip) {
+                appUrl = `http://${vm.external_ip}:${app.processes.web.port}`;
+              }
+            }
+            // Also check root-level port for backward compatibility
+            const appPort = app.processes?.web?.port || app.port;
+            
+            // If we still don't have a URL but we have a port, try to construct it
+            if (!appUrl && appPort) {
+              const vmRole = app.vm || 'app';
+              const actualState = data.actual_state || {};
+              const vms = actualState.vms || {};
+              let vm = vms[`${vmRole}-0`] || vms[`${projectName}-${vmRole}-0`];
+              
+              if (vm?.external_ip) {
+                appUrl = `http://${vm.external_ip}:${appPort}`;
+              }
+            }
+            
+            setAppDetails({ name: appName, url: appUrl, port: appPort });
+          }
+        })
+        .catch((err) => console.error('Failed to fetch app details:', err));
+    }
+  }, [projectName, appName]);
 
   const menuItems = [
     { label: "Overview", href: `/project/${projectName}/app/${appName}` },
@@ -50,6 +108,20 @@ export default function AppHeader() {
       <div className="mb-6">
         <div className="flex items-center gap-4">
           <ProjectSelector currentProjectName={projectName} currentAppName={appName} />
+          
+          {/* View Site Link */}
+          {appDetails?.url && (
+            <a
+              href={appDetails.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-[#8b8b8b] hover:text-[#0a0a0a] transition-colors border border-[#eef2f5] rounded-lg hover:border-[#d1d5da]"
+              title={`Open ${appName} in new tab`}
+            >
+              <span>View Site</span>
+              <ExternalLink className="w-3 h-3" strokeWidth={2} />
+            </a>
+          )}
         </div>
       </div>
 

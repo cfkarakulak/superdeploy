@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 import httpx
-import subprocess
-import json
 
 router = APIRouter(tags=["github"])
 
@@ -61,11 +59,34 @@ def get_github_token(project_name: str) -> str | None:
 def get_github_repo(project_name: str) -> tuple[str, str]:
     """Get GitHub owner and repo from database.
 
-    For now, defaults to 'cheapa-io' organization.
-    TODO: Add github_owner field to Project model.
+    Returns (github_org, project_name) from Project table.
+    Raises HTTPException if project not found or github_org not configured.
     """
-    # Default fallback
-    return ("cheapa-io", project_name)
+    try:
+        from database import SessionLocal
+        from models import Project
+
+        db = SessionLocal()
+        try:
+            project = db.query(Project).filter(Project.name == project_name).first()
+            if not project:
+                raise HTTPException(
+                    status_code=404, detail=f"Project '{project_name}' not found"
+                )
+
+            if not project.github_org:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Project '{project_name}' has no github_org configured",
+                )
+
+            return (project.github_org, project_name)
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{project_name}/repos/{repo_name}/info")
@@ -91,35 +112,40 @@ async def get_repo_info(project_name: str, repo_name: str):
 async def get_repo_workflows(project_name: str, repo_name: str):
     """Get GitHub Actions workflow runs for a specific repo."""
     try:
+        from database import SessionLocal
+        from models import Project, App
+
         token = get_github_token(project_name)
         if not token:
             return {"workflow_runs": [], "total_count": 0}
 
-        # Get app info from apps endpoint (config.yml)
-        owner = "cheapaio"
-        repo = repo_name
+        # Get owner and repo from App table (database is source of truth)
+        db = SessionLocal()
+        try:
+            project = db.query(Project).filter(Project.name == project_name).first()
+            if not project:
+                raise HTTPException(status_code=404, detail="Project not found")
 
-        result = subprocess.run(
-            ["./superdeploy.sh", f"{project_name}:app:list", "--json"],
-            capture_output=True,
-            text=True,
-            cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
-            timeout=30,
-        )
+            app = (
+                db.query(App)
+                .filter(App.project_id == project.id, App.name == repo_name)
+                .first()
+            )
 
-        if result.returncode == 0:
-            try:
-                apps_data = json.loads(result.stdout)
-                apps = apps_data.get("apps", [])
-                app_data = next(
-                    (app for app in apps if app.get("name") == repo_name), None
-                )
-
-                if app_data:
-                    owner = app_data.get("owner", "cheapaio")
-                    repo = app_data.get("repo", repo_name)
-            except:
-                pass
+            if app and app.owner and app.repo:
+                owner = app.owner
+                repo = app.repo
+            else:
+                # Fallback to GitHub org from project (must be configured)
+                if not project.github_org:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"App '{repo_name}' has no owner/repo configured and project has no github_org",
+                    )
+                owner = project.github_org
+                repo = repo_name
+        finally:
+            db.close()
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -176,7 +202,13 @@ async def get_workflow_run(project_name: str, repo_name: str, run_id: int):
                 owner = app.owner
                 repo = app.repo
             else:
-                owner = "cheapaio"
+                # Fallback to GitHub org from project (must be configured)
+                if not project.github_org:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"App '{repo_name}' has no owner/repo configured and project has no github_org",
+                    )
+                owner = project.github_org
                 repo = repo_name
         finally:
             db.close()
@@ -232,7 +264,13 @@ async def get_workflow_run_jobs(project_name: str, repo_name: str, run_id: int):
                 owner = app.owner
                 repo = app.repo
             else:
-                owner = "cheapaio"
+                # Fallback to GitHub org from project (must be configured)
+                if not project.github_org:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"App '{repo_name}' has no owner/repo configured and project has no github_org",
+                    )
+                owner = project.github_org
                 repo = repo_name
         finally:
             db.close()

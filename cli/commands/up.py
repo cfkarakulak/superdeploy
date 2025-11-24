@@ -797,6 +797,22 @@ def _deploy_project_internal(
                         db.commit()
                         if logger:
                             logger.log("✓ VMs saved to database")
+
+                        # Sync VM state to actual_state JSON column
+                        from cli.sync import sync_vms
+
+                        vm_list = []
+                        for role, vms in vms_by_role.items():
+                            for vm in vms:
+                                vm_list.append(
+                                    {
+                                        "name": vm["name"],
+                                        "external_ip": vm["external_ip"],
+                                        "internal_ip": vm["internal_ip"],
+                                    }
+                                )
+
+                        sync_vms(project, vm_list)
                 finally:
                     db.close()
 
