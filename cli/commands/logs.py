@@ -480,8 +480,11 @@ class LogsCommand(ProjectCommand):
                     break
 
                 # Get active streams
-                streams = [(name, proc.stdout) for name, proc in self.processes 
-                          if proc.poll() is None and proc.stdout]
+                streams = [
+                    (name, proc.stdout)
+                    for name, proc in self.processes
+                    if proc.poll() is None and proc.stdout
+                ]
 
                 if not streams:
                     break
@@ -492,6 +495,7 @@ class LogsCommand(ProjectCommand):
                     ready, _, _ = select.select(ready_streams, [], [], 0.1)
                 except (OSError, ValueError):
                     import time
+
                     time.sleep(0.1)
                     continue
 
@@ -501,13 +505,15 @@ class LogsCommand(ProjectCommand):
                         line = stream.readline()
                         if not line:
                             continue
-                            
+
                         line_str = line.decode("utf-8", errors="ignore").strip()
                         if not line_str:
                             continue
 
                         # Prefix for multi-container
-                        prefix = f"[{container_name}] " if len(self.processes) > 1 else ""
+                        prefix = (
+                            f"[{container_name}] " if len(self.processes) > 1 else ""
+                        )
 
                         # Parse, filter, colorize
                         parsed = self.parser.parse(line_str)
@@ -532,7 +538,7 @@ class LogsCommand(ProjectCommand):
 
         # Simple readline loop - like Heroku
         try:
-            for line in iter(self.process.stdout.readline, b''):
+            for line in iter(self.process.stdout.readline, b""):
                 if not line:
                     break
 

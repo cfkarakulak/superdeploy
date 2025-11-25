@@ -3,22 +3,11 @@
 import subprocess
 import time
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 
-from ..core.config_loader import SupDeployConfig
-
-
-@dataclass
-class SSHResult:
-    """Result from SSH command execution."""
-
-    returncode: int
-    stdout: str = ""
-    stderr: str = ""
-    host: str = ""
-    command: str = ""
-    duration_seconds: float = 0.0
+from cli.models.ssh import SSHConfig
+from cli.models.results import SSHResult
+from cli.exceptions import SSHError
 
 
 @dataclass
@@ -39,12 +28,12 @@ class DockerExecOptions:
 class SSHService:
     """Service for SSH operations."""
 
-    def __init__(self, config: SupDeployConfig):
+    def __init__(self, config: SSHConfig):
         """
         Initialize SSH service.
 
         Args:
-            config: Superdeploy configuration
+            config: SSH configuration
         """
         self.config = config
 
