@@ -236,52 +236,56 @@ class LogsCommand(ProjectCommand):
                 len(containers) for containers in containers_by_vm.values()
             )
 
-            if total_containers > 1:
-                self.console.print(
-                    f"[dim]→ Streaming logs from {total_containers} containers across {len(containers_by_vm)} VM(s)... Press Ctrl+C to stop[/dim]\n"
-                )
-            else:
-                container_name = list(containers_by_vm.values())[0][0]
+            if total_containers == 1:
+                # SINGLE CONTAINER: Use direct SSH exec (bypass all Python buffering)
+                vm_ip = list(containers_by_vm.keys())[0]
+                container_name = containers_by_vm[vm_ip][0]
                 self.console.print(
                     f"[dim]→ Streaming logs from {container_name}... Press Ctrl+C to stop[/dim]\n"
                 )
-
-            # Start streaming logs from all containers across all VMs
-            self.processes = []
-            for vm_ip, containers in containers_by_vm.items():
-                for container_name in containers:
-                    process = ssh_service.docker_logs(
-                        vm_ip,
-                        container_name,
-                        follow=self.options.follow,
-                        tail=self.options.lines,
-                    )
-                    self.processes.append((container_name, process))
-
-            # Give it a moment to start
-            import time
-
-            time.sleep(0.5)
-
-            # Check if any process started successfully
-            all_failed = True
-            for container_name, process in self.processes:
-                if process.poll() is None:
-                    all_failed = False
-                    break
-
-            if all_failed:
-                error_messages = []
-                for container_name, process in self.processes:
-                    error_output = process.stderr.read() if process.stderr else b""
-                    if error_output:
-                        error_msg = error_output.decode("utf-8", errors="ignore")
-                        error_messages.append(f"{container_name}: {error_msg}")
-                raise Exception(
-                    f"Failed to start log streams: {'; '.join(error_messages)}"
+                self._exec_direct_ssh(ssh_service, vm_ip, container_name)
+                
+            else:
+                # MULTIPLE CONTAINERS: Use Python multiplexing
+                self.console.print(
+                    f"[dim]→ Streaming logs from {total_containers} containers across {len(containers_by_vm)} VM(s)... Press Ctrl+C to stop[/dim]\n"
                 )
 
-            self._stream_logs_multi()
+                # Start streaming logs from all containers across all VMs
+                self.processes = []
+                for vm_ip, containers in containers_by_vm.items():
+                    for container_name in containers:
+                        process = ssh_service.docker_logs(
+                            vm_ip,
+                            container_name,
+                            follow=self.options.follow,
+                            tail=self.options.lines,
+                        )
+                        self.processes.append((container_name, process))
+
+                # Give it a moment to start
+                import time
+                time.sleep(0.5)
+
+                # Check if any process started successfully
+                all_failed = True
+                for container_name, process in self.processes:
+                    if process.poll() is None:
+                        all_failed = False
+                        break
+
+                if all_failed:
+                    error_messages = []
+                    for container_name, process in self.processes:
+                        error_output = process.stderr.read() if process.stderr else b""
+                        if error_output:
+                            error_msg = error_output.decode("utf-8", errors="ignore")
+                            error_messages.append(f"{container_name}: {error_msg}")
+                    raise Exception(
+                        f"Failed to start log streams: {'; '.join(error_messages)}"
+                    )
+
+                self._stream_logs_multi()
 
         except KeyboardInterrupt:
             self._handle_stop()
@@ -441,6 +445,31 @@ class LogsCommand(ProjectCommand):
 
         return None
 
+    def _exec_direct_ssh(self, ssh_service, vm_ip: str, container_name: str) -> None:
+        """
+        Execute SSH directly (bypass Python completely for real-time logs).
+        
+        This is the ONLY way to get truly real-time logs - Python exit and SSH takes over.
+        """
+        import os
+        
+        # Build docker logs command
+        docker_cmd = f"docker logs -f --tail {self.options.lines} {container_name} 2>&1"
+        
+        # Build SSH command
+        ssh_cmd = [
+            "ssh",
+            "-t",  # Force pseudo-terminal allocation
+            "-i", str(ssh_service.config.key_path_expanded),
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "LogLevel=QUIET",
+            f"{ssh_service.config.user}@{vm_ip}",
+            docker_cmd
+        ]
+        
+        # Replace current process with SSH (no Python buffering possible)
+        os.execvp("ssh", ssh_cmd)
+
     def _print_header(self) -> None:
         """Print logs header with filters."""
         filters = []
@@ -466,13 +495,15 @@ class LogsCommand(ProjectCommand):
         self.console.print()
 
     def _stream_logs_multi(self) -> None:
-        """Stream logs from multiple containers - simple multiplexing."""
+        """Stream logs from multiple containers - byte-by-byte multiplexing."""
         if not hasattr(self, "processes") or not self.processes:
             return
 
         import select
 
-        # Simple select-based multiplexing
+        # Track buffers for each stream
+        buffers = {name: b"" for name, _ in self.processes}
+
         try:
             while True:
                 # Check if all processes ended
@@ -489,40 +520,53 @@ class LogsCommand(ProjectCommand):
                 if not streams:
                     break
 
-                # Wait for data
+                # Wait for data with very short timeout
                 try:
                     ready_streams = [s for _, s in streams]
-                    ready, _, _ = select.select(ready_streams, [], [], 0.1)
+                    ready, _, _ = select.select(ready_streams, [], [], 0.01)
                 except (OSError, ValueError):
                     import time
 
-                    time.sleep(0.1)
+                    time.sleep(0.01)
                     continue
 
-                # Read from ready streams
+                # Read from ready streams (byte-by-byte)
                 for container_name, stream in streams:
                     if stream in ready:
-                        line = stream.readline()
-                        if not line:
+                        # Read 1 byte for instant output
+                        byte = stream.read(1)
+                        if not byte:
                             continue
 
-                        line_str = line.decode("utf-8", errors="ignore").strip()
-                        if not line_str:
-                            continue
+                        buffers[container_name] += byte
 
-                        # Prefix for multi-container
-                        prefix = (
-                            f"[{container_name}] " if len(self.processes) > 1 else ""
-                        )
+                        # Check for newline
+                        if byte == b"\n":
+                            line_str = (
+                                buffers[container_name]
+                                .decode("utf-8", errors="ignore")
+                                .strip()
+                            )
+                            buffers[container_name] = b""
 
-                        # Parse, filter, colorize
-                        parsed = self.parser.parse(line_str)
-                        if not self.filter.matches(parsed, line_str):
-                            continue
+                            if not line_str:
+                                continue
 
-                        colored_line = self.colorizer.colorize(parsed)
-                        print(f"{prefix}{colored_line}", flush=True)
-                        self.line_count += 1
+                            # Prefix for multi-container
+                            prefix = (
+                                f"[{container_name}] "
+                                if len(self.processes) > 1
+                                else ""
+                            )
+
+                            # Parse, filter, colorize
+                            parsed = self.parser.parse(line_str)
+                            if not self.filter.matches(parsed, line_str):
+                                continue
+
+                            colored_line = self.colorizer.colorize(parsed)
+                            print(f"{prefix}{colored_line}", flush=True)
+                            self.line_count += 1
 
         except KeyboardInterrupt:
             raise
@@ -532,28 +576,40 @@ class LogsCommand(ProjectCommand):
                     proc.terminate()
 
     def _stream_logs(self) -> None:
-        """Stream logs from a single container - simple & instant."""
+        """Stream logs - byte-by-byte for instant output."""
         if not hasattr(self, "process") or not self.process or not self.process.stdout:
             return
 
-        # Simple readline loop - like Heroku
+        # Read byte-by-byte and accumulate lines
         try:
-            for line in iter(self.process.stdout.readline, b""):
-                if not line:
-                    break
-
-                line_str = line.decode("utf-8", errors="ignore").strip()
-                if not line_str:
+            buffer = b""
+            while True:
+                # Read 1 byte at a time for instant output
+                byte = self.process.stdout.read(1)
+                if not byte:
+                    # Process ended
+                    if self.process.poll() is not None:
+                        break
                     continue
 
-                # Parse, filter, colorize
-                parsed = self.parser.parse(line_str)
-                if not self.filter.matches(parsed, line_str):
-                    continue
+                buffer += byte
 
-                colored_line = self.colorizer.colorize(parsed)
-                print(colored_line, flush=True)
-                self.line_count += 1
+                # Check for newline
+                if byte == b"\n":
+                    line_str = buffer.decode("utf-8", errors="ignore").strip()
+                    buffer = b""
+
+                    if not line_str:
+                        continue
+
+                    # Parse, filter, colorize
+                    parsed = self.parser.parse(line_str)
+                    if not self.filter.matches(parsed, line_str):
+                        continue
+
+                    colored_line = self.colorizer.colorize(parsed)
+                    print(colored_line, flush=True)
+                    self.line_count += 1
 
         except KeyboardInterrupt:
             raise

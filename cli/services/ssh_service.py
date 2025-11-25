@@ -106,7 +106,7 @@ class SSHService:
         since: Optional[str] = None,
     ) -> subprocess.Popen:
         """
-        Stream Docker logs over SSH (SIMPLE & HEROKU-LIKE).
+        Stream Docker logs over SSH - FULLY UNBUFFERED for real-time output.
 
         Args:
             host: Host IP or hostname
@@ -131,7 +131,12 @@ class SSHService:
         docker_cmd_parts.append(container_name)
         docker_cmd = " ".join(docker_cmd_parts) + " 2>&1"
 
-        # Simple SSH command - NO WRAPPING, NO SCRIPT, JUST DOCKER LOGS
+        # CRITICAL: Force ZERO buffering with stdbuf
+        # -o0 = stdout unbuffered (byte-by-byte)
+        # -e0 = stderr unbuffered (byte-by-byte)
+        # This is the ONLY way to get instant Docker logs over SSH
+        docker_cmd_unbuffered = f"stdbuf -o0 -e0 {docker_cmd}"
+
         ssh_cmd = [
             "ssh",
             "-i",
@@ -141,17 +146,16 @@ class SSHService:
             "-o",
             "LogLevel=QUIET",
             f"{self.config.user}@{host}",
-            docker_cmd,
+            docker_cmd_unbuffered,
         ]
 
-        # CRITICAL: Use iter() mode with line buffering
-        # This is what makes it work like Heroku - instant newline output
+        # Popen with ZERO buffering (bufsize=0)
         return subprocess.Popen(
             ssh_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            bufsize=1,  # Line buffered
-            universal_newlines=False,  # Binary mode
+            bufsize=0,  # ZERO buffering - instant output
+            universal_newlines=False,
         )
 
     def docker_exec(
