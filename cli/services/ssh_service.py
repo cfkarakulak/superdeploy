@@ -7,7 +7,6 @@ from typing import Optional, Dict
 
 from cli.models.ssh import SSHConfig
 from cli.models.results import SSHResult
-from cli.exceptions import SSHError
 
 
 @dataclass

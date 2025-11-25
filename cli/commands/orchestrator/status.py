@@ -118,8 +118,14 @@ class OrchestratorStatusCommand(BaseCommand):
 
         # Test SSH connectivity
         from cli.services.ssh_service import SSHService
+        from cli.models.ssh import SSHConfig
+        from cli.constants import DEFAULT_SSH_KEY_PATH, DEFAULT_SSH_USER
 
-        ssh_service = SSHService()
+        ssh_config = SSHConfig(
+            key_path=DEFAULT_SSH_KEY_PATH,
+            user=DEFAULT_SSH_USER
+        )
+        ssh_service = SSHService(ssh_config)
 
         if ssh_service.test_connection(orch_ip):
             if logger:

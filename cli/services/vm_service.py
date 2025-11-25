@@ -193,10 +193,7 @@ class VMService:
             SSHService instance
         """
         ssh_config = self.get_ssh_config()
-        return SSHService(
-            ssh_key_path=ssh_config.key_path,
-            ssh_user=ssh_config.user,
-        )
+        return SSHService(ssh_config)
 
     def check_vm_connectivity(self, vm_name: str) -> bool:
         """
