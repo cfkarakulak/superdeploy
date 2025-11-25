@@ -7,6 +7,7 @@ on:
 
 jobs:
   build:
+    name: Build & push Docker image
     runs-on: ubuntu-latest
     outputs:
       project: {% raw %}${{ steps.config.outputs.project }}{% endraw %}
@@ -14,20 +15,20 @@ jobs:
       vm_role: {% raw %}${{ steps.config.outputs.vm_role }}{% endraw %}
     
     steps:
-      - name: Checkout {{ app_name }} repository
+      - name: Checkout {{ app_name }}
         uses: actions/checkout@v4
         with:
-          token: {% raw %}${{ secrets.REPOSITORY_TOKEN }}{% endraw %}
+          token: {% raw %}${{ secrets.GITHUB_TOKEN }}{% endraw %}
           path: {{ app_name }}
       
-      - name: Checkout commons models (shared workspace)
+      - name: Checkout commons (shared)
         uses: actions/checkout@v4
         with:
           repository: {{ repo_org }}/commons
-          token: {% raw %}${{ secrets.REPOSITORY_TOKEN }}{% endraw %}
+          token: {% raw %}${{ secrets.GITHUB_TOKEN }}{% endraw %}
           path: commons
       
-      - name: Read app configuration
+      - name: Read configuration
         working-directory: {{ app_name }}
         id: config
         run: |
@@ -38,7 +39,7 @@ jobs:
           echo "app=$APP" >> $GITHUB_OUTPUT
           echo "vm_role=$VM_ROLE" >> $GITHUB_OUTPUT
       
-      - name: Set up Docker Buildx
+      - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
       
       - name: Login to Docker Hub
@@ -47,7 +48,7 @@ jobs:
           username: {% raw %}${{ vars.DOCKER_USERNAME }}{% endraw %}
           password: {% raw %}${{ secrets.DOCKER_TOKEN }}{% endraw %}
       
-      - name: Build and push Docker image
+      - name: Build & push image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -60,7 +61,7 @@ jobs:
           cache-to: type=registry,ref={% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:buildcache,mode=max
 
   deploy:
-    name: Deploy service (zero-downtime with replicas)
+    name: Deploy to {% raw %}${{ github.ref_name }}{% endraw %}
     needs: build
     environment: {% raw %}${{ github.ref_name }}{% endraw %}
     runs-on: 
@@ -70,13 +71,13 @@ jobs:
       - {% raw %}${{ needs.build.outputs.vm_role }}{% endraw %}
     
     steps:
-      - name: Checkout {{ app }} repository
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-{% raw %}          token: ${{ secrets.REPOSITORY_TOKEN }}{% endraw %}
+{% raw %}          token: ${{ secrets.GITHUB_TOKEN }}{% endraw %}
           path: {{ app }}
 
-      - name: Validate runner
+      - name: Validate deployment target
         run: |
           echo "🔍 Validating deployment environment..."
           
@@ -93,7 +94,7 @@ jobs:
           
           echo "✅ Correct VM for project: $RUNNER_PROJECT"
       
-      - name: Create .env from GitHub Environment Secrets
+      - name: Configure environment variables
         env:
 {% raw %}          SECRETS_JSON: ${{ toJSON(secrets) }}{% endraw %}
         run: |
@@ -114,7 +115,7 @@ jobs:
           echo "✅ Environment file created at $ENV_DIR/.env"
           echo "📊 Total variables: $(wc -l < "$ENV_DIR/.env")"{% endraw %}
       
-      - name: Update docker-compose.yml from marker file
+      - name: Update service configuration
         run: |
           APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
           PROJECT="{% raw %}${{ needs.build.outputs.project }}{% endraw %}"
@@ -282,7 +283,7 @@ jobs:
               sys.exit(0)
           PYSCRIPT
       
-      - name: Deploy application (zero-downtime with replicas)
+      - name: Deploy application (zero-downtime)
         run: |
           cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}/compose
           

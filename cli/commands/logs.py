@@ -466,159 +466,92 @@ class LogsCommand(ProjectCommand):
         self.console.print()
 
     def _stream_logs_multi(self) -> None:
-        """Stream logs from multiple containers (all processes)."""
+        """Stream logs from multiple containers - simple multiplexing."""
         if not hasattr(self, "processes") or not self.processes:
             return
 
         import select
-        import sys
 
-        # Ensure Python unbuffered output
-        sys.stdout.reconfigure(line_buffering=True)
-
-        # Map container names to their processes
-        container_processes = {name: proc for name, proc in self.processes}
-
-        # Use select for non-blocking multi-stream reading
+        # Simple select-based multiplexing
         try:
             while True:
                 # Check if all processes ended
                 if all(proc.poll() is not None for _, proc in self.processes):
                     break
 
-                # Check which streams have data available
-                readable_streams = []
-                for container_name, process in self.processes:
-                    if process.poll() is None and process.stdout:
-                        readable_streams.append((container_name, process.stdout))
+                # Get active streams
+                streams = [(name, proc.stdout) for name, proc in self.processes 
+                          if proc.poll() is None and proc.stdout]
 
-                if not readable_streams:
+                if not streams:
+                    break
+
+                # Wait for data
+                try:
+                    ready_streams = [s for _, s in streams]
+                    ready, _, _ = select.select(ready_streams, [], [], 0.1)
+                except (OSError, ValueError):
                     import time
-
-                    time.sleep(0.01)  # Reduced sleep for faster response
+                    time.sleep(0.1)
                     continue
 
-                # Use select to check for available data (non-blocking)
-                try:
-                    ready, _, _ = select.select(
-                        [stream for _, stream in readable_streams], [], [], 0.01
-                    )
-                except (OSError, ValueError):
-                    # select failed, fall back to simple readline
-                    ready = []
-
                 # Read from ready streams
-                for container_name, stream in readable_streams:
-                    if stream in ready or not ready:  # If no select, try all
-                        try:
-                            # Read line with immediate processing
-                            line = stream.readline()
-                            if line:
-                                line_str = (
-                                    line.rstrip()
-                                    if isinstance(line, str)
-                                    else line.decode("utf-8", errors="ignore").rstrip()
-                                )
-                                
-                                # Strip ANSI escape codes from script command
-                                # script -qfc adds some escape codes, clean them
-                                import re
-                                line_str = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line_str)
-                                line_str = re.sub(r'\r', '', line_str)
-                                line_str = line_str.strip()
-                                
-                                if line_str:
-                                    # Prefix with container name for multi-process logs
-                                    prefix = (
-                                        f"[{container_name}] "
-                                        if len(self.processes) > 1
-                                        else ""
-                                    )
-
-                                    # Parse log line
-                                    parsed = self.parser.parse(line_str)
-
-                                    # Apply filters
-                                    if not self.filter.matches(parsed, line_str):
-                                        continue
-
-                                    # Colorize and print with immediate flush
-                                    colored_line = self.colorizer.colorize(parsed)
- 
-                                    # Print directly to stdout with immediate flush
-                                    sys.stdout.write(f"{prefix}{colored_line}\n")
-                                    sys.stdout.flush()
-                                    self.line_count += 1
-                        except (IOError, OSError):
-                            # Stream closed or error, continue
+                for container_name, stream in streams:
+                    if stream in ready:
+                        line = stream.readline()
+                        if not line:
                             continue
+                            
+                        line_str = line.decode("utf-8", errors="ignore").strip()
+                        if not line_str:
+                            continue
+
+                        # Prefix for multi-container
+                        prefix = f"[{container_name}] " if len(self.processes) > 1 else ""
+
+                        # Parse, filter, colorize
+                        parsed = self.parser.parse(line_str)
+                        if not self.filter.matches(parsed, line_str):
+                            continue
+
+                        colored_line = self.colorizer.colorize(parsed)
+                        print(f"{prefix}{colored_line}", flush=True)
+                        self.line_count += 1
 
         except KeyboardInterrupt:
             raise
-        except Exception as e:
-            print(f"Error streaming logs: {e}", file=sys.stderr)
         finally:
-            # Clean up all processes
-            for container_name, process in self.processes:
-                if process.poll() is None:
-                    process.terminate()
+            for _, proc in self.processes:
+                if proc.poll() is None:
+                    proc.terminate()
 
     def _stream_logs(self) -> None:
-        """Stream logs from a single container (legacy method)."""
+        """Stream logs from a single container - simple & instant."""
         if not hasattr(self, "process") or not self.process or not self.process.stdout:
             return
 
-        import sys
-
-        # Ensure Python unbuffered output
-        sys.stdout.reconfigure(line_buffering=True)
-
-        # Read logs line by line with immediate output
+        # Simple readline loop - like Heroku
         try:
-            while True:
-                line = self.process.stdout.readline()
+            for line in iter(self.process.stdout.readline, b''):
                 if not line:
-                    # Check if process ended
-                    if self.process.poll() is not None:
-                        break
-                    # No data yet, continue waiting
-                    continue
+                    break
 
-                line_str = (
-                    line.rstrip()
-                    if isinstance(line, str)
-                    else line.decode("utf-8", errors="ignore").rstrip()
-                )
-                
-                # Strip ANSI escape codes from script command
-                import re
-                line_str = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line_str)
-                line_str = re.sub(r'\r', '', line_str)
-                line_str = line_str.strip()
-                
+                line_str = line.decode("utf-8", errors="ignore").strip()
                 if not line_str:
                     continue
 
-                # Parse log line
+                # Parse, filter, colorize
                 parsed = self.parser.parse(line_str)
-
-                # Apply filters
                 if not self.filter.matches(parsed, line_str):
                     continue
 
-                # Colorize and print with immediate flush
                 colored_line = self.colorizer.colorize(parsed)
-                sys.stdout.write(f"{colored_line}\n")
-                sys.stdout.flush()
+                print(colored_line, flush=True)
                 self.line_count += 1
 
         except KeyboardInterrupt:
-            # User interrupted, handled by caller
             raise
-        except Exception as e:
-            print(f"Error streaming logs: {e}", file=sys.stderr)
         finally:
-            # Clean up if process is still running
             if self.process and self.process.poll() is None:
                 self.process.terminate()
 

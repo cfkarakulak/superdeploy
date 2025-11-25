@@ -13,7 +13,7 @@ jobs:
       - name: Checkout {{ app_name }} repository
         uses: actions/checkout@v4
         with:
-          token: {% raw %}${{ secrets.REPOSITORY_TOKEN }}{% endraw %}
+          token: {% raw %}${{ secrets.GITHUB_TOKEN }}{% endraw %}
           path: {{ app_name }}
 
       - name: Upload workspace as artifact

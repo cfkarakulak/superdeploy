@@ -1,88 +1,72 @@
-"""
-SSH Operations Service
-
-Centralized SSH command execution and connection management using domain models.
-"""
+"""SSH service for executing commands on remote hosts."""
 
 import subprocess
 import time
-from typing import Optional
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional, Dict, Any
 
-from cli.models.ssh import SSHConfig, SSHConnection
-from cli.models.results import SSHResult
-from cli.exceptions import SSHError
-from cli.constants import (
-    DEFAULT_SSH_KEY_PATH,
-    DEFAULT_SSH_USER,
-    SSH_CONNECTION_TIMEOUT,
-)
+from ..core.config_loader import SupDeployConfig
+
+
+@dataclass
+class SSHResult:
+    """Result from SSH command execution."""
+
+    returncode: int
+    stdout: str = ""
+    stderr: str = ""
+    host: str = ""
+    command: str = ""
+    duration_seconds: float = 0.0
 
 
 @dataclass
 class DockerExecOptions:
-    """Options for Docker exec command."""
+    """Options for docker exec command."""
 
     interactive: bool = False
     tty: bool = False
     user: Optional[str] = None
     workdir: Optional[str] = None
+    env: Dict[str, str] = None
+
+    def __post_init__(self):
+        if self.env is None:
+            self.env = {}
 
 
 class SSHService:
-    """
-    Centralized SSH operations service with type-safe models.
+    """Service for SSH operations."""
 
-    Responsibilities:
-    - Execute SSH commands with result tracking
-    - Test SSH connectivity
-    - Docker operations over SSH
-    - Connection management
-    """
-
-    def __init__(
-        self,
-        ssh_key_path: str = DEFAULT_SSH_KEY_PATH,
-        ssh_user: str = DEFAULT_SSH_USER,
-    ):
+    def __init__(self, config: SupDeployConfig):
         """
         Initialize SSH service.
 
         Args:
-            ssh_key_path: Path to SSH private key
-            ssh_user: SSH username
+            config: Superdeploy configuration
         """
-        self.config = SSHConfig(
-            key_path=ssh_key_path,
-            user=ssh_user,
-        )
+        self.config = config
 
     def execute_command(
         self,
         host: str,
         command: str,
+        timeout: Optional[int] = 30,
         capture_output: bool = True,
-        timeout: Optional[int] = None,
-        check: bool = False,
     ) -> SSHResult:
         """
-        Execute command over SSH with result tracking.
+        Execute command on remote host via SSH.
 
         Args:
             host: Host IP or hostname
             command: Command to execute
-            capture_output: Capture stdout/stderr
             timeout: Command timeout in seconds
-            check: Raise exception on non-zero exit
+            capture_output: Whether to capture stdout/stderr
 
         Returns:
             SSHResult with execution details
-
-        Raises:
-            SSHError: If check=True and command fails
         """
-        connection = SSHConnection(host=host, config=self.config)
-
         ssh_cmd = [
             "ssh",
             "-i",
@@ -90,7 +74,7 @@ class SSHService:
             "-o",
             "StrictHostKeyChecking=no",
             "-o",
-            "BatchMode=yes",
+            "LogLevel=QUIET",
             f"{self.config.user}@{host}",
             command,
         ]
@@ -103,11 +87,10 @@ class SSHService:
                 capture_output=capture_output,
                 text=True,
                 timeout=timeout,
-                check=False,  # We'll handle errors manually
             )
             duration = time.time() - start_time
 
-            ssh_result = SSHResult(
+            return SSHResult(
                 returncode=result.returncode,
                 stdout=result.stdout if capture_output else "",
                 stderr=result.stderr if capture_output else "",
@@ -115,71 +98,16 @@ class SSHService:
                 command=command,
                 duration_seconds=duration,
             )
-
-            if check and ssh_result.is_failure:
-                raise SSHError(
-                    f"SSH command failed on {host}",
-                    context=f"Command: {command}\nOutput: {ssh_result.output}",
-                )
-
-            return ssh_result
-
         except subprocess.TimeoutExpired:
             duration = time.time() - start_time
-            raise SSHError(
-                f"SSH command timed out after {timeout}s",
-                context=f"Host: {host}, Command: {command}",
+            raise TimeoutError(
+                f"SSH command timed out after {timeout}s\nContext: Host: {host}, Command: {command}"
             )
         except Exception as e:
-            raise SSHError(
-                "SSH command execution failed",
-                context=f"Host: {host}, Command: {command}, Error: {str(e)}",
+            duration = time.time() - start_time
+            raise RuntimeError(
+                f"SSH command failed: {e}\nContext: Host: {host}, Command: {command}"
             )
-
-    def test_connection(self, host: str, timeout: int = SSH_CONNECTION_TIMEOUT) -> bool:
-        """
-        Test SSH connection without waiting.
-
-        Args:
-            host: Host IP or hostname
-            timeout: Connection timeout in seconds
-
-        Returns:
-            True if connection successful
-        """
-        try:
-            result = self.execute_command(host, "echo ok", timeout=timeout)
-            return result.is_success
-        except Exception:
-            return False
-
-    def wait_for_connection(
-        self,
-        host: str,
-        max_attempts: int = 18,
-        retry_delay: int = 10,
-        timeout: int = SSH_CONNECTION_TIMEOUT,
-    ) -> bool:
-        """
-        Wait for SSH connection to become available.
-
-        Args:
-            host: Host IP or hostname
-            max_attempts: Maximum connection attempts
-            retry_delay: Delay between attempts in seconds
-            timeout: Per-attempt timeout in seconds
-
-        Returns:
-            True if connection established
-        """
-        for attempt in range(1, max_attempts + 1):
-            if self.test_connection(host, timeout=timeout):
-                return True
-
-            if attempt < max_attempts:
-                time.sleep(retry_delay)
-
-        return False
 
     def docker_logs(
         self,
@@ -190,13 +118,13 @@ class SSHService:
         since: Optional[str] = None,
     ) -> subprocess.Popen:
         """
-        Stream Docker logs over SSH.
+        Stream Docker logs over SSH (SIMPLE & HEROKU-LIKE).
 
         Args:
             host: Host IP or hostname
             container_name: Docker container name
             follow: Follow log output
-            tail: Number of lines to tail
+            tail: Number of lines to show from end
             since: Show logs since timestamp (e.g., '2h', '1d')
 
         Returns:
@@ -215,14 +143,7 @@ class SSHService:
         docker_cmd_parts.append(container_name)
         docker_cmd = " ".join(docker_cmd_parts) + " 2>&1"
 
-        # Critical for real-time streaming:
-        # Use 'script -qfc' to force unbuffered output through pseudo-terminal
-        # This is the ONLY reliable way to get real-time Docker logs over SSH
-        # -q: quiet (no "Script started" messages)
-        # -f: flush output after each write
-        # -c: run command
-        docker_cmd_wrapped = f"script -qfc '{docker_cmd}' /dev/null"
-        
+        # Simple SSH command - NO WRAPPING, NO SCRIPT, JUST DOCKER LOGS
         ssh_cmd = [
             "ssh",
             "-i",
@@ -231,24 +152,18 @@ class SSHService:
             "StrictHostKeyChecking=no",
             "-o",
             "LogLevel=QUIET",
-            "-o",
-            "ServerAliveInterval=60",  # Keep connection alive
             f"{self.config.user}@{host}",
-            docker_cmd_wrapped,
+            docker_cmd,
         ]
 
-        # Use Popen with unbuffered I/O
-        import os
-        env = os.environ.copy()
-        env['PYTHONUNBUFFERED'] = '1'
-        
+        # CRITICAL: Use iter() mode with line buffering
+        # This is what makes it work like Heroku - instant newline output
         return subprocess.Popen(
             ssh_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=False,  # Binary mode for immediate output
-            bufsize=0,  # Completely unbuffered
-            env=env,
+            bufsize=1,  # Line buffered
+            universal_newlines=False,  # Binary mode
         )
 
     def docker_exec(
@@ -336,7 +251,7 @@ class SSHService:
 
         docker_cmd += " --format '{{.Names}}\t{{.Status}}'"
 
-        return self.execute_command(host, docker_cmd)
+        return self.execute_command(host, docker_cmd, timeout=30)
 
     def clean_known_hosts(self, host: str) -> None:
         """
