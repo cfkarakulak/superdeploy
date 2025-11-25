@@ -6,159 +6,198 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  # 🎯 PREPARE: Checkout repository
+  prepare:
     runs-on: ubuntu-latest
-    outputs:
-      project: {% raw %}${{ steps.config.outputs.project }}{% endraw %}
-      app: {% raw %}${{ steps.config.outputs.app }}{% endraw %}
-      vm_role: {% raw %}${{ steps.config.outputs.vm_role }}{% endraw %}    
     steps:
-      - name: Checkout repository
+      - name: Checkout {{ app_name }} repository
         uses: actions/checkout@v4
         with:
           token: {% raw %}${{ secrets.REPOSITORY_TOKEN }}{% endraw %}
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+          path: {{ app_name }}
+
+      - name: Upload workspace as artifact
+        uses: actions/upload-artifact@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-      
+          name: workspace
+          path: {{ app_name }}
+          retention-days: 1
+
+  # 📦 BUILD: Inline build with environment secrets for NEXT_PUBLIC_* vars
+  # This MUST be inline because Next.js embeds NEXT_PUBLIC_* at build time
+  build:
+    needs: prepare
+    environment: {% raw %}${{ github.ref_name }}{% endraw %}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download workspace artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace
+          path: .
+
       - name: Read app configuration
         id: config
         run: |
-          PROJECT=$(grep "^project:" superdeploy | cut -d: -f2 | xargs)
-          APP=$(grep "^app:" superdeploy | cut -d: -f2 | xargs)
-          VM_ROLE=$(grep "^vm:" superdeploy | cut -d: -f2 | xargs)
-{% raw %}          echo "project=$PROJECT" >> $GITHUB_OUTPUT
-          echo "app=$APP" >> $GITHUB_OUTPUT
-          echo "vm_role=$VM_ROLE" >> $GITHUB_OUTPUT{% endraw %}
-      
+          MARKER_FILE=$(find . -name "superdeploy" -type f | head -1)
+          if [ -z "$MARKER_FILE" ]; then
+            echo "❌ ERROR: superdeploy marker file not found!"
+            exit 1
+          fi
+
+          PROJECT=$(grep "^project:" "$MARKER_FILE" | cut -d: -f2 | xargs)
+          APP=$(grep "^app:" "$MARKER_FILE" | cut -d: -f2 | xargs)
+          VM_ROLE=$(grep "^vm:" "$MARKER_FILE" | cut -d: -f2 | xargs)
+
+          echo "project=$PROJECT" >> {% raw %}$GITHUB_OUTPUT{% endraw %}
+          echo "app=$APP" >> {% raw %}$GITHUB_OUTPUT{% endraw %}
+          echo "vm_role=$VM_ROLE" >> {% raw %}$GITHUB_OUTPUT{% endraw %}
+          echo "✅ Config: project=$PROJECT, app=$APP, vm=$VM_ROLE"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: {% raw %}${{ vars.DOCKER_USERNAME }}{% endraw %}
           password: {% raw %}${{ secrets.DOCKER_TOKEN }}{% endraw %}
-      
-      - name: Build and push Docker image
+
+      - name: Build and push Docker image with build-args
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ./Dockerfile
           push: true
           tags: |
             {% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:latest
             {% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:{% raw %}${{ github.sha }}{% endraw %}
           cache-from: type=registry,ref={% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:buildcache
           cache-to: type=registry,ref={% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/{% raw %}${{ steps.config.outputs.app }}{% endraw %}:buildcache,mode=max
+          build-args: |
+            AUTH_SECRET={% raw %}${{ secrets.AUTH_SECRET }}{% endraw %}
+            NEXT_PUBLIC_API_URL={% raw %}${{ secrets.NEXT_PUBLIC_API_URL }}{% endraw %}
+            NEXT_PUBLIC_WS_URL={% raw %}${{ secrets.NEXT_PUBLIC_WS_URL }}{% endraw %}
 
+  # 🚀 DEPLOY: Inline deployment with environment secrets access
   deploy:
     needs: build
     environment: {% raw %}${{ github.ref_name }}{% endraw %}
-    runs-on: 
+    # ⚠️  IMPORTANT: runs-on labels should be hardcoded for your app
+    # GitHub Actions does not support dynamic runs-on evaluation
+    # Update these labels to match your deployment target
+    runs-on:
       - self-hosted
       - superdeploy
-      - {% raw %}${{ needs.build.outputs.project }}{% endraw %}
-      - {% raw %}${{ needs.build.outputs.vm_role }}{% endraw %}
-    
+      - {{ project }}  # ← Update if needed
+      - app           # ← Update to your VM role (app/core/worker)
+
     steps:
+      - name: Download workspace artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace
+          path: {% raw %}${{ github.workspace }}{% endraw %}
+
+      - name: Read app configuration from marker
+        id: config
+        run: |
+          MARKER_FILE=$(find "{% raw %}$GITHUB_WORKSPACE{% endraw %}" -name "superdeploy" -type f | head -1)
+          if [ ! -f "$MARKER_FILE" ]; then
+            echo "❌ ERROR: Marker file not found!"
+            exit 1
+          fi
+
+          PROJECT=$(grep "^project:" "$MARKER_FILE" | cut -d: -f2 | xargs)
+          APP=$(grep "^app:" "$MARKER_FILE" | cut -d: -f2 | xargs)
+
+          echo "project=$PROJECT" >> {% raw %}$GITHUB_OUTPUT{% endraw %}
+          echo "app=$APP" >> {% raw %}$GITHUB_OUTPUT{% endraw %}
+          echo "✅ Config: project=$PROJECT, app=$APP"
+
       - name: Validate runner
         run: |
-          echo "🔍 Validating deployment environment..."
-          
-          if [ ! -f /opt/superdeploy/.project ]; then
-            echo "❌ ERROR: /opt/superdeploy/.project not found!"
-            exit 1
-          fi
-          
           RUNNER_PROJECT=$(cat /opt/superdeploy/.project)
-          if [ "$RUNNER_PROJECT" != "{% raw %}${{ needs.build.outputs.project }}{% endraw %}" ]; then
-            echo "❌ ERROR: Wrong project! Expected {% raw %}${{ needs.build.outputs.project }}{% endraw %}, got $RUNNER_PROJECT"
+          if [ "$RUNNER_PROJECT" != "{% raw %}${{ steps.config.outputs.project }}{% endraw %}" ]; then
+            echo "❌ ERROR: Wrong project! Expected {% raw %}${{ steps.config.outputs.project }}{% endraw %}, got $RUNNER_PROJECT"
             exit 1
           fi
-          
           echo "✅ Correct VM for project: $RUNNER_PROJECT"
-      
+
       - name: Create .env from GitHub Environment Secrets
         env:
-{% raw %}          SECRETS_JSON: ${{ toJSON(secrets) }}{% endraw %}
+          SECRETS_JSON: {% raw %}${{ toJSON(secrets) }}{% endraw %}
         run: |
-{% raw %}          APP_NAME="${{ needs.build.outputs.app }}"
-          PROJECT="${{ needs.build.outputs.project }}"
+          APP_NAME="{% raw %}${{ steps.config.outputs.app }}{% endraw %}"
+          PROJECT="{% raw %}${{ steps.config.outputs.project }}{% endraw %}"
           ENV_DIR="/opt/superdeploy/projects/$PROJECT/data/$APP_NAME"
-          
+
           echo "📝 Creating .env from GitHub secrets..."
           sudo mkdir -p "$ENV_DIR"
-          
-          # Get all secrets from GitHub and convert to .env format
+
           echo "$SECRETS_JSON" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/final.env
-          
+
           sudo cp /tmp/final.env "$ENV_DIR/.env"
           sudo chown superdeploy:superdeploy "$ENV_DIR/.env"
           sudo chmod 600 "$ENV_DIR/.env"
-          
-          echo "✅ Environment file created at $ENV_DIR/.env"
-          echo "📊 Total variables: $(wc -l < "$ENV_DIR/.env")"{% endraw %}
-      
-      - name: Update compose file with dynamic values
+
+          echo "✅ Environment file created"
+          echo "📊 Total variables: $(wc -l < "$ENV_DIR/.env")"
+
+      - name: Update docker-compose.yml from marker file
         run: |
-          PROJECT_NAME="{% raw %}${{ needs.build.outputs.project }}{% endraw %}"
-          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
+          PROJECT_NAME="{% raw %}${{ steps.config.outputs.project }}{% endraw %}"
+          APP_NAME="{% raw %}${{ steps.config.outputs.app }}{% endraw %}"
           COMPOSE_DIR="/opt/superdeploy/projects/${PROJECT_NAME}/compose"
           MARKER_FILE="{% raw %}${{ github.workspace }}{% endraw %}/superdeploy"
-          
+
           cd "$COMPOSE_DIR"
-          
-          # Read marker file for process definitions
+
           if [ ! -f "$MARKER_FILE" ]; then
             echo "⚠️  No superdeploy marker file found"
             exit 0
           fi
-          
+
           sudo python3 - "$APP_NAME" "docker-compose.yml" "$MARKER_FILE" << 'PYSCRIPT'
           import sys
           import yaml
           import os
-          
+
           app_name = sys.argv[1]
           compose_file = sys.argv[2]
           marker_file = sys.argv[3]
           project_name = os.environ.get('PROJECT_NAME', 'project')
-          
+
           try:
               # Load marker file
               with open(marker_file, 'r') as f:
                   marker = yaml.safe_load(f)
-              
+
               # Load compose file
               with open(compose_file, 'r') as f:
                   compose = yaml.safe_load(f)
-              
+
               if not compose or 'services' not in compose:
                   compose = {'services': {}, 'networks': {f'{project_name}-network': {'external': True}}}
-              
+
               # Get processes from marker
               processes = marker.get('processes', {})
-              
+
               for process_name, process_config in processes.items():
                   service_name = f"{app_name}-{process_name}"
                   command = process_config.get('command', '')
                   replicas = process_config.get('replicas', 1)
                   port = process_config.get('port')
-                  
+
                   if service_name in compose['services']:
                       # UPDATE EXISTING SERVICE
                       service = compose['services'][service_name]
-                      
-                      # Update command from marker file
                       service['command'] = command
-                      
+
                       if 'deploy' not in service:
                           service['deploy'] = {}
                       service['deploy']['replicas'] = replicas
-                      
+
                       # Update healthcheck based on process type
                       if port:
                           # Web process: HTTP healthcheck (without -f to tolerate 404/500)
@@ -169,19 +208,17 @@ jobs:
                               'retries': 3,
                               'start_period': '40s'
                           }
-                          service.pop('ports', None)
                           service.pop('expose', None)
-                          # Use ports for external access, not just expose
                           service['ports'] = [f"{port}:{port}"]
                       else:
                           # Worker process: Disable healthcheck
                           service['healthcheck'] = {'disable': True}
-                      
+
                       print(f"✅ Updated {service_name}: replicas={replicas}, port={port}")
                   else:
                       # CREATE NEW SERVICE
                       compose['services'][service_name] = {
-                          'image': f"docker.io/c100394/{app_name}:latest",
+                          'image': f"docker.io/{{ docker_org }}/{app_name}:latest",
                           'command': command,
                           'env_file': f"/opt/superdeploy/projects/{project_name}/data/{app_name}/.env",
                           'volumes': [
@@ -209,10 +246,9 @@ jobs:
                               }
                           }
                       }
-                      
+
                       # Add healthcheck based on process type
                       if port:
-                          # Web process: HTTP healthcheck (without -f to tolerate 404/500)
                           compose['services'][service_name]['healthcheck'] = {
                               'test': ['CMD', 'curl', f'http://localhost:{port}/health'],
                               'interval': '30s',
@@ -220,19 +256,17 @@ jobs:
                               'retries': 3,
                               'start_period': '40s'
                           }
-                          # Use ports for external access, not just expose
                           compose['services'][service_name]['ports'] = [f"{port}:{port}"]
                       else:
-                          # Worker process: Disable healthcheck
                           compose['services'][service_name]['healthcheck'] = {'disable': True}
-                      
+
                       print(f"✅ Created {service_name}: replicas={replicas}, port={port}, command={command}")
-              
+
               with open(compose_file, 'w') as f:
                   yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
-              
+
               print(f"✅ docker-compose.yml updated for {app_name}")
-              
+
           except Exception as e:
               import traceback
               print(f"⚠️  Failed to update compose: {e}")
@@ -240,114 +274,87 @@ jobs:
               print(f"⚠️  Will use existing compose file")
               sys.exit(0)
           PYSCRIPT
-      
-      - name: Deploy application (zero-downtime with replicas)
+
+      - name: Deploy application (zero-downtime)
         run: |
-          cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}/compose
-          
-          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
-          
-          # Check if any process services exist for this app (pattern: app-*)
+          cd /opt/superdeploy/projects/{% raw %}${{ steps.config.outputs.project }}{% endraw %}/compose
+
+          APP_NAME="{% raw %}${{ steps.config.outputs.app }}{% endraw %}"
+
           if ! grep -q "^  ${APP_NAME}-" docker-compose.yml; then
             echo "⏭️  Skipping: App not configured on this VM"
             exit 0
           fi
-          
-          # Create empty .env files for other apps to prevent docker-compose errors
+
+          # Create placeholder .env files for other apps
           for app_dir in ../data/*/; do
             if [ -d "$app_dir" ]; then
               app_name=$(basename "$app_dir")
               env_file="../data/$app_name/.env"
               if [ ! -f "$env_file" ]; then
                 echo "# Placeholder .env for $app_name" > "$env_file"
-                echo "📝 Created placeholder .env for $app_name"
               fi
             fi
           done
-          
-          # Get all process services for this app
+
           SERVICES=$(grep "^  ${APP_NAME}-" docker-compose.yml | cut -d: -f1 | xargs)
           echo "🔍 Detected services: $SERVICES"
-          
-          echo "🚀 Starting zero-downtime deployment with replicas..."
-          
-          # Pull new image first (same image for all processes)
+
+          echo "🚀 Starting zero-downtime deployment..."
+
+          # Pull new image
           echo "📦 Step 1/3: Pulling new image..."
           docker pull {% raw %}${{ vars.DOCKER_ORG }}{% endraw %}/${APP_NAME}:latest
-          
-          # Deploy all process services with Docker Compose rolling update
-          echo "🚀 Step 2/3: Deploying all processes (rolling update)..."
-          # Docker Compose automatically:
-          # - Starts new replicas first (order: start-first)
-          # - Waits for health checks
-          # - Stops old replicas gracefully
-          # - Automatic rollback on failure
+
+          # Deploy all process services
+          echo "🚀 Step 2/3: Deploying all processes..."
           for service in $SERVICES; do
             echo "  Deploying $service..."
             docker compose up -d --no-deps $service
           done
-          
-          # Wait for deployment to stabilize
-          echo "⏳ Step 3/3: Health check (waiting for all replicas)..."
+
+          # Wait and check health
+          echo "⏳ Step 3/3: Health check..."
           sleep 10
-          
-          # Check status for all process services
+
           TOTAL_RUNNING=0
-          TOTAL_EXPECTED=0
           for service in $SERVICES; do
             RUNNING=$(docker compose ps $service --status running --format '{% raw %}{{.Name}}{% endraw %}' 2>/dev/null | wc -l)
-            EXPECTED=$(docker compose ps $service --format '{% raw %}{{.Name}}{% endraw %}' 2>/dev/null | wc -l)
             TOTAL_RUNNING=$((TOTAL_RUNNING + RUNNING))
-            TOTAL_EXPECTED=$((TOTAL_EXPECTED + EXPECTED))
-            echo "  $service: $RUNNING/$EXPECTED replicas running"
+            echo "  $service: $RUNNING replicas running"
           done
-          
+
           if [ "$TOTAL_RUNNING" -ge "1" ]; then
-            echo "✅ Deployment successful! ($TOTAL_RUNNING/$TOTAL_EXPECTED total replicas running)"
-            
-            # Show logs from first service
-            FIRST_SERVICE=$(echo $SERVICES | awk '{print $1}')
-            FIRST_CONTAINER=$(docker compose ps $FIRST_SERVICE --format '{% raw %}{{.Name}}{% endraw %}' 2>/dev/null | head -1)
-            if [ -n "$FIRST_CONTAINER" ]; then
-              echo ""
-              echo "📋 Recent logs from $FIRST_CONTAINER:"
-              docker logs $FIRST_CONTAINER --tail 20 2>/dev/null || true
-            fi
+            echo "✅ Deployment successful! ($TOTAL_RUNNING replicas running)"
           else
             echo "❌ Deployment failed - no replicas running"
-            echo ""
-            echo "📋 Service logs:"
             for service in $SERVICES; do
               echo "=== $service ==="
               docker compose logs $service --tail 20
             done
             exit 1
           fi
-          
-          # Cleanup old images
+
           docker image prune -f >/dev/null 2>&1 || true
-      
+
       - name: Calculate and update version
         run: |
-          PROJECT_DIR="/opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}"
+          PROJECT_DIR="/opt/superdeploy/projects/{% raw %}${{ steps.config.outputs.project }}{% endraw %}"
           RELEASES_FILE="$PROJECT_DIR/releases.json"
-          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
-          
-          # Initialize releases.json if it doesn't exist
+          APP_NAME="{% raw %}${{ steps.config.outputs.app }}{% endraw %}"
+
           sudo mkdir -p "$PROJECT_DIR"
           if [ ! -f "$RELEASES_FILE" ]; then
             echo "{}" | sudo tee "$RELEASES_FILE" > /dev/null
             sudo chown superdeploy:superdeploy "$RELEASES_FILE"
             sudo chmod 644 "$RELEASES_FILE"
           fi
-          
-          # Get current version from last release
+
           CURRENT_VERSION=$(sudo cat "$RELEASES_FILE" | jq -r --arg app "$APP_NAME" '.[$app][-1].version // "0.0.0"')
           echo "Current version: $CURRENT_VERSION"
-          
-          # Determine version bump type from commit message
+
           COMMIT_MSG="{% raw %}${{ github.event.head_commit.message }}{% endraw %}"
-          
+
           if echo "$COMMIT_MSG" | grep -qiE '^\[major\]|^breaking:'; then
             BUMP_TYPE="major"
           elif echo "$COMMIT_MSG" | grep -qiE '^\[minor\]|^feat:'; then
@@ -355,12 +362,9 @@ jobs:
           else
             BUMP_TYPE="patch"
           fi
-          
-          echo "Bump type: $BUMP_TYPE"
-          
-          # Parse and increment version
+
           IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
-          
+
           case $BUMP_TYPE in
             major)
               major=$((major + 1))
@@ -375,14 +379,12 @@ jobs:
               patch=$((patch + 1))
               ;;
           esac
-          
+
           NEW_VERSION="$major.$minor.$patch"
           DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          
+
           echo "New version: $NEW_VERSION"
-          echo "📌 Updating version: $APP_NAME v$NEW_VERSION"
-          
-          # Create new release entry
+
           NEW_RELEASE=$(jq -n --arg ver "$NEW_VERSION" --arg deployed "$DEPLOYED_AT" --arg sha "{% raw %}${{ github.sha }}{% endraw %}" --arg actor "{% raw %}${{ github.actor }}{% endraw %}" --arg branch "{% raw %}${{ github.ref_name }}{% endraw %}" --arg commit "{% raw %}${{ github.event.head_commit.message }}{% endraw %}" '{
             version: $ver,
             deployed_at: $deployed,
@@ -391,98 +393,88 @@ jobs:
             branch: $branch,
             commit_message: $commit
           }')
-          
-          # Append to releases array for this app (keep last 5)
+
           UPDATED_RELEASES=$(sudo cat "$RELEASES_FILE" | jq --argjson release "$NEW_RELEASE" --arg app "$APP_NAME" '
             .[$app] = ((.[$app] // []) + [$release])[-5:]
           ')
-          
+
           echo "$UPDATED_RELEASES" | sudo tee "$RELEASES_FILE" > /dev/null
           sudo chown superdeploy:superdeploy "$RELEASES_FILE"
           sudo chmod 644 "$RELEASES_FILE"
-          
-          echo "✅ Version tracked: v$NEW_VERSION (release history updated)"
-      
-      - name: Run deployment hooks
+
+          echo "✅ Version tracked: v$NEW_VERSION"
+
+      - name: Run post-deployment hooks from marker file
         run: |
-          # Post-deployment hooks run after successful deployment
-          # Configure in projects/{{ project }}/config.yml:
+          # ⚠️  HOOKS RUN FROM MARKER FILE (superdeploy), NOT config.yml
+          # Example in superdeploy marker file:
           #
-          # apps:
-          #   {{ app }}:
-          #     hooks:
-          #       after_deploy:
-          #         - npx prisma migrate deploy         # Run Prisma migrations
-          #         - npm run db:seed                   # Seed database (optional)
-          #         - npm run cache:clear               # Clear Next.js cache
+          # hooks:
+          #   after_deploy:
+          #     - npx prisma migrate deploy  # ✅ Safe: idempotent
+          #     - npm run cache:clear        # ✅ Safe: always OK
+          #     - npm run db:seed            # ❌ NEVER: duplicates data!
           #
-          # Hooks run inside the container using docker compose exec
-          # If any hook fails, deployment is marked as failed
-          
-          cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}
-          
-          if [ ! -f config.yml ]; then
-            echo "⏭️  No config.yml found, skipping hooks"
+          # ⚠️  IMPORTANT RULES:
+          # 1. Migrations should be IDEMPOTENT (safe to run multiple times)
+          # 2. NEVER auto-run data seeding (causes duplicates)
+          # 3. Only run operations that are safe on every deploy
+          # 4. For manual tasks, use: superdeploy <project>:run <app> "<command>"
+
+          MARKER_FILE="{% raw %}${{ github.workspace }}{% endraw %}/superdeploy"
+
+          if [ ! -f "$MARKER_FILE" ]; then
+            echo "⏭️  No marker file, skipping hooks"
             exit 0
           fi
-          
-          APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
-          
-          cat > /tmp/read_hooks.py <<'PYEOF'
+
+          APP_NAME="{% raw %}${{ steps.config.outputs.app }}{% endraw %}"
+          PROJECT_NAME="{% raw %}${{ steps.config.outputs.project }}{% endraw %}"
+
+          python3 - "$MARKER_FILE" <<'PYEOF' > /tmp/hooks.txt
           import yaml
           import sys
-          import os
-          
+
           try:
-              with open('config.yml') as f:
-                  config = yaml.safe_load(f)
-              app_name = os.environ.get('APP_NAME', '')
-              hooks = config.get('apps', {}).get(app_name, {}).get('hooks', {})
-              after_deploy = hooks.get('after_deploy', [])
-              if after_deploy:
-                  for cmd in after_deploy:
-                      print(cmd)
-          except Exception:
-              sys.exit(0)
+              with open(sys.argv[1]) as f:
+                  marker = yaml.safe_load(f)
+              hooks = marker.get('hooks', {}).get('after_deploy', [])
+              for cmd in hooks:
+                  print(cmd)
+          except:
+              pass
           PYEOF
-          
-          HOOKS=$(APP_NAME="$APP_NAME" python3 /tmp/read_hooks.py)
-          
-          if [ -z "$HOOKS" ]; then
-            echo "⏭️  No post-deployment hooks configured for {% raw %}${{ needs.build.outputs.app }}{% endraw %}"
+
+          if [ ! -s /tmp/hooks.txt ]; then
+            echo "⏭️  No post-deployment hooks configured"
             exit 0
           fi
-          
-          echo "🔧 Running post-deployment hooks for {% raw %}${{ needs.build.outputs.app }}{% endraw %}..."
-          cd compose
-          
-          # Find first web or release process service for running hooks
-          # Hooks should run only once (migrations, cache clear, etc.)
+
+          echo "🔧 Running post-deployment hooks..."
+          cd /opt/superdeploy/projects/${PROJECT_NAME}/compose
+
           HOOK_SERVICE=$(grep "^  ${APP_NAME}-\(web\|release\)" docker-compose.yml | head -1 | cut -d: -f1 | xargs)
-          
+
           if [ -z "$HOOK_SERVICE" ]; then
-            # Fallback: use first available service
             HOOK_SERVICE=$(grep "^  ${APP_NAME}-" docker-compose.yml | head -1 | cut -d: -f1 | xargs)
           fi
-          
+
           echo "📍 Running hooks on service: $HOOK_SERVICE"
-          
+
           FAILED=0
-          echo "$HOOKS" | while IFS= read -r cmd; do
+          while IFS= read -r cmd; do
             if [ -n "$cmd" ]; then
               echo "▶ Running: $cmd"
-              # Note: docker compose exec automatically chooses first replica
-              if ! docker compose exec -T $HOOK_SERVICE $cmd; then
+              if ! docker compose exec -T $HOOK_SERVICE sh -c "$cmd"; then
                 echo "⚠️  Hook failed: $cmd"
                 FAILED=1
               fi
             fi
-          done
-          
+          done < /tmp/hooks.txt
+
           if [ $FAILED -eq 1 ]; then
             echo "❌ Post-deployment hooks failed"
             exit 1
           fi
-          
-          echo "✅ Post-deployment hooks completed"
 
+          echo "✅ Post-deployment hooks completed"

@@ -450,81 +450,79 @@ jobs:
           
           echo "✅ Version tracked: v$NEW_VERSION (release history updated)"
       
-      - name: Run deployment hooks
+      - name: Run post-deployment hooks from marker file
         run: |
-          # Post-deployment hooks run after successful deployment
-          # Configure in projects/{{ project }}/config.yml:
+          # ⚠️  HOOKS RUN FROM MARKER FILE (superdeploy), NOT config.yml
+          # Example in superdeploy marker file:
           #
-          # apps:
-          #   {{ app }}:
-          #     hooks:
-          #       after_deploy:
-          #         - python craft migrate              # Run database migrations
-          #         - python craft cache:clear          # Clear application cache
-          #         - python craft queue:restart        # Restart queue workers
+          # hooks:
+          #   after_deploy:
+          #     - python craft migrate       # ✅ Safe: idempotent (can run multiple times)
+          #     - python craft cache:clear   # ✅ Safe: always OK
+          #     - python craft populate:db   # ❌ NEVER: creates duplicates on every deploy!
+          #     - python craft db:seed       # ❌ NEVER: creates duplicates on every deploy!
           #
-          # Hooks run inside the container using docker compose exec
-          # If any hook fails, deployment is marked as failed
+          # ⚠️  CRITICAL RULES FOR HOOKS:
+          # 1. Migrations should be IDEMPOTENT (safe to run multiple times)
+          # 2. NEVER auto-run data seeding/population (causes duplicates)
+          # 3. Only run operations that are safe on EVERY deploy
+          # 4. For manual tasks, use: superdeploy <project>:run <app> "<command>"
+          #
+          # Example:
+          #   superdeploy receet:run api "python craft migrate"
+          #   superdeploy receet:run api "python craft populate:db"  # Only on first deploy!
           
-          cd /opt/superdeploy/projects/{% raw %}${{ needs.build.outputs.project }}{% endraw %}
+          MARKER_FILE="{% raw %}${{ github.workspace }}{% endraw %}/{{ app }}/superdeploy"
           
-          if [ ! -f config.yml ]; then
-            echo "⏭️  No config.yml found, skipping hooks"
+          if [ ! -f "$MARKER_FILE" ]; then
+            echo "⏭️  No marker file, skipping hooks"
             exit 0
           fi
           
           APP_NAME="{% raw %}${{ needs.build.outputs.app }}{% endraw %}"
+          PROJECT_NAME="{% raw %}${{ needs.build.outputs.project }}{% endraw %}"
           
-          cat > /tmp/read_hooks.py <<'PYEOF'
+          python3 - "$MARKER_FILE" <<'PYEOF' > /tmp/hooks.txt
           import yaml
           import sys
-          import os
           
           try:
-              with open('config.yml') as f:
-                  config = yaml.safe_load(f)
-              app_name = os.environ.get('APP_NAME', '')
-              hooks = config.get('apps', {}).get(app_name, {}).get('hooks', {})
-              after_deploy = hooks.get('after_deploy', [])
-              if after_deploy:
-                  for cmd in after_deploy:
-                      print(cmd)
-          except Exception:
-              sys.exit(0)
+              with open(sys.argv[1]) as f:
+                  marker = yaml.safe_load(f)
+              hooks = marker.get('hooks', {}).get('after_deploy', [])
+              for cmd in hooks:
+                  print(cmd)
+          except:
+              pass
           PYEOF
           
-          HOOKS=$(APP_NAME="$APP_NAME" python3 /tmp/read_hooks.py)
-          
-          if [ -z "$HOOKS" ]; then
-            echo "⏭️  No post-deployment hooks configured for {% raw %}${{ needs.build.outputs.app }}{% endraw %}"
+          if [ ! -s /tmp/hooks.txt ]; then
+            echo "⏭️  No post-deployment hooks configured"
             exit 0
           fi
           
-          echo "🔧 Running post-deployment hooks for {% raw %}${{ needs.build.outputs.app }}{% endraw %}..."
-          cd compose
+          echo "🔧 Running post-deployment hooks..."
+          cd /opt/superdeploy/projects/${PROJECT_NAME}/compose
           
           # Find first web or release process service for running hooks
-          # Hooks should run only once (migrations, cache clear, etc.)
           HOOK_SERVICE=$(grep "^  ${APP_NAME}-\(web\|release\)" docker-compose.yml | head -1 | cut -d: -f1 | xargs)
           
           if [ -z "$HOOK_SERVICE" ]; then
-            # Fallback: use first available service
             HOOK_SERVICE=$(grep "^  ${APP_NAME}-" docker-compose.yml | head -1 | cut -d: -f1 | xargs)
           fi
           
           echo "📍 Running hooks on service: $HOOK_SERVICE"
           
           FAILED=0
-          echo "$HOOKS" | while IFS= read -r cmd; do
+          while IFS= read -r cmd; do
             if [ -n "$cmd" ]; then
               echo "▶ Running: $cmd"
-              # Note: docker compose exec automatically chooses first replica
-              if ! docker compose exec -T $HOOK_SERVICE $cmd; then
+              if ! docker compose exec -T $HOOK_SERVICE sh -c "$cmd"; then
                 echo "⚠️  Hook failed: $cmd"
                 FAILED=1
               fi
             fi
-          done
+          done < /tmp/hooks.txt
           
           if [ $FAILED -eq 1 ]; then
             echo "❌ Post-deployment hooks failed"

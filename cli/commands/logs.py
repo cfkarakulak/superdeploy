@@ -529,10 +529,18 @@ class LogsCommand(ProjectCommand):
                                 if not self.filter.matches(parsed, line_str):
                                     continue
 
-                                # Colorize and print
+                                # Colorize and print with immediate flush
                                 colored_line = self.colorizer.colorize(parsed)
-                                print(f"{prefix}{colored_line}")
-                                sys.stdout.flush()
+                                self.console.print(
+                                    f"{prefix}{colored_line}",
+                                    highlight=False,
+                                    soft_wrap=True,
+                                )
+                                # Force immediate output
+                                try:
+                                    self.console.file.flush()
+                                except:
+                                    sys.stdout.flush()
                                 self.line_count += 1
 
         except KeyboardInterrupt:
