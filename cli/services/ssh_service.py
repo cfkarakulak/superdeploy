@@ -215,9 +215,13 @@ class SSHService:
         docker_cmd_parts.append(container_name)
         docker_cmd = " ".join(docker_cmd_parts) + " 2>&1"
 
-        # Use script command to create pseudo-tty for unbuffered output
-        # This fixes buffering without requiring interactive terminal (-tt)
-        docker_cmd_wrapped = f"script -q -c '{docker_cmd}' /dev/null"
+        # Critical for real-time streaming:
+        # Use 'script -qfc' to force unbuffered output through pseudo-terminal
+        # This is the ONLY reliable way to get real-time Docker logs over SSH
+        # -q: quiet (no "Script started" messages)
+        # -f: flush output after each write
+        # -c: run command
+        docker_cmd_wrapped = f"script -qfc '{docker_cmd}' /dev/null"
         
         ssh_cmd = [
             "ssh",
@@ -227,16 +231,24 @@ class SSHService:
             "StrictHostKeyChecking=no",
             "-o",
             "LogLevel=QUIET",
+            "-o",
+            "ServerAliveInterval=60",  # Keep connection alive
             f"{self.config.user}@{host}",
             docker_cmd_wrapped,
         ]
 
+        # Use Popen with unbuffered I/O
+        import os
+        env = os.environ.copy()
+        env['PYTHONUNBUFFERED'] = '1'
+        
         return subprocess.Popen(
             ssh_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=False,  # Use binary mode for better compatibility
-            bufsize=0,  # Unbuffered for immediate output
+            text=False,  # Binary mode for immediate output
+            bufsize=0,  # Completely unbuffered
+            env=env,
         )
 
     def docker_exec(

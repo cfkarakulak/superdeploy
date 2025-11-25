@@ -470,8 +470,11 @@ class LogsCommand(ProjectCommand):
         if not hasattr(self, "processes") or not self.processes:
             return
 
-        import sys
         import select
+        import sys
+
+        # Ensure Python unbuffered output
+        sys.stdout.reconfigure(line_buffering=True)
 
         # Map container names to their processes
         container_processes = {name: proc for name, proc in self.processes}
@@ -492,13 +495,13 @@ class LogsCommand(ProjectCommand):
                 if not readable_streams:
                     import time
 
-                    time.sleep(0.1)
+                    time.sleep(0.01)  # Reduced sleep for faster response
                     continue
 
                 # Use select to check for available data (non-blocking)
                 try:
                     ready, _, _ = select.select(
-                        [stream for _, stream in readable_streams], [], [], 0.1
+                        [stream for _, stream in readable_streams], [], [], 0.01
                     )
                 except (OSError, ValueError):
                     # select failed, fall back to simple readline
@@ -507,46 +510,53 @@ class LogsCommand(ProjectCommand):
                 # Read from ready streams
                 for container_name, stream in readable_streams:
                     if stream in ready or not ready:  # If no select, try all
-                        line = stream.readline()
-                        if line:
-                            line_str = (
-                                line.rstrip()
-                                if isinstance(line, str)
-                                else line.decode("utf-8", errors="ignore").rstrip()
-                            )
-                            if line_str:
-                                # Prefix with container name for multi-process logs
-                                prefix = (
-                                    f"[{container_name}] "
-                                    if len(self.processes) > 1
-                                    else ""
+                        try:
+                            # Read line with immediate processing
+                            line = stream.readline()
+                            if line:
+                                line_str = (
+                                    line.rstrip()
+                                    if isinstance(line, str)
+                                    else line.decode("utf-8", errors="ignore").rstrip()
                                 )
+                                
+                                # Strip ANSI escape codes from script command
+                                # script -qfc adds some escape codes, clean them
+                                import re
+                                line_str = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line_str)
+                                line_str = re.sub(r'\r', '', line_str)
+                                line_str = line_str.strip()
+                                
+                                if line_str:
+                                    # Prefix with container name for multi-process logs
+                                    prefix = (
+                                        f"[{container_name}] "
+                                        if len(self.processes) > 1
+                                        else ""
+                                    )
 
-                                # Parse log line
-                                parsed = self.parser.parse(line_str)
+                                    # Parse log line
+                                    parsed = self.parser.parse(line_str)
 
-                                # Apply filters
-                                if not self.filter.matches(parsed, line_str):
-                                    continue
+                                    # Apply filters
+                                    if not self.filter.matches(parsed, line_str):
+                                        continue
 
-                                # Colorize and print with immediate flush
-                                colored_line = self.colorizer.colorize(parsed)
-                                self.console.print(
-                                    f"{prefix}{colored_line}",
-                                    highlight=False,
-                                    soft_wrap=True,
-                                )
-                                # Force immediate output
-                                try:
-                                    self.console.file.flush()
-                                except:
+                                    # Colorize and print with immediate flush
+                                    colored_line = self.colorizer.colorize(parsed)
+ 
+                                    # Print directly to stdout with immediate flush
+                                    sys.stdout.write(f"{prefix}{colored_line}\n")
                                     sys.stdout.flush()
-                                self.line_count += 1
+                                    self.line_count += 1
+                        except (IOError, OSError):
+                            # Stream closed or error, continue
+                            continue
 
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            self.console.print(f"[red]Error streaming logs: {e}[/red]")
+            print(f"Error streaming logs: {e}", file=sys.stderr)
         finally:
             # Clean up all processes
             for container_name, process in self.processes:
@@ -560,7 +570,10 @@ class LogsCommand(ProjectCommand):
 
         import sys
 
-        # Read logs line by line (blocking, but that's OK for streaming)
+        # Ensure Python unbuffered output
+        sys.stdout.reconfigure(line_buffering=True)
+
+        # Read logs line by line with immediate output
         try:
             while True:
                 line = self.process.stdout.readline()
@@ -576,6 +589,13 @@ class LogsCommand(ProjectCommand):
                     if isinstance(line, str)
                     else line.decode("utf-8", errors="ignore").rstrip()
                 )
+                
+                # Strip ANSI escape codes from script command
+                import re
+                line_str = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line_str)
+                line_str = re.sub(r'\r', '', line_str)
+                line_str = line_str.strip()
+                
                 if not line_str:
                     continue
 
@@ -586,17 +606,17 @@ class LogsCommand(ProjectCommand):
                 if not self.filter.matches(parsed, line_str):
                     continue
 
-                # Colorize and print
+                # Colorize and print with immediate flush
                 colored_line = self.colorizer.colorize(parsed)
-                print(colored_line)
-                sys.stdout.flush()  # Ensure immediate output
+                sys.stdout.write(f"{colored_line}\n")
+                sys.stdout.flush()
                 self.line_count += 1
 
         except KeyboardInterrupt:
             # User interrupted, handled by caller
             raise
         except Exception as e:
-            self.console.print(f"[red]Error streaming logs: {e}[/red]")
+            print(f"Error streaming logs: {e}", file=sys.stderr)
         finally:
             # Clean up if process is still running
             if self.process and self.process.poll() is None:
