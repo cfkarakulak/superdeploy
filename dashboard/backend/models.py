@@ -51,11 +51,6 @@ class Project(Base):
     vpc_subnet = Column(String(50), nullable=True)
     docker_subnet = Column(String(50), nullable=True)
 
-    # Actual State (JSON: runtime state of VMs, addons, apps)
-    # This is populated by sync.py after deployment events
-    # Structure: {vms: {name: {ip, status}}, addons: {name: {status}}, apps: {name: {status}}}
-    actual_state = Column(JSON, nullable=True)
-
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

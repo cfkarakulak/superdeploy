@@ -765,10 +765,10 @@ class DownCommand(ProjectCommand):
             # on teardown. It will be reused on next 'up' command.
             # Only runtime state (Terraform state, GCP resources, local files) is cleaned.
 
-            # Clear actual_state JSON to reflect that infrastructure is down
-            from cli.sync import clear_actual_state
+            # Clear project state (mark VMs as terminated)
+            from cli.sync import clear_project_state
 
-            clear_actual_state(self.project_name)
+            clear_project_state(self.project_name)
 
             if logger:
                 logger.log("✓ Database preserved (VMs config retained)")

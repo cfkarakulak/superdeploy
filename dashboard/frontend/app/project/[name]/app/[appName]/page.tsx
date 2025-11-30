@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { AppHeader, PageHeader } from "@/components";
+import { AppHeader, PageHeader, RefreshButton } from "@/components";
 import { 
   Cpu, 
   MemoryStick, 
@@ -81,70 +81,69 @@ export default function AppOverviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [appDomain, setAppDomain] = useState<string>(""); // Will be loaded from API
 
+  const fetchAllMetrics = useCallback(async () => {
+    try {
+      // Fetch VM metrics (all VMs in project)
+      const vmResponse = await fetch(
+        `http://localhost:8401/api/metrics/${projectName}/vms`
+      );
+      
+      if (vmResponse.ok) {
+        const vmData = await vmResponse.json();
+        // Find the app VM (or first VM if no role specified)
+        const appVm = vmData.vms?.find((vm: any) => vm.role === 'app') || vmData.vms?.[0];
+        if (appVm) {
+          setMetrics({
+            cpu_usage: appVm.cpu_usage || 0,
+            memory_usage: appVm.memory_usage || 0,
+            disk_usage: appVm.disk_usage || 0,
+            uptime_seconds: appVm.uptime_seconds || 0,
+          });
+          setVmIp(appVm.ip);
+        }
+      }
+
+      // Fetch container metrics (cAdvisor)
+      const containerResponse = await fetch(
+        `http://localhost:8401/api/metrics/${projectName}/${appName}/containers`
+      );
+      
+      if (containerResponse.ok) {
+        const containerData = await containerResponse.json();
+        setContainers(containerData.containers || []);
+      }
+
+      // Fetch application metrics (PrometheusMiddleware)
+      const appResponse = await fetch(
+        `http://localhost:8401/api/metrics/${projectName}/${appName}/application`
+      );
+      
+      if (appResponse.ok) {
+        const appData = await appResponse.json();
+        setAppMetrics(appData.metrics);
+      }
+    } catch (err) {
+      console.error("Failed to fetch metrics:", err);
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  }, [projectName, appName]);
+
+  const fetchAppInfo = useCallback(async () => {
+    try {
+      const response = await fetch(`http://localhost:8401/api/projects/${projectName}`);
+      if (response.ok) {
+        const data = await response.json();
+        setAppDomain(data.domain || projectName);
+      }
+    } catch (err) {
+      console.error("Failed to fetch project info:", err);
+      setAppDomain(projectName);
+    }
+  }, [projectName]);
+
   useEffect(() => {
-    const fetchAllMetrics = async () => {
-      try {
-        // Fetch VM metrics (all VMs in project)
-        const vmResponse = await fetch(
-          `http://localhost:8401/api/metrics/${projectName}/vms`
-        );
-        
-        if (vmResponse.ok) {
-          const vmData = await vmResponse.json();
-          // Find the app VM (or first VM if no role specified)
-          const appVm = vmData.vms?.find((vm: any) => vm.role === 'app') || vmData.vms?.[0];
-          if (appVm) {
-            setMetrics({
-              cpu_usage: appVm.cpu_usage || 0,
-              memory_usage: appVm.memory_usage || 0,
-              disk_usage: appVm.disk_usage || 0,
-              container_count: 0,
-              uptime_seconds: appVm.uptime_seconds || 0,
-            });
-            setVmIp(appVm.ip);
-          }
-        }
-
-        // Fetch container metrics (cAdvisor)
-        const containerResponse = await fetch(
-          `http://localhost:8401/api/metrics/${projectName}/${appName}/containers`
-        );
-        
-        if (containerResponse.ok) {
-          const containerData = await containerResponse.json();
-          setContainers(containerData.containers || []);
-        }
-
-        // Fetch application metrics (PrometheusMiddleware)
-        const appResponse = await fetch(
-          `http://localhost:8401/api/metrics/${projectName}/${appName}/application`
-        );
-        
-        if (appResponse.ok) {
-          const appData = await appResponse.json();
-          setAppMetrics(appData.metrics);
-        }
-      } catch (err) {
-        console.error("Failed to fetch metrics:", err);
-        setError(err instanceof Error ? err.message : "Unknown error");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    const fetchAppInfo = async () => {
-      try {
-        const response = await fetch(`http://localhost:8401/api/projects/${projectName}`);
-        if (response.ok) {
-          const data = await response.json();
-          setAppDomain(data.domain || projectName);
-        }
-      } catch (err) {
-        console.error("Failed to fetch project info:", err);
-        setAppDomain(projectName);
-      }
-    };
-
     if (projectName && appName) {
       fetchAllMetrics();
       fetchAppInfo();
@@ -153,7 +152,7 @@ export default function AppOverviewPage() {
       const interval = setInterval(fetchAllMetrics, 10000);
       return () => clearInterval(interval);
     }
-  }, [projectName, appName]);
+  }, [projectName, appName, fetchAllMetrics, fetchAppInfo]);
 
   const formatUptime = (seconds: number): string => {
     const days = Math.floor(seconds / 86400);
@@ -245,27 +244,13 @@ export default function AppOverviewPage() {
     );
   }
 
-  if (error || !metrics) {
-    return (
-      <div>
-        <AppHeader />
-        <div className="bg-white rounded-[16px] p-[32px] shadow-[0px_0px_2px_0px_rgba(41,41,51,.04),0px_8px_24px_0px_rgba(41,41,51,.12)]">
-          <PageHeader
-            breadcrumbs={[
-              { label: appDomain || "Loading...", href: `/project/${projectName}` },
-              { label: appName, href: `/project/${projectName}/app/${appName}` },
-            ]}
-            menuLabel="Overview"
-            title="Application Metrics"
-          />
-          
-          <div className="text-center py-12 text-[#8b8b8b]">
-            <p className="text-[11px] tracking-[0.03em] font-light">Failed to load metrics: {error}</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // If no metrics yet, show empty state with default values
+  const displayMetrics = metrics || {
+    cpu_usage: 0,
+    memory_usage: 0,
+    disk_usage: 0,
+    uptime_seconds: 0,
+  };
 
   return (
     <div>
@@ -279,6 +264,9 @@ export default function AppOverviewPage() {
           ]}
           menuLabel="Overview"
           title="Application Metrics"
+          rightAction={
+            <RefreshButton projectName={projectName} onRefresh={fetchAllMetrics} />
+          }
         />
 
         {/* Section 1: VM Metrics (Node Exporter) */}
@@ -302,14 +290,14 @@ export default function AppOverviewPage() {
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-[26px] text-[#0a0a0a]">
-                  {metrics.cpu_usage.toFixed(1)}
+                  {displayMetrics.cpu_usage.toFixed(1)}
                 </span>
                 <span className="text-[16px] text-[#8b8b8b]">%</span>
               </div>
               <div className="mt-3 w-full bg-[#f0f0f0] rounded-full h-1.5">
                 <div
                   className="bg-blue-600 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(metrics.cpu_usage, 100)}%` }}
+                  style={{ width: `${Math.min(displayMetrics.cpu_usage, 100)}%` }}
                 ></div>
               </div>
             </div>
@@ -328,14 +316,14 @@ export default function AppOverviewPage() {
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-[26px] text-[#0a0a0a]">
-                  {metrics.memory_usage.toFixed(1)}
+                  {displayMetrics.memory_usage.toFixed(1)}
                 </span>
                 <span className="text-[16px] text-[#8b8b8b]">%</span>
               </div>
               <div className="mt-3 w-full bg-[#f0f0f0] rounded-full h-1.5">
                 <div
                   className="bg-purple-600 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(metrics.memory_usage, 100)}%` }}
+                  style={{ width: `${Math.min(displayMetrics.memory_usage, 100)}%` }}
                 ></div>
               </div>
             </div>
@@ -354,14 +342,14 @@ export default function AppOverviewPage() {
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-[26px] text-[#0a0a0a]">
-                  {metrics.disk_usage.toFixed(1)}
+                  {displayMetrics.disk_usage.toFixed(1)}
                 </span>
                 <span className="text-[16px] text-[#8b8b8b]">%</span>
               </div>
               <div className="mt-3 w-full bg-[#f0f0f0] rounded-full h-1.5">
                 <div
                   className="bg-orange-600 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(metrics.disk_usage, 100)}%` }}
+                  style={{ width: `${Math.min(displayMetrics.disk_usage, 100)}%` }}
                 ></div>
               </div>
             </div>

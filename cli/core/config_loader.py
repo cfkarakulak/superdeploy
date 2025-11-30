@@ -300,8 +300,9 @@ class ProjectConfig:
         # Remove duplicates and sort
         app_ports = sorted(list(set(app_ports)))
 
-        # Get orchestrator IP for metrics firewall
+        # Get orchestrator IP and subnet for metrics firewall
         orchestrator_ip = ""
+        orchestrator_subnet = "10.0.0.0/16"  # Default orchestrator subnet
         try:
             from cli.core.orchestrator_loader import OrchestratorLoader
 
@@ -313,6 +314,10 @@ class ProjectConfig:
             orch_loader = OrchestratorLoader(project_root / "shared")
             orch_config = orch_loader.load()
             orchestrator_ip = orch_config.get_ip() or ""
+            # Get orchestrator subnet from config
+            orch_subnet = orch_config.config.get("network", {}).get("subnet_cidr", "")
+            if orch_subnet:
+                orchestrator_subnet = orch_subnet
         except:
             pass  # Orchestrator not deployed yet, that's ok
 
@@ -327,6 +332,7 @@ class ProjectConfig:
             "ssh_pub_key_path": ssh_config.get("public_key_path", "~/.ssh/id_rsa.pub"),
             "app_ports": app_ports,
             "orchestrator_ip": orchestrator_ip,
+            "orchestrator_subnet": orchestrator_subnet,
         }
 
     def to_ansible_vars(self) -> Dict[str, Any]:
@@ -404,7 +410,7 @@ class ConfigLoader:
         Raises:
             FileNotFoundError: If project not found in database
         """
-        from sqlalchemy import Table, Column, Integer, String, JSON, DateTime, MetaData
+        from sqlalchemy import Table, Column, Integer, String, DateTime, MetaData
 
         db = get_db_session()
         try:
@@ -428,7 +434,6 @@ class ConfigLoader:
                 Column("docker_organization", String(100)),
                 Column("vpc_subnet", String(50)),
                 Column("docker_subnet", String(50)),
-                Column("actual_state", JSON),
                 Column("created_at", DateTime),
                 Column("updated_at", DateTime),
             )

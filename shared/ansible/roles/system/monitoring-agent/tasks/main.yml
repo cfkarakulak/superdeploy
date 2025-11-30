@@ -241,7 +241,7 @@
   when: docker_installed.rc == 0
 
 - name: Configure UFW to allow Prometheus access (node-exporter and cAdvisor)
-  when: orchestrator_subnet is defined
+  when: orchestrator_subnet is defined or orchestrator_ip is defined
   block:
     - name: Install UFW if not present
       apt:
@@ -258,6 +258,17 @@
         proto: tcp
         comment: "Prometheus node-exporter"
       become: yes
+      when: orchestrator_subnet is defined
+
+    - name: Allow Prometheus scraping of node_exporter from orchestrator IP
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ orchestrator_ip }}"
+        to_port: "{{ node_exporter_port }}"
+        proto: tcp
+        comment: "Prometheus node-exporter from orchestrator"
+      become: yes
+      when: orchestrator_ip is defined
 
     - name: Allow Prometheus scraping of cAdvisor from orchestrator subnet
       community.general.ufw:
@@ -267,7 +278,17 @@
         proto: tcp
         comment: "cAdvisor"
       become: yes
-      when: docker_installed.rc == 0
+      when: orchestrator_subnet is defined and docker_installed.rc == 0
+
+    - name: Allow Prometheus scraping of cAdvisor from orchestrator IP
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ orchestrator_ip }}"
+        to_port: "8080"
+        proto: tcp
+        comment: "cAdvisor from orchestrator"
+      become: yes
+      when: orchestrator_ip is defined and docker_installed.rc == 0
 
 - name: Display node_exporter status
   debug:

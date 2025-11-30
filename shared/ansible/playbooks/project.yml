@@ -65,6 +65,8 @@
 - name: Install System Monitoring Agent
   hosts: all:!orchestrator
   become: yes
+  vars:
+    orchestrator_ip: "{{ hostvars[groups['orchestrator'][0]]['ansible_host'] }}"
   roles:
     - role: system/monitoring-agent
   tags:

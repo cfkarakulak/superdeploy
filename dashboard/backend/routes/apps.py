@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Project, App
 from pydantic import BaseModel
-from cache import get_cache, set_cache, CACHE_TTL
 
 router = APIRouter(tags=["apps"])
 
@@ -17,16 +16,10 @@ class SwitchVersionRequest(BaseModel):
 @router.get("/{project_name}/list")
 async def list_apps(project_name: str, db: Session = Depends(get_db)):
     """
-    List all apps for a project from database (with Redis cache).
+    List all apps for a project from database.
 
     Database is the master source, not config.yml.
     """
-    # Check cache first
-    cache_key = f"apps:{project_name}"
-    cached = get_cache(cache_key)
-    if cached:
-        return cached
-
     # Get project
     project = db.query(Project).filter(Project.name == project_name).first()
     if not project:
@@ -45,12 +38,7 @@ async def list_apps(project_name: str, db: Session = Depends(get_db)):
             }
         )
 
-    response = {"apps": apps_list}
-
-    # Cache for 5 minutes
-    set_cache(cache_key, response, CACHE_TTL["apps"])
-
-    return response
+    return {"apps": apps_list}
 
 
 @router.get("/{project_name}/ps")

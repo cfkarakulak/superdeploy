@@ -832,7 +832,7 @@ def _deploy_project_internal(
                         if logger:
                             logger.log("✓ VMs saved to database")
 
-                        # Sync VM state to actual_state JSON column
+                        # Sync VM state to vms table
                         from cli.sync import sync_vms
 
                         vm_list = []

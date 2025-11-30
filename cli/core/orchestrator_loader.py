@@ -89,30 +89,69 @@ class OrchestratorConfig:
 
     def is_deployed(self) -> bool:
         """Check if orchestrator is already deployed by checking database"""
-        from cli.database import get_db_session, Project
+        from cli.database import get_db_session, Project, Secret, VM
 
         db = get_db_session()
         try:
             db_project = (
                 db.query(Project).filter(Project.name == "orchestrator").first()
             )
-            if db_project and db_project.actual_state:
-                return db_project.actual_state.get("deployed", False)
-            return False
+            if not db_project:
+                return False
+
+            # Check if we have an IP stored (means deployed)
+            secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_id == db_project.id, Secret.key == "ORCHESTRATOR_IP"
+                )
+                .first()
+            )
+            if secret and secret.value:
+                return True
+
+            # Fallback to VMs table
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == db_project.id, VM.external_ip.isnot(None))
+                .first()
+            )
+            return vm is not None
         finally:
             db.close()
 
     def get_ip(self) -> Optional[str]:
         """Get orchestrator IP from database"""
-        from cli.database import get_db_session, Project
+        from cli.database import get_db_session, Project, Secret, VM
 
         db = get_db_session()
         try:
             db_project = (
                 db.query(Project).filter(Project.name == "orchestrator").first()
             )
-            if db_project and db_project.actual_state:
-                return db_project.actual_state.get("orchestrator_ip")
+            if not db_project:
+                return None
+
+            # Try secrets first
+            secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_id == db_project.id, Secret.key == "ORCHESTRATOR_IP"
+                )
+                .first()
+            )
+            if secret and secret.value:
+                return secret.value
+
+            # Fallback to VMs table
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == db_project.id, VM.external_ip.isnot(None))
+                .first()
+            )
+            if vm:
+                return vm.external_ip
+
             return None
         finally:
             db.close()

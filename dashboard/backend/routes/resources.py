@@ -4,9 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from database import get_db
-from models import App, Secret
-from utils.cli import get_cli
-from cache import get_cache, set_cache, CACHE_TTL
+from models import App, Secret, Project, VM, Addon
 
 router = APIRouter(tags=["resources"])
 
@@ -59,32 +57,24 @@ async def get_app_resources(
     """
     Get application resources: process formation and attached add-ons.
 
-    Uses CLI JSON output to get real-time status from VMs.
-    Cached for 1 minute.
+    Reads from database - use sync endpoint to refresh from live VMs.
 
     Returns:
         {
             "formation": [...],  # Process definitions
-            "addons": [...],     # Attached addons with real status
+            "addons": [...],     # Attached addons
             "app_info": {...}    # App metadata
         }
     """
-    # Check cache
-    cache_key = f"resources:{project_name}:{app_name}"
-    cached = get_cache(cache_key)
-    if cached:
-        return cached
-
     try:
-        # Get app from database
-        from models import Project
-
+        # Get project from database
         project = db.query(Project).filter(Project.name == project_name).first()
         if not project:
             raise HTTPException(
                 status_code=404, detail=f"Project '{project_name}' not found"
             )
 
+        # Get app from database
         app = (
             db.query(App)
             .filter(App.project_id == project.id, App.name == app_name)
@@ -94,86 +84,67 @@ async def get_app_resources(
         if not app:
             raise HTTPException(status_code=404, detail=f"App '{app_name}' not found")
 
-        # ================================================================
-        # Get real-time app status from CLI
-        # ================================================================
-        cli = get_cli()
-        try:
-            status_data = await cli.execute_json(
-                f"{project_name}:status", args=["-a", app_name]
-            )
-            app_status = status_data.get("app_status", {})
-        except Exception as e:
-            # Fallback if CLI fails
-            print(f"Warning: Failed to get CLI status: {e}")
-            app_status = {}
+        # Get VM for this app
+        vm = (
+            db.query(VM)
+            .filter(VM.project_id == project.id, VM.role == (app.vm or "app"))
+            .first()
+        )
 
         # ================================================================
-        # FORMATION - Only show if app is deployed (has running processes)
+        # FORMATION - Get from app config (processes stored in app.processes JSON)
         # ================================================================
         formation = []
-
-        # Only show formation if app has running processes (is deployed)
-        # This ensures we don't show config-based process definitions for non-deployed apps
-        running_processes = app_status.get("processes", [])
-
-        if running_processes:
-            # App is deployed, get process definitions from config
-            try:
-                ps_data = await cli.execute_json(f"{project_name}:ps")
-                apps_data = ps_data.get("apps", [])
-
-                # Find our app in the ps output
-                for app_data in apps_data:
-                    if app_data.get("name") == app_name:
-                        # Get processes from config
-                        processes_dict = app_data.get("processes", {})
-
-                        for process_name, process_config in processes_dict.items():
-                            formation.append(
-                                {
-                                    "name": process_name,
-                                    "command": process_config.get("command", ""),
-                                    "replicas": process_config.get("replicas", 1),
-                                    "port": process_config.get("port"),
-                                    "run_on": process_config.get("run_on"),
-                                }
-                            )
-                        break
-            except Exception as e:
-                print(f"Warning: Failed to get process formation from ps command: {e}")
-                # If ps command fails, formation will be empty
+        # App processes are stored in the app's config, not a separate table
+        # For now, show default web process
+        formation.append(
+            {
+                "name": "web",
+                "command": "",
+                "replicas": 1,
+                "port": app.port or 8000,
+                "run_on": app.vm or "app",
+            }
+        )
 
         # ================================================================
-        # ADD-ONS - Get from CLI status (includes real runtime status)
+        # ADD-ONS - Get from addons table
         # ================================================================
-        addons_response = app_status.get("addons", [])
+        addons_response = []
+        addons = db.query(Addon).filter(Addon.project_id == project.id).all()
+        for addon in addons:
+            addons_response.append(
+                {
+                    "name": addon.instance_name,
+                    "type": addon.type,
+                    "category": addon.category,
+                    "full_name": f"{addon.category}.{addon.instance_name}",
+                    "version": addon.version or "latest",
+                    "plan": addon.plan or "standard",
+                    "status": "attached",
+                }
+            )
 
         # ================================================================
-        # APP INFO - From CLI status
+        # APP INFO - From database
         # ================================================================
         app_info = {
             "name": app_name,
-            "type": app_status.get("type", "web"),
-            "port": app_status.get("port", 8000),
-            "vm": app_status.get("vm", "app"),
-            "vm_name": app_status.get("vm_name"),
-            "vm_ip": app_status.get("vm_ip"),
-            "replicas": app_status.get("replicas", 1),
-            "deployment": app_status.get("deployment", {}),
-            "processes": app_status.get("processes", []),
-            "resources": app_status.get("resources", {}),
+            "type": app.type or "web",
+            "port": app.port or 8000,
+            "vm": app.vm or "app",
+            "vm_name": vm.name if vm else None,
+            "vm_ip": vm.external_ip if vm else None,
+            "replicas": 1,
+            "repo": app.repo,
+            "owner": app.owner,
         }
 
-        response = {
+        return {
             "formation": formation,
             "addons": addons_response,
             "app_info": app_info,
         }
-
-        # Cache for 1 minute
-        set_cache(cache_key, response, CACHE_TTL["status"])
-        return response
 
     except HTTPException:
         raise
@@ -187,7 +158,6 @@ async def get_addon_detail(
 ):
     """
     Get detailed information about a specific addon attached to an app.
-    Cached for 1 minute.
 
     Args:
         project_name: Name of the project
@@ -197,12 +167,6 @@ async def get_addon_detail(
     Returns:
         Addon details with credentials (environment variables)
     """
-    # Check cache
-    cache_key = f"addon_detail:{project_name}:{app_name}:{addon_ref}"
-    cached = get_cache(cache_key)
-    if cached:
-        return cached
-
     try:
         # Parse addon_ref (format: "category.name")
         parts = addon_ref.split(".")
@@ -298,11 +262,7 @@ async def get_addon_detail(
                 status_code=404, detail=f"Addon '{addon_ref}' not found"
             )
 
-        response = {"addon": addon_detail}
-
-        # Cache for 1 minute
-        set_cache(cache_key, response, CACHE_TTL["status"])
-        return response
+        return {"addon": addon_detail}
 
     except HTTPException:
         raise
@@ -379,16 +339,6 @@ async def rotate_addon_credential(
                 f"{project_name}:addons:rotate",
                 args=[addon_type, addon_name, credential_name],
             )
-
-            # Clear cache for this addon
-            cache_key = f"addon_detail:{project_name}:{app_name}:{addon_ref}"
-            from cache import delete_cache
-
-            delete_cache(cache_key)
-
-            # Also clear resources cache
-            resources_cache_key = f"resources:{project_name}:{app_name}"
-            delete_cache(resources_cache_key)
 
             return {
                 "success": True,

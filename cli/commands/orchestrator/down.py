@@ -378,9 +378,9 @@ class OrchestratorDownCommand(BaseCommand):
         if logger:
             logger.step("[4/4] Database Cleanup")
 
-        from cli.sync import clear_actual_state
+        from cli.sync import clear_project_state
 
-        clear_actual_state("orchestrator")
+        clear_project_state("orchestrator")
 
         if logger:
             logger.log("✓ Database state cleared")

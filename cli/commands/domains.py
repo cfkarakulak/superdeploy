@@ -208,19 +208,34 @@ class DomainsAddCommand(BaseCommand):
             orchestrator = (
                 db.query(Project).filter(Project.name == "orchestrator").first()
             )
+            if not orchestrator:
+                self.console.print("[red]✗ Could not find orchestrator[/red]")
+                raise click.Abort()
 
-            if orchestrator and orchestrator.actual_state:
-                state = orchestrator.actual_state
-                # Try direct orchestrator_ip key
-                if isinstance(state, dict):
-                    vm_ip = state.get("orchestrator_ip")
-                    if vm_ip:
-                        return vm_ip
-                    # Fallback to vm key
-                    if "vm" in state and isinstance(state["vm"], dict):
-                        vm_ip = state["vm"].get("external_ip")
-                        if vm_ip:
-                            return vm_ip
+            # Get IP from secrets table
+            from cli.database import Secret
+
+            secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_id == orchestrator.id,
+                    Secret.key == "ORCHESTRATOR_IP",
+                )
+                .first()
+            )
+            if secret and secret.value:
+                return secret.value
+
+            # Fallback to VMs table
+            from cli.database import VM
+
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == orchestrator.id, VM.external_ip.isnot(None))
+                .first()
+            )
+            if vm and vm.external_ip:
+                return vm.external_ip
 
             self.console.print("[red]✗ Could not find orchestrator IP[/red]")
             raise click.Abort()
@@ -491,21 +506,37 @@ class DomainsListCommand(BaseCommand):
 
     def _get_orchestrator_ip(self) -> str:
         """Get orchestrator IP from database."""
-        from cli.database import get_db_session, Project
+        from cli.database import get_db_session, Project, Secret, VM
 
         db = get_db_session()
         try:
             orchestrator = (
                 db.query(Project).filter(Project.name == "orchestrator").first()
             )
-            if orchestrator and orchestrator.actual_state:
-                state = orchestrator.actual_state
-                if isinstance(state, dict):
-                    vm_ip = state.get("orchestrator_ip")
-                    if vm_ip:
-                        return vm_ip
-                    if "vm" in state and isinstance(state["vm"], dict):
-                        return state["vm"].get("external_ip", "-")
+            if not orchestrator:
+                return "-"
+
+            # Try secrets first
+            secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_id == orchestrator.id,
+                    Secret.key == "ORCHESTRATOR_IP",
+                )
+                .first()
+            )
+            if secret and secret.value:
+                return secret.value
+
+            # Fallback to VMs
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == orchestrator.id, VM.external_ip.isnot(None))
+                .first()
+            )
+            if vm and vm.external_ip:
+                return vm.external_ip
+
             return "-"
         except:
             return "-"

@@ -30,35 +30,16 @@ export default function AppHeader() {
           if (app) {
             // Get URL from app config or construct from VM IP + port
             let appUrl = app.url;
-            if (!appUrl && app.processes?.web?.port) {
-              // Find the VM this app is deployed on
-              // Apps are on 'app' VMs, addons are on 'core' VMs
-              const vmRole = app.vm || 'app';
-              
-              // Get VMs from actual_state (live data)
-              const actualState = data.actual_state || {};
-              const vms = actualState.vms || {};
-              
-              // Find VM by role - try both formats: 'app-0' and 'projectname-app-0'
-              let vm = vms[`${vmRole}-0`] || vms[`${projectName}-${vmRole}-0`];
-              
-              if (vm?.external_ip) {
-                appUrl = `http://${vm.external_ip}:${app.processes.web.port}`;
-              }
-            }
-            // Also check root-level port for backward compatibility
             const appPort = app.processes?.web?.port || app.port;
+            const vmRole = app.vm || 'app';
             
-            // If we still don't have a URL but we have a port, try to construct it
-            if (!appUrl && appPort) {
-              const vmRole = app.vm || 'app';
-              const actualState = data.actual_state || {};
-              const vms = actualState.vms || {};
-              let vm = vms[`${vmRole}-0`] || vms[`${projectName}-${vmRole}-0`];
-              
-              if (vm?.external_ip) {
-                appUrl = `http://${vm.external_ip}:${appPort}`;
-              }
+            // Get VMs from vms array (normalized data)
+            const vmsArray = data.vms || [];
+            // Find VM by role
+            const vm = vmsArray.find((v: any) => v.role === vmRole);
+            
+            if (!appUrl && vm?.external_ip && appPort) {
+              appUrl = `http://${vm.external_ip}:${appPort}`;
             }
             
             setAppDetails({ name: appName, url: appUrl, port: appPort });

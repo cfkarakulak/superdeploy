@@ -146,7 +146,8 @@ export default function ProjectConfigurationPage() {
           rightAction={
             <RefreshButton 
               projectName={projectName} 
-              onRefreshComplete={fetchProject}
+              onRefresh={fetchProject}
+              syncFirst={true}
             />
           }
         />

@@ -53,8 +53,8 @@ def logs(project, app, container, level, follow, no_follow, since, lines):
         follow = False
 
     try:
-        # Get orchestrator IP from database (shared orchestrator project)
-        from cli.database import get_db_session, Project
+        # Get orchestrator IP from database
+        from cli.database import get_db_session, Project, Secret, VM
 
         db = get_db_session()
         try:
@@ -64,15 +64,35 @@ def logs(project, app, container, level, follow, no_follow, since, lines):
                 console.print(f"[red]✗ Project '{project}' not found in database[/red]")
                 sys.exit(1)
 
-            # Get orchestrator IP from 'orchestrator' project (shared)
+            # Get orchestrator IP from secrets or VMs table
             orchestrator_project = (
                 db.query(Project).filter(Project.name == "orchestrator").first()
             )
             orchestrator_ip = None
-            if orchestrator_project and orchestrator_project.actual_state:
-                orchestrator_ip = orchestrator_project.actual_state.get(
-                    "orchestrator_ip"
+            if orchestrator_project:
+                # Try secrets first
+                secret = (
+                    db.query(Secret)
+                    .filter(
+                        Secret.project_id == orchestrator_project.id,
+                        Secret.key == "ORCHESTRATOR_IP",
+                    )
+                    .first()
                 )
+                if secret:
+                    orchestrator_ip = secret.value
+                else:
+                    # Fallback to VMs table
+                    vm = (
+                        db.query(VM)
+                        .filter(
+                            VM.project_id == orchestrator_project.id,
+                            VM.external_ip.isnot(None),
+                        )
+                        .first()
+                    )
+                    if vm:
+                        orchestrator_ip = vm.external_ip
 
             if not orchestrator_ip:
                 console.print("[red]✗ Orchestrator not deployed[/red]")

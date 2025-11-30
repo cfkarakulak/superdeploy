@@ -1,8 +1,8 @@
 """
-State Manager - DB-based wrapper (replaces file-based state.yml)
+State Manager - DB-based state management
 
-This is a compatibility layer. All state is now stored in database (projects.actual_state JSON column).
-This class provides backward-compatible interface while using database underneath.
+Reads state from proper database tables (vms, apps, addons) instead of JSON columns.
+This provides a cleaner, normalized data structure.
 """
 
 from pathlib import Path
@@ -11,7 +11,7 @@ from datetime import datetime
 
 
 class StateManager:
-    """State Manager - Now uses database instead of state.yml"""
+    """State Manager - Reads from proper database tables"""
 
     def __init__(self, project_root: Path, project_name: str):
         """Initialize state manager with database backend"""
@@ -19,89 +19,283 @@ class StateManager:
         self.project_name = project_name
 
     def load_state(self) -> Dict[str, Any]:
-        """Load state from database"""
-        from cli.database import get_db_session, Project
+        """Load state from database tables (vms, apps, addons)"""
+        from cli.database import get_db_session, Project, VM, App, Addon
 
         db = get_db_session()
         try:
-            db_project = (
+            project = (
                 db.query(Project).filter(Project.name == self.project_name).first()
             )
+            if not project:
+                return {}
 
-            if db_project and db_project.actual_state:
-                return db_project.actual_state
-            return {}
+            state = {"vms": {}, "apps": {}, "addons": {}, "deployed": False}
+
+            # Load VMs
+            vms = db.query(VM).filter(VM.project_id == project.id).all()
+            for vm in vms:
+                state["vms"][vm.name] = {
+                    "role": vm.role,
+                    "external_ip": vm.external_ip,
+                    "internal_ip": vm.internal_ip,
+                    "status": vm.status or "unknown",
+                    "machine_type": vm.machine_type,
+                    "disk_size": vm.disk_size,
+                }
+                # Mark as deployed if at least one VM has an IP
+                if vm.external_ip and vm.status == "running":
+                    state["deployed"] = True
+
+            # Load Apps
+            apps = db.query(App).filter(App.project_id == project.id).all()
+            for app in apps:
+                state["apps"][app.name] = {
+                    "path": app.path,
+                    "vm": app.vm,
+                    "port": app.port,
+                    "repo": app.repo,
+                }
+
+            # Load Addons
+            addons = db.query(Addon).filter(Addon.project_id == project.id).all()
+            for addon in addons:
+                key = f"{addon.category}.{addon.instance_name}"
+                state["addons"][key] = {
+                    "type": addon.type,
+                    "status": "deployed",
+                    "vm": addon.vm,
+                }
+
+            return state
         finally:
             db.close()
 
     def save_state(self, state: Dict[str, Any]) -> None:
-        """Save state to database"""
-        from cli.database import get_db_session, Project
+        """
+        Save state to database tables.
+        This updates VMs table with the provided state.
+        """
+        from cli.database import get_db_session, Project, VM
 
         db = get_db_session()
         try:
-            db_project = (
+            project = (
                 db.query(Project).filter(Project.name == self.project_name).first()
             )
+            if not project:
+                return
 
-            if db_project:
-                db_project.actual_state = state
-                db_project.updated_at = datetime.utcnow()
-                db.commit()
+            # Update VMs
+            for vm_name, vm_data in state.get("vms", {}).items():
+                role = vm_data.get("role")
+                if not role and "-" in vm_name:
+                    role = vm_name.rsplit("-", 1)[0]
+
+                vm = (
+                    db.query(VM)
+                    .filter(VM.project_id == project.id, VM.role == role)
+                    .first()
+                )
+
+                if vm:
+                    if "external_ip" in vm_data:
+                        vm.external_ip = vm_data["external_ip"]
+                    if "internal_ip" in vm_data:
+                        vm.internal_ip = vm_data["internal_ip"]
+                    if "status" in vm_data:
+                        vm.status = vm_data["status"]
+                    if "machine_type" in vm_data:
+                        vm.machine_type = vm_data["machine_type"]
+                    if "disk_size" in vm_data:
+                        vm.disk_size = vm_data["disk_size"]
+
+            project.updated_at = datetime.utcnow()
+            db.commit()
         finally:
             db.close()
 
     def is_deployed(self) -> bool:
-        """Check if project is deployed"""
-        state = self.load_state()
-        return state.get("deployed", False)
-
-    def get_ip(self, role: str = "app") -> Optional[str]:
-        """Get IP for a VM role"""
-        state = self.load_state()
-        vms = state.get("vms", {})
-
-        # Try to get IP from VMs
-        for vm_name, vm_data in vms.items():
-            if vm_data.get("role") == role:
-                return vm_data.get("external_ip")
-
-        # Fallback: try to get first VM IP
-        if vms:
-            first_vm = next(iter(vms.values()))
-            return first_vm.get("external_ip")
-
-        return None
-
-    def _calculate_config_hash(self) -> str:
-        """Calculate config hash for change detection"""
-        import hashlib
-        from cli.database import get_db_session, Project
+        """Check if project is deployed (has running VMs with IPs)"""
+        from cli.database import get_db_session, Project, VM
 
         db = get_db_session()
         try:
-            db_project = (
+            project = (
                 db.query(Project).filter(Project.name == self.project_name).first()
             )
+            if not project:
+                return False
 
-            if db_project:
-                # Create a string from all config fields
-                config_str = f"{db_project.gcp_project}{db_project.gcp_region}{db_project.gcp_zone}"
-                return hashlib.sha256(config_str.encode()).hexdigest()
-            return ""
+            # Check if any VM has an IP and is running
+            vm = (
+                db.query(VM)
+                .filter(
+                    VM.project_id == project.id,
+                    VM.external_ip.isnot(None),
+                    VM.status == "running",
+                )
+                .first()
+            )
+
+            return vm is not None
         finally:
             db.close()
 
-    def detect_changes(self, project_config):
+    def get_ip(self, role: str = "app") -> Optional[str]:
+        """Get IP for a VM role from database"""
+        from cli.database import get_db_session, Project, VM
+
+        db = get_db_session()
+        try:
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
+            )
+            if not project:
+                return None
+
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == project.id, VM.role == role)
+                .first()
+            )
+
+            if vm and vm.external_ip:
+                return vm.external_ip
+
+            # Fallback: get first VM with IP
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == project.id, VM.external_ip.isnot(None))
+                .first()
+            )
+
+            return vm.external_ip if vm else None
+        finally:
+            db.close()
+
+    def mark_vms_provisioned(
+        self, vms_config: dict, vm_ips: Optional[dict] = None
+    ) -> None:
         """
-        Detect changes between current config and deployed state.
+        Mark VMs as provisioned in database.
 
         Args:
-            project_config: ProjectConfig object with current configuration
-
-        Returns:
-            Tuple of (changes dict, state dict)
+            vms_config: VM configuration from config.yml
+            vm_ips: Optional dict with 'external' and 'internal' IP mappings
         """
+        from cli.database import get_db_session, Project, VM
+
+        db = get_db_session()
+        try:
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
+            )
+            if not project:
+                return
+
+            external_ips = vm_ips.get("external", {}) if vm_ips else {}
+            internal_ips = vm_ips.get("internal", {}) if vm_ips else {}
+
+            for vm_name, vm_config in vms_config.items():
+                role = vm_config.get("role", vm_name)
+
+                vm = (
+                    db.query(VM)
+                    .filter(VM.project_id == project.id, VM.role == role)
+                    .first()
+                )
+
+                if vm:
+                    vm.status = "provisioned"
+                    if vm_name in external_ips:
+                        vm.external_ip = external_ips[vm_name]
+                    if vm_name in internal_ips:
+                        vm.internal_ip = internal_ips[vm_name]
+                else:
+                    vm = VM(
+                        project_id=project.id,
+                        name=f"{self.project_name}-{vm_name}",
+                        role=role,
+                        machine_type=vm_config.get("machine_type", "e2-medium"),
+                        disk_size=vm_config.get("disk_size", 20),
+                        status="provisioned",
+                        external_ip=external_ips.get(vm_name),
+                        internal_ip=internal_ips.get(vm_name),
+                    )
+                    db.add(vm)
+
+            db.commit()
+        finally:
+            db.close()
+
+    def mark_vms_configured(self, vm_names: list) -> None:
+        """Mark VMs as configured (Ansible completed)."""
+        from cli.database import get_db_session, Project, VM
+
+        db = get_db_session()
+        try:
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
+            )
+            if not project:
+                return
+
+            for vm_name in vm_names:
+                # Try to find by name or role
+                vm = (
+                    db.query(VM)
+                    .filter(VM.project_id == project.id, VM.name.contains(vm_name))
+                    .first()
+                )
+
+                if vm:
+                    vm.status = "configured"
+
+            db.commit()
+        finally:
+            db.close()
+
+    def mark_foundation_complete(self) -> None:
+        """Mark foundation setup as complete - VMs are running."""
+        from cli.database import get_db_session, Project, VM
+
+        db = get_db_session()
+        try:
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
+            )
+            if not project:
+                return
+
+            # Update all VMs to running
+            vms = db.query(VM).filter(VM.project_id == project.id).all()
+            for vm in vms:
+                if vm.status in ["provisioned", "configured"]:
+                    vm.status = "running"
+
+            db.commit()
+        finally:
+            db.close()
+
+    def mark_deployment_complete(self) -> None:
+        """Mark entire deployment as complete - all VMs running."""
+        self.mark_foundation_complete()
+
+    def mark_addon_deployed(self, addon_name: str, status: str = "deployed") -> None:
+        """Mark a single addon as deployed (no-op, addons table already has this)."""
+        pass
+
+    def mark_addons_deployed(self, addon_names: list) -> None:
+        """Mark addons as deployed (no-op, addons table already has this)."""
+        pass
+
+    def update_from_config(self, project_config) -> None:
+        """Update state from project configuration (no-op, tables are source of truth)."""
+        pass
+
+    def detect_changes(self, project_config):
+        """Detect changes between current config and deployed state."""
         state = self.load_state()
         config = project_config.raw_config
 
@@ -124,264 +318,11 @@ class StateManager:
         changes["vms"]["added"] = list(config_vms - state_vms)
         changes["vms"]["removed"] = list(state_vms - config_vms)
 
-        # Check for modified VMs
-        for vm_name in config_vms & state_vms:
-            config_vm = config["vms"][vm_name]
-            state_vm = state["vms"][vm_name]
-
-            if self._vm_changed(config_vm, state_vm):
-                changes["vms"]["modified"].append(
-                    {
-                        "name": vm_name,
-                        "old": state_vm,
-                        "new": config_vm,
-                    }
-                )
-
-        # Check Addons
-        config_addons = self._get_enabled_addons(config)
-        state_addons = set(state.get("addons", {}).keys())
-
-        changes["addons"]["added"] = list(config_addons - state_addons)
-        changes["addons"]["removed"] = list(state_addons - config_addons)
-
-        # Check Apps
-        config_apps = set(config.get("apps", {}).keys())
-        state_apps = set(state.get("apps", {}).keys())
-
-        changes["apps"]["added"] = list(config_apps - state_apps)
-        changes["apps"]["removed"] = list(state_apps - config_apps)
-
-        # Check for modified apps
-        for app_name in config_apps & state_apps:
-            config_app = config["apps"][app_name]
-            state_app = state["apps"][app_name]
-
-            if self._app_changed(config_app, state_app):
-                changes["apps"]["modified"].append(
-                    {
-                        "name": app_name,
-                        "old": state_app,
-                        "new": config_app,
-                    }
-                )
-
-        # Determine what actions are needed
-        if (
-            changes["vms"]["added"]
-            or changes["vms"]["removed"]
-            or changes["vms"]["modified"]
-        ):
+        if changes["vms"]["added"] or changes["vms"]["removed"]:
             changes["needs_terraform"] = True
             changes["has_changes"] = True
-            changes["total_changes"] += (
-                len(changes["vms"]["added"])
-                + len(changes["vms"]["removed"])
-                + len(changes["vms"]["modified"])
-            )
-
-        if (
-            changes["addons"]["added"]
-            or changes["addons"]["removed"]
-            or changes["addons"]["modified"]
-        ):
-            changes["needs_ansible"] = True
-            changes["has_changes"] = True
-            changes["total_changes"] += (
-                len(changes["addons"]["added"])
-                + len(changes["addons"]["removed"])
-                + len(changes["addons"]["modified"])
-            )
-
-        if (
-            changes["apps"]["added"]
-            or changes["apps"]["removed"]
-            or changes["apps"]["modified"]
-        ):
-            changes["needs_generate"] = True
-            changes["needs_ansible"] = True
-            changes["has_changes"] = True
-            changes["total_changes"] += (
-                len(changes["apps"]["added"])
-                + len(changes["apps"]["removed"])
-                + len(changes["apps"]["modified"])
+            changes["total_changes"] += len(changes["vms"]["added"]) + len(
+                changes["vms"]["removed"]
             )
 
         return changes, state
-
-    def _vm_changed(self, config_vm: dict, state_vm: dict) -> bool:
-        """Check if VM configuration changed."""
-        keys_to_compare = ["machine_type", "disk_size"]
-        for key in keys_to_compare:
-            if config_vm.get(key) != state_vm.get(key):
-                return True
-        return False
-
-    def _app_changed(self, config_app: dict, state_app: dict) -> bool:
-        """Check if app configuration changed."""
-        keys_to_compare = ["path", "vm", "port"]
-        for key in keys_to_compare:
-            if config_app.get(key) != state_app.get(key):
-                return True
-        return False
-
-    def _get_enabled_addons(self, config: dict) -> set:
-        """Get list of enabled addons from config."""
-        enabled = set()
-        addons_config = config.get("addons", {})
-
-        for category, category_addons in addons_config.items():
-            if isinstance(category_addons, dict):
-                for addon_name, addon_conf in category_addons.items():
-                    if addon_conf and addon_conf.get("enabled", True):
-                        enabled.add(f"{category}.{addon_name}")
-
-        return enabled
-
-    def mark_vms_provisioned(
-        self, vms_config: dict, vm_ips: Optional[dict] = None
-    ) -> None:
-        """
-        Mark VMs as provisioned in state.
-
-        Args:
-            vms_config: VM configuration from config.yml
-            vm_ips: Optional dict with 'external' and 'internal' IP mappings
-        """
-        state = self.load_state()
-
-        # Initialize VMs in state
-        if "vms" not in state:
-            state["vms"] = {}
-
-        for vm_name, vm_config in vms_config.items():
-            state["vms"][vm_name] = {
-                "role": vm_config.get("role"),
-                "machine_type": vm_config.get("machine_type"),
-                "disk_size": vm_config.get("disk_size"),
-                "status": "provisioned",  # VMs are provisioned but not configured yet
-            }
-
-            # Add IPs if provided
-            if vm_ips:
-                external_ips = vm_ips.get("external", {})
-                internal_ips = vm_ips.get("internal", {})
-
-                if vm_name in external_ips:
-                    state["vms"][vm_name]["external_ip"] = external_ips[vm_name]
-                if vm_name in internal_ips:
-                    state["vms"][vm_name]["internal_ip"] = internal_ips[vm_name]
-
-        state["deployed"] = True
-        state["last_updated"] = datetime.utcnow().isoformat()
-
-        self.save_state(state)
-
-    def mark_vms_configured(self, vm_names: list) -> None:
-        """
-        Mark VMs as configured (Ansible completed).
-
-        Args:
-            vm_names: List of VM names that were configured
-        """
-        state = self.load_state()
-
-        if "vms" not in state:
-            state["vms"] = {}
-
-        for vm_name in vm_names:
-            if vm_name in state["vms"]:
-                state["vms"][vm_name]["status"] = "configured"
-
-        state["last_updated"] = datetime.utcnow().isoformat()
-        self.save_state(state)
-
-    def mark_foundation_complete(self) -> None:
-        """Mark foundation setup as complete (base system + Docker installed)."""
-        state = self.load_state()
-        state["foundation_complete"] = True
-        state["last_updated"] = datetime.utcnow().isoformat()
-        self.save_state(state)
-
-    def mark_deployment_complete(self) -> None:
-        """Mark entire deployment as complete."""
-        state = self.load_state()
-        state["deployed"] = True
-        state["deployment_complete"] = True
-        state["deployed_at"] = datetime.utcnow().isoformat()
-        state["last_updated"] = datetime.utcnow().isoformat()
-        self.save_state(state)
-
-    def update_from_config(self, project_config) -> None:
-        """
-        Update state from project configuration after successful deployment.
-
-        Args:
-            project_config: ProjectConfig object with current configuration
-        """
-        state = self.load_state()
-        config = project_config.raw_config
-
-        # Update VMs from config
-        if "vms" not in state:
-            state["vms"] = {}
-
-        for vm_name, vm_config in config.get("vms", {}).items():
-            if vm_name not in state["vms"]:
-                state["vms"][vm_name] = {}
-            # Update config info but preserve runtime info (IPs, status)
-            state["vms"][vm_name].update(
-                {
-                    "role": vm_config.get("role", vm_name),
-                    "machine_type": vm_config.get("machine_type"),
-                    "disk_size": vm_config.get("disk_size"),
-                }
-            )
-
-        # Update apps from config
-        state["apps"] = config.get("apps", {})
-
-        state["last_updated"] = datetime.utcnow().isoformat()
-        self.save_state(state)
-
-    def mark_addon_deployed(self, addon_name: str, status: str = "deployed") -> None:
-        """
-        Mark a single addon as deployed.
-
-        Args:
-            addon_name: Name of the addon that was deployed
-            status: Status to set (default: "deployed")
-        """
-        state = self.load_state()
-
-        if "addons" not in state:
-            state["addons"] = {}
-
-        state["addons"][addon_name] = {
-            "status": status,
-            "deployed_at": datetime.utcnow().isoformat(),
-        }
-
-        state["last_updated"] = datetime.utcnow().isoformat()
-        self.save_state(state)
-
-    def mark_addons_deployed(self, addon_names: list) -> None:
-        """
-        Mark addons as deployed.
-
-        Args:
-            addon_names: List of addon names that were deployed
-        """
-        state = self.load_state()
-
-        if "addons" not in state:
-            state["addons"] = {}
-
-        for addon_name in addon_names:
-            state["addons"][addon_name] = {
-                "status": "deployed",
-                "deployed_at": datetime.utcnow().isoformat(),
-            }
-
-        state["last_updated"] = datetime.utcnow().isoformat()
-        self.save_state(state)

@@ -37,14 +37,11 @@ class SyncCommand(ProjectCommand):
         if logger:
             logger.step("Syncing infrastructure state to database")
 
-        # 1. Sync VMs from Terraform state
+        # 1. Sync VMs from Terraform state to vms table
         self._sync_vms(logger)
 
         # 2. Sync orchestrator IP to shared secrets
         self._sync_orchestrator_ip(logger)
-
-        # 3. Sync actual_state JSON
-        self._sync_actual_state(logger)
 
         if logger:
             logger.success("Sync complete")
@@ -172,64 +169,6 @@ class SyncCommand(ProjectCommand):
             if logger:
                 logger.log(f"[red]Error syncing orchestrator IP: {e}[/red]")
 
-    def _sync_actual_state(self, logger) -> None:
-        """Sync actual_state JSON column in projects table."""
-        from cli.state_manager import StateManager
-        from cli.database import get_db_session, Project
-        from sqlalchemy.orm.attributes import flag_modified
-
-        if logger:
-            logger.log("Syncing actual_state JSON...")
-
-        # Load state from Terraform
-        state_mgr = StateManager(self.project_root, self.project_name)
-        state = state_mgr.load_state()
-        vms_from_state = state.get("vms", {})
-
-        db = get_db_session()
-        try:
-            project = (
-                db.query(Project).filter(Project.name == self.project_name).first()
-            )
-            if not project:
-                return
-
-            actual_state = project.actual_state or {}
-
-            # Build clean VMs dict (only runtime entries with IPs)
-            clean_vms = {}
-            for vm_key, vm_data in vms_from_state.items():
-                if "external_ip" not in vm_data:
-                    continue
-
-                # Parse role from vm_key
-                parts = vm_key.rsplit("-", 1)
-                role = parts[0] if len(parts) > 1 else vm_key
-
-                clean_vms[vm_key] = {
-                    "external_ip": vm_data.get("external_ip"),
-                    "internal_ip": vm_data.get("internal_ip"),
-                    "role": role,
-                    "status": "running",
-                    "updated_at": datetime.utcnow().isoformat(),
-                }
-
-            if clean_vms:
-                actual_state["vms"] = clean_vms
-                actual_state["status"] = "running"
-                actual_state["last_sync"] = datetime.utcnow().isoformat()
-
-                project.actual_state = actual_state
-                flag_modified(project, "actual_state")
-                db.commit()
-
-                self.synced_items.append(f"actual_state: {len(clean_vms)} VMs")
-                if logger:
-                    logger.log(f"✓ Updated actual_state with {len(clean_vms)} VMs")
-
-        finally:
-            db.close()
-
     def _print_summary(self) -> None:
         """Print sync summary."""
         self.console.print()
@@ -321,7 +260,6 @@ class SyncExportCommand(ProjectCommand):
                     "docker_organization": project.docker_organization,
                     "vpc_subnet": project.vpc_subnet,
                     "docker_subnet": project.docker_subnet,
-                    "actual_state": project.actual_state,
                 },
                 "apps": [],
                 "vms": [],
@@ -419,16 +357,61 @@ class SyncExportCommand(ProjectCommand):
                     alias_data["app_name"] = app_id_to_name.get(alias.app_id)
                 export_data["aliases"].append(alias_data)
 
-            # Get orchestrator info
+            # Get orchestrator info (full export including VMs and secrets)
             orchestrator = (
                 db.query(Project).filter(Project.name == "orchestrator").first()
             )
             if orchestrator:
+                # Get orchestrator VMs
+                orch_vms = db.query(VM).filter(VM.project_id == orchestrator.id).all()
+                orch_vms_data = []
+                for vm in orch_vms:
+                    orch_vms_data.append(
+                        {
+                            "name": vm.name,
+                            "role": vm.role,
+                            "external_ip": vm.external_ip,
+                            "internal_ip": vm.internal_ip,
+                            "status": vm.status,
+                            "count": vm.count,
+                            "machine_type": vm.machine_type,
+                            "disk_size": vm.disk_size,
+                        }
+                    )
+
+                # Get orchestrator secrets
+                orch_secrets = (
+                    db.query(Secret).filter(Secret.project_id == orchestrator.id).all()
+                )
+                orch_secrets_data = []
+                for secret in orch_secrets:
+                    orch_secrets_data.append(
+                        {
+                            "key": secret.key,
+                            "value": secret.value,
+                            "environment": secret.environment,
+                            "source": secret.source,
+                            "editable": secret.editable,
+                        }
+                    )
+
                 export_data["orchestrator"] = {
-                    "gcp_project": orchestrator.gcp_project,
-                    "gcp_region": orchestrator.gcp_region,
-                    "gcp_zone": orchestrator.gcp_zone,
-                    "actual_state": orchestrator.actual_state,
+                    "project": {
+                        "name": orchestrator.name,
+                        "description": orchestrator.description,
+                        "project_type": orchestrator.project_type,
+                        "domain": orchestrator.domain,
+                        "ssl_email": orchestrator.ssl_email,
+                        "gcp_project": orchestrator.gcp_project,
+                        "gcp_region": orchestrator.gcp_region,
+                        "gcp_zone": orchestrator.gcp_zone,
+                        "ssh_key_path": orchestrator.ssh_key_path,
+                        "ssh_public_key_path": orchestrator.ssh_public_key_path,
+                        "ssh_user": orchestrator.ssh_user,
+                        "vpc_subnet": orchestrator.vpc_subnet,
+                    },
+                    "vms": orch_vms_data,
+                    "secrets": orch_secrets_data,
                 }
 
         finally:
@@ -599,7 +582,6 @@ class SyncImportCommand:
                 docker_organization=project_data.get("docker_organization"),
                 vpc_subnet=project_data.get("vpc_subnet"),
                 docker_subnet=project_data.get("docker_subnet"),
-                actual_state=project_data.get("actual_state"),
             )
             db.add(project)
             db.flush()  # Get project.id
@@ -732,9 +714,22 @@ class SyncImportCommand:
                 f"[green]✓[/green] Created {len(data.get('aliases', []))} aliases"
             )
 
-            # Import orchestrator if present
+            # Import orchestrator if present (full import with VMs and secrets)
             if "orchestrator" in data:
                 orch_data = data["orchestrator"]
+
+                # Support both old format (flat) and new format (nested with project/vms/secrets)
+                if "project" in orch_data:
+                    # New format
+                    orch_project_data = orch_data["project"]
+                    orch_vms_data = orch_data.get("vms", [])
+                    orch_secrets_data = orch_data.get("secrets", [])
+                else:
+                    # Old format (backward compatibility)
+                    orch_project_data = orch_data
+                    orch_vms_data = []
+                    orch_secrets_data = []
+
                 existing_orch = (
                     db.query(Project).filter(Project.name == "orchestrator").first()
                 )
@@ -743,19 +738,82 @@ class SyncImportCommand:
                     orchestrator = Project(
                         name="orchestrator",
                         project_type="orchestrator",
-                        gcp_project=orch_data.get("gcp_project"),
-                        gcp_region=orch_data.get("gcp_region"),
-                        gcp_zone=orch_data.get("gcp_zone"),
-                        actual_state=orch_data.get("actual_state"),
+                        description=orch_project_data.get("description"),
+                        domain=orch_project_data.get("domain"),
+                        ssl_email=orch_project_data.get("ssl_email"),
+                        gcp_project=orch_project_data.get("gcp_project"),
+                        gcp_region=orch_project_data.get("gcp_region"),
+                        gcp_zone=orch_project_data.get("gcp_zone"),
+                        ssh_key_path=orch_project_data.get("ssh_key_path"),
+                        ssh_public_key_path=orch_project_data.get(
+                            "ssh_public_key_path"
+                        ),
+                        ssh_user=orch_project_data.get("ssh_user"),
+                        vpc_subnet=orch_project_data.get("vpc_subnet"),
                     )
                     db.add(orchestrator)
-                    self.console.print("[green]✓[/green] Created orchestrator entry")
+                    db.flush()
+                    self.console.print("[green]✓[/green] Created orchestrator project")
                 elif self.force:
-                    existing_orch.gcp_project = orch_data.get("gcp_project")
-                    existing_orch.gcp_region = orch_data.get("gcp_region")
-                    existing_orch.gcp_zone = orch_data.get("gcp_zone")
-                    existing_orch.actual_state = orch_data.get("actual_state")
-                    self.console.print("[green]✓[/green] Updated orchestrator entry")
+                    # Update existing orchestrator
+                    existing_orch.description = orch_project_data.get("description")
+                    existing_orch.domain = orch_project_data.get("domain")
+                    existing_orch.ssl_email = orch_project_data.get("ssl_email")
+                    existing_orch.gcp_project = orch_project_data.get("gcp_project")
+                    existing_orch.gcp_region = orch_project_data.get("gcp_region")
+                    existing_orch.gcp_zone = orch_project_data.get("gcp_zone")
+                    existing_orch.ssh_key_path = orch_project_data.get("ssh_key_path")
+                    existing_orch.ssh_public_key_path = orch_project_data.get(
+                        "ssh_public_key_path"
+                    )
+                    existing_orch.ssh_user = orch_project_data.get("ssh_user")
+                    existing_orch.vpc_subnet = orch_project_data.get("vpc_subnet")
+
+                    # Delete existing VMs and secrets for orchestrator
+                    db.query(Secret).filter(
+                        Secret.project_id == existing_orch.id
+                    ).delete()
+                    db.query(VM).filter(VM.project_id == existing_orch.id).delete()
+
+                    orchestrator = existing_orch
+                    self.console.print("[green]✓[/green] Updated orchestrator project")
+                else:
+                    orchestrator = existing_orch
+
+                # Import orchestrator VMs
+                if orch_vms_data and (not existing_orch or self.force):
+                    for vm_data in orch_vms_data:
+                        vm = VM(
+                            project_id=orchestrator.id,
+                            name=vm_data.get("name"),
+                            role=vm_data.get("role", "orchestrator"),
+                            external_ip=vm_data.get("external_ip"),
+                            internal_ip=vm_data.get("internal_ip"),
+                            status=vm_data.get("status"),
+                            count=vm_data.get("count", 1),
+                            machine_type=vm_data.get("machine_type", "e2-medium"),
+                            disk_size=vm_data.get("disk_size", 20),
+                        )
+                        db.add(vm)
+                    self.console.print(
+                        f"[green]✓[/green] Created {len(orch_vms_data)} orchestrator VMs"
+                    )
+
+                # Import orchestrator secrets
+                if orch_secrets_data and (not existing_orch or self.force):
+                    for secret_data in orch_secrets_data:
+                        secret = Secret(
+                            project_id=orchestrator.id,
+                            key=secret_data["key"],
+                            value=secret_data["value"],
+                            environment=secret_data.get("environment", "production"),
+                            source=secret_data.get("source", "shared"),
+                            editable=secret_data.get("editable", True),
+                        )
+                        db.add(secret)
+                    self.console.print(
+                        f"[green]✓[/green] Created {len(orch_secrets_data)} orchestrator secrets"
+                    )
 
             db.commit()
 
@@ -794,14 +852,13 @@ def sync(project, verbose, json_output):
     Sync infrastructure state to database
 
     Use this command when:
-    - Database and actual state are out of sync
+    - Database and infrastructure are out of sync
     - After manual infrastructure changes
     - When dashboard shows incorrect data
 
     This syncs:
-    - VM IPs from Terraform state
+    - VM IPs from Terraform state to vms table
     - ORCHESTRATOR_IP to shared secrets
-    - actual_state JSON column
 
     Examples:
         superdeploy cheapa:sync

@@ -2,28 +2,26 @@
 Database Synchronization Module
 
 Syncs actual infrastructure state with database after deployment events.
-This ensures the dashboard always reflects the real state of VMs, addons, and apps.
+Updates the proper tables (vms, addons, apps) instead of JSON columns.
 """
 
-from datetime import datetime
 from typing import Dict, List, Optional
-from cli.database import get_db_session, Project
-from sqlalchemy.orm.attributes import flag_modified
+from cli.database import get_db_session, Project, VM, Addon
 from rich.console import Console
 
 
 def sync_vms(project_name: str, vms: List[Dict[str, str]]) -> None:
     """
-    Sync VM actual state to database.
+    Sync VM state to database (vms table).
 
     Args:
         project_name: Name of the project
-        vms: List of VM dicts with keys: name, external_ip, internal_ip
+        vms: List of VM dicts with keys: name, external_ip, internal_ip, role
 
     Example:
         sync_vms('cheapa', [
-            {'name': 'core-0', 'external_ip': '1.2.3.4', 'internal_ip': '10.1.0.3'},
-            {'name': 'app-0', 'external_ip': '5.6.7.8', 'internal_ip': '10.1.0.4'}
+            {'name': 'core-0', 'external_ip': '1.2.3.4', 'internal_ip': '10.1.0.3', 'role': 'core'},
+            {'name': 'app-0', 'external_ip': '5.6.7.8', 'internal_ip': '10.1.0.4', 'role': 'app'}
         ])
     """
     console = Console()
@@ -36,22 +34,40 @@ def sync_vms(project_name: str, vms: List[Dict[str, str]]) -> None:
             )
             return
 
-        actual_state = project.actual_state or {}
-        actual_state["vms"] = {}
+        for vm_data in vms:
+            # Extract role from name if not provided (e.g., 'core-0' -> 'core')
+            role = vm_data.get("role")
+            if not role and "-" in vm_data["name"]:
+                role = vm_data["name"].rsplit("-", 1)[0]
 
-        for vm in vms:
-            actual_state["vms"][vm["name"]] = {
-                "external_ip": vm.get("external_ip"),
-                "internal_ip": vm.get("internal_ip"),
-                "status": "running",
-                "updated_at": datetime.utcnow().isoformat(),
-            }
+            # Find existing VM by role
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == project.id, VM.role == role)
+                .first()
+            )
 
-        actual_state["last_sync"] = datetime.utcnow().isoformat()
-        project.actual_state = actual_state
-        flag_modified(project, "actual_state")  # Force SQLAlchemy to detect JSON change
+            if vm:
+                # Update existing VM
+                vm.name = vm_data["name"]
+                vm.external_ip = vm_data.get("external_ip")
+                vm.internal_ip = vm_data.get("internal_ip")
+                vm.status = "running"
+            else:
+                # Create new VM
+                vm = VM(
+                    project_id=project.id,
+                    name=vm_data["name"],
+                    role=role or "app",
+                    external_ip=vm_data.get("external_ip"),
+                    internal_ip=vm_data.get("internal_ip"),
+                    status="running",
+                    machine_type=vm_data.get("machine_type", "e2-medium"),
+                    disk_size=vm_data.get("disk_size", 20),
+                )
+                db.add(vm)
+
         db.commit()
-
         console.print(f"[dim]  ✓ Synced {len(vms)} VMs to database[/dim]")
     finally:
         db.close()
@@ -66,46 +82,34 @@ def sync_addon_status(
     health: Optional[str] = None,
 ) -> None:
     """
-    Sync addon deployment status to database.
+    Sync addon deployment status to database (addons table).
 
     Args:
         project_name: Name of the project
-        addon: Addon identifier (e.g., 'databases.primary', 'caches.primary')
+        addon: Addon identifier (e.g., 'postgres', 'redis')
         status: Status (running, stopped, failed, not_deployed)
         container: Container name (optional)
         vm: VM name where addon is deployed (optional)
         health: Health status (healthy, unhealthy) (optional)
-
-    Example:
-        sync_addon_status('cheapa', 'databases.primary', 'running',
-                         container='cheapa_postgres_primary', vm='core-0', health='healthy')
     """
-    console = Console()
     db = get_db_session()
     try:
         project = db.query(Project).filter(Project.name == project_name).first()
         if not project:
             return
 
-        actual_state = project.actual_state or {}
-        if "addons" not in actual_state:
-            actual_state["addons"] = {}
+        # Find addon by type
+        addon_record = (
+            db.query(Addon)
+            .filter(Addon.project_id == project.id, Addon.type == addon)
+            .first()
+        )
 
-        addon_data = {"status": status, "updated_at": datetime.utcnow().isoformat()}
-
-        if container:
-            addon_data["container"] = container
-        if vm:
-            addon_data["vm"] = vm
-        if health:
-            addon_data["health"] = health
-
-        actual_state["addons"][addon] = addon_data
-        actual_state["last_sync"] = datetime.utcnow().isoformat()
-
-        project.actual_state = actual_state
-        flag_modified(project, "actual_state")  # Force SQLAlchemy to detect JSON change
-        db.commit()
+        if addon_record:
+            addon_record.status = status
+            if vm:
+                addon_record.vm = vm
+            db.commit()
     finally:
         db.close()
 
@@ -121,44 +125,21 @@ def sync_app_status(
         app: Application name
         status: Status (running, stopped, failed, not_deployed)
         containers: Number of running containers
-
-    Example:
-        sync_app_status('cheapa', 'api', 'running', containers=2)
     """
-    console = Console()
-    db = get_db_session()
-    try:
-        project = db.query(Project).filter(Project.name == project_name).first()
-        if not project:
-            return
-
-        actual_state = project.actual_state or {}
-        if "apps" not in actual_state:
-            actual_state["apps"] = {}
-
-        actual_state["apps"][app] = {
-            "status": status,
-            "containers": containers,
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-
-        actual_state["last_sync"] = datetime.utcnow().isoformat()
-        project.actual_state = actual_state
-        flag_modified(project, "actual_state")  # Force SQLAlchemy to detect JSON change
-        db.commit()
-    finally:
-        db.close()
+    # Apps don't have a status column currently, this is a no-op
+    # Could add status to apps table if needed
+    pass
 
 
-def clear_actual_state(project_name: str) -> None:
+def clear_project_state(project_name: str) -> None:
     """
-    Clear all actual state for a project (used during down/destroy).
+    Clear all state for a project (mark VMs as terminated).
 
     Args:
         project_name: Name of the project
 
     Example:
-        clear_actual_state('cheapa')
+        clear_project_state('cheapa')
     """
     console = Console()
     db = get_db_session()
@@ -167,19 +148,15 @@ def clear_actual_state(project_name: str) -> None:
         if not project:
             return
 
-        project.actual_state = {
-            "vms": {},
-            "addons": {},
-            "apps": {},
-            "last_sync": datetime.utcnow().isoformat(),
-            "status": "terminated",
-        }
-        flag_modified(project, "actual_state")  # Force SQLAlchemy to detect JSON change
-        db.commit()
+        # Mark all VMs as terminated
+        vms = db.query(VM).filter(VM.project_id == project.id).all()
+        for vm in vms:
+            vm.status = "terminated"
+            vm.external_ip = None
+            vm.internal_ip = None
 
-        console.print(
-            f"[dim]  ✓ Cleared actual state for project '{project_name}'[/dim]"
-        )
+        db.commit()
+        console.print(f"[dim]  ✓ Cleared state for project '{project_name}'[/dim]")
     finally:
         db.close()
 
@@ -192,23 +169,20 @@ def sync_vm_removed(project_name: str, vm_name: str) -> None:
         project_name: Name of the project
         vm_name: Name of the VM to mark as terminated
     """
-    console = Console()
     db = get_db_session()
     try:
         project = db.query(Project).filter(Project.name == project_name).first()
         if not project:
             return
 
-        actual_state = project.actual_state or {}
-        if "vms" in actual_state and vm_name in actual_state["vms"]:
-            actual_state["vms"][vm_name]["status"] = "terminated"
-            actual_state["vms"][vm_name]["updated_at"] = datetime.utcnow().isoformat()
+        vm = (
+            db.query(VM).filter(VM.project_id == project.id, VM.name == vm_name).first()
+        )
 
-            actual_state["last_sync"] = datetime.utcnow().isoformat()
-            project.actual_state = actual_state
-            flag_modified(
-                project, "actual_state"
-            )  # Force SQLAlchemy to detect JSON change
+        if vm:
+            vm.status = "terminated"
+            vm.external_ip = None
+            vm.internal_ip = None
             db.commit()
     finally:
         db.close()

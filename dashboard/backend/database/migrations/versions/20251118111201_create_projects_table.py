@@ -44,7 +44,6 @@ def upgrade():
         sa.Column("docker_organization", sa.String(length=100), nullable=True),
         sa.Column("vpc_subnet", sa.String(length=50), nullable=True),
         sa.Column("docker_subnet", sa.String(length=50), nullable=True),
-        sa.Column("actual_state", sa.JSON(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=True),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint("id"),

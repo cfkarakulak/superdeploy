@@ -165,9 +165,22 @@ def _deploy_orchestrator(
                 if logger:
                     logger.log("First deployment detected (no database record)")
             else:
-                state = db_project.actual_state or {}
-                is_deployed = state.get("deployed", False)
-                vm_status = state.get("vm", {}).get("status", "")
+                # Check if we have orchestrator IP (means fully deployed)
+                from cli.database import Secret, VM
+
+                secret = (
+                    db.query(Secret)
+                    .filter(
+                        Secret.project_id == db_project.id,
+                        Secret.key == "ORCHESTRATOR_IP",
+                    )
+                    .first()
+                )
+                is_deployed = secret is not None and secret.value is not None
+
+                # Check VM status
+                vm = db.query(VM).filter(VM.project_id == db_project.id).first()
+                vm_status = vm.status if vm else ""
 
                 # If VM is only provisioned (not fully configured), continue with Ansible
                 if vm_status == "provisioned":
@@ -416,22 +429,49 @@ def _deploy_orchestrator(
                     )
                 raise SystemExit(1)
 
-            vm_config_data = orch_config.get_vm_config()
-            state = {
-                "orchestrator_ip": orchestrator_ip,
-                "vm": {
-                    "name": vm_config_data.get("name", "orchestrator-main-0"),
-                    "external_ip": orchestrator_ip,
-                    "deployed_at": datetime.utcnow().isoformat(),
-                    "status": "provisioned",  # Not 'running' yet - Ansible pending
-                    "machine_type": vm_config_data.get("machine_type", "e2-medium"),
-                    "disk_size": vm_config_data.get("disk_size", 50),
-                    "services": vm_config_data.get("services", []),
-                },
-                "deployed": False,  # Not fully deployed yet
-            }
+            from cli.database import VM, Secret
 
-            db_project.actual_state = state
+            vm_config_data = orch_config.get_vm_config()
+
+            # Save VM to vms table
+            vm_name = vm_config_data.get("name", "orchestrator-main-0")
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == db_project.id, VM.role == "orchestrator")
+                .first()
+            )
+            if not vm:
+                vm = VM(
+                    project_id=db_project.id,
+                    name=vm_name,
+                    role="orchestrator",
+                    machine_type=vm_config_data.get("machine_type", "e2-medium"),
+                    disk_size=vm_config_data.get("disk_size", 50),
+                )
+                db.add(vm)
+            vm.external_ip = orchestrator_ip
+            vm.status = "provisioned"
+
+            # Save orchestrator IP to secrets
+            secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_id == db_project.id, Secret.key == "ORCHESTRATOR_IP"
+                )
+                .first()
+            )
+            if not secret:
+                secret = Secret(
+                    project_id=db_project.id,
+                    key="ORCHESTRATOR_IP",
+                    value=orchestrator_ip,
+                    source="shared",
+                    editable=False,
+                )
+                db.add(secret)
+            else:
+                secret.value = orchestrator_ip
+
             db_project.updated_at = datetime.utcnow()
             db.commit()
 
@@ -472,7 +512,7 @@ def _deploy_orchestrator(
 
     else:
         # Skip terraform mode - get IP from database
-        from cli.database import get_db_session, Project
+        from cli.database import get_db_session, Project, Secret, VM
 
         db = get_db_session()
         try:
@@ -480,8 +520,29 @@ def _deploy_orchestrator(
                 db.query(Project).filter(Project.name == "orchestrator").first()
             )
             orchestrator_ip = None
-            if db_project and db_project.actual_state:
-                orchestrator_ip = db_project.actual_state.get("orchestrator_ip")
+            if db_project:
+                # Try secrets first
+                secret = (
+                    db.query(Secret)
+                    .filter(
+                        Secret.project_id == db_project.id,
+                        Secret.key == "ORCHESTRATOR_IP",
+                    )
+                    .first()
+                )
+                if secret:
+                    orchestrator_ip = secret.value
+                else:
+                    # Fallback to VMs table
+                    vm = (
+                        db.query(VM)
+                        .filter(
+                            VM.project_id == db_project.id, VM.external_ip.isnot(None)
+                        )
+                        .first()
+                    )
+                    if vm:
+                        orchestrator_ip = vm.external_ip
 
             if not orchestrator_ip:
                 if logger:
@@ -603,29 +664,51 @@ ansible_python_interpreter=/usr/bin/python3
         db_project = db.query(Project).filter(Project.name == "orchestrator").first()
 
         if db_project:
+            from cli.database import VM, Secret
+
             vm_config_data = orch_config.get_vm_config()
 
-            # Calculate config hash
-            current_config_str = str(orch_config.config)
-            config_hash = hashlib.sha256(current_config_str.encode()).hexdigest()
+            # Update VM status to running
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == db_project.id, VM.role == "orchestrator")
+                .first()
+            )
+            if vm:
+                vm.status = "running"
+                vm.external_ip = orchestrator_ip
+            else:
+                vm = VM(
+                    project_id=db_project.id,
+                    name=vm_config_data.get("name", "orchestrator-main-0"),
+                    role="orchestrator",
+                    external_ip=orchestrator_ip,
+                    status="running",
+                    machine_type=vm_config_data.get("machine_type", "e2-medium"),
+                    disk_size=vm_config_data.get("disk_size", 50),
+                )
+                db.add(vm)
 
-            state = {
-                "deployed": True,
-                "orchestrator_ip": orchestrator_ip,
-                "config_hash": config_hash,
-                "last_config": orch_config.config,
-                "deployed_at": datetime.utcnow().isoformat(),
-                "vm": {
-                    "name": vm_config_data.get("name", "orchestrator-main-0"),
-                    "external_ip": orchestrator_ip,
-                    "status": "running",
-                    "machine_type": vm_config_data.get("machine_type", "e2-medium"),
-                    "disk_size": vm_config_data.get("disk_size", 50),
-                    "services": ["prometheus", "grafana"],
-                },
-            }
+            # Update orchestrator IP in secrets
+            secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_id == db_project.id, Secret.key == "ORCHESTRATOR_IP"
+                )
+                .first()
+            )
+            if not secret:
+                secret = Secret(
+                    project_id=db_project.id,
+                    key="ORCHESTRATOR_IP",
+                    value=orchestrator_ip,
+                    source="shared",
+                    editable=False,
+                )
+                db.add(secret)
+            else:
+                secret.value = orchestrator_ip
 
-            db_project.actual_state = state
             db_project.updated_at = datetime.utcnow()
             db.commit()
 

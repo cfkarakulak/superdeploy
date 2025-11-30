@@ -171,7 +171,8 @@ export default function ResourcesPage() {
           rightAction={
             <RefreshButton 
               projectName={projectName} 
-              onRefreshComplete={fetchResources}
+              onRefresh={fetchResources}
+              syncFirst={true}
             />
           }
         />

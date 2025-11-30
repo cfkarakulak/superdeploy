@@ -4,8 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pathlib import Path
 from database import get_db
-from models import Project, App, VM, Addon
-from cache import get_cache, set_cache, CACHE_TTL
+from models import Project, App, VM, Addon, Secret
 
 # Get superdeploy root directory
 SUPERDEPLOY_ROOT = Path(__file__).parent.parent.parent.resolve()
@@ -111,7 +110,6 @@ class ProjectResponse(BaseModel):
     docker_organization: Optional[str] = None
     vpc_subnet: Optional[str] = None
     docker_subnet: Optional[str] = None
-    actual_state: Optional[dict] = None
     apps: List[AppResponse] = []
     addons: List[AddonResponse] = []
     vms: List[VMResponse] = []
@@ -128,7 +126,6 @@ class OrchestratorResponse(BaseModel):
     project_type: str
     gcp_project: Optional[str] = None
     gcp_region: Optional[str] = None
-    actual_state: Optional[dict] = None
     deployed: bool = False
     ip: Optional[str] = None
     grafana_url: Optional[str] = None
@@ -154,10 +151,32 @@ def get_orchestrator(db: Session = Depends(get_db)):
     if not orchestrator:
         raise HTTPException(status_code=404, detail="Orchestrator not configured")
 
-    # Extract deployment info
-    actual_state = orchestrator.actual_state or {}
-    deployed = actual_state.get("deployed", False)
-    ip = actual_state.get("orchestrator_ip")
+    # Get orchestrator IP from secrets or VMs table
+    ip = None
+    deployed = False
+
+    # Try secrets first (ORCHESTRATOR_IP)
+    from models import Secret, VM
+
+    secret = (
+        db.query(Secret)
+        .filter(Secret.project_id == orchestrator.id, Secret.key == "ORCHESTRATOR_IP")
+        .first()
+    )
+    if secret:
+        ip = secret.value
+        deployed = True
+
+    # Fallback to VMs table
+    if not ip:
+        vm = (
+            db.query(VM)
+            .filter(VM.project_id == orchestrator.id, VM.external_ip.isnot(None))
+            .first()
+        )
+        if vm:
+            ip = vm.external_ip
+            deployed = True
 
     return {
         "id": orchestrator.id,
@@ -165,7 +184,6 @@ def get_orchestrator(db: Session = Depends(get_db)):
         "project_type": orchestrator.project_type,
         "gcp_project": orchestrator.gcp_project,
         "gcp_region": orchestrator.gcp_region,
-        "actual_state": actual_state,
         "deployed": deployed,
         "ip": ip,
         "grafana_url": f"http://{ip}:3000" if ip else None,
@@ -772,76 +790,47 @@ async def deploy_project_wizard(project_name: str, db: Session = Depends(get_db)
 
 @router.get("/{project_name}/vms")
 def get_project_vms(project_name: str, db: Session = Depends(get_db)):
-    """Get VMs for a project from database (with Redis cache)."""
-    # Check cache first
-    cache_key = f"vms:{project_name}"
-    cached = get_cache(cache_key)
-    if cached:
-        return cached
-
+    """Get VMs for a project from database."""
     try:
         # Get project from database
         project = db.query(Project).filter(Project.name == project_name).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        # Get VMs from actual_state if available
+        # Get VMs directly from vms table
         vms = []
-        if project.actual_state and isinstance(project.actual_state, dict):
-            state_vms = project.actual_state.get("vms", {})
-            for vm_name, vm_data in state_vms.items():
-                vms.append(
-                    {
-                        "name": vm_name,
-                        "role": vm_data.get("role", "unknown"),
-                        "ip": vm_data.get("external_ip", "N/A"),
-                        "zone": vm_data.get("zone", project.gcp_zone),
-                        "machine_type": vm_data.get("machine_type", "e2-medium"),
-                        "status": vm_data.get("status", "unknown"),
-                    }
-                )
+        db_vms = db.query(VM).filter(VM.project_id == project.id).all()
+        for vm in db_vms:
+            vms.append(
+                {
+                    "name": vm.name or f"{project_name}-{vm.role}",
+                    "role": vm.role,
+                    "ip": vm.external_ip or "N/A",
+                    "zone": project.gcp_zone or "N/A",
+                    "machine_type": vm.machine_type or "e2-medium",
+                    "status": vm.status or "unknown",
+                }
+            )
 
-        # If no VMs in actual_state, return VM definitions from database
-        if not vms:
-            db_vms = db.query(VM).filter(VM.project_id == project.id).all()
-            for vm in db_vms:
-                vms.append(
-                    {
-                        "name": f"{project_name}-{vm.role}",
-                        "role": vm.role,
-                        "ip": "N/A",
-                        "zone": project.gcp_zone or "N/A",
-                        "machine_type": vm.machine_type or "e2-medium",
-                        "status": "not_deployed",
-                    }
-                )
-
-        # Get orchestrator IP
+        # Get orchestrator IP from secrets
         orchestrator = db.query(Project).filter(Project.name == "orchestrator").first()
         orchestrator_ip = None
-        if orchestrator and orchestrator.actual_state:
-            state = orchestrator.actual_state
-            if isinstance(state, dict):
-                # First check direct orchestrator_ip key
-                if "orchestrator_ip" in state:
-                    orchestrator_ip = state["orchestrator_ip"]
-                # Fallback: check vms key
-                elif "vms" in state:
-                    for vm_name, vm_data in state["vms"].items():
-                        orchestrator_ip = vm_data.get("external_ip")
-                        if orchestrator_ip:
-                            break
-                # Fallback: check vm key (single VM)
-                elif "vm" in state and isinstance(state["vm"], dict):
-                    orchestrator_ip = state["vm"].get("external_ip")
+        if orchestrator:
+            secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_id == orchestrator.id,
+                    Secret.key == "ORCHESTRATOR_IP",
+                )
+                .first()
+            )
+            if secret:
+                orchestrator_ip = secret.value
 
         response = {
             "orchestrator_ip": orchestrator_ip,
             "vms": vms,
         }
-
-        # Cache for 5 minutes
-        set_cache(cache_key, response, CACHE_TTL["vms"])
 
         return response
 
@@ -849,47 +838,91 @@ def get_project_vms(project_name: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
-@router.post("/projects/{project_name}/sync")
+@router.post("/{project_name}/sync")
 async def sync_project_from_vms(project_name: str, db: Session = Depends(get_db)):
     """
     Sync project state from live VMs to database.
-    Runs CLI sync command to fetch current state from remote VMs.
+    Queries VM status via gcloud and container status via SSH, then updates DB.
     """
     import subprocess
-    import json
 
     try:
-        # Run the sync command
-        result = subprocess.run(
-            ["python", "-m", "cli.main", f"{project_name}:sync", "--json"],
-            capture_output=True,
-            text=True,
-            cwd=str(SUPERDEPLOY_ROOT),
-            timeout=120,
-        )
+        # Get project from database
+        project = db.query(Project).filter(Project.name == project_name).first()
+        if not project:
+            raise HTTPException(
+                status_code=404, detail=f"Project {project_name} not found"
+            )
 
-        if result.returncode != 0:
-            # Try to parse error from output
-            error_msg = result.stderr or result.stdout or "Sync failed"
-            raise HTTPException(status_code=500, detail=error_msg)
+        # Get VMs for this project
+        vms = db.query(VM).filter(VM.project_id == project.id).all()
+        if not vms:
+            return {"status": "success", "message": "No VMs to sync", "synced": 0}
 
-        # Clear relevant caches
-        from cache import clear_project_cache
-        clear_project_cache(project_name)
+        ssh_key = project.ssh_key_path or "~/.ssh/superdeploy_deploy"
+        ssh_user = project.ssh_user or "superdeploy"
 
-        # Parse sync result
-        try:
-            sync_result = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            sync_result = {"status": "success", "message": result.stdout}
+        synced_count = 0
+        container_count = 0
+
+        # For each VM, get status and containers
+        for vm in vms:
+            vm_key = f"{vm.role}-0"
+            vm_name = f"{project_name}-{vm_key}"
+
+            # Get VM info from gcloud
+            try:
+                result = subprocess.run(
+                    f"gcloud compute instances describe {vm_name} --zone={project.gcp_zone or 'us-central1-a'} --format='value(networkInterfaces[0].accessConfigs[0].natIP,status)' 2>/dev/null",
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+
+                if result.returncode == 0 and result.stdout.strip():
+                    parts = result.stdout.strip().split()
+                    external_ip = parts[0] if parts else None
+                    status = parts[1].lower() if len(parts) > 1 else "unknown"
+
+                    # Update VM in database
+                    vm.external_ip = external_ip
+                    vm.status = status
+                    vm.name = vm_name
+                    synced_count += 1
+
+                    # Get container status via SSH
+                    if external_ip and status == "running":
+                        try:
+                            ssh_result = subprocess.run(
+                                f"ssh -i {ssh_key} -o StrictHostKeyChecking=no -o ConnectTimeout=5 {ssh_user}@{external_ip} 'docker ps --format \"{{{{.Names}}}}|{{{{.Status}}}}\"' 2>/dev/null",
+                                shell=True,
+                                capture_output=True,
+                                text=True,
+                                timeout=15,
+                            )
+
+                            if ssh_result.returncode == 0:
+                                for line in ssh_result.stdout.strip().split("\n"):
+                                    if "|" in line:
+                                        container_count += 1
+                        except Exception as ssh_err:
+                            print(f"SSH failed for {vm_key}: {ssh_err}")
+
+            except Exception as e:
+                print(f"Failed to sync VM {vm_key}: {e}")
+                continue
+
+        # Commit changes to database
+        db.commit()
 
         return {
             "status": "success",
-            "message": f"Project {project_name} synced from VMs",
-            "result": sync_result,
+            "message": f"Synced {synced_count} VM(s), {container_count} container(s) to database",
         }
 
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Sync operation timed out")
+    except HTTPException:
+        raise
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")

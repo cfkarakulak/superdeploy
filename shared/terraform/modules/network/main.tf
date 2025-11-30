@@ -246,12 +246,15 @@ resource "google_compute_firewall" "allow_node_exporter" {
     ports    = ["9100"]  # node_exporter
   }
 
-  # Allow from orchestrator subnet for VPC peering (internal IPs)
-  # Falls back to orchestrator IP (external), or 0.0.0.0/0 for testing
-  source_ranges = var.orchestrator_subnet != "" ? [var.orchestrator_subnet] : (var.orchestrator_ip != "" ? ["${var.orchestrator_ip}/32"] : ["0.0.0.0/0"])
+  # Allow from both orchestrator subnet (internal) AND orchestrator IP (external)
+  # This ensures Prometheus can scrape metrics regardless of network topology
+  source_ranges = compact(concat(
+    var.orchestrator_subnet != "" ? [var.orchestrator_subnet] : [],
+    var.orchestrator_ip != "" ? ["${var.orchestrator_ip}/32"] : []
+  ))
   target_tags   = var.vm_roles
 
-  description = "Allow node_exporter metrics (9100) for Prometheus monitoring from orchestrator subnet"
+  description = "Allow node_exporter metrics (9100) for Prometheus monitoring from orchestrator"
 }
 
 # Firewall: Allow Loki log ingestion (port 3100)

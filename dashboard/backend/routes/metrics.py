@@ -1,7 +1,6 @@
 """Metrics routes for fetching system metrics from Prometheus."""
 
 from fastapi import APIRouter, HTTPException
-from cache import get_cache, set_cache
 import httpx
 import asyncio
 
@@ -9,12 +8,7 @@ router = APIRouter(tags=["metrics"])
 
 
 def get_orchestrator_ip():
-    """Get orchestrator IP from database (5 min cache)."""
-    cache_key = "orchestrator_ip"
-    cached = get_cache(cache_key)
-    if cached:
-        return cached
-
+    """Get orchestrator IP from database."""
     try:
         import os
 
@@ -27,37 +21,33 @@ def get_orchestrator_ip():
 
         db = get_db_session()
         try:
-            # Get orchestrator project
+            # Get orchestrator IP from secrets table (ORCHESTRATOR_IP)
             result = db.execute(
                 text("""
-                    SELECT actual_state
-                    FROM projects
-                    WHERE name = 'orchestrator'
+                    SELECT s.value
+                    FROM secrets s
+                    JOIN projects p ON s.project_id = p.id
+                    WHERE p.name = 'orchestrator' AND s.key = 'ORCHESTRATOR_IP'
                 """)
             )
             row = result.fetchone()
             if row and row[0]:
-                state = row[0]
-                if isinstance(state, dict):
-                    # First check direct orchestrator_ip key
-                    if "orchestrator_ip" in state:
-                        orch_ip = state["orchestrator_ip"]
-                        if orch_ip:
-                            set_cache(cache_key, orch_ip, 300)
-                            return orch_ip
-                    # Fallback: check vms key
-                    if "vms" in state:
-                        for vm_name, vm_data in state["vms"].items():
-                            orch_ip = vm_data.get("external_ip")
-                            if orch_ip:
-                                set_cache(cache_key, orch_ip, 300)
-                                return orch_ip
-                    # Fallback: check vm key (single VM)
-                    if "vm" in state and isinstance(state["vm"], dict):
-                        orch_ip = state["vm"].get("external_ip")
-                        if orch_ip:
-                            set_cache(cache_key, orch_ip, 300)
-                            return orch_ip
+                return row[0]
+
+            # Fallback: get from VMs table
+            result = db.execute(
+                text("""
+                    SELECT v.external_ip
+                    FROM vms v
+                    JOIN projects p ON v.project_id = p.id
+                    WHERE p.name = 'orchestrator' AND v.external_ip IS NOT NULL
+                    LIMIT 1
+                """)
+            )
+            row = result.fetchone()
+            if row and row[0]:
+                return row[0]
+
             return None
         finally:
             db.close()
@@ -67,12 +57,7 @@ def get_orchestrator_ip():
 
 
 def get_project_vms(project_name: str):
-    """Get VMs for project from database (5 min cache)."""
-    cache_key = f"project_vms:{project_name}"
-    cached = get_cache(cache_key)
-    if cached:
-        return cached
-
+    """Get VMs for project from database."""
     try:
         import os
 
@@ -85,69 +70,34 @@ def get_project_vms(project_name: str):
 
         db = get_db_session()
         try:
-            # Get project and its actual state
-            result = db.execute(
+            # Get VMs directly from vms table
+            vm_result = db.execute(
                 text("""
-                    SELECT actual_state, gcp_zone
-                    FROM projects
-                    WHERE name = :project_name
+                    SELECT v.name, v.role, v.external_ip, v.internal_ip, v.status, p.gcp_zone
+                    FROM vms v
+                    JOIN projects p ON v.project_id = p.id
+                    WHERE p.name = :project_name
                 """),
                 {"project_name": project_name},
             )
-            row = result.fetchone()
-            if not row:
-                return []
 
-            actual_state = row[0]
-            gcp_zone = row[1]
             vms = []
-
-            # Get VMs from actual_state if available
-            if (
-                actual_state
-                and isinstance(actual_state, dict)
-                and "vms" in actual_state
-            ):
-                state_vms = actual_state["vms"]
-                for vm_name, vm_data in state_vms.items():
-                    vms.append(
-                        {
-                            "name": vm_name,
-                            "ip": vm_data.get("external_ip", "N/A"),
-                            "external_ip": vm_data.get("external_ip", "N/A"),
-                            "internal_ip": vm_data.get("internal_ip", "N/A"),
-                            "role": vm_data.get("role", "unknown"),
-                        }
-                    )
-
-            # If no VMs in actual_state, return VM definitions from database
-            if not vms:
-                vm_result = db.execute(
-                    text("""
-                        SELECT role, count, machine_type
-                        FROM vms v
-                        JOIN projects p ON v.project_id = p.id
-                        WHERE p.name = :project_name
-                    """),
-                    {"project_name": project_name},
+            gcp_zone = None
+            for vm_row in vm_result.fetchall():
+                name, role, external_ip, internal_ip, status, zone = vm_row
+                gcp_zone = zone
+                vms.append(
+                    {
+                        "name": name or f"{project_name}-{role}-0",
+                        "ip": external_ip or "N/A",
+                        "external_ip": external_ip or "N/A",
+                        "internal_ip": internal_ip or "N/A",
+                        "role": role or "unknown",
+                        "status": status or "unknown",
+                    }
                 )
-                for vm_row in vm_result.fetchall():
-                    role, count, machine_type = vm_row
-                    for i in range(count or 1):
-                        vms.append(
-                            {
-                                "name": f"{project_name}-{role}-{i}",
-                                "ip": "N/A",
-                                "external_ip": "N/A",
-                                "internal_ip": "N/A",
-                                "role": role,
-                            }
-                        )
 
-            if vms:
-                set_cache(cache_key, vms, 300)
-                return vms
-            return []
+            return vms
         finally:
             db.close()
     except Exception as e:
