@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ProjectHeader, PageHeader } from "@/components";
+import { ProjectHeader, PageHeader, RefreshButton } from "@/components";
 import { Loader2, Settings, Server, Database, Network, Key, Globe, Github } from "lucide-react";
 
 interface Project {
@@ -53,6 +53,23 @@ export default function ProjectConfigurationPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const fetchProject = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`http://localhost:8401/api/projects/${projectName}`);
+      if (!response.ok) {
+        throw new Error("Failed to fetch project");
+      }
+      const data = await response.json();
+      setProject(data);
+    } catch (err) {
+      console.error("Failed to fetch project:", err);
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  }, [projectName]);
+
   useEffect(() => {
     // Redirect orchestrator to infrastructure route
     if (projectName === "orchestrator") {
@@ -60,26 +77,10 @@ export default function ProjectConfigurationPage() {
       return;
     }
 
-    const fetchProject = async () => {
-      try {
-        const response = await fetch(`http://localhost:8401/api/projects/${projectName}`);
-        if (!response.ok) {
-          throw new Error("Failed to fetch project");
-        }
-        const data = await response.json();
-        setProject(data);
-      } catch (err) {
-        console.error("Failed to fetch project:", err);
-        setError(err instanceof Error ? err.message : "Unknown error");
-      } finally {
-        setLoading(false);
-      }
-    };
-
     if (projectName) {
       fetchProject();
     }
-  }, [projectName, router]);
+  }, [projectName, router, fetchProject]);
 
   if (loading) {
     return (
@@ -142,6 +143,12 @@ export default function ProjectConfigurationPage() {
           ]}
           menuLabel="Configuration"
           title="Project Configuration"
+          rightAction={
+            <RefreshButton 
+              projectName={projectName} 
+              onRefreshComplete={fetchProject}
+            />
+          }
         />
 
         <div className="space-y-6 mt-6">

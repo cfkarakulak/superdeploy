@@ -847,3 +847,49 @@ def get_project_vms(project_name: str, db: Session = Depends(get_db)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@router.post("/projects/{project_name}/sync")
+async def sync_project_from_vms(project_name: str, db: Session = Depends(get_db)):
+    """
+    Sync project state from live VMs to database.
+    Runs CLI sync command to fetch current state from remote VMs.
+    """
+    import subprocess
+    import json
+
+    try:
+        # Run the sync command
+        result = subprocess.run(
+            ["python", "-m", "cli.main", f"{project_name}:sync", "--json"],
+            capture_output=True,
+            text=True,
+            cwd=str(SUPERDEPLOY_ROOT),
+            timeout=120,
+        )
+
+        if result.returncode != 0:
+            # Try to parse error from output
+            error_msg = result.stderr or result.stdout or "Sync failed"
+            raise HTTPException(status_code=500, detail=error_msg)
+
+        # Clear relevant caches
+        from cache import clear_project_cache
+        clear_project_cache(project_name)
+
+        # Parse sync result
+        try:
+            sync_result = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            sync_result = {"status": "success", "message": result.stdout}
+
+        return {
+            "status": "success",
+            "message": f"Project {project_name} synced from VMs",
+            "result": sync_result,
+        }
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Sync operation timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")

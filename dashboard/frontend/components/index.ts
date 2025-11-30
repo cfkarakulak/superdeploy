@@ -8,6 +8,7 @@ export { default as ProjectHeader } from "./ProjectHeader";
 export { default as OrchestratorHeader } from "./OrchestratorHeader";
 export { default as ProjectSelector } from "./ProjectSelector";
 export { default as Table } from "./Table";
+export { RefreshButton } from "./RefreshButton";
 export type { Item, TableColumn, TableProps } from "./Table";
 export {
   Dialog,

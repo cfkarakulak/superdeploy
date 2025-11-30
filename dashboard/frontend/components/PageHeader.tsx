@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { ReactNode } from "react";
 
 interface BreadcrumbItem {
   label: string;
@@ -14,9 +15,10 @@ interface PageHeaderProps {
   menuLabel?: string; // Menu item name (e.g., "Resources", "Deploy", "Actions")
   title: string;
   description?: string;
+  rightAction?: ReactNode; // Optional action button (e.g., refresh button)
 }
 
-export default function PageHeader({ breadcrumb, breadcrumbs, menuLabel, title, description }: PageHeaderProps) {
+export default function PageHeader({ breadcrumb, breadcrumbs, menuLabel, title, description, rightAction }: PageHeaderProps) {
   // Convert single breadcrumb to array for consistent handling
   const crumbs = breadcrumbs || (breadcrumb ? [breadcrumb] : []);
 
@@ -58,10 +60,13 @@ export default function PageHeader({ breadcrumb, breadcrumbs, menuLabel, title, 
         </nav>
       )}
 
-      {/* Title */}
-      <h1 className="text-[27px] leading-[32px] text-black mb-1">
-        {title}
-      </h1>
+      {/* Title with optional action */}
+      <div className="flex items-center gap-2">
+        <h1 className="text-[27px] leading-[32px] text-black mb-1">
+          {title}
+        </h1>
+        {rightAction}
+      </div>
 
       {/* Description if provided */}
       {description && (

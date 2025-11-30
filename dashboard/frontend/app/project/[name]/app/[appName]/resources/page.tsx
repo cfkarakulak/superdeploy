@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { AppHeader, PageHeader, Button } from "@/components";
+import { AppHeader, PageHeader, Button, RefreshButton } from "@/components";
 import { getAddonLogo, getStatusDot } from "@/lib/addonLogos";
 import { 
   Cpu, 
@@ -90,27 +90,28 @@ export default function ResourcesPage() {
   const [error, setError] = useState<string | null>(null);
   const [appDomain, setAppDomain] = useState<string>("");
 
-  useEffect(() => {
-    const fetchResources = async () => {
-      try {
-        const response = await fetch(`http://localhost:8401/api/resources/${projectName}/${appName}`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          setProcesses(data.formation || []);
-          setAddons(data.addons || []);
-          setAppInfo(data.app_info || null);
-        } else {
-          setError(`Failed to fetch resources: ${response.statusText}`);
-        }
-      } catch (err) {
-        console.error("Failed to fetch resources:", err);
-        setError(err instanceof Error ? err.message : "Unknown error");
-      } finally {
-        setLoading(false);
+  const fetchResources = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`http://localhost:8401/api/resources/${projectName}/${appName}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setProcesses(data.formation || []);
+        setAddons(data.addons || []);
+        setAppInfo(data.app_info || null);
+      } else {
+        setError(`Failed to fetch resources: ${response.statusText}`);
       }
-    };
+    } catch (err) {
+      console.error("Failed to fetch resources:", err);
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  }, [projectName, appName]);
 
+  useEffect(() => {
     const fetchAppInfo = async () => {
       try {
         const response = await fetch(`http://localhost:8401/api/projects/${projectName}`);
@@ -128,7 +129,7 @@ export default function ResourcesPage() {
       fetchResources();
       fetchAppInfo();
     }
-  }, [projectName, appName]);
+  }, [projectName, appName, fetchResources]);
 
   // Shimmer animation styles
   const shimmerStyles = `
@@ -167,6 +168,12 @@ export default function ResourcesPage() {
           ]}
           menuLabel="Resources"
           title="Resources & Add-ons"
+          rightAction={
+            <RefreshButton 
+              projectName={projectName} 
+              onRefreshComplete={fetchResources}
+            />
+          }
         />
 
         {loading ? (
