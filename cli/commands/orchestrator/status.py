@@ -47,35 +47,54 @@ class OrchestratorStatusCommand(BaseCommand):
 
         # JSON output mode - return proper data
         if self.json_output:
-            if orch_config.is_deployed():
-                orch_ip = orch_config.get_ip()
-                state = orch_config.state_manager.load_state()
-                vm_info = state.get("vm", {})
-
-                self.output_json(
-                    {
-                        "status": "deployed",
-                        "service": "orchestrator",
-                        "vms": [
+            # Load state from database
+            from cli.database import get_db_session, Project
+            
+            db = get_db_session()
+            try:
+                db_project = db.query(Project).filter(Project.name == "orchestrator").first()
+                
+                if db_project and db_project.actual_state:
+                    state = db_project.actual_state
+                    orch_ip = state.get("orchestrator_ip")
+                    vm_info = state.get("vm", {})
+                    is_deployed = state.get("deployed", False)
+                    
+                    if is_deployed and orch_ip:
+                        self.output_json(
                             {
-                                "name": "orchestrator",
-                                "ip": orch_ip,
-                                "machine_type": vm_info.get("machine_type", "unknown"),
-                                "zone": vm_info.get("zone", "unknown"),
-                                "role": "orchestrator",
-                                "status": "running",
+                                "status": "deployed",
+                                "service": "orchestrator",
+                                "vms": [
+                                    {
+                                        "name": "orchestrator",
+                                        "ip": orch_ip,
+                                        "machine_type": vm_info.get("machine_type", "unknown"),
+                                        "zone": db_project.gcp_zone or "unknown",
+                                        "role": "orchestrator",
+                                        "status": vm_info.get("status", "unknown"),
+                                    }
+                                ],
                             }
-                        ],
-                    }
-                )
-            else:
-                self.output_json(
-                    {
-                        "status": "not_deployed",
-                        "service": "orchestrator",
-                        "vms": [],
-                    }
-                )
+                        )
+                    else:
+                        self.output_json(
+                            {
+                                "status": "not_deployed",
+                                "service": "orchestrator",
+                                "vms": [],
+                            }
+                        )
+                else:
+                    self.output_json(
+                        {
+                            "status": "not_deployed",
+                            "service": "orchestrator",
+                            "vms": [],
+                        }
+                    )
+            finally:
+                db.close()
             return
 
         self.show_header(title="Orchestrator Status", project="orchestrator")
@@ -102,11 +121,25 @@ class OrchestratorStatusCommand(BaseCommand):
         if logger:
             logger.step("Checking orchestrator VM and containers")
 
-        # Get orchestrator details
-        orch_ip = orch_config.get_ip()
-        state = orch_config.state_manager.load_state()
-        last_updated = state.get("last_updated", "Unknown")
-        vm_info = state.get("vm", {})
+        # Get orchestrator details from database
+        from cli.database import get_db_session, Project
+        
+        db = get_db_session()
+        try:
+            db_project = db.query(Project).filter(Project.name == "orchestrator").first()
+            
+            if not db_project or not db_project.actual_state:
+                if logger:
+                    logger.warning("No state found in database")
+                self._display_not_deployed(logger)
+                return
+            
+            state = db_project.actual_state
+            orch_ip = state.get("orchestrator_ip")
+            last_updated = db_project.updated_at.isoformat() if db_project.updated_at else "Unknown"
+            vm_info = state.get("vm", {})
+        finally:
+            db.close()
 
         # Add VM info to table
         self.table.add_row(

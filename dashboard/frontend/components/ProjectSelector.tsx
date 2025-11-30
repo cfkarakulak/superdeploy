@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, Github, Check, Loader2 } from "lucide-react";
+import { ChevronDown, Github, Check, Loader2, Activity } from "lucide-react";
 import { getCache, setCache } from "@/lib/cache";
 import { GradientAvatar } from "./GradientAvatar";
 
@@ -23,6 +23,15 @@ interface VM {
   name: string;
   role: string;
   ip: string;
+}
+
+interface Orchestrator {
+  id: number;
+  name: string;
+  deployed: boolean;
+  ip?: string;
+  grafana_url?: string;
+  prometheus_url?: string;
 }
 
 interface ProjectWithApps extends Project {
@@ -45,11 +54,23 @@ export default function ProjectSelector({
   const router = useRouter();
   const [projectsWithApps, setProjectsWithApps] = useState<ProjectWithApps[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectWithApps | null>(null);
+  const [orchestrator, setOrchestrator] = useState<Orchestrator | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchProjects = async () => {
-      // Check frontend cache first
+      // Always fetch orchestrator (not cached separately)
+      try {
+        const orchRes = await fetch("http://localhost:8401/api/projects/orchestrator");
+        if (orchRes.ok) {
+          const orchData = await orchRes.json();
+          setOrchestrator(orchData);
+        }
+      } catch (err) {
+        console.error("Failed to fetch orchestrator:", err);
+      }
+
+      // Check frontend cache first for projects
       const cachedData = getCache<ProjectWithApps[]>("projects_with_apps");
       if (cachedData && cachedData.length > 0) {
         setProjectsWithApps(cachedData);
@@ -66,6 +87,7 @@ export default function ProjectSelector({
       }
 
       try {
+        // Fetch projects (application type only)
         const response = await fetch("http://localhost:8401/api/projects/");
         if (!response.ok) throw new Error("Failed to fetch");
         const data = await response.json();
@@ -162,8 +184,48 @@ export default function ProjectSelector({
           sideOffset={8}
         >
           <div className="relative flex min-h-[180px] gap-3">
-            {/* Left: Projects */}
+            {/* Left: Projects + Orchestrator */}
             <div className="w-[30%]">
+              {/* Orchestrator Section */}
+              {orchestrator && (
+                <>
+                  <div className="px-2 py-1.5 mb-1">
+                    <span className="text-[11px] font-light text-[#777] tracking-[0.03em]">
+                      Infrastructure
+                    </span>
+                  </div>
+                  <DropdownMenu.Item
+                    onClick={() => {
+                      router.push("/infrastructure/orchestrator");
+                    }}
+                    className={`flex items-center gap-2.5 px-2.5 py-2 rounded-[10px] hover:bg-[#f6f8fa] outline-none cursor-pointer transition-colors mb-3 ${
+                      currentProjectName === "orchestrator" ? "bg-[#f6f8fa]" : ""
+                    }`}
+                  >
+                    <Activity className="w-4 h-4 text-purple-600" />
+                    <div className="flex-1">
+                      <div className="text-[14px] text-[#0a0a0a]">
+                        Orchestrator
+                      </div>
+                      <div className="text-[11px] tracking-[0.03em] font-light text-[#777]">
+                        {orchestrator.deployed ? (
+                          <span className="text-green-600">● Running</span>
+                        ) : (
+                          <span className="text-[#8b8b8b]">Not deployed</span>
+                        )}
+                      </div>
+                    </div>
+                    {currentProjectName === "orchestrator" && (
+                      <Check
+                        className="w-3.5 h-3.5 text-[#374046] ml-auto"
+                        strokeWidth={2.5}
+                      />
+                    )}
+                  </DropdownMenu.Item>
+                </>
+              )}
+
+              {/* Projects Section */}
               <div className="px-2 py-1.5 mb-1">
                 <span className="text-[11px] font-light text-[#777] tracking-[0.03em]">
                   Projects
@@ -322,4 +384,3 @@ export default function ProjectSelector({
     </DropdownMenu.Root>
   );
 }
-

@@ -26,7 +26,7 @@
       
       # Phase 1: Stop via Docker Compose (graceful shutdown with remove)
       echo "Phase 1: Stopping containers via Docker Compose..."
-      docker compose --project-name "${CONTAINER_NAME}" down --remove-orphans --volumes --timeout 30 2>&1 || true
+      docker compose --project-name "${CONTAINER_NAME}" down --timeout 30 2>&1 || true
       
       # Phase 2: Wait for Docker daemon to sync
       echo "Phase 2: Waiting for Docker daemon to sync..."
@@ -171,14 +171,28 @@
   become: yes
   changed_when: false
 
-- name: Start {{ instance_name }} services (with explicit project name)
-  community.docker.docker_compose_v2:
-    project_name: "{{ project_name }}-{{ instance_name }}"
-    project_src: "{{ addon_deployment_path }}"
-    state: present
-    pull: "always"
-    recreate: "always"
-    remove_orphans: false  # Don't remove other addons on same network
+- name: Start {{ instance_name }} services (shell - more reliable than docker_compose_v2)
+  shell:
+    cmd: |
+      cd "{{ addon_deployment_path }}"
+      echo "Starting {{ container_name }}..."
+      docker compose pull --quiet 2>&1 || true
+      docker compose up -d --force-recreate 2>&1
+      
+      # Wait for container to be running
+      for i in {1..15}; do
+        if docker ps --filter "name={{ container_name }}" --format "{{ '{{' }}.Status{{ '}}' }}" | grep -q "Up"; then
+          echo "✓ Container {{ container_name }} is running"
+          exit 0
+        fi
+        echo "Waiting for container to start... ($i/15)"
+        sleep 2
+      done
+      
+      echo "❌ Container failed to start"
+      docker logs {{ container_name }} 2>&1 | tail -20
+      exit 1
+    executable: /bin/bash
   become: yes
   register: rabbitmq_compose_result
 
@@ -189,7 +203,6 @@
   retries: 10
   delay: 2
   changed_when: false
-  when: rabbitmq_compose_result.changed
 
 - name: Wait for {{ instance_name }} management plugin
   shell: |

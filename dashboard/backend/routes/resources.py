@@ -16,7 +16,7 @@ class RotateCredentialRequest(BaseModel):
 
 
 def _get_addon_credentials_from_db(
-    project_name: str,
+    project_id: int,
     addon_type: str,
     addon_name: str,
     db: Session,
@@ -31,7 +31,7 @@ def _get_addon_credentials_from_db(
         addon_secrets = (
             db.query(Secret)
             .filter(
-                Secret.project_name == project_name,
+                Secret.project_id == project_id,
                 Secret.key.like(f"{prefix}%"),
                 Secret.source == "addon",
                 Secret.environment == environment,
@@ -273,7 +273,7 @@ async def get_addon_detail(
             addon_type = addon_data.get("type")
             addon_name = addon_data.get("name")
             credentials_dict = _get_addon_credentials_from_db(
-                project_name, addon_type, addon_name, db
+                project.id, addon_type, addon_name, db
             )
 
             if credentials_dict:

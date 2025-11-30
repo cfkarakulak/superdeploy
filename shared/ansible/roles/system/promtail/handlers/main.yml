@@ -1,0 +1,6 @@
+---
+- name: Restart Promtail
+  community.docker.docker_compose_v2:
+    project_src: /opt/superdeploy/promtail
+    state: restarted
+

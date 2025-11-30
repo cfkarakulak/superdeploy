@@ -1,104 +1,128 @@
-"""Orchestrator secret management"""
+"""Orchestrator secret management - DB-based"""
 
-import yaml
-import secrets as py_secrets
 from pathlib import Path
 from typing import Dict, Any
 
 
 class OrchestratorSecretManager:
-    """Manages orchestrator secrets (Grafana passwords)"""
+    """Manages orchestrator secrets - now DB-based (no files)"""
 
     def __init__(self, shared_dir: Path):
         self.shared_dir = Path(shared_dir)
-        self.secrets_file = shared_dir / "orchestrator" / "secrets.yml"
+        # No more secrets_file - everything in database
+
+    def _get_project_id(self, db) -> int:
+        """Get orchestrator project ID from database."""
+        from cli.database import Project
+
+        project = db.query(Project).filter(Project.name == "orchestrator").first()
+        return project.id if project else None
 
     def load_secrets(self) -> Dict[str, Any]:
-        """Load orchestrator secrets.yml"""
-        if not self.secrets_file.exists():
-            return {}
+        """Load orchestrator secrets from database"""
+        from cli.database import get_db_session, Secret
 
-        with open(self.secrets_file, "r") as f:
-            return yaml.safe_load(f) or {}
+        db = get_db_session()
+        try:
+            project_id = self._get_project_id(db)
+            if not project_id:
+                return {"secrets": {}}
+
+            secrets = db.query(Secret).filter(Secret.project_id == project_id).all()
+
+            # Return in format expected by Ansible vars
+            result = {"secrets": {}}
+            for secret in secrets:
+                result["secrets"][secret.key] = secret.value
+
+            return result
+        finally:
+            db.close()
 
     def save_secrets(self, secrets: Dict[str, Any]):
-        """Save secrets to secrets.yml with nice formatting (flat structure)"""
-        self.secrets_file.parent.mkdir(parents=True, exist_ok=True)
+        """Save secrets to database (no files)"""
+        from cli.database import get_db_session, Secret
+        from datetime import datetime
 
-        # Build formatted YAML manually for better readability
-        lines = []
-        lines.append("# " + "=" * 77)
-        lines.append("# Orchestrator - Secrets Configuration")
-        lines.append("# " + "=" * 77)
-        lines.append("# WARNING: This file contains sensitive information")
-        lines.append("# Keep this file secure and never commit to version control")
-        lines.append("# " + "=" * 77)
-        lines.append("#")
-        lines.append("# Required Secrets:")
-        lines.append("#   - GRAFANA_ADMIN_PASSWORD: Auto-generated on first deployment")
-        lines.append("#")
-        lines.append("# Optional Secrets (for email alerts):")
-        lines.append(
-            "#   - SMTP_PASSWORD: Add if you want Grafana to send email alerts"
-        )
-        lines.append("#")
-        lines.append(
-            "# Note: GRAFANA_ADMIN_USER is configured in config.yml (default: 'admin')"
-        )
-        lines.append("# Note: Monitoring addon reads from flat secrets (not nested)")
-        lines.append("# " + "=" * 77)
-        lines.append("")
-        lines.append("secrets:")
+        db = get_db_session()
+        try:
+            project_id = self._get_project_id(db)
+            if not project_id:
+                return
 
-        secrets_data = secrets.get("secrets", {})
-        if secrets_data:
-            for key, value in sorted(secrets_data.items()):
-                lines.append(f"  {key}: {value}")
-        else:
-            lines.append("  GRAFANA_ADMIN_PASSWORD: ''  # Will be auto-generated")
-            lines.append("  SMTP_PASSWORD: ''  # Optional")
+            secrets_data = secrets.get("secrets", {})
 
-        # Write formatted content
-        with open(self.secrets_file, "w") as f:
-            f.write("\n".join(lines))
+            for key, value in secrets_data.items():
+                # Update or insert
+                existing = (
+                    db.query(Secret)
+                    .filter(
+                        Secret.project_id == project_id,
+                        Secret.key == key,
+                    )
+                    .first()
+                )
 
-        # Restrictive permissions
-        self.secrets_file.chmod(0o600)
+                if existing:
+                    existing.value = value
+                    existing.updated_at = datetime.utcnow()
+                else:
+                    new_secret = Secret(
+                        project_id=project_id,
+                        app_id=None,
+                        key=key,
+                        value=value,
+                        environment="production",
+                        source="generated",
+                        editable=True,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow(),
+                    )
+                    db.add(new_secret)
+
+            db.commit()
+        finally:
+            db.close()
 
     def initialize_secrets(self) -> Dict[str, str]:
-        """Generate and save initial secrets if they don't exist"""
+        """Load secrets from database (already generated by orchestrator:init)"""
         secrets_data = self.load_secrets()
 
-        # If secrets already exist, return them
+        # If secrets already exist in DB, return them
         if secrets_data.get("secrets"):
             return secrets_data["secrets"]
 
-        # Generate new secrets
-        secrets = {
-            "GRAFANA_ADMIN_PASSWORD": py_secrets.token_urlsafe(32),
-        }
-
-        secrets_data = {"secrets": secrets}
-
-        self.save_secrets(secrets_data)
-        return secrets
+        # No secrets found - this shouldn't happen if orchestrator:init was run
+        return {}
 
     def get_secret(self, key: str) -> str:
-        """Get specific secret"""
-        secrets_data = self.load_secrets()
-        return secrets_data.get("secrets", {}).get(key, "")
+        """Get specific secret from database"""
+        from cli.database import get_db_session, Secret
+
+        db = get_db_session()
+        try:
+            project_id = self._get_project_id(db)
+            if not project_id:
+                return ""
+
+            secret = (
+                db.query(Secret)
+                .filter(
+                    Secret.project_id == project_id,
+                    Secret.key == key,
+                )
+                .first()
+            )
+            return secret.value if secret else ""
+        finally:
+            db.close()
 
     def add_secret(self, key: str, value: str):
-        """Add or update secret"""
-        secrets_data = self.load_secrets()
-
-        if "secrets" not in secrets_data:
-            secrets_data["secrets"] = {}
-
-        secrets_data["secrets"][key] = value
+        """Add or update secret in database"""
+        secrets_data = {"secrets": {key: value}}
         self.save_secrets(secrets_data)
 
     def get_all_secrets(self) -> Dict[str, str]:
-        """Get all secrets"""
+        """Get all secrets from database"""
         secrets_data = self.load_secrets()
         return secrets_data.get("secrets", {})

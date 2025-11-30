@@ -217,7 +217,6 @@ class TerraformManager:
         self,
         project_config: ProjectConfig,
         output_file: Optional[Path] = None,
-        preserve_ip: bool = False,
     ) -> Path:
         """
         Generate Terraform variables file from project configuration.
@@ -225,7 +224,6 @@ class TerraformManager:
         Args:
             project_config: Project configuration object
             output_file: Output file path (defaults to {project_name}.tfvars.json)
-            preserve_ip: Whether to preserve existing static IPs
 
         Returns:
             Path to generated tfvars file
@@ -236,7 +234,7 @@ class TerraformManager:
             )
 
         # Get Terraform variables from project config
-        tfvars = project_config.to_terraform_vars(preserve_ip=preserve_ip)
+        tfvars = project_config.to_terraform_vars()
 
         # Write to file
         with open(output_file, "w") as f:
@@ -370,9 +368,15 @@ def generate_tfvars(
     output_file: Optional[Path] = None,
     preserve_ip: bool = False,
 ) -> Path:
-    """Generate tfvars file (legacy)."""
+    """Generate tfvars file (legacy).
+
+    Args:
+        project_config: Project configuration object
+        output_file: Output file path (defaults to {project_name}.tfvars.json)
+        preserve_ip: If True, preserve existing VM IP addresses
+    """
     manager = TerraformManager()
-    return manager.generate_tfvars(project_config, output_file, preserve_ip)
+    return manager.generate_tfvars(project_config, output_file)
 
 
 def get_terraform_outputs(project_name: str) -> Dict[str, Any]:

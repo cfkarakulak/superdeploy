@@ -91,9 +91,3 @@ variable "environment" {
   description = "Environment name"
   type        = string
 }
-
-variable "preserve_ip_address" {
-  description = "Existing IP address to preserve (optional)"
-  type        = string
-  default     = null
-}

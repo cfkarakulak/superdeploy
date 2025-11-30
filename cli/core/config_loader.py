@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, List
+from cli.database import get_db_session, App, Addon, VM, Project
 
 
 @dataclass
@@ -38,20 +39,28 @@ class AppConfig:
 class ProjectConfig:
     """Represents a loaded and validated project configuration"""
 
-    def __init__(self, project_name: str, config_dict: dict, project_dir: Path = None):
+    def __init__(
+        self,
+        project_name: str,
+        config_dict: dict,
+        project_dir: Path = None,
+        from_db: bool = False,
+    ):
         """
         Initialize project configuration
 
         Args:
             project_name: Name of the project
-            config_dict: Raw configuration dictionary from config.yml
+            config_dict: Raw configuration dictionary (from DB or config.yml)
             project_dir: Path to project directory (optional)
+            from_db: Whether config was loaded from database
         """
         self.project_name = project_name
         self.raw_config = config_dict
         self.project_dir = project_dir
         self.config_path = project_dir / "config.yml" if project_dir else None
         self.project_dir = project_dir
+        self.from_db = from_db
         self._apply_defaults()
         self._validate()
 
@@ -215,60 +224,27 @@ class ProjectConfig:
         """
         return self.raw_config.get("addons", {})
 
-    def to_terraform_vars(self, preserve_ip: bool = False) -> Dict[str, Any]:
+    def to_terraform_vars(self) -> Dict[str, Any]:
         """
         Convert to Terraform variables format
 
         Dynamically builds vm_groups from config.yml vms section.
         Each VM is created with all its properties.
 
-        Args:
-            preserve_ip: Whether to preserve existing static IPs
-
         Returns:
             Dictionary suitable for Terraform tfvars
         """
         network_config = self.get_network_config()
         vms_config = self.get_vms()
-        cloud_config = self.raw_config.get("cloud", {})
-        gcp_config = cloud_config.get("gcp", {})
-        ssh_config = cloud_config.get("ssh", {})
+        # DB-based config: direct access to gcp and ssh (no cloud wrapper)
+        gcp_config = self.raw_config.get("gcp", {})
+        ssh_config = self.raw_config.get("ssh", {})
 
         # Get unique subnet for this project
         from cli.subnet_allocator import SubnetAllocator
 
         allocator = SubnetAllocator()
         project_subnet = allocator.get_subnet(self.project_name)
-
-        # Load existing IPs if preserve_ip is enabled
-        existing_ips = {}
-        if preserve_ip:
-            import click
-            from cli.state_manager import StateManager
-            from cli.utils import get_project_root
-
-            # Load IPs from state.yml instead of .env
-            project_root = get_project_root()
-            state_mgr = StateManager(project_root, self.project_name)
-            state = state_mgr.load_state()
-
-            click.echo("[DEBUG] preserve_ip=True, loading from state.yml")
-            if state and "vms" in state:
-                vms = state.get("vms", {})
-                click.echo(f"[DEBUG] Found {len(vms)} VMs in state")
-                for vm_name, vm_data in vms.items():
-                    if "external_ip" in vm_data:
-                        existing_ips[vm_name] = vm_data["external_ip"]
-                        click.echo(
-                            f"[DEBUG] Preserving IP: {vm_name} = {vm_data['external_ip']}"
-                        )
-
-                if existing_ips:
-                    click.echo(f"[DEBUG] Total IPs to preserve: {len(existing_ips)}")
-                else:
-                    click.echo("[DEBUG] No IPs found to preserve!")
-            else:
-                click.echo("[DEBUG] No state found or VMs not deployed yet")
 
         # Build dynamic vm_groups
         # Format: { "vm-name-index": { role: "...", machine_type: "...", ... } }
@@ -301,10 +277,6 @@ class ProjectConfig:
                     "tags": tags,
                     "labels": labels,
                 }
-
-                # Add existing IP if preserve_ip is enabled
-                if preserve_ip and vm_key in existing_ips:
-                    vm_config["preserve_ip"] = existing_ips[vm_key]
 
                 vm_groups[vm_key] = vm_config
 
@@ -367,23 +339,29 @@ class ProjectConfig:
         addons = self.get_addons()
 
         # Get docker configuration from secrets (DOCKER_ORG, DOCKER_USERNAME)
-        from cli.database import get_db_session
         from sqlalchemy import text
 
         db = get_db_session()
         try:
-            result = db.execute(
-                text(
-                    "SELECT key, value FROM secrets WHERE project_name = :project AND key IN ('DOCKER_ORG', 'DOCKER_USERNAME')"
-                ),
-                {"project": self.project_name},
+            # Get project_id first
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
             )
-            docker_secrets = {row[0]: row[1] for row in result}
-            docker_config = {
-                "organization": docker_secrets.get("DOCKER_ORG")
-                or docker_secrets.get("DOCKER_USERNAME", ""),
-                "registry": "docker.io",
-            }
+            if not project:
+                docker_config = {"organization": "", "registry": "docker.io"}
+            else:
+                result = db.execute(
+                    text(
+                        "SELECT key, value FROM secrets WHERE project_id = :project_id AND key IN ('DOCKER_ORG', 'DOCKER_USERNAME')"
+                    ),
+                    {"project_id": project.id},
+                )
+                docker_secrets = {row[0]: row[1] for row in result}
+                docker_config = {
+                    "organization": docker_secrets.get("DOCKER_ORG")
+                    or docker_secrets.get("DOCKER_USERNAME", ""),
+                    "registry": "docker.io",
+                }
         finally:
             db.close()
 
@@ -426,7 +404,6 @@ class ConfigLoader:
         Raises:
             FileNotFoundError: If project not found in database
         """
-        from cli.database import get_db_session
         from sqlalchemy import Table, Column, Integer, String, JSON, DateTime, MetaData
 
         db = get_db_session()
@@ -451,9 +428,7 @@ class ConfigLoader:
                 Column("docker_organization", String(100)),
                 Column("vpc_subnet", String(50)),
                 Column("docker_subnet", String(50)),
-                Column("vms", JSON),
-                Column("apps_config", JSON),
-                Column("addons_config", JSON),
+                Column("actual_state", JSON),
                 Column("created_at", DateTime),
                 Column("updated_at", DateTime),
             )
@@ -502,10 +477,66 @@ class ConfigLoader:
                     "vpc_subnet": row.vpc_subnet,
                     "docker_subnet": row.docker_subnet,
                 },
-                "vms": row.vms or {},
-                "apps": row.apps_config or {},
-                "addons": row.addons_config or {},
             }
+
+            # Load apps from database (normalized)
+            apps = db.query(App).filter(App.project_id == row.id).all()
+            config_dict["apps"] = {}
+            for app in apps:
+                config_dict["apps"][app.name] = {
+                    "path": app.path,
+                    "vm": app.vm or "app",
+                    "port": app.port,
+                }
+                if app.external_port:
+                    config_dict["apps"][app.name]["external_port"] = app.external_port
+                if app.repo:
+                    config_dict["apps"][app.name]["repo"] = app.repo
+                if app.owner:
+                    config_dict["apps"][app.name]["owner"] = app.owner
+
+                # Load processes from marker file (superdeploy file in app directory)
+                if app.path:
+                    marker_path = Path(app.path) / "superdeploy"
+                    if marker_path.exists():
+                        import yaml
+
+                        try:
+                            with open(marker_path, "r") as f:
+                                marker_data = yaml.safe_load(f)
+                                if marker_data and "processes" in marker_data:
+                                    config_dict["apps"][app.name]["processes"] = (
+                                        marker_data["processes"]
+                                    )
+                        except Exception:
+                            # If marker read fails, continue without processes
+                            pass
+
+            # Load VMs from database (normalized)
+            vms = db.query(VM).filter(VM.project_id == row.id).all()
+            config_dict["vms"] = {}
+            for vm in vms:
+                config_dict["vms"][vm.role] = {
+                    "count": vm.count,
+                    "machine_type": vm.machine_type,
+                    "disk_size": vm.disk_size,
+                }
+
+            # Load addons from database (normalized)
+            addons = db.query(Addon).filter(Addon.project_id == row.id).all()
+            config_dict["addons"] = {}
+            for addon in addons:
+                if addon.category not in config_dict["addons"]:
+                    config_dict["addons"][addon.category] = {}
+                config_dict["addons"][addon.category][addon.instance_name] = {
+                    "type": addon.type,
+                    "version": addon.version,
+                    "vm": addon.vm,
+                }
+                if addon.plan:
+                    config_dict["addons"][addon.category][addon.instance_name][
+                        "plan"
+                    ] = addon.plan
 
             return config_dict
 
@@ -533,7 +564,7 @@ class ConfigLoader:
             raise ValueError(f"Empty configuration for project: {project_name}")
 
         project_dir = self.projects_dir / project_name
-        return ProjectConfig(project_name, config_dict, project_dir)
+        return ProjectConfig(project_name, config_dict, project_dir, from_db=True)
 
     def list_projects(self) -> List[str]:
         """
@@ -542,7 +573,6 @@ class ConfigLoader:
         Returns:
             Sorted list of project names
         """
-        from cli.database import get_db_session
         from sqlalchemy import Table, Column, Integer, String, MetaData
 
         db = get_db_session()

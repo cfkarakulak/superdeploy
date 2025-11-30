@@ -15,10 +15,13 @@ class OrchestratorDownCommand(BaseCommand):
     """Destroy orchestrator VM and clean up state."""
 
     def __init__(
-        self, yes: bool = False, preserve_ip: bool = False, verbose: bool = False, json_output: bool = False):
+        self,
+        yes: bool = False,
+        verbose: bool = False,
+        json_output: bool = False,
+    ):
         super().__init__(verbose=verbose, json_output=json_output)
         self.yes = yes
-        self.preserve_ip = preserve_ip
 
     def execute(self) -> None:
         """Execute down command."""
@@ -43,8 +46,6 @@ class OrchestratorDownCommand(BaseCommand):
         # Confirm destruction
         if not self._confirm_destruction(logger):
             return
-
-        self.console.print()
 
         # Load config
         zone, region = self._load_config(shared_dir, logger)
@@ -86,17 +87,16 @@ class OrchestratorDownCommand(BaseCommand):
         else:
             self.console.print("  [dim]No VMs found[/dim]")
 
-        # Check for Static IP (if not preserving)
-        if not self.preserve_ip:
-            result = subprocess.run(
-                "gcloud compute addresses list --filter='name:orchestrator-*' --format='value(name)' 2>/dev/null",
-                shell=True,
-                capture_output=True,
-                text=True,
-            )
+        # Static IP will be destroyed
+        result = subprocess.run(
+            "gcloud compute addresses list --filter='name:orchestrator-*' --format='value(name)' 2>/dev/null",
+            shell=True,
+            capture_output=True,
+            text=True,
+        )
 
-            if result.returncode == 0 and result.stdout.strip():
-                self.console.print("  Static IP")
+        if result.returncode == 0 and result.stdout.strip():
+            self.console.print("  Static IP")
 
         # Always show network resources
         self.console.print("  VPC Network & Firewall Rules")
@@ -112,6 +112,7 @@ class OrchestratorDownCommand(BaseCommand):
             end="",
         )
         answer = input().strip().lower()
+        self.console.print()  # Add newline after user input
         confirmed = answer in ["y", "yes"]
 
         if not confirmed:
@@ -151,10 +152,13 @@ class OrchestratorDownCommand(BaseCommand):
         # Step 3: Local Files Cleanup
         self._cleanup_local_files(logger, shared_dir)
 
+        # Step 4: Database Cleanup
+        self._cleanup_database(logger)
+
     def _cleanup_gcp_resources(self, logger, zone: str, region: str) -> None:
-        """Clean up GCP resources."""
+        """Clean up GCP resources - HARD RESET."""
         if logger:
-            logger.step("[1/3] GCP Resource Cleanup")
+            logger.step("[1/4] GCP Resource Cleanup")
         self.console.print("  [dim]✓ Configuration loaded[/dim]")
 
         vms_deleted = 0
@@ -179,38 +183,53 @@ class OrchestratorDownCommand(BaseCommand):
                     if len(parts) >= 2:
                         vm_name, vm_zone = parts[0], parts[1]
                         result = subprocess.run(
-                            f"gcloud compute instances delete {vm_name} --zone={vm_zone} --quiet",
+                            f"gcloud compute instances delete {vm_name} --zone={vm_zone} --quiet 2>&1",
                             shell=True,
                             capture_output=True,
+                            text=True,
                         )
-                        if result.returncode == 0:
-                            vms_deleted += 1
+                        if (
+                            result.returncode == 0
+                            or "not found" in result.stderr.lower()
+                        ):
+                            if "not found" not in result.stderr.lower():
+                                vms_deleted += 1
 
-        # Delete External IP (unless --preserve-ip flag is set)
-        if not self.preserve_ip:
-            result = subprocess.run(
-                "gcloud compute addresses list --filter='name:orchestrator-*' --format='value(name,region)' 2>/dev/null",
-                shell=True,
-                capture_output=True,
-                text=True,
-            )
+        # Wait for VMs to terminate
+        if vms_deleted > 0:
+            import time
 
-            if result.returncode == 0 and result.stdout.strip():
-                lines = result.stdout.strip().split("\n")
-                for line in lines:
-                    if line.strip():
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            ip_name, ip_region = parts[0], parts[1]
-                            result = subprocess.run(
-                                f"gcloud compute addresses delete {ip_name} --region={ip_region} --quiet",
-                                shell=True,
-                                capture_output=True,
-                            )
-                            if result.returncode == 0:
+            time.sleep(5)
+
+        # Delete External IP (always delete)
+        result = subprocess.run(
+            "gcloud compute addresses list --filter='name:orchestrator-*' --format='value(name,region)' 2>/dev/null",
+            shell=True,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split("\n")
+            for line in lines:
+                if line.strip():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        ip_name, ip_region = parts[0], parts[1]
+                        result = subprocess.run(
+                            f"gcloud compute addresses delete {ip_name} --region={ip_region} --quiet 2>&1",
+                            shell=True,
+                            capture_output=True,
+                            text=True,
+                        )
+                        if (
+                            result.returncode == 0
+                            or "not found" in result.stderr.lower()
+                        ):
+                            if "not found" not in result.stderr.lower():
                                 ips_deleted += 1
 
-        # Delete Firewall Rules
+        # Delete Firewall Rules - HARD RESET
         result = subprocess.run(
             "gcloud compute firewall-rules list --filter='network:superdeploy-network' --format='value(name)' 2>/dev/null",
             shell=True,
@@ -224,14 +243,21 @@ class OrchestratorDownCommand(BaseCommand):
                 rule = rule.strip()
                 if rule:
                     result = subprocess.run(
-                        f"gcloud compute firewall-rules delete {rule} --quiet",
+                        f"gcloud compute firewall-rules delete {rule} --quiet 2>&1",
                         shell=True,
                         capture_output=True,
+                        text=True,
                     )
-                    if result.returncode == 0:
-                        firewalls_deleted += 1
+                    if result.returncode == 0 or "not found" in result.stderr.lower():
+                        if "not found" not in result.stderr.lower():
+                            firewalls_deleted += 1
 
-        # Delete Subnet
+        # Wait for firewall rules to be deleted
+        import time
+
+        time.sleep(2)
+
+        # Delete Subnet - HARD RESET
         result = subprocess.run(
             f"gcloud compute networks subnets delete superdeploy-network-subnet --region={region} --quiet 2>&1",
             shell=True,
@@ -239,17 +265,28 @@ class OrchestratorDownCommand(BaseCommand):
             text=True,
         )
         if result.returncode == 0 or "not found" in result.stderr.lower():
-            subnets_deleted += 1
+            if "not found" not in result.stderr.lower():
+                subnets_deleted += 1
 
-        # Delete Network
-        result = subprocess.run(
-            "gcloud compute networks delete superdeploy-network --quiet 2>&1",
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0 or "not found" in result.stderr.lower():
-            networks_deleted += 1
+        # Wait for subnet to be deleted
+        time.sleep(2)
+
+        # Delete Network - HARD RESET with retries
+        for attempt in range(3):
+            result = subprocess.run(
+                "gcloud compute networks delete superdeploy-network --quiet 2>&1",
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                networks_deleted += 1
+                break
+            elif "not found" in result.stderr.lower():
+                break
+            elif "in use" in result.stderr.lower() and attempt < 2:
+                time.sleep(3)
+                continue
 
         # Show summary
         resources = []
@@ -272,9 +309,9 @@ class OrchestratorDownCommand(BaseCommand):
             self.console.print("  [dim]✓ No GCP resources found[/dim]")
 
     def _cleanup_terraform_state(self, logger, shared_dir: Path) -> None:
-        """Clean up Terraform state."""
+        """Clean up Terraform state - HARD RESET."""
         if logger:
-            logger.step("[2/3] Terraform State Cleanup")
+            logger.step("[2/4] Terraform State Cleanup")
 
         terraform_dir = shared_dir / "terraform"
         workspace_found = workspace_exists("orchestrator")
@@ -288,18 +325,33 @@ class OrchestratorDownCommand(BaseCommand):
                 capture_output=True,
             )
 
+            # HARD RESET: Force delete workspace
+            result = subprocess.run(
+                ["terraform", "workspace", "delete", "-force", "orchestrator"],
+                cwd=terraform_dir,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode == 0:
+                self.console.print("  [dim]✓ Terraform workspace force deleted[/dim]")
+            else:
+                self.console.print(
+                    "  [yellow]⚠ Workspace delete warning: continuing anyway[/yellow]"
+                )
+
             # Remove the workspace directory
             terraform_state_dir = terraform_dir / "terraform.tfstate.d" / "orchestrator"
             if terraform_state_dir.exists():
                 shutil.rmtree(terraform_state_dir)
-                self.console.print("  [dim]✓ Terraform workspace cleaned[/dim]")
+                self.console.print("  [dim]✓ Terraform state directory removed[/dim]")
         else:
             self.console.print("  [dim]✓ No Terraform workspace found[/dim]")
 
     def _cleanup_local_files(self, logger, shared_dir: Path) -> None:
         """Clean up local files."""
         if logger:
-            logger.step("[3/3] Local Files Cleanup")
+            logger.step("[3/4] Local Files Cleanup")
 
         # Delete state.yml
         state_file = shared_dir / "orchestrator" / "state.yml"
@@ -321,13 +373,25 @@ class OrchestratorDownCommand(BaseCommand):
 
         self.console.print("  [dim]✓ Local files cleaned[/dim]")
 
+    def _cleanup_database(self, logger) -> None:
+        """Clean up database state for orchestrator."""
+        if logger:
+            logger.step("[4/4] Database Cleanup")
+
+        from cli.sync import clear_actual_state
+
+        clear_actual_state("orchestrator")
+
+        if logger:
+            logger.log("✓ Database state cleared")
+        self.console.print("  [dim]✓ Database state cleared[/dim]")
+
 
 @click.command(name="orchestrator:down")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-@click.option("--preserve-ip", is_flag=True, help="Keep static IP (don't delete)")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
-def orchestrator_down(yes, preserve_ip, verbose, json_output):
+def orchestrator_down(yes, verbose, json_output):
     """Destroy orchestrator VM and clean up state"""
-    cmd = OrchestratorDownCommand(yes=yes, preserve_ip=preserve_ip, verbose=verbose, json_output=json_output)
+    cmd = OrchestratorDownCommand(yes=yes, verbose=verbose, json_output=json_output)
     cmd.run()

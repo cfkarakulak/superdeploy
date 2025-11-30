@@ -95,8 +95,8 @@ class StatusCommand(ProjectCommand):
             try:
                 # Try local path first (if running from code directory)
                 config = self.config_service.get_raw_config(self.project_name)
-                apps_config = config.get("apps", {})
-                app_config = apps_config.get(self.app_filter, {})
+                apps = config.get("apps", {})
+                app_config = apps.get(self.app_filter, {})
                 app_path = app_config.get("path")
 
                 if app_path:
@@ -109,29 +109,8 @@ class StatusCommand(ProjectCommand):
                         Path(os.path.expanduser(app_path)).expanduser().resolve()
                     )
 
-                    # Try original path first
+                    # Load marker from configured path - no fallbacks
                     marker = MarkerManager.load_marker(expanded_path)
-                    if not marker or not marker.processes:
-                        # Try alternative paths (common code locations)
-                        alt_paths = [
-                            Path.home()
-                            / "Desktop"
-                            / "cheapa.io"
-                            / "code"
-                            / self.app_filter,
-                            Path.home() / "code" / self.app_filter,
-                            Path("/Users")
-                            / os.getenv("USER", "")
-                            / "code"
-                            / self.app_filter,
-                        ]
-
-                        for alt_path in alt_paths:
-                            if alt_path.exists():
-                                marker = MarkerManager.load_marker(alt_path)
-                                if marker and marker.processes:
-                                    break
-
                     if marker and marker.processes:
                         for process_name, process_def in marker.processes.items():
                             processes_dict[process_name] = {

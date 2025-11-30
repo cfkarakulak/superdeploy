@@ -7,7 +7,7 @@ Used by 25+ commands that need project config access.
 
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from cli.core.config_loader import ConfigLoader
+from cli.core.config_loader import ProjectConfig
 from cli.core.addon_instance import AddonInstance, AddonAttachment
 from cli.constants import (
     DEFAULT_SSH_KEY_PATH,
@@ -20,48 +20,141 @@ from cli.constants import (
 
 class ConfigService:
     """
-    Centralized configuration management service.
+    Centralized DB-based configuration management service.
 
     Responsibilities:
-    - Load and cache project configs
+    - Load and cache project configs from database
     - App configuration queries
     - VM configuration queries
     - Project validation
+
+    ALL DATA FROM DATABASE - NO FILE OPERATIONS
     """
 
     def __init__(self, project_root: Path):
         self.project_root = project_root
-        self.projects_dir = project_root / "projects"
-        self.config_loader = ConfigLoader(self.projects_dir)
         self._config_cache: Dict[str, Any] = {}
 
     def load_project_config(self, project_name: str, force_reload: bool = False):
         """
-        Load project configuration with caching.
+        Load project configuration from database with caching.
 
         Args:
             project_name: Project name
-            force_reload: Force reload from disk
+            force_reload: Force reload from database
 
         Returns:
-            ProjectConfig object
+            ProjectConfig object built from database
 
         Raises:
             FileNotFoundError: If project not found
             ValueError: If config invalid
         """
         if project_name not in self._config_cache or force_reload:
+            # Load from database ONLY - no file fallback
+            from cli.database import get_db_session, Project
+
+            db = get_db_session()
             try:
-                config = self.config_loader.load_project(project_name)
-                self._config_cache[project_name] = config
-            except FileNotFoundError:
-                raise FileNotFoundError(
-                    f"Project '{project_name}' not found\n"
-                    f"Available projects: {', '.join(self.list_projects())}\n"
-                    f"Or run: superdeploy {project_name}:init"
+                db_project = (
+                    db.query(Project).filter(Project.name == project_name).first()
                 )
 
+                if not db_project:
+                    raise FileNotFoundError(
+                        f"Project '{project_name}' not found in database\n"
+                        f"Available projects: {', '.join(self.list_projects())}\n"
+                        f"Or run: superdeploy {project_name}:init"
+                    )
+
+                # Build config from database
+                config_dict = self._build_config_from_db(db_project, db)
+
+                # Convert to ProjectConfig object
+                config = ProjectConfig(project_name, config_dict, from_db=True)
+                self._config_cache[project_name] = config
+
+            finally:
+                db.close()
+
         return self._config_cache[project_name]
+
+    def _build_config_from_db(self, db_project, db) -> Dict[str, Any]:
+        """Build config dictionary from database records."""
+        from cli.database import App, Addon, VM
+
+        # Base config
+        config = {
+            "project": {
+                "name": db_project.name,
+                "description": db_project.description or f"{db_project.name} project",
+                "domain": db_project.domain,
+            },
+            "gcp": {
+                "project_id": db_project.gcp_project,
+                "region": db_project.gcp_region or DEFAULT_GCP_REGION,
+                "zone": db_project.gcp_zone or DEFAULT_GCP_ZONE,
+            },
+            "github": {
+                "organization": db_project.github_org,
+            },
+            "ssh": {
+                "key_path": db_project.ssh_key_path or DEFAULT_SSH_KEY_PATH,
+                "public_key_path": db_project.ssh_public_key_path
+                or DEFAULT_SSH_PUBLIC_KEY_PATH,
+                "user": db_project.ssh_user or DEFAULT_SSH_USER,
+            },
+            "docker": {
+                "registry": db_project.docker_registry or "docker.io",
+                "organization": db_project.docker_organization,
+            },
+            "network": {
+                "vpc_subnet": db_project.vpc_subnet or "10.1.0.0/16",
+                "docker_subnet": db_project.docker_subnet or "172.30.0.0/24",
+            },
+            "ssl": {
+                "email": db_project.ssl_email,
+            },
+        }
+
+        # Apps
+        apps = {}
+        db_apps = db.query(App).filter(App.project_id == db_project.id).all()
+        for app in db_apps:
+            apps[app.name] = {
+                "path": app.path,
+                "vm": app.vm or "app",
+                "port": app.port,
+            }
+        config["apps"] = apps
+
+        # VMs
+        vms = {}
+        db_vms = db.query(VM).filter(VM.project_id == db_project.id).all()
+        for vm in db_vms:
+            vms[vm.role] = {
+                "count": vm.count,
+                "machine_type": vm.machine_type,
+                "disk_size": vm.disk_size,
+            }
+        config["vms"] = vms
+
+        # Addons - group by category
+        addons = {}
+        db_addons = db.query(Addon).filter(Addon.project_id == db_project.id).all()
+        for addon in db_addons:
+            if addon.category not in addons:
+                addons[addon.category] = {}
+
+            addons[addon.category][addon.instance_name] = {
+                "type": addon.type,
+                "version": addon.version,
+                "vm": addon.vm,
+                "plan": addon.plan,
+            }
+        config["addons"] = addons
+
+        return config
 
     def get_raw_config(self, project_name: str) -> Dict[str, Any]:
         """
@@ -217,12 +310,20 @@ class ConfigService:
 
     def list_projects(self) -> List[str]:
         """
-        List all available projects.
+        List all available projects from database ONLY.
 
         Returns:
             List of project names
         """
-        return self.config_loader.list_projects()
+        from cli.database import get_db_session, Project
+
+        db = get_db_session()
+        try:
+            projects = db.query(Project.name).all()
+            project_names = [p.name for p in projects]
+            return sorted(project_names)
+        finally:
+            db.close()
 
     def list_apps(self, project_name: str) -> List[str]:
         """

@@ -147,16 +147,40 @@ class GenerateCommand(ProjectCommand):
             )
             if not project:
                 self.console.print(
-                    f"[red]❌ Project '{self.project_name}' not found in database![/red]"
+                    f"[red] Project '{self.project_name}' not found in database![/red]"
                 )
                 self.console.print(
                     "[yellow]Run first:[/yellow] Create project via dashboard or CLI"
                 )
                 return
 
-            self.console.print("[dim]✓ Loaded config from database[/dim]")
+            self.console.print("[dim]  ✓ Loaded config from database[/dim]")
 
             # Build config dict from database
+            # Load apps and addons from normalized tables
+            from cli.database import App, Addon
+
+            apps_dict = {}
+            apps = db.query(App).filter(App.project_id == project.id).all()
+            for app in apps:
+                apps_dict[app.name] = {
+                    "path": app.path,
+                    "vm": app.vm,
+                    "port": app.port,
+                    "repo": app.repo,
+                }
+
+            addons_dict = {}
+            addons = db.query(Addon).filter(Addon.project_id == project.id).all()
+            for addon in addons:
+                if addon.category not in addons_dict:
+                    addons_dict[addon.category] = {}
+                addons_dict[addon.category][addon.instance_name] = {
+                    "type": addon.type,
+                    "version": addon.version,
+                    "vm": addon.vm,
+                }
+
             config = {
                 "project": {
                     "name": project.name,
@@ -171,13 +195,13 @@ class GenerateCommand(ProjectCommand):
                     "registry": project.docker_registry,
                     "organization": project.docker_organization,
                 },
-                "apps": project.apps_config or {},
-                "addons": project.addons_config or {},
+                "apps": apps_dict,
+                "addons": addons_dict,
             }
 
             # Validate apps
             if not config.get("apps"):
-                self.console.print("[red]❌ No apps defined in database![/red]")
+                self.console.print("[red] No apps defined in database![/red]")
                 return
         finally:
             db.close()
@@ -187,7 +211,7 @@ class GenerateCommand(ProjectCommand):
 
         # Check if secrets exist in database
         if not secret_mgr.has_secrets():
-            self.console.print("\n[red]❌ No secrets found in database![/red]")
+            self.console.print("\n[red]✗ No secrets found in database![/red]")
             self.console.print(
                 f"[yellow]Run first:[/yellow] superdeploy {self.project_name}:init"
             )
@@ -198,27 +222,38 @@ class GenerateCommand(ProjectCommand):
             return
 
         # Verify secrets exist
-        self.console.print("\n[dim]✓ Secrets verified in database[/dim]")
+        self.console.print("\n[dim]  ✓ Secrets verified in database[/dim]")
 
         # Filter apps
         apps_to_generate = config["apps"]
         if self.app:
             if self.app not in apps_to_generate:
-                self.console.print(f"[red]❌ App not found: {self.app}[/red]")
+                self.console.print(f"[red] App not found: {self.app}[/red]")
                 return
             apps_to_generate = {self.app: apps_to_generate[self.app]}
 
         self.console.print(
-            f"\n[bold cyan]📝 Generating for {len(apps_to_generate)} app(s)...[/bold cyan]\n"
+            f"\n[dim]Generating for {len(apps_to_generate)} app(s)...[/dim]\n"
         )
 
         # Generate for each app
         for app_name, app_config in apps_to_generate.items():
-            self.console.print(f"[cyan]{app_name}:[/cyan]")
+            self.console.print(f"[bold cyan]{app_name}:[/bold cyan]")
 
-            # Get app type from config (default: python)
-            app_type = app_config.get("type", "python")
-            self.console.print(f"  Type: {app_type}")
+            # Get app path first (needed for auto-detection)
+            app_path_str = app_config.get("path")
+            if app_path_str:
+                app_path = Path(app_path_str).expanduser().resolve()
+            else:
+                app_path = None
+
+            # Get app type: config > auto-detect > default
+            app_type = WorkflowGenerator.get_or_detect_app_type(
+                app_config, app_path if app_path and app_path.exists() else Path(".")
+            )
+            self.console.print(
+                f"  [dim]Type: {app_type} {'(auto-detected)' if 'type' not in app_config else ''}[/dim]"
+            )
 
             # 2. Create superdeploy marker (multi-process mode)
             vm_role = app_config.get("vm", "app")
@@ -263,7 +298,7 @@ class GenerateCommand(ProjectCommand):
             # Note: Marker file (superdeploy) will be created by GitHub Actions workflow
             # This allows dashboard-based deployments without local app repos
             proc_names = ", ".join(processes.keys())
-            self.console.print(f"  Processes: {proc_names}")
+            self.console.print(f"  [dim]Processes: {proc_names}[/dim]")
 
             # Store processes in config for workflow generation
             app_config["processes"] = processes
@@ -271,7 +306,7 @@ class GenerateCommand(ProjectCommand):
             # 3. Get app secrets (merged)
             app_secrets = secret_mgr.get_app_secrets(app_name)
             secret_count = len(app_secrets)
-            self.console.print(f"  Secrets: {secret_count}")
+            self.console.print(f"  [dim]Secrets: {secret_count}[/dim]")
 
             # 4. Generate GitHub workflow with dynamic secret injection
             # Send secret keys as list to avoid Jinja2 parsing issues
@@ -279,9 +314,7 @@ class GenerateCommand(ProjectCommand):
 
             # Debug: Print first 3 keys
             if secret_keys:
-                self.console.print(
-                    f"  [dim]Sample secrets (first 3): {', '.join(secret_keys[:3])}[/dim]"
-                )
+                self.console.print(f"  [dim]Sample: {', '.join(secret_keys[:3])}[/dim]")
 
             workflow_config = WorkflowConfig(
                 project=self.project_name,
@@ -296,47 +329,22 @@ class GenerateCommand(ProjectCommand):
 
             github_workflow = WorkflowGenerator.generate_workflow(workflow_config)
 
-            # Get app path from apps table (normalized)
-            from cli.database import get_db_session
-            from sqlalchemy import text as sql_text
-
-            db = get_db_session()
-            app_path = None
-            try:
-                result = db.execute(
-                    sql_text("""
-                        SELECT path FROM apps 
-                        WHERE project_id = (SELECT id FROM projects WHERE name = :project)
-                        AND name = :app
-                    """),
-                    {"project": self.project_name, "app": app_name},
-                )
-                row = result.fetchone()
-                if row and row[0]:
-                    app_path = Path(row[0]).expanduser().resolve()
-            finally:
-                db.close()
-
-            # Fallback to apps_config if not in apps table (backward compatibility)
-            if not app_path:
-                app_path_str = app_config.get("path")
-                if app_path_str:
-                    app_path = Path(app_path_str).expanduser().resolve()
-
-            if not app_path:
+            # Get app path from apps table
+            app_path_str = app_config.get("path")
+            if not app_path_str:
                 self.console.print(
-                    f"  [red]❌ App '{app_name}' has no path configured![/red]"
+                    f"  [red] App '{app_name}' has no path configured![/red]"
                 )
-                self.console.print(
-                    "  [yellow]Please add path to apps table or apps_config[/yellow]"
-                )
+                self.console.print("  [yellow]Please add path to apps table[/yellow]")
                 continue
+
+            app_path = Path(app_path_str).expanduser().resolve()
 
             if not app_path.exists():
                 self.console.print(
-                    f"  [yellow]⚠[/yellow] App path does not exist: {app_path}"
+                    f"  [yellow][/yellow] App path does not exist: {app_path}"
                 )
-                self.console.print("  [dim]Creating directory structure...[/dim]")
+                self.console.print("[dim]Creating directory structure...[/dim]")
                 app_path.mkdir(parents=True, exist_ok=True)
 
             # Save workflow to app repository
@@ -344,7 +352,7 @@ class GenerateCommand(ProjectCommand):
             github_dir.mkdir(parents=True, exist_ok=True)
             workflow_file = github_dir / "deploy.yml"
             workflow_file.write_text(github_workflow)
-            self.console.print(f"  [green]✓[/green] Workflow saved to: {workflow_file}")
+            self.console.print(f"  [dim]✓ Workflow: {workflow_file}[/dim]")
 
             # Sync processes to database
             from cli.database import get_db_session
@@ -402,16 +410,20 @@ class GenerateCommand(ProjectCommand):
             self.console.print()
 
         # Summary
-        self.console.print("\n[green]✅ Generation complete![/green]")
-        self.console.print("\n[bold]📝 Next steps:[/bold]")
-        self.console.print("\n1. Setup GitHub runners on VMs:")
-        self.console.print(f"   [red]superdeploy {self.project_name}:up[/red]")
-        self.console.print("\n2. Commit to app repos:")
-        self.console.print("   [dim]cd <app-repo>[/dim]")
-        self.console.print("   [dim]git add superdeploy .github/[/dim]")
-        self.console.print('   [dim]git commit -m "Add SuperDeploy config"[/dim]')
-        self.console.print("   [dim]git push origin production[/dim]")
-        self.console.print("\n3. GitHub Actions will automatically deploy!")
+        self.console.print("[green]✓ Generation complete![/green]")
+        self.console.print("\n[bold]Next steps:[/bold]")
+        self.console.print()
+        self.console.print("  [dim]1. Setup GitHub runners on VMs:[/dim]")
+        self.console.print(f"     [cyan]superdeploy {self.project_name}:up[/cyan]")
+        self.console.print()
+        self.console.print("  [dim]2. Commit to app repos:[/dim]")
+        self.console.print("     [dim]cd <app-repo>[/dim]")
+        self.console.print("     [dim]git add superdeploy .github/[/dim]")
+        self.console.print('     [dim]git commit -m "Add SuperDeploy config"[/dim]')
+        self.console.print("     [dim]git push origin production[/dim]")
+        self.console.print()
+        self.console.print("  [dim]3. GitHub Actions will automatically deploy![/dim]")
+        self.console.print()
 
 
 @click.command(name="generate")

@@ -77,7 +77,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.commands import (
     init,
-    logs,
     run_cmd,
     deploy,
     restart,
@@ -120,6 +119,9 @@ from cli.commands.addons import (
     addons_detach,
 )
 from cli.commands.vars import vars_clear, vars_sync
+from cli.commands.migrate import migrate
+from cli.commands.db_reset import db_reset
+from cli.commands.gcp import gcp_group
 
 console = Console()
 
@@ -192,7 +194,11 @@ def handle_cli_errors(func):
             e.show()
             sys.exit(e.exit_code)
         except KeyboardInterrupt:
-            console.print("\n\n[yellow]⚠️  Operation cancelled by user[/yellow]")
+            console.print("\n")
+            console.print("=" * 80)
+            console.print("[yellow]⚠️  Operation Cancelled[/yellow]")
+            console.print("=" * 80)
+            console.print()
             sys.exit(130)
         except Exception as e:
             # Unexpected errors
@@ -232,12 +238,26 @@ class NamespacedGroup(click.RichGroup):
             # Dynamic namespace resolution for project commands
             namespace, sub_cmd = cmd_name.split(":", 1)
 
-            # Check if sub_cmd has another colon (e.g., "config:set", "domains:add")
-            # This handles: cheapa:config:set, cheapa:domains:add
+            # Check if sub_cmd has another colon (e.g., "config:set", "domains:add", "sync:export")
+            # This handles: cheapa:config:set, cheapa:domains:add, cheapa:sync:export
             if ":" in sub_cmd:
-                # Second-level namespace (e.g., config:set, domains:add)
-                # These are already registered commands, just inject project
+                # Second-level namespace (e.g., config:set, domains:add, sync:export)
+                # First try registered commands
                 base_command = super().get_command(ctx, sub_cmd)
+
+                # If not registered, check project_commands and command_map
+                if base_command is None and sub_cmd in [
+                    "sync:export",
+                    "sync:import",
+                ]:
+                    from cli.commands import sync
+
+                    nested_command_map = {
+                        "sync:export": sync.sync_export,
+                        "sync:import": sync.sync_import,
+                    }
+                    base_command = nested_command_map.get(sub_cmd)
+
                 if base_command:
                     import functools
 
@@ -267,6 +287,10 @@ class NamespacedGroup(click.RichGroup):
                 "scale",
                 "metrics",
                 "ps",
+                "logs",
+                "sync",
+                "sync:export",
+                "sync:import",
             ]
 
             if base_command is None and sub_cmd in project_commands:
@@ -278,6 +302,8 @@ class NamespacedGroup(click.RichGroup):
                     status,
                     scale,
                     metrics,
+                    logs,
+                    sync,
                 )
                 from cli.commands.validate import validate_project
 
@@ -291,6 +317,10 @@ class NamespacedGroup(click.RichGroup):
                     "scale": scale.scale,
                     "metrics": metrics.metrics,
                     "ps": ps,
+                    "logs": logs.logs,
+                    "sync": sync.sync,
+                    "sync:export": sync.sync_export,
+                    "sync:import": sync.sync_import,
                 }
                 base_command = command_map.get(sub_cmd)
 
@@ -345,17 +375,19 @@ def cli(ctx: click.Context) -> None:
 
     \b
     Daily Workflow:
-      git push origin production  # Auto-deploy!
-      superdeploy logs -a api -f  # Watch logs
-      superdeploy run api "cmd"   # Run commands
-      superdeploy ps              # View app processes
-      superdeploy scale api=3     # Scale replicas
+      git push origin production    # Auto-deploy!
+      superdeploy <project>:logs    # View logs (Loki)
+      superdeploy run api "cmd"     # Run commands
+      superdeploy ps                # View app processes
+      superdeploy <project>:scale api=3  # Scale replicas
 
     \b
     Namespaced Commands (project-specific operations):
       superdeploy <project>:up              # Deploy infrastructure
       superdeploy <project>:down            # Destroy infrastructure
       superdeploy <project>:plan            # Show deployment changes
+      superdeploy <project>:logs            # View logs via Loki
+      superdeploy <project>:logs -a api -f  # Stream API logs (real-time)
       superdeploy <project>:config:set KEY=VAL # Set config variable
       superdeploy <project>:domains:add app.com # Add domain
       superdeploy <project>:ps              # View app processes & replicas
@@ -375,7 +407,7 @@ def cli(ctx: click.Context) -> None:
 cli.add_command(init.init)
 # NOTE: Project-specific commands use namespaced syntax: <project>:command
 # Examples: cheapa:up, cheapa:down, cheapa:plan, cheapa:validate, cheapa:status, cheapa:metrics, etc.
-cli.add_command(logs.logs)
+# NOTE: logs command moved to namespaced syntax: <project>:logs
 cli.add_command(run_cmd.run)
 cli.add_command(deploy.deploy)
 cli.add_command(restart.restart)
@@ -424,6 +456,11 @@ cli.add_command(vars_clear)
 cli.add_command(vars_sync)
 # Register dashboard commands
 cli.add_command(dashboard_start)
+# Register database commands
+cli.add_command(click.command("db:migrate")(migrate))
+cli.add_command(click.command("db:reset")(db_reset))
+# Register GCP commands
+cli.add_command(gcp_group)
 
 
 @handle_cli_errors

@@ -2,10 +2,13 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pathlib import Path
 from database import get_db
-from models import Project, App
-import json
+from models import Project, App, VM, Addon
 from cache import get_cache, set_cache, CACHE_TTL
+
+# Get superdeploy root directory
+SUPERDEPLOY_ROOT = Path(__file__).parent.parent.parent.resolve()
 
 router = APIRouter(tags=["projects"])
 
@@ -49,10 +52,52 @@ class WizardProjectCreate(BaseModel):
     secrets: SecretsCreate
 
 
+class AppResponse(BaseModel):
+    id: int
+    name: str
+    repo: Optional[str] = None
+    owner: Optional[str] = None
+    type: Optional[str] = None
+    vm: Optional[str] = None
+    port: Optional[int] = None
+    internal_port: Optional[int] = None
+    external_port: Optional[int] = None
+    path: Optional[str] = None
+    services: Optional[dict] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AddonResponse(BaseModel):
+    id: int
+    instance_name: str
+    category: str
+    type: str
+    version: Optional[str] = None
+    vm: Optional[str] = None
+    plan: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class VMResponse(BaseModel):
+    id: int
+    role: str
+    count: Optional[int] = 1
+    machine_type: Optional[str] = "e2-medium"
+    disk_size: Optional[int] = 20
+
+    class Config:
+        from_attributes = True
+
+
 class ProjectResponse(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
+    project_type: Optional[str] = "application"
     domain: Optional[str] = None
     ssl_email: Optional[str] = None
     github_org: Optional[str] = None
@@ -66,10 +111,28 @@ class ProjectResponse(BaseModel):
     docker_organization: Optional[str] = None
     vpc_subnet: Optional[str] = None
     docker_subnet: Optional[str] = None
-    vms: Optional[dict] = None
-    apps_config: Optional[dict] = None
-    addons_config: Optional[dict] = None
     actual_state: Optional[dict] = None
+    apps: List[AppResponse] = []
+    addons: List[AddonResponse] = []
+    vms: List[VMResponse] = []
+
+    class Config:
+        from_attributes = True
+
+
+class OrchestratorResponse(BaseModel):
+    """Response for orchestrator status."""
+
+    id: int
+    name: str
+    project_type: str
+    gcp_project: Optional[str] = None
+    gcp_region: Optional[str] = None
+    actual_state: Optional[dict] = None
+    deployed: bool = False
+    ip: Optional[str] = None
+    grafana_url: Optional[str] = None
+    prometheus_url: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -77,9 +140,37 @@ class ProjectResponse(BaseModel):
 
 @router.get("/", response_model=List[ProjectResponse])
 def list_projects(db: Session = Depends(get_db)):
-    """List all projects from database (excluding orchestrator)."""
-    projects = db.query(Project).filter(Project.name != "orchestrator").all()
+    """List all application projects from database (excludes orchestrator)."""
+    projects = db.query(Project).filter(Project.project_type == "application").all()
     return projects
+
+
+@router.get("/orchestrator", response_model=OrchestratorResponse)
+def get_orchestrator(db: Session = Depends(get_db)):
+    """Get orchestrator status and access info."""
+    orchestrator = (
+        db.query(Project).filter(Project.project_type == "orchestrator").first()
+    )
+    if not orchestrator:
+        raise HTTPException(status_code=404, detail="Orchestrator not configured")
+
+    # Extract deployment info
+    actual_state = orchestrator.actual_state or {}
+    deployed = actual_state.get("deployed", False)
+    ip = actual_state.get("orchestrator_ip")
+
+    return {
+        "id": orchestrator.id,
+        "name": orchestrator.name,
+        "project_type": orchestrator.project_type,
+        "gcp_project": orchestrator.gcp_project,
+        "gcp_region": orchestrator.gcp_region,
+        "actual_state": actual_state,
+        "deployed": deployed,
+        "ip": ip,
+        "grafana_url": f"http://{ip}:3000" if ip else None,
+        "prometheus_url": f"http://{ip}:9090" if ip else None,
+    }
 
 
 @router.post("/", response_model=ProjectResponse)
@@ -311,7 +402,7 @@ async def teardown_project(project_name: str, db: Session = Depends(get_db)):
                 "--yes",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
+                cwd=str(SUPERDEPLOY_ROOT),
             )
 
             if process.stdout:
@@ -335,7 +426,7 @@ async def teardown_project(project_name: str, db: Session = Depends(get_db)):
 
             if process.returncode == 0:
                 # Delete from database after successful teardown
-                db.query(Secret).filter(Secret.project_name == project_name).delete()
+                db.query(Secret).filter(Secret.project_id == project.id).delete()
                 db.query(App).filter(App.project_id == project.id).delete()
                 db.delete(project)
                 db.commit()
@@ -360,7 +451,7 @@ def delete_project(project_name: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Delete associated secrets
-    db.query(Secret).filter(Secret.project_name == project_name).delete()
+    db.query(Secret).filter(Secret.project_id == project.id).delete()
 
     # Delete associated apps (cascade will handle this, but explicit is better)
     db.query(App).filter(App.project_id == project.id).delete()
@@ -407,94 +498,89 @@ def create_project_from_wizard(
     if existing:
         # Delete existing apps and secrets to recreate
         db.query(App).filter(App.project_id == existing.id).delete()
-        db.query(Secret).filter(Secret.project_name == payload.project_name).delete()
+        db.query(Secret).filter(Secret.project_id == existing.id).delete()
         db.flush()
 
-    # Build apps configuration
-    apps_config = {}
+    # Create App records in database
     for app in payload.apps:
         # Parse repo owner/name
         repo_parts = app.repo.split("/")
         owner = repo_parts[0] if len(repo_parts) > 0 else payload.github_org
         repo_name = repo_parts[1] if len(repo_parts) > 1 else app.repo
 
-        apps_config[app.name] = {
-            "repo": app.repo,
-            "port": app.port,
-            "vm": "app",
-            "type": "python",  # Default type, can be changed in database
-            "path": f"~/repos/{owner}/{repo_name}",  # Required for marker file reading
-        }
+        # Check if app already exists
+        existing_app = (
+            db.query(App)
+            .filter(
+                App.project_id == db_project.id if existing else None,
+                App.name == app.name,
+            )
+            .first()
+        )
 
-    # Build addons configuration
-    addons_config = {}
+        if existing_app:
+            # Update existing app
+            existing_app.repo = app.repo
+            existing_app.owner = owner
+            existing_app.path = f"~/repos/{owner}/{repo_name}"
+            existing_app.vm = "app"
+            existing_app.port = app.port
+        else:
+            # Create new app
+            new_app = App(
+                project_id=db_project.id
+                if existing
+                else None,  # Will be set after project creation
+                name=app.name,
+                repo=app.repo,
+                owner=owner,
+                path=f"~/repos/{owner}/{repo_name}",
+                vm="app",
+                port=app.port,
+            )
+            db.add(new_app)
+
+    # Create Addon records
     addons_dict = payload.addons.dict()
+    addon_records = []
 
-    # First instance of each category should always be named "primary"
-    if addons_dict.get("databases"):
-        addons_config["databases"] = {}
-        for addon in addons_dict["databases"]:
-            addons_config["databases"]["primary"] = {
-                "type": addon,
-                "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest"),
-                "vm": ADDON_VERSIONS.get(addon, {}).get("vm", "core"),
-            }
-
-    if addons_dict.get("queues"):
-        addons_config["queues"] = {}
-        for addon in addons_dict["queues"]:
-            addons_config["queues"]["primary"] = {
-                "type": addon,
-                "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest"),
-                "vm": ADDON_VERSIONS.get(addon, {}).get("vm", "core"),
-            }
-
-    if addons_dict.get("caches"):
-        addons_config["caches"] = {}
-        for addon in addons_dict["caches"]:
-            addons_config["caches"]["primary"] = {
-                "type": addon,
-                "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest"),
-                "vm": ADDON_VERSIONS.get(addon, {}).get("vm", "core"),
-            }
-
-    if addons_dict.get("proxy"):
-        addons_config["proxy"] = {}
-        for addon in addons_dict["proxy"]:
-            addons_config["proxy"]["primary"] = {
-                "type": addon,
-                "version": ADDON_VERSIONS.get(addon, {}).get("version", "latest"),
-                "vm": ADDON_VERSIONS.get(addon, {}).get("vm", "core"),
-            }
-
-    # Build VMs configuration (default setup)
-    vms_config = {
-        "core": {
-            "count": 1,
-            "machine_type": "e2-medium",
-            "disk_size": 20,
-            "services": [],
-        },
-        "app": {
-            "count": 1,
-            "machine_type": "e2-medium",
-            "disk_size": 30,
-            "services": [],
-        },
-    }
+    # Process each addon category
+    for category, addon_types in addons_dict.items():
+        if addon_types:  # If category has addons selected
+            for addon_type in addon_types:
+                addon_records.append(
+                    {
+                        "name": "primary",  # First instance always named "primary"
+                        "category": category,
+                        "type": addon_type,
+                        "version": ADDON_VERSIONS.get(addon_type, {}).get(
+                            "version", "latest"
+                        ),
+                        "vm": ADDON_VERSIONS.get(addon_type, {}).get("vm", "core"),
+                    }
+                )
 
     # CRITICAL: Add Caddy as "primary" instance (required for app routing)
     # Even if user didn't select proxy in wizard, Caddy must be added
-    if "proxy" not in addons_config:
-        addons_config["proxy"] = {}
+    has_caddy = any(
+        a["category"] == "proxy" and a["type"] == "caddy" for a in addon_records
+    )
+    if not has_caddy:
+        addon_records.append(
+            {
+                "name": "primary",
+                "category": "proxy",
+                "type": "caddy",
+                "version": "2-alpine",
+                "vm": "core",
+            }
+        )
 
-    # Only add Caddy if it doesn't already exist
-    if "primary" not in addons_config["proxy"]:
-        addons_config["proxy"]["primary"] = {
-            "type": "caddy",
-            "version": "2-alpine",
-            "vm": "core",  # Default to core VM
-        }
+    # Create VM records (default setup)
+    vm_records = [
+        {"role": "core", "count": 1, "machine_type": "e2-medium", "disk_size": 20},
+        {"role": "app", "count": 1, "machine_type": "e2-medium", "disk_size": 30},
+    ]
 
     # Determine GCP zone from region
     gcp_zone = f"{payload.gcp_region}-a" if payload.gcp_region else "us-central1-a"
@@ -517,10 +603,21 @@ def create_project_from_wizard(
         db_project.docker_organization = payload.secrets.docker_org
         db_project.vpc_subnet = "10.1.0.0/16"
         db_project.docker_subnet = "172.30.0.0/24"
-        db_project.vms = vms_config
-        db_project.apps_config = apps_config
-        db_project.addons_config = addons_config
         db.flush()
+
+        # Delete old VMs and Addons, create new ones
+        db.query(VM).filter(VM.project_id == db_project.id).delete()
+        db.query(Addon).filter(Addon.project_id == db_project.id).delete()
+
+        # Create new VM records
+        for vm_data in vm_records:
+            vm = VM(project_id=db_project.id, **vm_data)
+            db.add(vm)
+
+        # Create new Addon records
+        for addon_data in addon_records:
+            addon = Addon(project_id=db_project.id, **addon_data)
+            db.add(addon)
     else:
         # Create new project
         db_project = Project(
@@ -539,12 +636,23 @@ def create_project_from_wizard(
             docker_organization=payload.secrets.docker_org,
             vpc_subnet="10.1.0.0/16",
             docker_subnet="172.30.0.0/24",
-            vms=vms_config,
-            apps_config=apps_config,
-            addons_config=addons_config,
         )
         db.add(db_project)
         db.flush()
+
+        # Update app records with project_id
+        for app in db.query(App).filter(App.project_id == None).all():
+            app.project_id = db_project.id
+
+        # Create VM records
+        for vm_data in vm_records:
+            vm = VM(project_id=db_project.id, **vm_data)
+            db.add(vm)
+
+        # Create Addon records
+        for addon_data in addon_records:
+            addon = Addon(project_id=db_project.id, **addon_data)
+            db.add(addon)
 
     # Create shared secrets in database
     shared_secrets = {
@@ -621,7 +729,7 @@ async def deploy_project_wizard(project_name: str, db: Session = Depends(get_db)
                 f"{project_name}:up",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
+                cwd=str(SUPERDEPLOY_ROOT),
             )
 
             if process.stdout:
@@ -663,10 +771,8 @@ async def deploy_project_wizard(project_name: str, db: Session = Depends(get_db)
 
 
 @router.get("/{project_name}/vms")
-def get_project_vms(project_name: str):
-    """Get VMs for a project + orchestrator IP from CLI (with Redis cache)."""
-    import subprocess
-
+def get_project_vms(project_name: str, db: Session = Depends(get_db)):
+    """Get VMs for a project from database (with Redis cache)."""
     # Check cache first
     cache_key = f"vms:{project_name}"
     cached = get_cache(cache_key)
@@ -674,52 +780,64 @@ def get_project_vms(project_name: str):
         return cached
 
     try:
-        # Get project VMs
-        result = subprocess.run(
-            ["./superdeploy.sh", f"{project_name}:status", "--json"],
-            capture_output=True,
-            text=True,
-            cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
-        )
+        # Get project from database
+        project = db.query(Project).filter(Project.name == project_name).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
 
-        if result.returncode != 0:
-            raise HTTPException(
-                status_code=500, detail=f"Failed to get VMs: {result.stderr}"
-            )
+        # Get VMs from actual_state if available
+        vms = []
+        if project.actual_state and isinstance(project.actual_state, dict):
+            state_vms = project.actual_state.get("vms", {})
+            for vm_name, vm_data in state_vms.items():
+                vms.append(
+                    {
+                        "name": vm_name,
+                        "role": vm_data.get("role", "unknown"),
+                        "ip": vm_data.get("external_ip", "N/A"),
+                        "zone": vm_data.get("zone", project.gcp_zone),
+                        "machine_type": vm_data.get("machine_type", "e2-medium"),
+                        "status": vm_data.get("status", "unknown"),
+                    }
+                )
 
-        project_data = json.loads(result.stdout)
+        # If no VMs in actual_state, return VM definitions from database
+        if not vms:
+            db_vms = db.query(VM).filter(VM.project_id == project.id).all()
+            for vm in db_vms:
+                vms.append(
+                    {
+                        "name": f"{project_name}-{vm.role}",
+                        "role": vm.role,
+                        "ip": "N/A",
+                        "zone": project.gcp_zone or "N/A",
+                        "machine_type": vm.machine_type or "e2-medium",
+                        "status": "not_deployed",
+                    }
+                )
 
         # Get orchestrator IP
-        orch_result = subprocess.run(
-            ["./superdeploy.sh", "orchestrator:status", "--json"],
-            capture_output=True,
-            text=True,
-            cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
-        )
-
+        orchestrator = db.query(Project).filter(Project.name == "orchestrator").first()
         orchestrator_ip = None
-        if orch_result.returncode == 0:
-            orch_data = json.loads(orch_result.stdout)
-            if orch_data.get("vms"):
-                # Find orchestrator VM
-                for vm in orch_data["vms"]:
-                    if vm.get("name") == "orchestrator":
-                        orchestrator_ip = vm.get("ip")
-                        break
+        if orchestrator and orchestrator.actual_state:
+            state = orchestrator.actual_state
+            if isinstance(state, dict):
+                # First check direct orchestrator_ip key
+                if "orchestrator_ip" in state:
+                    orchestrator_ip = state["orchestrator_ip"]
+                # Fallback: check vms key
+                elif "vms" in state:
+                    for vm_name, vm_data in state["vms"].items():
+                        orchestrator_ip = vm_data.get("external_ip")
+                        if orchestrator_ip:
+                            break
+                # Fallback: check vm key (single VM)
+                elif "vm" in state and isinstance(state["vm"], dict):
+                    orchestrator_ip = state["vm"].get("external_ip")
 
         response = {
             "orchestrator_ip": orchestrator_ip,
-            "vms": [
-                {
-                    "name": vm.get("name"),
-                    "role": vm.get("role"),
-                    "ip": vm.get("ip"),
-                    "zone": vm.get("zone"),
-                    "machine_type": vm.get("machine_type"),
-                    "status": vm.get("status", "unknown"),
-                }
-                for vm in project_data.get("vms", [])
-            ],
+            "vms": vms,
         }
 
         # Cache for 5 minutes
@@ -727,7 +845,5 @@ def get_project_vms(project_name: str):
 
         return response
 
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse CLI output: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")

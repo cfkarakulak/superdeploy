@@ -1,0 +1,20 @@
+services:
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: superdeploy-promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yaml
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./promtail-config.yaml:/etc/promtail/config.yaml:ro
+      - ./data:/tmp
+    ports:
+      - "9080:9080"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+

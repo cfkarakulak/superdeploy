@@ -146,187 +146,69 @@ class CLIExecutor:
                     + "\n"
                 )
 
-                from cli.database import get_db_session, Secret
+                from cli.database import get_db_session, Secret, Project
 
                 db = get_db_session()
                 try:
+                    # Get project ID first
+                    db_project = (
+                        db.query(Project).filter(Project.name == project_name).first()
+                    )
+                    if not db_project:
+                        raise Exception(
+                            f"Project '{project_name}' not found in database"
+                        )
+                    project_id = db_project.id
+
+                    # Helper function to update or create secret
+                    def upsert_secret(key: str, value: str):
+                        secret = (
+                            db.query(Secret)
+                            .filter(
+                                Secret.project_id == project_id,
+                                Secret.app_id.is_(None),
+                                Secret.key == key,
+                            )
+                            .first()
+                        )
+                        if secret:
+                            secret.value = value
+                        else:
+                            db.add(
+                                Secret(
+                                    project_id=project_id,
+                                    app_id=None,
+                                    key=key,
+                                    value=value,
+                                    source="shared",
+                                )
+                            )
+
                     # Docker credentials
                     if secrets.get("docker_org"):
-                        secret = (
-                            db.query(Secret)
-                            .filter(
-                                Secret.project_name == project_name,
-                                Secret.app_name.is_(None),
-                                Secret.key == "DOCKER_ORG",
-                            )
-                            .first()
-                        )
-                        if secret:
-                            secret.value = secrets["docker_org"]
-                        else:
-                            db.add(
-                                Secret(
-                                    project_name=project_name,
-                                    key="DOCKER_ORG",
-                                    value=secrets["docker_org"],
-                                    source="shared",
-                                )
-                            )
+                        upsert_secret("DOCKER_ORG", secrets["docker_org"])
 
                     if secrets.get("docker_username"):
-                        secret = (
-                            db.query(Secret)
-                            .filter(
-                                Secret.project_name == project_name,
-                                Secret.app_name.is_(None),
-                                Secret.key == "DOCKER_USERNAME",
-                            )
-                            .first()
-                        )
-                        if secret:
-                            secret.value = secrets["docker_username"]
-                        else:
-                            db.add(
-                                Secret(
-                                    project_name=project_name,
-                                    key="DOCKER_USERNAME",
-                                    value=secrets["docker_username"],
-                                    source="shared",
-                                )
-                            )
+                        upsert_secret("DOCKER_USERNAME", secrets["docker_username"])
 
                     if secrets.get("docker_token"):
-                        secret = (
-                            db.query(Secret)
-                            .filter(
-                                Secret.project_name == project_name,
-                                Secret.app_name.is_(None),
-                                Secret.key == "DOCKER_TOKEN",
-                            )
-                            .first()
-                        )
-                        if secret:
-                            secret.value = secrets["docker_token"]
-                        else:
-                            db.add(
-                                Secret(
-                                    project_name=project_name,
-                                    key="DOCKER_TOKEN",
-                                    value=secrets["docker_token"],
-                                    source="shared",
-                                )
-                            )
+                        upsert_secret("DOCKER_TOKEN", secrets["docker_token"])
 
                     if secrets.get("github_token"):
-                        secret = (
-                            db.query(Secret)
-                            .filter(
-                                Secret.project_name == project_name,
-                                Secret.app_name.is_(None),
-                                Secret.key == "REPOSITORY_TOKEN",
-                            )
-                            .first()
-                        )
-                        if secret:
-                            secret.value = secrets["github_token"]
-                        else:
-                            db.add(
-                                Secret(
-                                    project_name=project_name,
-                                    key="REPOSITORY_TOKEN",
-                                    value=secrets["github_token"],
-                                    source="shared",
-                                )
-                            )
+                        upsert_secret("REPOSITORY_TOKEN", secrets["github_token"])
 
                     # SMTP credentials (optional)
                     if secrets.get("smtp_host"):
-                        secret = (
-                            db.query(Secret)
-                            .filter(
-                                Secret.project_name == project_name,
-                                Secret.app_name.is_(None),
-                                Secret.key == "SMTP_HOST",
-                            )
-                            .first()
-                        )
-                        if secret:
-                            secret.value = secrets["smtp_host"]
-                        else:
-                            db.add(
-                                Secret(
-                                    project_name=project_name,
-                                    key="SMTP_HOST",
-                                    value=secrets["smtp_host"],
-                                    source="shared",
-                                )
-                            )
+                        upsert_secret("SMTP_HOST", secrets["smtp_host"])
 
                     if secrets.get("smtp_port"):
-                        secret = (
-                            db.query(Secret)
-                            .filter(
-                                Secret.project_name == project_name,
-                                Secret.app_name.is_(None),
-                                Secret.key == "SMTP_PORT",
-                            )
-                            .first()
-                        )
-                        if secret:
-                            secret.value = str(secrets["smtp_port"])
-                        else:
-                            db.add(
-                                Secret(
-                                    project_name=project_name,
-                                    key="SMTP_PORT",
-                                    value=str(secrets["smtp_port"]),
-                                    source="shared",
-                                )
-                            )
+                        upsert_secret("SMTP_PORT", str(secrets["smtp_port"]))
 
                     if secrets.get("smtp_user"):
-                        secret = (
-                            db.query(Secret)
-                            .filter(
-                                Secret.project_name == project_name,
-                                Secret.app_name.is_(None),
-                                Secret.key == "SMTP_USER",
-                            )
-                            .first()
-                        )
-                        if secret:
-                            secret.value = secrets["smtp_user"]
-                        else:
-                            db.add(
-                                Secret(
-                                    project_name=project_name,
-                                    key="SMTP_USER",
-                                    value=secrets["smtp_user"],
-                                    source="shared",
-                                )
-                            )
+                        upsert_secret("SMTP_USER", secrets["smtp_user"])
 
                     if secrets.get("smtp_password"):
-                        secret = (
-                            db.query(Secret)
-                            .filter(
-                                Secret.project_name == project_name,
-                                Secret.app_name.is_(None),
-                                Secret.key == "SMTP_PASSWORD",
-                            )
-                            .first()
-                        )
-                        if secret:
-                            secret.value = secrets["smtp_password"]
-                        else:
-                            db.add(
-                                Secret(
-                                    project_name=project_name,
-                                    key="SMTP_PASSWORD",
-                                    value=secrets["smtp_password"],
-                                    source="shared",
-                                )
-                            )
+                        upsert_secret("SMTP_PASSWORD", secrets["smtp_password"])
 
                     db.commit()
                 finally:

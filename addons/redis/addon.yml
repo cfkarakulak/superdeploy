@@ -81,7 +81,7 @@ resources:
 
 # Health check
 healthcheck:
-  command: "redis-cli --no-auth-warning -a ${REDIS_PASSWORD} ping"
+  command: 'redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping'
   interval: 10s
   timeout: 5s
   retries: 5

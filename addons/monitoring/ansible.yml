@@ -17,6 +17,7 @@
     - "{{ addon_deployment_path }}/grafana/provisioning/datasources"
     - "{{ addon_deployment_path }}/grafana/provisioning/dashboards"
     - "{{ addon_deployment_path }}/grafana/provisioning/dashboards/json"
+    - "{{ addon_deployment_path }}/loki"
 
 - name: Initialize monitoring projects list
   set_fact:
@@ -58,6 +59,14 @@
 
 # Config will be copied after container starts
 
+- name: Generate Loki configuration
+  template:
+    src: "{{ addon_path }}/templates/loki-config.yaml.j2"
+    dest: "{{ addon_deployment_path }}/loki/loki-config.yaml"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group | default(superdeploy_user) }}"
+    mode: '0644'
+
 - name: Generate Grafana datasource provisioning
   template:
     src: "{{ addon_path }}/grafana-datasources.yml.j2"
@@ -67,6 +76,7 @@
     mode: '0644'
   vars:
     projects: "{{ monitoring_projects | default([]) }}"
+    loki_enabled: true
 
 - name: Generate Grafana dashboard provisioning
   template:
@@ -132,7 +142,7 @@
       
       # Phase 1: Stop via Docker Compose (graceful shutdown with remove)
       echo "Phase 1: Stopping containers via Docker Compose..."
-      docker compose --project-name "{{ project_name }}-{{ addon_type }}-{{ addon_name }}" down --remove-orphans --volumes --timeout 30 2>&1 || true
+      docker compose --project-name "{{ project_name }}-{{ addon_type }}-{{ addon_name }}" down --timeout 30 2>&1 || true
       
       # Phase 2: Wait for Docker daemon to sync
       echo "Phase 2: Waiting for Docker daemon to sync..."
@@ -230,14 +240,28 @@
   become: yes
   changed_when: false
 
-- name: Start {{ addon_name }} services (with explicit project name)
-  community.docker.docker_compose_v2:
-    project_name: "{{ project_name }}-{{ addon_type }}-{{ addon_name }}"
-    project_src: "{{ addon_deployment_path }}"
-    state: present
-    pull: "always"
-    recreate: "always"
-    remove_orphans: false  # Don't remove other addons on same network
+- name: Start {{ addon_name }} services (shell - more reliable than docker_compose_v2)
+  shell:
+    cmd: |
+      cd "{{ addon_deployment_path }}"
+      echo "Starting monitoring services..."
+      docker compose pull --quiet 2>&1 || true
+      docker compose up -d --force-recreate 2>&1
+      
+      # Wait for prometheus container to be running
+      for i in {1..15}; do
+        if docker ps --filter "name=prometheus" --format "{{ '{{' }}.Status{{ '}}' }}" | grep -q "Up"; then
+          echo "✓ Prometheus is running"
+          exit 0
+        fi
+        echo "Waiting for Prometheus to start... ($i/15)"
+        sleep 2
+      done
+      
+      echo "❌ Monitoring failed to start"
+      docker compose logs 2>&1 | tail -30
+      exit 1
+    executable: /bin/bash
   become: yes
   register: monitoring_compose_result
 
@@ -292,11 +316,11 @@
   failed_when: false
   
 - name: Restart Prometheus if reload failed
-  community.docker.docker_compose_v2:
-    project_src: "{{ addon_base_path }}/{{ addon_name }}"
-    services:
-      - prometheus
-    state: restarted
+  shell:
+    cmd: |
+      cd "{{ addon_base_path }}/{{ addon_name }}"
+      docker compose restart prometheus
+    executable: /bin/bash
   become: yes
   when: 
     - prometheus_config_result.changed

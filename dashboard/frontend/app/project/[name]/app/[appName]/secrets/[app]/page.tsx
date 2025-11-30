@@ -142,7 +142,11 @@ export default function SecretsPage() {
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [syncLogs, setSyncLogs] = useState<string>("");
   const [syncing, setSyncing] = useState(false);
+  const [reloadModalOpen, setReloadModalOpen] = useState(false);
+  const [reloadLogs, setReloadLogs] = useState<string>("");
+  const [reloading, setReloading] = useState(false);
   const syncLogsEndRef = useRef<HTMLDivElement>(null);
+  const reloadLogsEndRef = useRef<HTMLDivElement>(null);
   
   // Alias modal states
   const [aliasModalOpen, setAliasModalOpen] = useState(false);
@@ -162,6 +166,12 @@ export default function SecretsPage() {
       syncLogsEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [syncLogs, syncModalOpen]);
+  
+  useEffect(() => {
+    if (reloadModalOpen && reloadLogs) {
+      reloadLogsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [reloadLogs, reloadModalOpen]);
   // Fetch app domain
   useEffect(() => {
     const fetchAppInfo = async () => {
@@ -469,6 +479,45 @@ export default function SecretsPage() {
       setSyncing(false);
     }
   };
+
+  const handleReload = async () => {
+    setReloading(true);
+    setReloadLogs("");
+    setReloadModalOpen(true);
+
+    try {
+      const response = await fetch(
+        `http://localhost:8401/api/secrets/reload/${projectName}/${appName}`,
+        { method: "POST" }
+      );
+
+      if (!response.ok) {
+        const error = await response.text();
+        setReloadLogs(prev => prev + `\nError: ${error}`);
+        return;
+      }
+
+      // Stream the logs
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value);
+          setReloadLogs(prev => prev + chunk);
+        }
+      }
+
+    } catch (err) {
+      setReloadLogs(prev => prev + `\nError: ${err instanceof Error ? err.message : "Failed to reload"}`);
+    } finally {
+      setReloading(false);
+    }
+  };
+  
   const maskValue = (value: string) => {
     return "•••";
   };
@@ -536,7 +585,15 @@ export default function SecretsPage() {
                 icon={<RefreshCw className="w-3.5 h-3.5" />}
                 className="bg-[#fed7aa]! text-[#9a3412]! hover:bg-[#fdba74]!"
               >
-                Sync Secrets
+                Sync to GitHub
+              </Button>
+              
+              <Button 
+                onClick={handleReload} 
+                icon={<RefreshCw className="w-3.5 h-3.5" />}
+                className="bg-[#dbeafe]! text-[#1e40af]! hover:bg-[#bfdbfe]!"
+              >
+                Reload Containers
               </Button>
             </div>
 
@@ -884,6 +941,54 @@ export default function SecretsPage() {
               disabled={syncing}
             >
               {syncing ? "Syncing..." : "Close"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reload Containers Dialog */}
+      <Dialog open={reloadModalOpen} onOpenChange={setReloadModalOpen}>
+        <DialogContent className="sm:max-w-[720px] w-[720px] max-w-[720px]">
+          <DialogHeader>
+            <DialogTitle>Reload Containers</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="terminal-container scrollbar-custom rounded-lg p-4 text-[13px] leading-relaxed overflow-y-auto h-[500px] max-h-[500px]">
+              {reloadLogs ? (
+                <div className="space-y-0.5">
+                  {reloadLogs.split('\n').map((line, index) => {
+                    const segments = parseAnsi(line);
+                    return (
+                      <div
+                        key={index}
+                        className="px-2 py-0.5 rounded whitespace-pre-wrap break-all"
+                      >
+                        {segments.map((segment, segIndex) => (
+                          <span key={segIndex} style={segmentToStyle(segment)}>
+                            {segment.text}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })}
+                  <div ref={reloadLogsEndRef} />
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-[#8b8b8b]">
+                  <div className="text-center">
+                    <p>Initializing reload...</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setReloadModalOpen(false)}
+              disabled={reloading}
+            >
+              {reloading ? "Reloading..." : "Close"}
             </Button>
           </DialogFooter>
         </DialogContent>

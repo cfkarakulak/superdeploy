@@ -3,6 +3,13 @@ resource "google_compute_network" "vpc" {
   name                    = var.network_name
   auto_create_subnetworks = false
   project                 = var.project_id
+  
+  # Prevent accidental recreation - import existing if it exists
+  lifecycle {
+    ignore_changes = [
+      # Ignore changes to these fields to prevent unnecessary recreations
+    ]
+  }
 }
 
 # Subnet
@@ -15,6 +22,13 @@ resource "google_compute_subnetwork" "subnet" {
 
   # Enable private Google access for Cloud APIs
   private_ip_google_access = true
+  
+  # Prevent accidental recreation
+  lifecycle {
+    ignore_changes = [
+      # Ignore changes to these fields to prevent unnecessary recreations
+    ]
+  }
 }
 
 # Firewall: Allow SSH from admin IPs (to all VM roles)
@@ -95,28 +109,31 @@ resource "google_compute_firewall" "allow_internal" {
     protocol = "icmp"
   }
 
-  source_ranges = [var.subnet_cidr]
+  # Allow from own subnet + orchestrator subnet (for VPC peering)
+  source_ranges = var.orchestrator_subnet != "" ? [var.subnet_cidr, var.orchestrator_subnet] : [var.subnet_cidr]
 
-  description = "Allow all internal communication within VPC"
+  description = "Allow all internal communication within VPC and from orchestrator via VPC peering"
 }
 
-# Firewall: Allow database and queue services - already covered by allow_internal
-# This rule is redundant but kept for documentation
-resource "google_compute_firewall" "allow_services" {
-  name    = "${var.network_name}-allow-services"
+# Firewall: Allow addon services (database, cache, queue) between VMs
+# Cross-VM container communication works via iptables SNAT rule that converts
+# Docker container IPs (172.x) to host VPC IP (10.x) for VPC traffic.
+# This rule is applied by Ansible docker role during VM setup.
+resource "google_compute_firewall" "allow_addon_services" {
+  name    = "${var.network_name}-allow-addon-services"
   network = google_compute_network.vpc.name
   project = var.project_id
 
   allow {
     protocol = "tcp"
-    ports    = ["5432", "5672"]  # PostgreSQL, RabbitMQ
+    ports    = ["5432", "5672", "6379", "27017", "9200"]  # PostgreSQL, RabbitMQ, Redis, MongoDB, Elasticsearch
   }
 
-  # Allow from any VM role to any VM role (internal network)
-  source_tags = var.vm_roles
-  target_tags = var.vm_roles
+  # Allow from VPC subnet only (secure - no public access)
+  source_ranges = [var.subnet_cidr]
+  target_tags   = var.vm_roles
 
-  description = "Allow database and queue access between VMs (covered by allow_internal)"
+  description = "Allow addon services between VMs via VPC internal IPs"
 }
 
 # Firewall: RabbitMQ Management UI - PUBLIC ACCESS (for testing)
@@ -235,6 +252,25 @@ resource "google_compute_firewall" "allow_node_exporter" {
   target_tags   = var.vm_roles
 
   description = "Allow node_exporter metrics (9100) for Prometheus monitoring from orchestrator subnet"
+}
+
+# Firewall: Allow Loki log ingestion (port 3100)
+# Allows Promtail agents on project VMs to send logs to Loki (orchestrator)
+resource "google_compute_firewall" "allow_loki_ingestion" {
+  name    = "${var.network_name}-allow-loki-ingestion"
+  network = google_compute_network.vpc.name
+  project = var.project_id
+
+  allow {
+    protocol = "tcp"
+    ports    = ["3100"]  # Loki
+  }
+
+  # Allow from orchestrator subnet (bidirectional - both projects can send logs)
+  source_ranges = var.orchestrator_subnet != "" ? [var.orchestrator_subnet, var.subnet_cidr] : ["0.0.0.0/0"]
+  target_tags   = concat(var.vm_roles, ["orchestrator"])
+
+  description = "Allow Loki log ingestion (3100) from Promtail agents via VPC peering"
 }
 
 # VPC Peering: Project VPC <-> Orchestrator VPC

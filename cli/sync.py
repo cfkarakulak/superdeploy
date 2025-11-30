@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from cli.database import get_db_session, Project
 from sqlalchemy.orm.attributes import flag_modified
+from rich.console import Console
 
 
 def sync_vms(project_name: str, vms: List[Dict[str, str]]) -> None:
@@ -25,11 +26,14 @@ def sync_vms(project_name: str, vms: List[Dict[str, str]]) -> None:
             {'name': 'app-0', 'external_ip': '5.6.7.8', 'internal_ip': '10.1.0.4'}
         ])
     """
+    console = Console()
     db = get_db_session()
     try:
         project = db.query(Project).filter(Project.name == project_name).first()
         if not project:
-            print(f"Warning: Project '{project_name}' not found in database")
+            console.print(
+                f"[yellow]Warning: Project '{project_name}' not found in database[/yellow]"
+            )
             return
 
         actual_state = project.actual_state or {}
@@ -48,7 +52,7 @@ def sync_vms(project_name: str, vms: List[Dict[str, str]]) -> None:
         flag_modified(project, "actual_state")  # Force SQLAlchemy to detect JSON change
         db.commit()
 
-        print(f"✓ Synced {len(vms)} VMs to database")
+        console.print(f"[dim]  ✓ Synced {len(vms)} VMs to database[/dim]")
     finally:
         db.close()
 
@@ -76,6 +80,7 @@ def sync_addon_status(
         sync_addon_status('cheapa', 'databases.primary', 'running',
                          container='cheapa_postgres_primary', vm='core-0', health='healthy')
     """
+    console = Console()
     db = get_db_session()
     try:
         project = db.query(Project).filter(Project.name == project_name).first()
@@ -120,6 +125,7 @@ def sync_app_status(
     Example:
         sync_app_status('cheapa', 'api', 'running', containers=2)
     """
+    console = Console()
     db = get_db_session()
     try:
         project = db.query(Project).filter(Project.name == project_name).first()
@@ -154,6 +160,7 @@ def clear_actual_state(project_name: str) -> None:
     Example:
         clear_actual_state('cheapa')
     """
+    console = Console()
     db = get_db_session()
     try:
         project = db.query(Project).filter(Project.name == project_name).first()
@@ -170,7 +177,9 @@ def clear_actual_state(project_name: str) -> None:
         flag_modified(project, "actual_state")  # Force SQLAlchemy to detect JSON change
         db.commit()
 
-        print(f"✓ Cleared actual state for project '{project_name}'")
+        console.print(
+            f"[dim]  ✓ Cleared actual state for project '{project_name}'[/dim]"
+        )
     finally:
         db.close()
 
@@ -183,6 +192,7 @@ def sync_vm_removed(project_name: str, vm_name: str) -> None:
         project_name: Name of the project
         vm_name: Name of the VM to mark as terminated
     """
+    console = Console()
     db = get_db_session()
     try:
         project = db.query(Project).filter(Project.name == project_name).first()

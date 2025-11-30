@@ -21,7 +21,6 @@ class OrchestratorUpCommand(BaseCommand):
     def __init__(
         self,
         skip_terraform: bool = False,
-        preserve_ip: bool = False,
         addon: str = None,
         tags: str = None,
         verbose: bool = False,
@@ -30,7 +29,6 @@ class OrchestratorUpCommand(BaseCommand):
     ):
         super().__init__(verbose=verbose, json_output=json_output)
         self.skip_terraform = skip_terraform
-        self.preserve_ip = preserve_ip
         self.addon = addon
         self.tags = tags
         self.force = force
@@ -57,7 +55,6 @@ class OrchestratorUpCommand(BaseCommand):
                     project_root,
                     shared_dir,
                     self.skip_terraform,
-                    self.preserve_ip,
                     self.addon,
                     self.tags,
                     self.verbose,
@@ -81,11 +78,6 @@ class OrchestratorUpCommand(BaseCommand):
     "--skip-terraform", is_flag=True, help="Skip Terraform (VM already exists)"
 )
 @click.option(
-    "--preserve-ip",
-    is_flag=True,
-    help="Preserve static IP on destroy (for production)",
-)
-@click.option(
     "--addon",
     help="Deploy only specific addon(s), comma-separated (e.g. --addon monitoring,caddy)",
 )
@@ -104,13 +96,10 @@ class OrchestratorUpCommand(BaseCommand):
     help="Force deployment (ignore state, re-run everything)",
 )
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
-def orchestrator_up(
-    skip_terraform, preserve_ip, addon, tags, verbose, force, json_output
-):
+def orchestrator_up(skip_terraform, addon, tags, verbose, force, json_output):
     """Deploy orchestrator VM with monitoring (runs Terraform + Ansible by default)"""
     cmd = OrchestratorUpCommand(
         skip_terraform=skip_terraform,
-        preserve_ip=preserve_ip,
         addon=addon,
         tags=tags,
         verbose=verbose,
@@ -126,7 +115,6 @@ def _deploy_orchestrator(
     project_root,
     shared_dir,
     skip_terraform,
-    preserve_ip,
     addon,
     tags,
     verbose,
@@ -163,80 +151,98 @@ def _deploy_orchestrator(
         if logger:
             logger.log("Detecting changes...")
 
-        # Simple state check for orchestrator (different from project state management)
-        state = orch_config.state_manager.load_state()
-        is_deployed = state.get("deployed", False)
-        vm_status = state.get("vm", {}).get("status", "")
+        # Load state from database
+        from cli.database import get_db_session, Project
+        import hashlib
 
-        # If VM is only provisioned (not fully configured), continue with Ansible
-        if vm_status == "provisioned":
-            if logger:
-                logger.log("")
-            if logger:
-                logger.log("VM is provisioned but not fully configured.")
-            if logger:
-                logger.log("Continuing with Ansible configuration...")
-            if logger:
-                logger.log("")
-            # Don't skip, continue to Ansible
-        elif is_deployed:
-            # Compare config hash (same as project state manager)
-            last_applied = state.get("last_applied", {})
-            last_hash = last_applied.get("config_hash", "")
-            current_hash = orch_config.state_manager._calculate_config_hash()
+        db = get_db_session()
+        try:
+            db_project = (
+                db.query(Project).filter(Project.name == "orchestrator").first()
+            )
 
-            if current_hash == last_hash:
+            if not db_project:
                 if logger:
-                    logger.success("No changes detected. Infrastructure is up to date.")
-                if logger:
-                    logger.log("")
-                if logger:
-                    logger.log("Current state:")
-                if logger:
-                    logger.log(f"  • VM deployed: {is_deployed}")
-                if logger:
-                    logger.log(f"  • IP: {state.get('orchestrator_ip', 'N/A')}")
-                if logger:
-                    logger.log("")
-                if logger:
-                    logger.log("To force re-deployment, use: --force")
-                if logger:
-                    logger.log("To deploy specific addon, use: --addon <name>")
-                return
+                    logger.log("First deployment detected (no database record)")
             else:
-                if logger:
-                    logger.log("")
-                if logger:
-                    logger.log("Detected changes in configuration")
+                state = db_project.actual_state or {}
+                is_deployed = state.get("deployed", False)
+                vm_status = state.get("vm", {}).get("status", "")
 
-                # Try to determine what changed
-                last_config = state.get("config", {})
+                # If VM is only provisioned (not fully configured), continue with Ansible
+                if vm_status == "provisioned":
+                    if logger:
+                        logger.log("")
+                    if logger:
+                        logger.log("VM is provisioned but not fully configured.")
+                    if logger:
+                        logger.log("Continuing with Ansible configuration...")
+                    if logger:
+                        logger.log("")
+                    # Don't skip, continue to Ansible
+                elif is_deployed:
+                    # Compare config hash
+                    last_hash = state.get("config_hash", "")
+                    current_config_str = str(orch_config.config)
+                    current_hash = hashlib.sha256(
+                        current_config_str.encode()
+                    ).hexdigest()
 
-                # Check VM config changes
-                if orch_config.config.get("vm") != last_config.get("vm"):
-                    if logger:
-                        logger.log("  • VM configuration changed")
-                    skip_terraform = False  # Need terraform
-                else:
-                    if logger:
-                        logger.log("  • VM configuration unchanged")
-                    skip_terraform = True  # Skip terraform
+                    if current_hash == last_hash:
+                        if logger:
+                            logger.success(
+                                "No changes detected. Infrastructure is up to date."
+                            )
+                        if logger:
+                            logger.log("")
+                        if logger:
+                            logger.log("Current state:")
+                        if logger:
+                            logger.log(f"  • VM deployed: {is_deployed}")
+                        if logger:
+                            logger.log(f"  • IP: {state.get('orchestrator_ip', 'N/A')}")
+                        if logger:
+                            logger.log("")
+                        if logger:
+                            logger.log("To force re-deployment, use: --force")
+                        if logger:
+                            logger.log("To deploy specific addon, use: --addon <name>")
+                        return
+                    else:
+                        if logger:
+                            logger.log("")
+                        if logger:
+                            logger.log("Detected changes in configuration")
 
-                # Check addon configs
-                if orch_config.config.get("grafana") != last_config.get("grafana"):
-                    if logger:
-                        logger.log("  • Grafana configuration changed")
-                if orch_config.config.get("prometheus") != last_config.get(
-                    "prometheus"
-                ):
-                    if logger:
-                        logger.log("  • Prometheus configuration changed")
+                        # Try to determine what changed
+                        last_config = state.get("last_config", {})
 
-                if logger:
-                    logger.log("")
-        else:
-            if logger:
-                logger.log("First deployment detected")
+                        # Check VM config changes
+                        if orch_config.config.get("vm") != last_config.get("vm"):
+                            if logger:
+                                logger.log("  • VM configuration changed")
+                            skip_terraform = False  # Need terraform
+                        else:
+                            if logger:
+                                logger.log("  • VM configuration unchanged")
+                            skip_terraform = True  # Skip terraform
+
+                        # Check addon configs
+                        if orch_config.config.get("grafana") != last_config.get(
+                            "grafana"
+                        ):
+                            if logger:
+                                logger.log("  • Grafana configuration changed")
+                        if orch_config.config.get("prometheus") != last_config.get(
+                            "prometheus"
+                        ):
+                            if logger:
+                                logger.log("  • Prometheus configuration changed")
+
+                        if logger:
+                            logger.log("")
+        finally:
+            db.close()
     elif force:
         if logger:
             logger.log("Force mode enabled, running full deployment")
@@ -268,7 +274,7 @@ def _deploy_orchestrator(
     gcp_project_id = gcp_config.get("project_id")
     if not gcp_project_id:
         if logger:
-            logger.log_error("gcp.project_id not set in shared/orchestrator/config.yml")
+            logger.log_error("gcp.project_id not set in database")
         raise SystemExit(1)
 
     ssh_key_path = ssh_config.get("public_key_path", "~/.ssh/superdeploy_deploy.pub")
@@ -321,19 +327,6 @@ def _deploy_orchestrator(
         if logger:
             logger.log("Generating terraform variables")
         tfvars = orch_config.to_terraform_vars(gcp_project_id, ssh_key_path)
-
-        # Preserve IP logic: If preserve_ip is enabled, get current IP from state
-        if preserve_ip:
-            if logger:
-                logger.log("Preserve IP mode enabled - keeping static IP")
-            current_ip = orch_config.get_ip()
-            if current_ip:
-                if logger:
-                    logger.log(f"Current IP to preserve: {current_ip}")
-                # Terraform will use existing IP address by name convention
-            else:
-                if logger:
-                    logger.log("No existing IP found, will create new one")
 
         tfvars_file = (
             project_root / "shared" / "terraform" / "orchestrator.auto.tfvars.json"
@@ -405,22 +398,47 @@ def _deploy_orchestrator(
                 logger.log(f"Available outputs: {outputs}")
             raise SystemExit(1)
 
-        # Save only IP to state (VM provisioned, but not yet configured)
+        # Save only IP to database state (VM provisioned, but not yet configured)
         # Full deployment will be marked after Ansible completes successfully
-        state = orch_config.state_manager.load_state()
-        state["orchestrator_ip"] = orchestrator_ip
-        vm_config_data = orch_config.get_vm_config()
-        state["vm"] = {
-            "name": vm_config_data.get("name", "orchestrator-main-0"),
-            "external_ip": orchestrator_ip,
-            "deployed_at": vm_config_data.get("deployed_at"),
-            "status": "provisioned",  # Not 'running' yet - Ansible pending
-            "machine_type": vm_config_data.get("machine_type"),
-            "disk_size": vm_config_data.get("disk_size"),
-            "services": vm_config_data.get("services", []),
-        }
-        state["deployed"] = False  # Not fully deployed yet
-        orch_config.state_manager.save_state(state)
+        from cli.database import get_db_session, Project
+        from datetime import datetime
+
+        db = get_db_session()
+        try:
+            db_project = (
+                db.query(Project).filter(Project.name == "orchestrator").first()
+            )
+
+            if not db_project:
+                if logger:
+                    logger.log_error(
+                        "Orchestrator not found in database. Run 'orchestrator:init' first."
+                    )
+                raise SystemExit(1)
+
+            vm_config_data = orch_config.get_vm_config()
+            state = {
+                "orchestrator_ip": orchestrator_ip,
+                "vm": {
+                    "name": vm_config_data.get("name", "orchestrator-main-0"),
+                    "external_ip": orchestrator_ip,
+                    "deployed_at": datetime.utcnow().isoformat(),
+                    "status": "provisioned",  # Not 'running' yet - Ansible pending
+                    "machine_type": vm_config_data.get("machine_type", "e2-medium"),
+                    "disk_size": vm_config_data.get("disk_size", 50),
+                    "services": vm_config_data.get("services", []),
+                },
+                "deployed": False,  # Not fully deployed yet
+            }
+
+            db_project.actual_state = state
+            db_project.updated_at = datetime.utcnow()
+            db.commit()
+
+            if logger:
+                logger.log(f"✓ State saved to database (IP: {orchestrator_ip})")
+        finally:
+            db.close()
 
         # Wait for SSH
         ssh_key = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
@@ -453,13 +471,26 @@ def _deploy_orchestrator(
         subprocess.run(["ssh-keygen", "-R", orchestrator_ip], capture_output=True)
 
     else:
-        orchestrator_ip = orch_config.get_ip()
-        if not orchestrator_ip:
-            if logger:
-                logger.log_error(
-                    "Orchestrator IP not found. Deploy with Terraform first."
-                )
-            raise SystemExit(1)
+        # Skip terraform mode - get IP from database
+        from cli.database import get_db_session, Project
+
+        db = get_db_session()
+        try:
+            db_project = (
+                db.query(Project).filter(Project.name == "orchestrator").first()
+            )
+            orchestrator_ip = None
+            if db_project and db_project.actual_state:
+                orchestrator_ip = db_project.actual_state.get("orchestrator_ip")
+
+            if not orchestrator_ip:
+                if logger:
+                    logger.log_error(
+                        "Orchestrator IP not found in database. Deploy with Terraform first."
+                    )
+                raise SystemExit(1)
+        finally:
+            db.close()
 
         # Show configuration summary with IP (skip-terraform mode)
         console.print(
@@ -563,11 +594,62 @@ ansible_python_interpreter=/usr/bin/python3
         )
 
     # Mark deployment as complete (Ansible succeeded)
-    orch_config.mark_deployed(
-        orchestrator_ip,
-        vm_config=orch_config.get_vm_config(),
-        config=orch_config.config,
-    )
+    from cli.database import get_db_session, Project
+    import hashlib
+    from datetime import datetime
+
+    db = get_db_session()
+    try:
+        db_project = db.query(Project).filter(Project.name == "orchestrator").first()
+
+        if db_project:
+            vm_config_data = orch_config.get_vm_config()
+
+            # Calculate config hash
+            current_config_str = str(orch_config.config)
+            config_hash = hashlib.sha256(current_config_str.encode()).hexdigest()
+
+            state = {
+                "deployed": True,
+                "orchestrator_ip": orchestrator_ip,
+                "config_hash": config_hash,
+                "last_config": orch_config.config,
+                "deployed_at": datetime.utcnow().isoformat(),
+                "vm": {
+                    "name": vm_config_data.get("name", "orchestrator-main-0"),
+                    "external_ip": orchestrator_ip,
+                    "status": "running",
+                    "machine_type": vm_config_data.get("machine_type", "e2-medium"),
+                    "disk_size": vm_config_data.get("disk_size", 50),
+                    "services": ["prometheus", "grafana"],
+                },
+            }
+
+            db_project.actual_state = state
+            db_project.updated_at = datetime.utcnow()
+            db.commit()
+
+            # Log deployment activity
+            from cli.database import ActivityLog
+
+            activity = ActivityLog(
+                project_name="orchestrator",
+                action="orchestrator:up",
+                actor="cli",
+                details={
+                    "orchestrator_ip": orchestrator_ip,
+                    "vm_status": "running",
+                    "services": ["prometheus", "grafana"],
+                },
+                created_at=datetime.utcnow(),
+            )
+            db.add(activity)
+            db.commit()
+
+            if logger:
+                logger.log("✓ Deployment marked as complete in database")
+    finally:
+        db.close()
 
     # Display info and credentials (always show, regardless of verbose mode)
     secrets = orch_config.get_secrets()

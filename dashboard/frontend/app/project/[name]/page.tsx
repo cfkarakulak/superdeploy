@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ProjectHeader, PageHeader } from "@/components";
 import { Loader2, Settings, Server, Database, Network, Key, Globe, Github } from "lucide-react";
 
@@ -47,12 +47,19 @@ const shimmerStyles = `
 
 export default function ProjectConfigurationPage() {
   const params = useParams();
+  const router = useRouter();
   const projectName = params?.name as string;
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Redirect orchestrator to infrastructure route
+    if (projectName === "orchestrator") {
+      router.replace("/infrastructure/orchestrator");
+      return;
+    }
+
     const fetchProject = async () => {
       try {
         const response = await fetch(`http://localhost:8401/api/projects/${projectName}`);
@@ -72,7 +79,7 @@ export default function ProjectConfigurationPage() {
     if (projectName) {
       fetchProject();
     }
-  }, [projectName]);
+  }, [projectName, router]);
 
   if (loading) {
     return (

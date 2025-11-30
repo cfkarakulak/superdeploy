@@ -1,83 +1,121 @@
-"""Orchestrator configuration loader"""
+"""Orchestrator configuration loader - DB-based"""
 
 from pathlib import Path
 from typing import Dict, Any, Optional
-import yaml
 
 
 class OrchestratorConfig:
-    """Manages global orchestrator configuration"""
+    """Manages global orchestrator configuration - DB-based"""
 
     def __init__(self, config_path: Path):
         """
-        Initialize orchestrator config
+        Initialize orchestrator config from database
 
         Args:
-            config_path: Path to orchestrator.yml
+            config_path: Path to shared dir (legacy parameter, not used)
         """
-        self.config_path = config_path
         self.base_path = (
-            config_path.parent.parent
-        )  # shared/orchestrator/config.yml -> shared/
+            config_path.parent.parent if config_path.exists() else Path.cwd() / "shared"
+        )
         self.config = self._load_config()
-        self.raw_config = self.config  # For StateManager compatibility
+        self.raw_config = self.config
 
         # Initialize managers
         from cli.core.orchestrator_secret_manager import OrchestratorSecretManager
-        from cli.core.orchestrator_state_manager import OrchestratorStateManager
 
         self.secret_manager = OrchestratorSecretManager(self.base_path)
-        self.state_manager = OrchestratorStateManager(self.base_path)
 
     def _load_config(self) -> Dict[str, Any]:
-        """Load orchestrator configuration from YAML"""
-        if not self.config_path.exists():
-            raise FileNotFoundError(
-                f"Orchestrator config not found: {self.config_path}\n"
-                f"This file should exist in shared/orchestrator.yml"
-            )
+        """Load orchestrator configuration from database ONLY"""
+        from cli.database import get_db_session, Project, Addon
 
-        with open(self.config_path, "r") as f:
-            config = yaml.safe_load(f)
-
-        if not config:
-            raise ValueError(f"Empty orchestrator config: {self.config_path}")
-
-        # Auto-allocate subnets if not specified
-        if "network" not in config:
-            config["network"] = {}
-
-        subnet_allocated = False
-        if "docker_subnet" not in config["network"]:
-            from cli.subnet_allocator import SubnetAllocator
-
-            config["network"]["docker_subnet"] = (
-                SubnetAllocator.get_orchestrator_docker_subnet()
-            )
-            subnet_allocated = True
-
-        # Save allocated subnet back to config file for transparency
-        if subnet_allocated:
-            self._save_config(config)
-
-        return config
-
-    def _save_config(self, config: Dict[str, Any]) -> None:
-        """Save configuration back to yaml file"""
+        db = get_db_session()
         try:
-            with open(self.config_path, "w") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-        except Exception:
-            # Silently fail - not critical
-            pass
+            db_project = (
+                db.query(Project).filter(Project.name == "orchestrator").first()
+            )
+
+            if not db_project:
+                raise FileNotFoundError(
+                    "Orchestrator not found in database.\n"
+                    "Run: superdeploy orchestrator:init"
+                )
+
+            # Load addons from database
+            db_addons = db.query(Addon).filter(Addon.project_id == db_project.id).all()
+
+            # Build addons structure: {category: {instance_name: {type, version, ...}}}
+            addons = {}
+            for addon in db_addons:
+                if addon.category not in addons:
+                    addons[addon.category] = {}
+                addons[addon.category][addon.instance_name] = {
+                    "type": addon.type,
+                    "version": addon.version,
+                    "vm": addon.vm,
+                    "plan": addon.plan,
+                }
+
+            # Build config from database
+            config = {
+                "gcp": {
+                    "project_id": db_project.gcp_project,
+                    "region": db_project.gcp_region,
+                    "zone": db_project.gcp_zone,
+                },
+                "ssl": {
+                    "email": db_project.ssl_email,
+                },
+                "ssh": {
+                    "key_path": db_project.ssh_key_path or "~/.ssh/superdeploy_deploy",
+                    "public_key_path": db_project.ssh_public_key_path
+                    or "~/.ssh/superdeploy_deploy.pub",
+                    "user": db_project.ssh_user or "superdeploy",
+                },
+                "network": {
+                    "docker_subnet": db_project.docker_subnet,
+                    "vpc_subnet": db_project.vpc_subnet,
+                },
+                "vm": {
+                    "name": "orchestrator-main-0",
+                    "machine_type": "e2-medium",
+                    "disk_size": 50,
+                },
+                "addons": addons,  # Include addons from DB
+            }
+            return config
+        finally:
+            db.close()
 
     def is_deployed(self) -> bool:
-        """Check if orchestrator is already deployed by checking state.yml"""
-        return self.state_manager.is_deployed()
+        """Check if orchestrator is already deployed by checking database"""
+        from cli.database import get_db_session, Project
+
+        db = get_db_session()
+        try:
+            db_project = (
+                db.query(Project).filter(Project.name == "orchestrator").first()
+            )
+            if db_project and db_project.actual_state:
+                return db_project.actual_state.get("deployed", False)
+            return False
+        finally:
+            db.close()
 
     def get_ip(self) -> Optional[str]:
-        """Get orchestrator IP from state.yml"""
-        return self.state_manager.get_ip()
+        """Get orchestrator IP from database"""
+        from cli.database import get_db_session, Project
+
+        db = get_db_session()
+        try:
+            db_project = (
+                db.query(Project).filter(Project.name == "orchestrator").first()
+            )
+            if db_project and db_project.actual_state:
+                return db_project.actual_state.get("orchestrator_ip")
+            return None
+        finally:
+            db.close()
 
     def get_vm_config(self) -> Dict[str, Any]:
         """Get VM configuration for orchestrator"""
@@ -86,19 +124,6 @@ class OrchestratorConfig:
     def get_network_config(self) -> Dict[str, Any]:
         """Get network configuration"""
         return self.config.get("network", {})
-
-    def mark_deployed(
-        self, ip: str, vm_config: dict = None, config: dict = None
-    ) -> None:
-        """
-        Mark orchestrator as deployed and save IP to state.yml + all project secrets.yml
-
-        Args:
-            ip: External IP of orchestrator VM
-            vm_config: VM configuration details
-            config: Full configuration for change detection
-        """
-        self.state_manager.mark_deployed(ip, vm_config=vm_config, config=config)
 
     def to_terraform_vars(
         self, project_id: str, ssh_pub_key_path: str
@@ -200,6 +225,7 @@ class OrchestratorConfig:
                 "prometheus": prometheus_config,
                 "addons": addons_config,  # Include addons configuration
             },
+            "addons": addons_config,  # Also pass at top-level for Ansible compatibility
             "enabled_addons": enabled_addons,
             "addon_configs": addon_configs,
         }

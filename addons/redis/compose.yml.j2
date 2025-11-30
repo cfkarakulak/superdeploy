@@ -18,7 +18,7 @@ services:
       - "0.0.0.0:{{ PORT }}:6379"   # Redis (instance-specific port)
 {% if healthcheck and healthcheck.command is defined %}
     healthcheck:
-      test: ["CMD-SHELL", "{{ healthcheck.command }}"]
+      test: ["CMD-SHELL", '{{ healthcheck.command }}']
       interval: {{ healthcheck.interval }}
       timeout: {{ healthcheck.timeout }}
       retries: {{ healthcheck.retries }}

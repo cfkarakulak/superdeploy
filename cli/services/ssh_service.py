@@ -245,6 +245,28 @@ class SSHService:
 
         return self.execute_command(host, docker_cmd, timeout=30)
 
+    def test_connection(self, host: str, timeout: int = 10) -> bool:
+        """
+        Test SSH connection to host.
+
+        Args:
+            host: Host IP or hostname
+            timeout: Connection timeout in seconds
+
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            result = self.execute_command(
+                host=host,
+                command="echo 'connection_test'",
+                timeout=timeout,
+                capture_output=True,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
     def clean_known_hosts(self, host: str) -> None:
         """
         Remove host from SSH known_hosts file.

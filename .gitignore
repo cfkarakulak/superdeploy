@@ -130,3 +130,4 @@ shared/config/.env
 # Orchestrator secrets and state (NEVER commit!)
 shared/orchestrator/secrets.yml
 shared/orchestrator/state.yml
+shared/terraform/envs/dev/

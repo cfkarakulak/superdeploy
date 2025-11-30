@@ -353,15 +353,40 @@ class AddonsInfoCommand(ProjectCommand):
                             f"    Management: http://$HOST:{management_port}"
                         )
 
-        # Attachments
-        apps_config = config.get("apps", {})
+        # Attachments - check from secret_aliases table
+        from cli.database import get_db_session
+        from sqlalchemy import text
+
+        db = get_db_session()
         attachments = []
 
-        for app_name, app_config in apps_config.items():
-            app_attachments = self.config_service.parse_app_attachments(app_config)
-            for attachment in app_attachments:
-                if attachment.addon == self.addon:
-                    attachments.append((app_name, attachment))
+        try:
+            # Get all apps that have aliases pointing to this addon
+            result = db.execute(
+                text("""
+                    SELECT DISTINCT app_name
+                    FROM secret_aliases
+                    WHERE project_name = :project
+                    AND target_key LIKE :pattern
+                """),
+                {
+                    "project": self.project_name,
+                    "pattern": f"{instance.type}.{instance_name}.%",
+                },
+            )
+
+            for row in result.fetchall():
+                app_name = row[0]
+                # Create a simple attachment object
+                from collections import namedtuple
+
+                Attachment = namedtuple("Attachment", ["addon", "as_", "access"])
+                attachment = Attachment(
+                    addon=self.addon, as_=instance.type.upper(), access="default"
+                )
+                attachments.append((app_name, attachment))
+        finally:
+            db.close()
 
         if attachments:
             self.console.print("\n[bold]Attached To[/bold]")
@@ -485,26 +510,36 @@ class AddonsAddCommand(ProjectCommand):
                 )
                 return
 
-            addons_config = row.addons_config or {}
-
-            # Ensure category exists
-            if category not in addons_config:
-                addons_config[category] = {}
-
             # Check if already exists
-            if self.name in addons_config[category]:
+            from cli.database import Addon as AddonModel
+
+            existing = (
+                db.query(AddonModel)
+                .filter(
+                    AddonModel.project_id == row.id,
+                    AddonModel.category == category,
+                    AddonModel.instance_name == self.name,
+                )
+                .first()
+            )
+
+            if existing:
                 self.console.print(
                     f"[yellow]Addon already exists: {category}.{self.name}[/yellow]"
                 )
                 return
 
-            addons_config[category][self.name] = addon_config
-
-            db.execute(
-                projects_table.update()
-                .where(projects_table.c.name == self.project_name)
-                .values(addons_config=addons_config)
+            # Create new addon
+            new_addon = AddonModel(
+                project_id=row.id,
+                instance_name=self.name,
+                category=category,
+                type=self.addon_type,
+                version=version,
+                vm="core",  # Default VM
+                plan=self.plan,
             )
+            db.add(new_addon)
             db.commit()
 
             self.console.print(
@@ -553,49 +588,47 @@ class AddonsRemoveCommand(ProjectCommand):
         )
 
         # Load from database
-        from cli.database import get_db_session
-        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
+        from cli.database import get_db_session, Addon as AddonModel, Project
+        from sqlalchemy import text
 
         db = get_db_session()
         try:
-            metadata = MetaData()
-            projects_table = Table(
-                "projects",
-                metadata,
-                Column("id", Integer, primary_key=True),
-                Column("name", String(100)),
-                Column("addons_config", JSON),
-                Column("apps_config", JSON),
+            # Get project
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
             )
-
-            result = db.execute(
-                projects_table.select().where(
-                    projects_table.c.name == self.project_name
-                )
-            )
-            row = result.fetchone()
-
-            if not row:
+            if not project:
                 self.console.print(
                     f"[red]✗ Project '{self.project_name}' not found in database[/red]"
                 )
                 return
 
-            addons_config = row.addons_config or {}
-            apps_config = row.apps_config or {}
+            # Check if addon exists
+            addon = (
+                db.query(AddonModel)
+                .filter(
+                    AddonModel.project_id == project.id,
+                    AddonModel.category == category,
+                    AddonModel.instance_name == name,
+                )
+                .first()
+            )
 
-            # Check if exists
-            if category not in addons_config or name not in addons_config[category]:
+            if not addon:
                 self.console.print(f"[red]Addon not found: {self.addon}[/red]")
                 return
 
-            # Check if attached to any apps
-            attached_apps = []
-            for app_name, app_config in apps_config.items():
-                attachments = self.config_service.parse_app_attachments(app_config)
-                for attachment in attachments:
-                    if attachment.addon == self.addon:
-                        attached_apps.append(app_name)
+            # Check if attached to any apps (via secret_aliases)
+            result = db.execute(
+                text("""
+                    SELECT DISTINCT app_name
+                    FROM secret_aliases
+                    WHERE project_name = :project
+                    AND target_key LIKE :pattern
+                """),
+                {"project": self.project_name, "pattern": f"{addon.type}.{name}.%"},
+            )
+            attached_apps = [row[0] for row in result.fetchall()]
 
             if attached_apps:
                 self.console.print(
@@ -611,19 +644,8 @@ class AddonsRemoveCommand(ProjectCommand):
                     self.console.print("[yellow]Cancelled[/yellow]")
                     return
 
-            # Remove addon
-            del addons_config[category][name]
-
-            # Cleanup empty category
-            if not addons_config[category]:
-                del addons_config[category]
-
-            # Save to database
-            db.execute(
-                projects_table.update()
-                .where(projects_table.c.name == self.project_name)
-                .values(addons_config=addons_config)
-            )
+            # Remove addon from database
+            db.delete(addon)
             db.commit()
 
             self.console.print(
@@ -632,7 +654,7 @@ class AddonsRemoveCommand(ProjectCommand):
 
             if attached_apps:
                 self.console.print(
-                    "\n[yellow]Note: Apps still reference this addon in their config![/yellow]"
+                    "\n[yellow]Note: Apps still reference this addon in their aliases![/yellow]"
                 )
                 self.console.print("[dim]They will fail to start until updated.[/dim]")
 
@@ -677,51 +699,48 @@ class AddonsAttachCommand(ProjectCommand):
         )
 
         # Load from database
-        from cli.database import get_db_session
-        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
+        from cli.database import get_db_session, Addon as AddonModel, App, Project
+        from sqlalchemy import text
 
         db = get_db_session()
         try:
-            metadata = MetaData()
-            projects_table = Table(
-                "projects",
-                metadata,
-                Column("id", Integer, primary_key=True),
-                Column("name", String(100)),
-                Column("addons_config", JSON),
-                Column("apps_config", JSON),
+            # Get project
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
             )
-
-            result = db.execute(
-                projects_table.select().where(
-                    projects_table.c.name == self.project_name
-                )
-            )
-            row = result.fetchone()
-
-            if not row:
+            if not project:
                 self.console.print(
                     f"[red]✗ Project '{self.project_name}' not found in database[/red]"
                 )
                 return
 
-            addons_config = row.addons_config or {}
-            apps_config = row.apps_config or {}
-
             # Check if addon exists
-            if category not in addons_config or name not in addons_config[category]:
+            addon = (
+                db.query(AddonModel)
+                .filter(
+                    AddonModel.project_id == project.id,
+                    AddonModel.category == category,
+                    AddonModel.instance_name == name,
+                )
+                .first()
+            )
+
+            if not addon:
                 self.console.print(f"[red]Addon not found: {self.addon}[/red]")
                 return
 
             # Check if app exists
-            if self.app not in apps_config:
+            app = (
+                db.query(App)
+                .filter(App.project_id == project.id, App.name == self.app)
+                .first()
+            )
+
+            if not app:
                 self.console.print(f"[red]App not found: {self.app}[/red]")
                 return
 
             # Default as_var based on addon type
-            addon_config = addons_config[category][name]
-            addon_type = addon_config["type"]
-
             if not self.as_var:
                 as_var_map = {
                     "postgres": "DATABASE",
@@ -730,35 +749,58 @@ class AddonsAttachCommand(ProjectCommand):
                     "elasticsearch": "SEARCH",
                     "mongodb": "MONGO",
                 }
-                self.as_var = as_var_map.get(addon_type, addon_type.upper())
+                self.as_var = as_var_map.get(addon.type, addon.type.upper())
 
-            # Ensure addons list exists
-            if "addons" not in apps_config[self.app]:
-                apps_config[self.app]["addons"] = []
-
-            # Check if already attached
-            existing = apps_config[self.app]["addons"]
-            for attachment in existing:
-                if (
-                    isinstance(attachment, dict)
-                    and attachment.get("addon") == self.addon
-                ):
-                    self.console.print(
-                        f"[yellow]Already attached: {self.addon} to {self.app}[/yellow]"
-                    )
-                    return
-
-            # Add attachment
-            apps_config[self.app]["addons"].append(
-                {"addon": self.addon, "as": self.as_var, "access": self.access}
+            # Check if already attached (via secret_aliases)
+            result = db.execute(
+                text("""
+                    SELECT COUNT(*) FROM secret_aliases
+                    WHERE project_name = :project
+                    AND app_name = :app
+                    AND target_key LIKE :pattern
+                """),
+                {
+                    "project": self.project_name,
+                    "app": self.app,
+                    "pattern": f"{addon.type}.{name}.%",
+                },
             )
+            if result.fetchone()[0] > 0:
+                self.console.print(
+                    f"[yellow]Already attached: {self.addon} to {self.app}[/yellow]"
+                )
+                return
 
-            # Save to database
-            db.execute(
-                projects_table.update()
-                .where(projects_table.c.name == self.project_name)
-                .values(apps_config=apps_config)
-            )
+            # Create secret aliases for addon credentials
+            # This creates mappings like DATABASE_HOST -> postgres.primary.HOST
+            addon_keys = {
+                "postgres": ["HOST", "PORT", "USER", "PASSWORD", "DATABASE"],
+                "redis": ["HOST", "PORT", "PASSWORD"],
+                "rabbitmq": ["HOST", "PORT", "USER", "PASSWORD", "VHOST"],
+                "mongodb": ["HOST", "PORT", "USER", "PASSWORD", "DATABASE"],
+                "elasticsearch": ["HOST", "PORT"],
+            }
+
+            keys = addon_keys.get(addon.type, ["HOST", "PORT"])
+            for key in keys:
+                alias_key = f"{self.as_var}_{key}"
+                target_key = f"{addon.type}.{name}.{key}"
+
+                db.execute(
+                    text("""
+                        INSERT INTO secret_aliases (project_name, app_name, alias_key, target_key, target_source)
+                        VALUES (:project, :app, :alias, :target, 'addon')
+                        ON CONFLICT (project_name, app_name, alias_key) DO UPDATE
+                        SET target_key = :target
+                    """),
+                    {
+                        "project": self.project_name,
+                        "app": self.app,
+                        "alias": alias_key,
+                        "target": target_key,
+                    },
+                )
+
             db.commit()
 
             self.console.print(
@@ -869,6 +911,8 @@ class AddonsDetachCommand(ProjectCommand):
             self.console.print("[red]Invalid addon format. Use: category.name[/red]")
             return
 
+        category, name = self.addon.split(".", 1)
+
         self.show_header(
             title="Detach Addon",
             project=self.project_name,
@@ -876,73 +920,68 @@ class AddonsDetachCommand(ProjectCommand):
         )
 
         # Load from database
-        from cli.database import get_db_session
-        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
+        from cli.database import get_db_session, Addon as AddonModel, App, Project
+        from sqlalchemy import text
 
         db = get_db_session()
         try:
-            metadata = MetaData()
-            projects_table = Table(
-                "projects",
-                metadata,
-                Column("id", Integer, primary_key=True),
-                Column("name", String(100)),
-                Column("apps_config", JSON),
+            # Get project
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
             )
-
-            result = db.execute(
-                projects_table.select().where(
-                    projects_table.c.name == self.project_name
-                )
-            )
-            row = result.fetchone()
-
-            if not row:
+            if not project:
                 self.console.print(
                     f"[red]✗ Project '{self.project_name}' not found in database[/red]"
                 )
                 return
 
-            apps_config = row.apps_config or {}
-
             # Check if app exists
-            if self.app not in apps_config:
+            app = (
+                db.query(App)
+                .filter(App.project_id == project.id, App.name == self.app)
+                .first()
+            )
+
+            if not app:
                 self.console.print(f"[red]App not found: {self.app}[/red]")
                 return
 
-            # Find and remove attachment
-            if "addons" not in apps_config[self.app]:
-                self.console.print(f"[yellow]No addons attached to {self.app}[/yellow]")
+            # Check if addon exists
+            addon = (
+                db.query(AddonModel)
+                .filter(
+                    AddonModel.project_id == project.id,
+                    AddonModel.category == category,
+                    AddonModel.instance_name == name,
+                )
+                .first()
+            )
+
+            if not addon:
+                self.console.print(f"[yellow]Addon not found: {self.addon}[/yellow]")
                 return
 
-            attachments = apps_config[self.app]["addons"]
-            found = False
+            # Remove all secret aliases for this addon attachment
+            result = db.execute(
+                text("""
+                    DELETE FROM secret_aliases
+                    WHERE project_name = :project
+                    AND app_name = :app
+                    AND target_key LIKE :pattern
+                """),
+                {
+                    "project": self.project_name,
+                    "app": self.app,
+                    "pattern": f"{addon.type}.{name}.%",
+                },
+            )
 
-            for i, attachment in enumerate(attachments):
-                if (
-                    isinstance(attachment, dict)
-                    and attachment.get("addon") == self.addon
-                ):
-                    del attachments[i]
-                    found = True
-                    break
-
-            if not found:
+            if result.rowcount == 0:
                 self.console.print(
                     f"[yellow]Addon not attached to {self.app}: {self.addon}[/yellow]"
                 )
                 return
 
-            # Cleanup empty addons list
-            if not attachments:
-                del apps_config[self.app]["addons"]
-
-            # Save to database
-            db.execute(
-                projects_table.update()
-                .where(projects_table.c.name == self.project_name)
-                .values(apps_config=apps_config)
-            )
             db.commit()
 
             self.console.print(

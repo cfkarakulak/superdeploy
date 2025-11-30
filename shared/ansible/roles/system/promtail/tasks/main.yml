@@ -1,0 +1,46 @@
+---
+# Promtail - Log shipping agent for Loki
+# Runs on every VM and ships Docker logs to centralized Loki
+
+- name: Create Promtail directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /opt/superdeploy/promtail
+    - /opt/superdeploy/promtail/data
+
+- name: Copy Promtail config
+  template:
+    src: promtail-config.yaml.j2
+    dest: /opt/superdeploy/promtail/promtail-config.yaml
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Promtail
+
+- name: Create Promtail docker-compose.yml
+  template:
+    src: docker-compose.yml.j2
+    dest: /opt/superdeploy/promtail/docker-compose.yml
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Promtail
+
+- name: Start Promtail
+  community.docker.docker_compose_v2:
+    project_src: /opt/superdeploy/promtail
+    state: present
+    pull: "always"
+  register: promtail_result
+
+- name: Wait for Promtail to start
+  wait_for:
+    port: 9080
+    delay: 2
+    timeout: 30
+

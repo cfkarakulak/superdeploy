@@ -1,8 +1,6 @@
 """Metrics routes for fetching system metrics from Prometheus."""
 
 from fastapi import APIRouter, HTTPException
-import subprocess
-import json
 from cache import get_cache, set_cache
 import httpx
 import asyncio
@@ -11,61 +9,13 @@ router = APIRouter(tags=["metrics"])
 
 
 def get_orchestrator_ip():
-    """Get orchestrator IP from state.yml or CLI (5 min cache)."""
+    """Get orchestrator IP from database (5 min cache)."""
     cache_key = "orchestrator_ip"
     cached = get_cache(cache_key)
     if cached:
         return cached
 
     try:
-        # Try state.yml first (fastest, no external calls)
-        from pathlib import Path
-
-        # Get project root dynamically (dashboard/backend/routes/metrics.py -> ../../../../)
-        project_root = Path(__file__).parent.parent.parent.parent
-        state_file = project_root / "shared" / "orchestrator" / "state.yml"
-
-        if state_file.exists():
-            import yaml
-
-            with open(state_file, "r") as f:
-                state = yaml.safe_load(f)
-                if state and state.get("orchestrator_ip"):
-                    orch_ip = state["orchestrator_ip"]
-                    set_cache(cache_key, orch_ip, 300)
-                    return orch_ip
-
-        # Fallback to CLI
-        result = subprocess.run(
-            ["./superdeploy.sh", "orchestrator:status", "--json"],
-            capture_output=True,
-            text=True,
-            cwd=str(project_root),
-            timeout=30,
-        )
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            if data.get("vms"):
-                for vm in data["vms"]:
-                    if vm.get("name") == "orchestrator":
-                        orch_ip = vm.get("ip")
-                        set_cache(cache_key, orch_ip, 300)
-                        return orch_ip
-        return None
-    except Exception as e:
-        print(f"Failed to get orchestrator IP: {e}")
-        return None
-
-
-def get_project_vms(project_name: str):
-    """Get VMs for project from database or CLI (5 min cache)."""
-    cache_key = f"project_vms:{project_name}"
-    cached = get_cache(cache_key)
-    if cached:
-        return cached
-
-    try:
-        # Try database first (faster)
         import os
 
         os.environ.setdefault(
@@ -77,52 +27,129 @@ def get_project_vms(project_name: str):
 
         db = get_db_session()
         try:
+            # Get orchestrator project
             result = db.execute(
                 text("""
-                SELECT v.name, v.external_ip, v.internal_ip, v.role
-                FROM vms v
-                JOIN projects p ON v.project_id = p.id
-                WHERE p.name = :project_name
-                ORDER BY v.name
-            """),
+                    SELECT actual_state
+                    FROM projects
+                    WHERE name = 'orchestrator'
+                """)
+            )
+            row = result.fetchone()
+            if row and row[0]:
+                state = row[0]
+                if isinstance(state, dict):
+                    # First check direct orchestrator_ip key
+                    if "orchestrator_ip" in state:
+                        orch_ip = state["orchestrator_ip"]
+                        if orch_ip:
+                            set_cache(cache_key, orch_ip, 300)
+                            return orch_ip
+                    # Fallback: check vms key
+                    if "vms" in state:
+                        for vm_name, vm_data in state["vms"].items():
+                            orch_ip = vm_data.get("external_ip")
+                            if orch_ip:
+                                set_cache(cache_key, orch_ip, 300)
+                                return orch_ip
+                    # Fallback: check vm key (single VM)
+                    if "vm" in state and isinstance(state["vm"], dict):
+                        orch_ip = state["vm"].get("external_ip")
+                        if orch_ip:
+                            set_cache(cache_key, orch_ip, 300)
+                            return orch_ip
+            return None
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"Failed to get orchestrator IP: {e}")
+        return None
+
+
+def get_project_vms(project_name: str):
+    """Get VMs for project from database (5 min cache)."""
+    cache_key = f"project_vms:{project_name}"
+    cached = get_cache(cache_key)
+    if cached:
+        return cached
+
+    try:
+        import os
+
+        os.environ.setdefault(
+            "SUPERDEPLOY_DB_URL",
+            "postgresql://postgres:postgres@localhost:5432/superdeploy",
+        )
+        from cli.database import get_db_session
+        from sqlalchemy import text
+
+        db = get_db_session()
+        try:
+            # Get project and its actual state
+            result = db.execute(
+                text("""
+                    SELECT actual_state, gcp_zone
+                    FROM projects
+                    WHERE name = :project_name
+                """),
                 {"project_name": project_name},
             )
+            row = result.fetchone()
+            if not row:
+                return []
+
+            actual_state = row[0]
+            gcp_zone = row[1]
             vms = []
-            for row in result.fetchall():
-                vms.append(
-                    {
-                        "name": row[0],
-                        "ip": row[1],
-                        "external_ip": row[1],
-                        "internal_ip": row[2],
-                        "role": row[3] or row[0].split("-")[0]
-                        if "-" in row[0]
-                        else row[0],
-                    }
+
+            # Get VMs from actual_state if available
+            if (
+                actual_state
+                and isinstance(actual_state, dict)
+                and "vms" in actual_state
+            ):
+                state_vms = actual_state["vms"]
+                for vm_name, vm_data in state_vms.items():
+                    vms.append(
+                        {
+                            "name": vm_name,
+                            "ip": vm_data.get("external_ip", "N/A"),
+                            "external_ip": vm_data.get("external_ip", "N/A"),
+                            "internal_ip": vm_data.get("internal_ip", "N/A"),
+                            "role": vm_data.get("role", "unknown"),
+                        }
+                    )
+
+            # If no VMs in actual_state, return VM definitions from database
+            if not vms:
+                vm_result = db.execute(
+                    text("""
+                        SELECT role, count, machine_type
+                        FROM vms v
+                        JOIN projects p ON v.project_id = p.id
+                        WHERE p.name = :project_name
+                    """),
+                    {"project_name": project_name},
                 )
+                for vm_row in vm_result.fetchall():
+                    role, count, machine_type = vm_row
+                    for i in range(count or 1):
+                        vms.append(
+                            {
+                                "name": f"{project_name}-{role}-{i}",
+                                "ip": "N/A",
+                                "external_ip": "N/A",
+                                "internal_ip": "N/A",
+                                "role": role,
+                            }
+                        )
+
             if vms:
                 set_cache(cache_key, vms, 300)
                 return vms
+            return []
         finally:
             db.close()
-
-        # Fallback to CLI (slower)
-        from pathlib import Path
-
-        project_root = Path(__file__).parent.parent.parent.parent
-        result = subprocess.run(
-            ["./superdeploy.sh", f"{project_name}:status", "--json"],
-            capture_output=True,
-            text=True,
-            cwd=str(project_root),
-            timeout=5,  # Reduced timeout
-        )
-        if result.returncode == 0:
-            project_data = json.loads(result.stdout)
-            vms = project_data.get("vms", [])
-            set_cache(cache_key, vms, 300)
-            return vms
-        return []
     except Exception as e:
         print(f"Failed to get project VMs: {e}")
         return []

@@ -65,6 +65,11 @@ class AppMarker:
 
     Multi-process support (Heroku Procfile-like).
     Each process has command, port, replicas, etc.
+
+    env_templates support for dynamic environment variables:
+        env_templates:
+          NEXT_PUBLIC_API_URL: "http://{{ APP_0_EXTERNAL_IP }}:8000"
+          NEXT_PUBLIC_WS_URL: "ws://{{ APP_0_EXTERNAL_IP }}:8000/ws"
     """
 
     project: str
@@ -73,6 +78,9 @@ class AppMarker:
 
     # Processes as root-level keys (web, worker, release, etc.)
     processes: Dict[str, ProcessDefinition] = field(default_factory=dict)
+
+    # Environment variable templates with {{ PLACEHOLDER }} syntax
+    env_templates: Dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """
@@ -90,6 +98,8 @@ class AppMarker:
               worker:
                 command: python craft queue:work --tries=3
                 replicas: 3
+            env_templates:
+              NEXT_PUBLIC_API_URL: "http://{{ APP_0_EXTERNAL_IP }}:8000"
         """
         result = {
             "project": self.project,
@@ -102,6 +112,10 @@ class AppMarker:
             result["processes"] = {
                 name: proc_def.to_dict() for name, proc_def in self.processes.items()
             }
+
+        # Add env_templates if present
+        if self.env_templates:
+            result["env_templates"] = self.env_templates
 
         return result
 
@@ -121,16 +135,26 @@ class AppMarker:
                 if isinstance(proc_config, dict):
                     processes[name] = ProcessDefinition.from_dict(proc_config)
 
+        # Parse env_templates
+        env_templates = data.get("env_templates", {})
+        if not isinstance(env_templates, dict):
+            env_templates = {}
+
         return cls(
             project=project,
             app=app,
             vm=vm,
             processes=processes,
+            env_templates=env_templates,
         )
 
     def has_processes(self) -> bool:
         """Check if marker has process definitions."""
         return bool(self.processes)
+
+    def has_env_templates(self) -> bool:
+        """Check if marker has env_templates."""
+        return bool(self.env_templates)
 
     def get_process(self, name: str) -> Optional[ProcessDefinition]:
         """Get a specific process definition."""
@@ -163,6 +187,7 @@ class MarkerManager:
         app_name: str,
         vm_role: str = "app",
         processes: Optional[Dict[str, Dict[str, Any]]] = None,
+        env_templates: Optional[Dict[str, str]] = None,
     ) -> Path:
         """
         Create superdeploy marker file in app directory.
@@ -174,6 +199,8 @@ class MarkerManager:
             vm_role: VM role (e.g., 'app', 'core') for GitHub runner routing
             processes: Process definitions dict (required)
                       e.g., {"web": {"command": "...", "port": 8000, "replicas": 2}}
+            env_templates: Environment variable templates with {{ PLACEHOLDER }} syntax
+                          e.g., {"NEXT_PUBLIC_API_URL": "http://{{ APP_0_EXTERNAL_IP }}:8000"}
 
         Returns:
             Path to created marker file
@@ -203,6 +230,7 @@ class MarkerManager:
             app=app_name,
             vm=vm_role,
             processes=process_defs,
+            env_templates=env_templates or {},
         )
 
         marker_file = app_path / MarkerManager.MARKER_FILENAME
@@ -220,12 +248,12 @@ class MarkerManager:
             )
 
     @staticmethod
-    def load_marker(app_path: Path) -> Optional[AppMarker]:
+    def load_marker(marker_path: Path) -> Optional[AppMarker]:
         """
-        Load superdeploy marker from app directory.
+        Load superdeploy marker from path.
 
         Args:
-            app_path: Path to application directory
+            marker_path: Path to marker file or app directory
 
         Returns:
             AppMarker object if file exists, None otherwise
@@ -233,7 +261,11 @@ class MarkerManager:
         Raises:
             ConfigurationError: If marker file is invalid
         """
-        marker_file = app_path / MarkerManager.MARKER_FILENAME
+        # If path is a directory, look for marker file inside
+        if marker_path.is_dir():
+            marker_file = marker_path / MarkerManager.MARKER_FILENAME
+        else:
+            marker_file = marker_path
 
         if not marker_file.exists():
             return None

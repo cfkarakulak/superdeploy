@@ -73,89 +73,80 @@ class ScaleCommand(ProjectCommand):
         if logger:
             logger.step("Validating Configuration")
 
-        # Get current app config
-        apps_config = self.config_service.get_apps(self.project_name)
+        # Get current app from database
+        from cli.database import get_db_session, App, Project
 
-        if self.options.target_name not in apps_config:
-            available_apps = ", ".join(apps_config.keys())
-            self.exit_with_error(
-                f"App '{self.options.target_name}' not found in project config\n"
-                f"Available apps: {available_apps}"
-            )
-
-        current_app_config = apps_config[self.options.target_name]
-        current_replicas = current_app_config.get("replicas", 1)
-        if logger:
-            logger.log(f"Current replicas: {current_replicas}")
-        if logger:
-            logger.log(f"Target replicas: {self.options.count}")
-
-        if current_replicas == self.options.count:
-            self.print_warning(
-                f"App '{self.options.target_name}' is already at "
-                f"{self.options.count} replica(s)"
-            )
-            return
-
-        # Confirm scaling action
-        action = "scale up" if self.options.count > current_replicas else "scale down"
-        message = (
-            f"[yellow]{action.title()} {self.options.target_name} from "
-            f"{current_replicas} to {self.options.count} replica(s)?[/yellow]"
-        )
-        if not self.confirm(message, default=False):
-            self.print_warning("Scaling cancelled")
-            return
-
-        if logger:
-            logger.step("Updating Configuration")
-
-        # Update database configuration
+        db = get_db_session()
         try:
-            from cli.database import get_db_session
-            from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
-
-            db = get_db_session()
-            try:
-                metadata = MetaData()
-                projects_table = Table(
-                    "projects",
-                    metadata,
-                    Column("id", Integer, primary_key=True),
-                    Column("name", String(100)),
-                    Column("apps_config", JSON),
+            # Get project
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
+            )
+            if not project:
+                self.exit_with_error(
+                    f"Project '{self.project_name}' not found in database"
                 )
 
-                result = db.execute(
-                    projects_table.select().where(
-                        projects_table.c.name == self.project_name
-                    )
+            # Get app
+            app = (
+                db.query(App)
+                .filter(
+                    App.project_id == project.id, App.name == self.options.target_name
                 )
-                row = result.fetchone()
+                .first()
+            )
 
-                if row:
-                    apps_config = row.apps_config or {}
-                    if self.options.target_name in apps_config:
-                        apps_config[self.options.target_name]["replicas"] = (
-                            self.options.count
-                        )
+            if not app:
+                # Get available apps
+                available_apps = [
+                    a.name
+                    for a in db.query(App).filter(App.project_id == project.id).all()
+                ]
+                self.exit_with_error(
+                    f"App '{self.options.target_name}' not found in project\n"
+                    f"Available apps: {', '.join(available_apps)}"
+                )
 
-                        db.execute(
-                            projects_table.update()
-                            .where(projects_table.c.name == self.project_name)
-                            .values(apps_config=apps_config)
-                        )
-                        db.commit()
+            current_replicas = app.replicas or 1
+            if logger:
+                logger.log(f"Current replicas: {current_replicas}")
+            if logger:
+                logger.log(f"Target replicas: {self.options.count}")
 
-                        if logger:
-                            logger.log("✓ Updated app replicas in database")
+            if current_replicas == self.options.count:
+                self.print_warning(
+                    f"App '{self.options.target_name}' is already at "
+                    f"{self.options.count} replica(s)"
+                )
+                return
 
-            finally:
-                db.close()
+            # Confirm scaling action
+            action = (
+                "scale up" if self.options.count > current_replicas else "scale down"
+            )
+            message = (
+                f"[yellow]{action.title()} {self.options.target_name} from "
+                f"{current_replicas} to {self.options.count} replica(s)?[/yellow]"
+            )
+            if not self.confirm(message, default=False):
+                self.print_warning("Scaling cancelled")
+                return
+
+            if logger:
+                logger.step("Updating Configuration")
+
+            # Update app replicas
+            app.replicas = self.options.count
+            db.commit()
+
+            if logger:
+                logger.log("✓ Updated app replicas in database")
 
         except Exception as e:
             self.handle_error(e, "Failed to update configuration")
             raise SystemExit(1)
+        finally:
+            db.close()
 
         if logger:
             logger.step("Next Steps")
@@ -257,46 +248,37 @@ class ScaleCommand(ProjectCommand):
 
     def _update_config_file(self, logger) -> None:
         """
-        Update project configuration in database with new VM count.
+        Update VM count in database.
 
         Args:
             logger: Logger instance
         """
-        from cli.database import get_db_session
-        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
+        from cli.database import get_db_session, VM, Project
 
         db = get_db_session()
         try:
-            metadata = MetaData()
-            projects_table = Table(
-                "projects",
-                metadata,
-                Column("id", Integer, primary_key=True),
-                Column("name", String(100)),
-                Column("vms", JSON),
+            # Get project
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
             )
+            if not project:
+                return
 
-            result = db.execute(
-                projects_table.select().where(
-                    projects_table.c.name == self.project_name
+            # Get VM
+            vm = (
+                db.query(VM)
+                .filter(
+                    VM.project_id == project.id, VM.role == self.options.target_name
                 )
+                .first()
             )
-            row = result.fetchone()
 
-            if row:
-                vms_config = row.vms or {}
-                if self.options.target_name in vms_config:
-                    vms_config[self.options.target_name]["count"] = self.options.count
+            if vm:
+                vm.count = self.options.count
+                db.commit()
 
-                    db.execute(
-                        projects_table.update()
-                        .where(projects_table.c.name == self.project_name)
-                        .values(vms=vms_config)
-                    )
-                    db.commit()
-
-                    if logger:
-                        logger.log("✓ Updated VM count in database")
+                if logger:
+                    logger.log("✓ Updated VM count in database")
 
         finally:
             db.close()

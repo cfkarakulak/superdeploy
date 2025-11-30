@@ -1,559 +1,387 @@
 """
-State Management
+State Manager - DB-based wrapper (replaces file-based state.yml)
 
-Modern state manager using domain models for type-safe state handling.
+This is a compatibility layer. All state is now stored in database (projects.actual_state JSON column).
+This class provides backward-compatible interface while using database underneath.
 """
 
-import yaml
-import hashlib
 from pathlib import Path
+from typing import Dict, Any, Optional
 from datetime import datetime
-from typing import Dict, Any, Optional, Tuple
-
-from cli.models.deployment import (
-    DeploymentState,
-    VMState,
-    VMStatus,
-    AddonState,
-    AddonStatus,
-    AppState,
-)
-from cli.exceptions import StateError
-
-
-class StateFormatter:
-    """Formats deployment state for human-readable YAML output."""
-
-    @staticmethod
-    def format(state: DeploymentState) -> str:
-        """
-        Format deployment state as human-readable YAML.
-
-        Args:
-            state: Deployment state to format
-
-        Returns:
-            Formatted YAML string
-        """
-        lines = []
-
-        # Header
-        lines.append("# " + "=" * 77)
-        lines.append(f"# {state.project_name.upper()} - Deployment State")
-        lines.append("# " + "=" * 77)
-        lines.append("# This file tracks the current state of deployed infrastructure")
-        lines.append("# WARNING: Do not manually edit this file")
-        lines.append("# " + "=" * 77)
-        lines.append("")
-
-        # VMs section
-        if state.vms:
-            lines.append("# " + "=" * 77)
-            lines.append("# Virtual Machines")
-            lines.append("# " + "=" * 77)
-            lines.append("vms:")
-
-            for vm_name, vm_state in state.vms.items():
-                lines.append("")
-                lines.append(f"  {vm_name}:")
-                vm_dict = vm_state.to_dict()
-                for key, value in vm_dict.items():
-                    if isinstance(value, list):
-                        if value:
-                            lines.append(f"    {key}:")
-                            for item in value:
-                                lines.append(f"      - {item}")
-                        else:
-                            lines.append(f"    {key}: []")
-                    elif value is not None:
-                        lines.append(f"    {key}: {value}")
-
-        # Addons section
-        if state.addons:
-            lines.append("")
-            lines.append("# " + "=" * 77)
-            lines.append("# Installed Addons")
-            lines.append("# " + "=" * 77)
-            lines.append("addons:")
-
-            for addon_name, addon_state in state.addons.items():
-                lines.append("")
-                lines.append(f"  {addon_name}:")
-                addon_dict = addon_state.to_dict()
-                for key, value in addon_dict.items():
-                    if value is not None:
-                        lines.append(f"    {key}: {value}")
-
-        # Apps section
-        if state.apps:
-            lines.append("")
-            lines.append("# " + "=" * 77)
-            lines.append("# Deployed Applications")
-            lines.append("# " + "=" * 77)
-            lines.append("apps:")
-
-            for app_name, app_state in state.apps.items():
-                lines.append("")
-                lines.append(f"  {app_name}:")
-                app_dict = app_state.to_dict()
-                for key, value in app_dict.items():
-                    if value is not None:
-                        if isinstance(value, bool):
-                            lines.append(f"    {key}: {str(value).lower()}")
-                        else:
-                            lines.append(f"    {key}: {value}")
-
-        # Deployment section
-        if state.foundation_complete or state.deployment_complete:
-            lines.append("")
-            lines.append("# " + "=" * 77)
-            lines.append("# Deployment Status")
-            lines.append("# " + "=" * 77)
-            lines.append("deployment:")
-            lines.append(
-                f"  foundation_complete: {str(state.foundation_complete).lower()}"
-            )
-            lines.append(f"  complete: {str(state.deployment_complete).lower()}")
-
-        # Last applied section
-        if state.last_applied or state.config_hash:
-            lines.append("")
-            lines.append("# " + "=" * 77)
-            lines.append("# Last Deployment Metadata")
-            lines.append("# " + "=" * 77)
-            lines.append("last_applied:")
-            if state.last_applied:
-                lines.append(f"  timestamp: {state.last_applied}")
-            if state.config_hash:
-                lines.append(f"  config_hash: {state.config_hash}")
-
-        # Secrets sync status
-        if state.secrets_hash or state.secrets_last_sync:
-            lines.append("")
-            lines.append("# " + "=" * 77)
-            lines.append("# Secrets Synchronization Status")
-            lines.append("# " + "=" * 77)
-            lines.append("secrets:")
-            if state.secrets_hash:
-                lines.append(f"  hash: {state.secrets_hash}")
-            if state.secrets_last_sync:
-                lines.append(f"  last_sync: {state.secrets_last_sync}")
-
-        lines.append("")
-        return "\n".join(lines)
 
 
 class StateManager:
-    """
-    Manages project deployment state using type-safe domain models.
-
-    Responsibilities:
-    - Load/save deployment state
-    - Track VM, addon, and app states
-    - Detect configuration changes
-    - Maintain deployment history
-    """
+    """State Manager - Now uses database instead of state.yml"""
 
     def __init__(self, project_root: Path, project_name: str):
-        """
-        Initialize state manager.
-
-        Args:
-            project_root: Path to superdeploy root directory
-            project_name: Name of the project
-        """
+        """Initialize state manager with database backend"""
         self.project_root = project_root
         self.project_name = project_name
-        self.state_file = project_root / "projects" / project_name / "state.yml"
-        self.formatter = StateFormatter()
 
-    def load_state(self) -> DeploymentState:
-        """
-        Load deployment state from file.
+    def load_state(self) -> Dict[str, Any]:
+        """Load state from database"""
+        from cli.database import get_db_session, Project
 
-        Returns:
-            DeploymentState object (empty if file doesn't exist)
-        """
-        if not self.state_file.exists():
-            return DeploymentState(project_name=self.project_name)
-
+        db = get_db_session()
         try:
-            with open(self.state_file, "r") as f:
-                data = yaml.safe_load(f) or {}
-            return DeploymentState.from_dict(self.project_name, data)
-        except Exception as e:
-            raise StateError(
-                "Failed to load state file",
-                context=f"File: {self.state_file}, Error: {str(e)}",
+            db_project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
             )
 
-    def save_state(self, state: DeploymentState) -> None:
-        """
-        Save deployment state to file.
+            if db_project and db_project.actual_state:
+                return db_project.actual_state
+            return {}
+        finally:
+            db.close()
 
-        Args:
-            state: Deployment state to save
-        """
-        # Update metadata
-        state.last_applied = datetime.now().isoformat()
-        state.config_hash = self._calculate_config_hash()
+    def save_state(self, state: Dict[str, Any]) -> None:
+        """Save state to database"""
+        from cli.database import get_db_session, Project
 
-        # Format and write
-        self.state_file.parent.mkdir(parents=True, exist_ok=True)
-        formatted_content = self.formatter.format(state)
-
+        db = get_db_session()
         try:
-            with open(self.state_file, "w") as f:
-                f.write(formatted_content)
-        except Exception as e:
-            raise StateError(
-                "Failed to save state file",
-                context=f"File: {self.state_file}, Error: {str(e)}",
+            db_project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
             )
 
-    def has_state(self) -> bool:
-        """
-        Check if state file exists.
+            if db_project:
+                db_project.actual_state = state
+                db_project.updated_at = datetime.utcnow()
+                db.commit()
+        finally:
+            db.close()
 
-        Returns:
-            True if state file exists
-        """
-        return self.state_file.exists()
+    def is_deployed(self) -> bool:
+        """Check if project is deployed"""
+        state = self.load_state()
+        return state.get("deployed", False)
+
+    def get_ip(self, role: str = "app") -> Optional[str]:
+        """Get IP for a VM role"""
+        state = self.load_state()
+        vms = state.get("vms", {})
+
+        # Try to get IP from VMs
+        for vm_name, vm_data in vms.items():
+            if vm_data.get("role") == role:
+                return vm_data.get("external_ip")
+
+        # Fallback: try to get first VM IP
+        if vms:
+            first_vm = next(iter(vms.values()))
+            return first_vm.get("external_ip")
+
+        return None
 
     def _calculate_config_hash(self) -> str:
-        """Calculate SHA256 hash of config.yml for change detection."""
-        config_file = self.project_root / "projects" / self.project_name / "config.yml"
+        """Calculate config hash for change detection"""
+        import hashlib
+        from cli.database import get_db_session, Project
 
-        if not config_file.exists():
-            return ""
-
-        with open(config_file, "rb") as f:
-            content = f.read()
-            return hashlib.sha256(content).hexdigest()[:12]
-
-    def _calculate_secrets_hash(self) -> str:
-        """
-        Calculate hash representing secrets state.
-        Note: Secrets are now in database. Hash is based on last update timestamp.
-        """
+        db = get_db_session()
         try:
-            from cli.database import get_db_session, Secret
-            from datetime import datetime
-            
-            db = get_db_session()
-            try:
-                # Get most recent secret update timestamp
-                latest_secret = (
-                    db.query(Secret)
-                    .filter(Secret.project_name == self.project_name)
-                    .order_by(Secret.updated_at.desc())
-                    .first()
-                )
-                
-                if latest_secret and latest_secret.updated_at:
-                    # Use timestamp as hash indicator
-                    timestamp_str = latest_secret.updated_at.isoformat()
-                    return hashlib.sha256(timestamp_str.encode()).hexdigest()
-                
-                return ""
-            finally:
-                db.close()
-        except Exception:
-            return ""
+            db_project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
+            )
 
-    def detect_changes(
-        self, project_config: Any
-    ) -> Tuple[Dict[str, Any], DeploymentState]:
+            if db_project:
+                # Create a string from all config fields
+                config_str = f"{db_project.gcp_project}{db_project.gcp_region}{db_project.gcp_zone}"
+                return hashlib.sha256(config_str.encode()).hexdigest()
+            return ""
+        finally:
+            db.close()
+
+    def detect_changes(self, project_config):
         """
         Detect changes between current config and deployed state.
 
         Args:
-            project_config: Project configuration object
+            project_config: ProjectConfig object with current configuration
 
         Returns:
-            Tuple of (changes_dict, deployment_state)
+            Tuple of (changes dict, state dict)
         """
         state = self.load_state()
         config = project_config.raw_config
 
-        changes: Dict[str, Any] = {
+        changes = {
             "has_changes": False,
+            "total_changes": 0,
             "vms": {"added": [], "removed": [], "modified": []},
             "addons": {"added": [], "removed": [], "modified": []},
             "apps": {"added": [], "removed": [], "modified": []},
-            "needs_generate": False,
             "needs_terraform": False,
             "needs_ansible": False,
+            "needs_generate": False,
             "needs_sync": False,
-            "needs_foundation": True,
         }
 
-        # First deployment - no state
-        if not state.has_vms:
-            config_vms = config.get("vms", {})
-            config_addons = config.get("addons", {})
-            config_apps = config.get("apps", {})
+        # Check VMs
+        config_vms = set(config.get("vms", {}).keys())
+        state_vms = set(state.get("vms", {}).keys())
 
-            changes["has_changes"] = True
-            changes["vms"]["added"] = list(config_vms.keys())
-            changes["addons"]["added"] = list(config_addons.keys())
-            changes["apps"]["added"] = list(config_apps.keys())
-            changes["needs_generate"] = bool(config_apps)
-            changes["needs_terraform"] = bool(config_vms)
-            changes["needs_ansible"] = bool(config_addons) or bool(config_vms)
-            changes["needs_sync"] = True
+        changes["vms"]["added"] = list(config_vms - state_vms)
+        changes["vms"]["removed"] = list(state_vms - config_vms)
 
-            return changes, state
+        # Check for modified VMs
+        for vm_name in config_vms & state_vms:
+            config_vm = config["vms"][vm_name]
+            state_vm = state["vms"][vm_name]
 
-        # Check foundation status
-        if state.foundation_complete:
-            changes["needs_foundation"] = False
-        else:
-            changes["needs_ansible"] = True
+            if self._vm_changed(config_vm, state_vm):
+                changes["vms"]["modified"].append(
+                    {
+                        "name": vm_name,
+                        "old": state_vm,
+                        "new": config_vm,
+                    }
+                )
 
-        # Check for provisioned but not configured VMs
-        for vm_state in state.vms.values():
-            if vm_state.status == VMStatus.PROVISIONED:
-                changes["needs_ansible"] = True
-                changes["has_changes"] = True
-                break
+        # Check Addons
+        config_addons = self._get_enabled_addons(config)
+        state_addons = set(state.get("addons", {}).keys())
 
-        # Detect VM changes
-        config_vms = config.get("vms", {})
-        for vm_name, vm_config in config_vms.items():
-            if vm_name not in state.vms:
-                changes["vms"]["added"].append(vm_name)
-                changes["needs_terraform"] = True
-                changes["needs_ansible"] = True
-            else:
-                vm_state = state.vms[vm_name]
-                if self._vm_config_changed(vm_config, vm_state):
-                    changes["vms"]["modified"].append(
-                        {
-                            "name": vm_name,
-                            "old": vm_state.to_dict(),
-                            "new": vm_config,
-                        }
-                    )
-                    changes["needs_terraform"] = True
-                    changes["needs_ansible"] = True
+        changes["addons"]["added"] = list(config_addons - state_addons)
+        changes["addons"]["removed"] = list(state_addons - config_addons)
 
-        for vm_name in state.vms:
-            if vm_name not in config_vms:
-                changes["vms"]["removed"].append(vm_name)
-                changes["needs_terraform"] = True
+        # Check Apps
+        config_apps = set(config.get("apps", {}).keys())
+        state_apps = set(state.get("apps", {}).keys())
 
-        # Detect addon changes
-        config_addons = config.get("addons", {})
-        for addon_name in config_addons:
-            if addon_name not in state.addons:
-                changes["addons"]["added"].append(addon_name)
-                changes["needs_ansible"] = True
-                changes["needs_sync"] = True
+        changes["apps"]["added"] = list(config_apps - state_apps)
+        changes["apps"]["removed"] = list(state_apps - config_apps)
 
-        for addon_name in state.addons:
-            if addon_name not in config_addons:
-                changes["addons"]["removed"].append(addon_name)
-                changes["needs_ansible"] = True
+        # Check for modified apps
+        for app_name in config_apps & state_apps:
+            config_app = config["apps"][app_name]
+            state_app = state["apps"][app_name]
 
-        # Detect app changes
-        config_apps = config.get("apps", {})
-        for app_name, app_config in config_apps.items():
-            if app_name not in state.apps:
-                changes["apps"]["added"].append(app_name)
-                changes["needs_generate"] = True
-                changes["needs_sync"] = True
-            else:
-                app_state = state.apps[app_name]
-                if self._app_config_changed(app_config, app_state):
-                    changes["apps"]["modified"].append(
-                        {
-                            "name": app_name,
-                            "old": app_state.to_dict(),
-                            "new": app_config,
-                        }
-                    )
-                    changes["needs_generate"] = True
+            if self._app_changed(config_app, state_app):
+                changes["apps"]["modified"].append(
+                    {
+                        "name": app_name,
+                        "old": state_app,
+                        "new": config_app,
+                    }
+                )
 
-        for app_name in state.apps:
-            if app_name not in config_apps:
-                changes["apps"]["removed"].append(app_name)
-
-        # Check secrets changes
-        if self._secrets_changed(state):
-            changes["needs_sync"] = True
-
-        # Set has_changes flag
-        if any(
-            [
-                changes["vms"]["added"],
-                changes["vms"]["removed"],
-                changes["vms"]["modified"],
-                changes["addons"]["added"],
-                changes["addons"]["removed"],
-                changes["apps"]["added"],
-                changes["apps"]["modified"],
-                changes["apps"]["removed"],
-                changes["needs_sync"],
-            ]
+        # Determine what actions are needed
+        if (
+            changes["vms"]["added"]
+            or changes["vms"]["removed"]
+            or changes["vms"]["modified"]
         ):
+            changes["needs_terraform"] = True
             changes["has_changes"] = True
+            changes["total_changes"] += (
+                len(changes["vms"]["added"])
+                + len(changes["vms"]["removed"])
+                + len(changes["vms"]["modified"])
+            )
+
+        if (
+            changes["addons"]["added"]
+            or changes["addons"]["removed"]
+            or changes["addons"]["modified"]
+        ):
+            changes["needs_ansible"] = True
+            changes["has_changes"] = True
+            changes["total_changes"] += (
+                len(changes["addons"]["added"])
+                + len(changes["addons"]["removed"])
+                + len(changes["addons"]["modified"])
+            )
+
+        if (
+            changes["apps"]["added"]
+            or changes["apps"]["removed"]
+            or changes["apps"]["modified"]
+        ):
+            changes["needs_generate"] = True
+            changes["needs_ansible"] = True
+            changes["has_changes"] = True
+            changes["total_changes"] += (
+                len(changes["apps"]["added"])
+                + len(changes["apps"]["removed"])
+                + len(changes["apps"]["modified"])
+            )
 
         return changes, state
 
-    def _vm_config_changed(self, config: Dict[str, Any], state: VMState) -> bool:
-        """Check if VM configuration has changed."""
-        return (
-            config.get("machine_type") != state.machine_type
-            or config.get("disk_size") != state.disk_size
-            or set(config.get("services", [])) != set(state.services)
-        )
+    def _vm_changed(self, config_vm: dict, state_vm: dict) -> bool:
+        """Check if VM configuration changed."""
+        keys_to_compare = ["machine_type", "disk_size"]
+        for key in keys_to_compare:
+            if config_vm.get(key) != state_vm.get(key):
+                return True
+        return False
 
-    def _app_config_changed(self, config: Dict[str, Any], state: AppState) -> bool:
-        """Check if app configuration has changed."""
-        return config.get("path") != state.path or config.get("vm") != state.vm
+    def _app_changed(self, config_app: dict, state_app: dict) -> bool:
+        """Check if app configuration changed."""
+        keys_to_compare = ["path", "vm", "port"]
+        for key in keys_to_compare:
+            if config_app.get(key) != state_app.get(key):
+                return True
+        return False
 
-    def _secrets_changed(self, state: DeploymentState) -> bool:
-        """Check if secrets have changed since last deployment."""
-        current_hash = self._calculate_secrets_hash()
-        if not current_hash:
-            return False
+    def _get_enabled_addons(self, config: dict) -> set:
+        """Get list of enabled addons from config."""
+        enabled = set()
+        addons_config = config.get("addons", {})
 
-        stored_hash = state.secrets_hash
-        if not stored_hash:
-            return True
+        for category, category_addons in addons_config.items():
+            if isinstance(category_addons, dict):
+                for addon_name, addon_conf in category_addons.items():
+                    if addon_conf and addon_conf.get("enabled", True):
+                        enabled.add(f"{category}.{addon_name}")
 
-        return current_hash != stored_hash
-
-    def update_from_config(self, project_config: Any) -> None:
-        """
-        Update state from successful deployment.
-
-        Args:
-            project_config: Project configuration object
-        """
-        state = self.load_state()
-        config = project_config.raw_config
-
-        # Update VMs (preserve IPs if they exist)
-        for vm_name, vm_config in config.get("vms", {}).items():
-            existing_vm = state.vms.get(vm_name)
-
-            state.vms[vm_name] = VMState(
-                name=vm_name,
-                machine_type=vm_config.get("machine_type", ""),
-                disk_size=vm_config.get("disk_size", 20),
-                services=vm_config.get("services", []),
-                status=VMStatus.RUNNING if existing_vm else VMStatus.PENDING,
-                external_ip=existing_vm.external_ip if existing_vm else None,
-                internal_ip=existing_vm.internal_ip if existing_vm else None,
-            )
-
-        # Update addons
-        for addon_name in config.get("addons", {}):
-            state.addons[addon_name] = AddonState(
-                name=addon_name,
-                status=AddonStatus.INSTALLED,
-            )
-
-        # Update apps
-        for app_name, app_config in config.get("apps", {}).items():
-            state.apps[app_name] = AppState(
-                name=app_name,
-                path=app_config.get("path", ""),
-                vm=app_config.get("vm", ""),
-                workflows_generated=True,
-            )
-
-        self.save_state(state)
+        return enabled
 
     def mark_vms_provisioned(
-        self,
-        vm_configs: Dict[str, Any],
-        vm_ips: Optional[Dict[str, Dict[str, str]]] = None,
+        self, vms_config: dict, vm_ips: Optional[dict] = None
     ) -> None:
         """
-        Mark VMs as provisioned after Terraform success.
+        Mark VMs as provisioned in state.
 
         Args:
-            vm_configs: VM configuration from config.yml
+            vms_config: VM configuration from config.yml
             vm_ips: Optional dict with 'external' and 'internal' IP mappings
         """
         state = self.load_state()
 
-        for vm_name, vm_config in vm_configs.items():
-            vm_state = VMState(
-                name=vm_name,
-                machine_type=vm_config.get("machine_type", ""),
-                disk_size=vm_config.get("disk_size", 20),
-                services=vm_config.get("services", []),
-                status=VMStatus.PROVISIONED,
-                provisioned_at=datetime.now().isoformat(),
-            )
+        # Initialize VMs in state
+        if "vms" not in state:
+            state["vms"] = {}
+
+        for vm_name, vm_config in vms_config.items():
+            state["vms"][vm_name] = {
+                "role": vm_config.get("role"),
+                "machine_type": vm_config.get("machine_type"),
+                "disk_size": vm_config.get("disk_size"),
+                "status": "provisioned",  # VMs are provisioned but not configured yet
+            }
 
             # Add IPs if provided
             if vm_ips:
                 external_ips = vm_ips.get("external", {})
                 internal_ips = vm_ips.get("internal", {})
 
-                # Find matching IPs by prefix (e.g., "core" matches "core-0")
-                for vm_key, external_ip in external_ips.items():
-                    if vm_key.startswith(vm_name + "-"):
-                        vm_state.external_ip = external_ip
-                        break
+                if vm_name in external_ips:
+                    state["vms"][vm_name]["external_ip"] = external_ips[vm_name]
+                if vm_name in internal_ips:
+                    state["vms"][vm_name]["internal_ip"] = internal_ips[vm_name]
 
-                for vm_key, internal_ip in internal_ips.items():
-                    if vm_key.startswith(vm_name + "-"):
-                        vm_state.internal_ip = internal_ip
-                        break
+        state["deployed"] = True
+        state["last_updated"] = datetime.utcnow().isoformat()
 
-            state.vms[vm_name] = vm_state
+        self.save_state(state)
 
+    def mark_vms_configured(self, vm_names: list) -> None:
+        """
+        Mark VMs as configured (Ansible completed).
+
+        Args:
+            vm_names: List of VM names that were configured
+        """
+        state = self.load_state()
+
+        if "vms" not in state:
+            state["vms"] = {}
+
+        for vm_name in vm_names:
+            if vm_name in state["vms"]:
+                state["vms"][vm_name]["status"] = "configured"
+
+        state["last_updated"] = datetime.utcnow().isoformat()
         self.save_state(state)
 
     def mark_foundation_complete(self) -> None:
-        """Mark foundation (base system + docker) as complete."""
+        """Mark foundation setup as complete (base system + Docker installed)."""
         state = self.load_state()
-        state.foundation_complete = True
+        state["foundation_complete"] = True
+        state["last_updated"] = datetime.utcnow().isoformat()
         self.save_state(state)
 
     def mark_deployment_complete(self) -> None:
-        """Mark full deployment as complete (after Ansible succeeds)."""
+        """Mark entire deployment as complete."""
         state = self.load_state()
-
-        # Update all VMs to running status
-        for vm_state in state.vms.values():
-            vm_state.status = VMStatus.RUNNING
-            vm_state.configured_at = datetime.now().isoformat()
-
-        state.deployment_complete = True
+        state["deployed"] = True
+        state["deployment_complete"] = True
+        state["deployed_at"] = datetime.utcnow().isoformat()
+        state["last_updated"] = datetime.utcnow().isoformat()
         self.save_state(state)
 
-    def mark_addon_deployed(self, addon_name: str) -> None:
+    def update_from_config(self, project_config) -> None:
         """
-        Mark specific addon as deployed.
+        Update state from project configuration after successful deployment.
 
         Args:
-            addon_name: Name of the addon
+            project_config: ProjectConfig object with current configuration
+        """
+        state = self.load_state()
+        config = project_config.raw_config
+
+        # Update VMs from config
+        if "vms" not in state:
+            state["vms"] = {}
+
+        for vm_name, vm_config in config.get("vms", {}).items():
+            if vm_name not in state["vms"]:
+                state["vms"][vm_name] = {}
+            # Update config info but preserve runtime info (IPs, status)
+            state["vms"][vm_name].update(
+                {
+                    "role": vm_config.get("role", vm_name),
+                    "machine_type": vm_config.get("machine_type"),
+                    "disk_size": vm_config.get("disk_size"),
+                }
+            )
+
+        # Update apps from config
+        state["apps"] = config.get("apps", {})
+
+        state["last_updated"] = datetime.utcnow().isoformat()
+        self.save_state(state)
+
+    def mark_addon_deployed(self, addon_name: str, status: str = "deployed") -> None:
+        """
+        Mark a single addon as deployed.
+
+        Args:
+            addon_name: Name of the addon that was deployed
+            status: Status to set (default: "deployed")
         """
         state = self.load_state()
 
-        state.addons[addon_name] = AddonState(
-            name=addon_name,
-            status=AddonStatus.DEPLOYED,
-            deployed_at=datetime.now().isoformat(),
-        )
+        if "addons" not in state:
+            state["addons"] = {}
 
+        state["addons"][addon_name] = {
+            "status": status,
+            "deployed_at": datetime.utcnow().isoformat(),
+        }
+
+        state["last_updated"] = datetime.utcnow().isoformat()
         self.save_state(state)
 
-    def mark_synced(self) -> None:
-        """Mark secrets as synced and update secrets hash."""
+    def mark_addons_deployed(self, addon_names: list) -> None:
+        """
+        Mark addons as deployed.
+
+        Args:
+            addon_names: List of addon names that were deployed
+        """
         state = self.load_state()
-        state.secrets_last_sync = datetime.now().isoformat()
-        state.secrets_hash = self._calculate_secrets_hash()
-        self.save_state(state)
 
-    def mark_destroyed(self) -> None:
-        """Mark project as destroyed and clear all state."""
-        if self.state_file.exists():
-            self.state_file.unlink()
+        if "addons" not in state:
+            state["addons"] = {}
+
+        for addon_name in addon_names:
+            state["addons"][addon_name] = {
+                "status": "deployed",
+                "deployed_at": datetime.utcnow().isoformat(),
+            }
+
+        state["last_updated"] = datetime.utcnow().isoformat()
+        self.save_state(state)

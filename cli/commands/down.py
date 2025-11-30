@@ -20,6 +20,7 @@ class DownOptions:
 
     yes: bool = False
     keep_infra: bool = False
+    destroy: bool = False
 
 
 @dataclass
@@ -76,7 +77,7 @@ class GCPResourceCleaner:
 
     def cleanup(self, region: str) -> CleanupStats:
         """
-        Clean up all GCP resources.
+        Clean up all GCP resources - HARD RESET (deletes everything).
 
         Args:
             region: GCP region
@@ -86,19 +87,31 @@ class GCPResourceCleaner:
         """
         stats = CleanupStats()
 
+        # HARD RESET: Delete resources in proper order
+        # 1. VMs first (they might be using IPs)
         stats.vms_deleted = self._delete_vms()
         if stats.vms_deleted > 0:
-            time.sleep(3)  # Wait for VMs to be deleted
+            time.sleep(5)  # Wait longer for VMs to fully terminate
 
+        # 2. Static IPs (after VMs)
         stats.ips_deleted = self._delete_static_ips(region)
+        time.sleep(2)  # Wait for IPs to be released
+
+        # 3. Firewall rules (before network)
         stats.firewalls_deleted = self._delete_firewall_rules()
-        stats.subnets_deleted = self._delete_subnets()
+        time.sleep(2)  # Wait for firewall rules to be deleted
+
+        # 4. Subnets (before network)
+        stats.subnets_deleted = self._delete_subnets(region)
+        time.sleep(2)  # Wait for subnets to be deleted
+
+        # 5. Network (last)
         stats.networks_deleted = self._delete_network()
 
         return stats
 
     def _delete_vms(self) -> int:
-        """Delete all VMs for this project."""
+        """Delete all VMs for this project - HARD RESET."""
         vms_deleted = 0
         cmd = (
             f"gcloud compute instances list "
@@ -116,20 +129,25 @@ class GCPResourceCleaner:
                         vm_name, vm_zone = parts[0], parts[1]
                         delete_cmd = (
                             f"gcloud compute instances delete {vm_name} "
-                            f"--zone={vm_zone} --quiet"
+                            f"--zone={vm_zone} --quiet 2>&1"
                         )
                         result = subprocess.run(
                             delete_cmd,
                             shell=True,
                             capture_output=True,
+                            text=True,
                         )
-                        if result.returncode == 0:
-                            vms_deleted += 1
+                        if (
+                            result.returncode == 0
+                            or "not found" in result.stderr.lower()
+                        ):
+                            if "not found" not in result.stderr.lower():
+                                vms_deleted += 1
 
         return vms_deleted
 
     def _delete_static_ips(self, region: str) -> int:
-        """Delete all static IPs for this project."""
+        """Delete all static IPs for this project - HARD RESET."""
         ips_deleted = 0
         cmd = (
             f"gcloud compute addresses list "
@@ -147,21 +165,28 @@ class GCPResourceCleaner:
                         ip_name, ip_region = parts[0], parts[1]
                         delete_cmd = (
                             f"gcloud compute addresses delete {ip_name} "
-                            f"--region={ip_region} --quiet"
+                            f"--region={ip_region} --quiet 2>&1"
                         )
                         result = subprocess.run(
                             delete_cmd,
                             shell=True,
                             capture_output=True,
+                            text=True,
                         )
-                        if result.returncode == 0:
-                            ips_deleted += 1
+                        if (
+                            result.returncode == 0
+                            or "not found" in result.stderr.lower()
+                        ):
+                            if "not found" not in result.stderr.lower():
+                                ips_deleted += 1
 
         return ips_deleted
 
     def _delete_firewall_rules(self) -> int:
-        """Delete all firewall rules for this project."""
+        """Delete all firewall rules for this project - HARD RESET."""
         firewalls_deleted = 0
+
+        # Get all firewall rules for this network
         cmd = (
             f"gcloud compute firewall-rules list "
             f"--filter='network~{self.project_name}-network' "
@@ -175,21 +200,54 @@ class GCPResourceCleaner:
                 fw_name = fw_name.strip()
                 if fw_name:
                     delete_cmd = (
-                        f"gcloud compute firewall-rules delete {fw_name} --quiet"
+                        f"gcloud compute firewall-rules delete {fw_name} --quiet 2>&1"
                     )
                     result = subprocess.run(
                         delete_cmd,
                         shell=True,
                         capture_output=True,
+                        text=True,
                     )
-                    if result.returncode == 0:
-                        firewalls_deleted += 1
+                    if result.returncode == 0 or "not found" in result.stderr.lower():
+                        if "not found" not in result.stderr.lower():
+                            firewalls_deleted += 1
+
+        # HARD RESET: Also try common firewall rule patterns
+        common_rules = [
+            f"{self.project_name}-network-allow-ssh",
+            f"{self.project_name}-network-allow-internal",
+            f"{self.project_name}-network-allow-http-https",
+            f"{self.project_name}-network-allow-services",
+            f"{self.project_name}-network-allow-app-ports",
+            f"{self.project_name}-network-allow-proxy",
+            f"{self.project_name}-network-allow-monitoring",
+            f"{self.project_name}-network-allow-node-exporter",
+            f"{self.project_name}-network-allow-loki-ingestion",
+            f"{self.project_name}-network-allow-proxy-registry",
+            f"{self.project_name}-network-allow-rabbitmq-mgmt",
+        ]
+
+        for rule_name in common_rules:
+            delete_cmd = (
+                f"gcloud compute firewall-rules delete {rule_name} --quiet 2>&1"
+            )
+            result = subprocess.run(
+                delete_cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
+            # Count only if it was actually deleted (not already gone)
+            if result.returncode == 0 and "not found" not in result.stderr.lower():
+                firewalls_deleted += 1
 
         return firewalls_deleted
 
-    def _delete_subnets(self) -> int:
-        """Delete all subnets for this project."""
+    def _delete_subnets(self, region: str) -> int:
+        """Delete all subnets for this project - HARD RESET."""
         subnets_deleted = 0
+
+        # Try to get subnets from gcloud
         cmd = (
             f"gcloud compute networks subnets list "
             f"--filter='network~{self.project_name}-network' "
@@ -206,29 +264,62 @@ class GCPResourceCleaner:
                         subnet_name, subnet_region = parts[0], parts[1]
                         delete_cmd = (
                             f"gcloud compute networks subnets delete {subnet_name} "
-                            f"--region={subnet_region} --quiet"
+                            f"--region={subnet_region} --quiet 2>&1"
                         )
                         result = subprocess.run(
                             delete_cmd,
                             shell=True,
                             capture_output=True,
                         )
-                        if result.returncode == 0:
+                        if (
+                            result.returncode == 0
+                            or b"not found" in result.stderr.lower()
+                        ):
                             subnets_deleted += 1
 
-        return subnets_deleted
-
-    def _delete_network(self) -> int:
-        """Delete network for this project."""
-        network_name = f"{self.project_name}-network"
+        # HARD RESET: Also try standard subnet name with provided region
+        standard_subnet = f"{self.project_name}-network-subnet"
+        delete_cmd = (
+            f"gcloud compute networks subnets delete {standard_subnet} "
+            f"--region={region} --quiet 2>&1"
+        )
         result = subprocess.run(
-            f"gcloud compute networks delete {network_name} --quiet 2>&1",
+            delete_cmd,
             shell=True,
             capture_output=True,
             text=True,
         )
         if result.returncode == 0 or "not found" in result.stderr.lower():
-            return 1
+            if "not found" not in result.stderr.lower():
+                subnets_deleted += 1
+
+        return subnets_deleted
+
+    def _delete_network(self) -> int:
+        """Delete network for this project - HARD RESET."""
+        network_name = f"{self.project_name}-network"
+
+        # Try to delete the network multiple times with waits if needed
+        for attempt in range(3):
+            result = subprocess.run(
+                f"gcloud compute networks delete {network_name} --quiet 2>&1",
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode == 0:
+                return 1
+            elif "not found" in result.stderr.lower():
+                return 0  # Already gone
+            elif "in use" in result.stderr.lower() and attempt < 2:
+                # Network still in use, wait and retry
+                time.sleep(3)
+                continue
+            elif attempt == 2:
+                # Last attempt failed, but that's okay in HARD RESET
+                return 0
+
         return 0
 
 
@@ -254,7 +345,7 @@ class TerraformCleaner:
         self.project_config = project_config
 
     def cleanup(self) -> None:
-        """Clean up Terraform state files and destroy resources."""
+        """Clean up Terraform state files and destroy resources - HARD RESET."""
         from cli.terraform_utils import TerraformManager
 
         manager = TerraformManager(self.project_root)
@@ -279,52 +370,67 @@ class TerraformCleaner:
             try:
                 manager.select_workspace(self.project_name, create=False)
 
-                # Try to destroy Terraform-managed resources first
-                if self.project_config:
-                    try:
-                        self.console.print("  [dim]Running terraform destroy...[/dim]")
-                        result = manager.destroy(self.project_config, auto_approve=True)
-                        if result.is_success:
-                            self.console.print(
-                                "  [dim]✓ Terraform resources destroyed[/dim]"
-                            )
-                        else:
-                            # If destroy fails, continue anyway (resources might already be deleted)
-                            error_msg = (
-                                result.stderr[:200]
-                                if result.stderr
-                                else "Unknown error"
-                            )
-                            self.console.print(
-                                f"  [yellow]⚠ Terraform destroy had issues: {error_msg}[/yellow]"
-                            )
-                    except Exception as e:
-                        # If destroy fails, continue anyway
+                # Destroy all Terraform-managed resources from state
+                # No need for project config - Terraform knows what it created
+                try:
+                    # Run terraform destroy directly (uses workspace state only)
+                    result = subprocess.run(
+                        ["terraform", "destroy", "-auto-approve"],
+                        cwd=self.terraform_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=600,  # 10 minutes for large infrastructures
+                    )
+
+                    if result.returncode == 0:
                         self.console.print(
-                            f"  [yellow]⚠ Could not run terraform destroy: {e}[/yellow]"
+                            "  [dim]✓ Terraform resources destroyed from state[/dim]"
                         )
-                        self.console.print("  [dim]Continuing with cleanup...[/dim]")
-                else:
+                    else:
+                        # Show error but continue cleanup - HARD RESET doesn't stop
+                        self.console.print(
+                            "  [yellow]⚠ Terraform destroy failed - continuing with manual cleanup[/yellow]"
+                        )
+                except subprocess.TimeoutExpired:
                     self.console.print(
-                        "  [yellow]⚠ No project config available, skipping terraform destroy[/yellow]"
+                        "  [yellow]⚠ Terraform destroy timed out - continuing with manual cleanup[/yellow]"
+                    )
+                except Exception as e:
+                    self.console.print(
+                        f"  [yellow]⚠ Terraform destroy error: {e} - continuing with manual cleanup[/yellow]"
                     )
             except Exception as e:
                 self.console.print(
-                    f"  [yellow]⚠ Could not select workspace: {e}[/yellow]"
+                    f"  [yellow]⚠ Could not select workspace: {e} - continuing with manual cleanup[/yellow]"
                 )
 
-        # Switch to default workspace
+        # HARD RESET: Force delete workspace regardless of state
         try:
             manager.select_workspace("default", create=False)
-        except Exception:
-            # Default workspace might not exist, that's okay
-            pass
+            if workspace_exists:
+                # Force delete workspace even if it has resources
+                result = subprocess.run(
+                    ["terraform", "workspace", "delete", "-force", self.project_name],
+                    cwd=self.terraform_dir,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    self.console.print(
+                        "  [dim]✓ Terraform workspace force deleted[/dim]"
+                    )
+                else:
+                    self.console.print(
+                        "  [yellow]⚠ Workspace delete warning: continuing anyway[/yellow]"
+                    )
+        except Exception as e:
+            self.console.print(f"  [yellow]⚠ Workspace cleanup warning: {e}[/yellow]")
 
-        # Remove workspace directory
+        # Remove workspace directory forcefully
         workspace_dir = self.terraform_dir / "terraform.tfstate.d" / self.project_name
         if workspace_dir.exists():
             shutil.rmtree(workspace_dir)
-            self.console.print("  [dim]✓ Terraform workspace cleaned[/dim]")
+            self.console.print("  [dim]✓ Terraform state directory removed[/dim]")
         elif not workspace_exists:
             self.console.print("  [dim]✓ No Terraform workspace found[/dim]")
 
@@ -407,6 +513,33 @@ class DownCommand(ProjectCommand):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.options = options
 
+    def validate_project(self) -> None:
+        """Override validate_project to skip validation for down command.
+
+        We can destroy infrastructure even if database doesn't have project config.
+        """
+        # Skip validation - we'll check Terraform state instead
+        pass
+
+    def run(self, **kwargs) -> None:
+        """Run down command without project validation."""
+        # Don't call validate_project() - just execute directly
+        try:
+            self.execute()
+        except KeyboardInterrupt:
+            self.console.print("\n")
+            self.console.print("=" * 80)
+            self.console.print("[yellow]⚠️  Operation Cancelled[/yellow]")
+            self.console.print("=" * 80)
+            self.console.print()
+            raise SystemExit(130)
+        except Exception as e:
+            if self.verbose:
+                import traceback
+
+                traceback.print_exc()
+            self.exit_with_error(f"Unexpected error: {e}")
+
     def execute(self) -> None:
         """Execute down command."""
         self.show_header(
@@ -418,6 +551,14 @@ class DownCommand(ProjectCommand):
 
         # Initialize logger
         logger = self.init_logger(self.project_name, "down")
+
+        # Check if project exists in Terraform state (more reliable than database)
+        if not self._check_terraform_state():
+            self.console.print(
+                f"[yellow]⚠ No Terraform state found for project '{self.project_name}'[/yellow]"
+            )
+            self.console.print("  Nothing to destroy.")
+            return
 
         # Show what will be destroyed
         self._show_resources_to_destroy()
@@ -437,15 +578,15 @@ class DownCommand(ProjectCommand):
         # Execute cleanup in 4 steps
         total_steps = 4
 
-        # Step 1: Terraform Destroy (destroy Terraform-managed resources first)
+        # Step 1: Terraform Destroy (destroys all GCP resources from state)
         if logger:
             logger.step(f"[1/{total_steps}] Terraform Destroy")
         self.console.print("  [dim]✓ Configuration loaded[/dim]")
         self._execute_terraform_cleanup(logger, project_config)
 
-        # Step 2: GCP Resource Cleanup (clean up any remaining resources)
+        # Step 2: GCP Manual Cleanup (clean up resources not in Terraform state)
         if logger:
-            logger.step(f"[2/{total_steps}] GCP Resource Cleanup")
+            logger.step(f"[2/{total_steps}] GCP Cleanup")
         self._execute_gcp_cleanup(logger, region)
 
         # Step 3: Local Files Cleanup
@@ -461,18 +602,34 @@ class DownCommand(ProjectCommand):
         if not self.verbose:
             self.console.print("\n[color(248)]Project destroyed.[/color(248)]")
 
-    def _load_region_config(self, logger) -> str:
-        """Load GCP region from config."""
+    def _check_terraform_state(self) -> bool:
+        """Check if Terraform state exists for this project."""
+        terraform_dir = self.project_root / "shared" / "terraform"
         try:
+            from cli.terraform_utils import workspace_exists
+
+            return workspace_exists(self.project_name, terraform_dir)
+        except Exception:
+            # If we can't check, assume it exists and let Terraform destroy handle it
+            return True
+
+    def _load_region_config(self, logger) -> str:
+        """Load GCP region from config (database or defaults)."""
+        try:
+            # Try to load from database first
             project_config = self.config_service.get_raw_config(self.project_name)
-            gcp_config = project_config.get("cloud", {}).get("gcp", {})
+            # DB-based config: direct access to gcp (no cloud wrapper)
+            gcp_config = project_config.get("gcp", {})
             region = gcp_config.get("region", "us-central1")
             if logger:
-                logger.log("[dim]✓ Config loaded[/dim]")
+                logger.log("[dim]✓ Config loaded from database[/dim]")
             return region
         except Exception:
+            # Database doesn't have config, use defaults for cleanup
             if logger:
-                logger.log("[dim]No config found, using defaults for cleanup[/dim]")
+                logger.log(
+                    "[dim]⚠ No database config, using defaults (us-central1)[/dim]"
+                )
             return "us-central1"
 
     def _load_project_config(self, logger):
@@ -483,8 +640,11 @@ class DownCommand(ProjectCommand):
             loader = ConfigLoader(self.project_root)
             return loader.load_project(self.project_name)
         except Exception as e:
+            # Database doesn't have config, that's OK - we can still destroy from Terraform state
             if logger:
-                logger.log(f"[dim]Could not load ProjectConfig: {e}[/dim]")
+                logger.log(
+                    f"[dim]⚠ No database config (this is OK for cleanup): {e}[/dim]"
+                )
             return None
 
     def _show_resources_to_destroy(self) -> None:
@@ -552,19 +712,69 @@ class DownCommand(ProjectCommand):
         cleaner.cleanup()
 
     def _execute_database_cleanup(self, logger) -> None:
-        """Execute database cleanup - VMs config is preserved as part of project configuration."""
-        # NOTE: VMs configuration is part of the project definition and should NOT be deleted
-        # on teardown. It will be reused on next 'up' command.
-        # Only runtime state (Terraform state, GCP resources, local files) is cleaned.
+        """Execute database cleanup - optionally destroy entire project from DB."""
+        if self.options.destroy:
+            # Complete database destruction
+            from cli.database import SessionLocal, Project, App, Secret, SecretAlias
 
-        # Clear actual_state JSON to reflect that infrastructure is down
-        from cli.sync import clear_actual_state
+            session = SessionLocal()
+            try:
+                project = (
+                    session.query(Project).filter_by(name=self.project_name).first()
+                )
+                if project:
+                    # Delete secrets
+                    deleted_secrets = (
+                        session.query(Secret)
+                        .filter_by(project_name=self.project_name)
+                        .delete()
+                    )
+                    # Delete secret aliases
+                    deleted_aliases = (
+                        session.query(SecretAlias)
+                        .filter_by(project_name=self.project_name)
+                        .delete()
+                    )
+                    # Delete apps
+                    apps = session.query(App).filter_by(project_id=project.id).all()
+                    for app in apps:
+                        session.delete(app)
+                    # Delete project
+                    session.delete(project)
+                    session.commit()
 
-        clear_actual_state(self.project_name)
+                    if logger:
+                        logger.log(
+                            f"[dim]✓ Destroyed project from database ({deleted_secrets} secrets, {deleted_aliases} aliases, {len(apps)} apps)[/dim]"
+                        )
+                    self.console.print(
+                        f"  [dim]✓ Destroyed project from database ({deleted_secrets} secrets, {deleted_aliases} aliases, {len(apps)} apps)[/dim]"
+                    )
+                else:
+                    if logger:
+                        logger.log("[dim]✓ Project not found in database[/dim]")
+                    self.console.print("  [dim]✓ Project not found in database[/dim]")
+            except Exception as e:
+                session.rollback()
+                self.console.print(f"  [yellow]⚠ Database cleanup error: {e}[/yellow]")
+            finally:
+                session.close()
+        else:
+            # Preserve VMs config - just clear runtime state
+            # NOTE: VMs configuration is part of the project definition and should NOT be deleted
+            # on teardown. It will be reused on next 'up' command.
+            # Only runtime state (Terraform state, GCP resources, local files) is cleaned.
 
-        if logger:
-            logger.log("[dim]✓ Database preserved (VMs config retained)[/dim]")
-        self.console.print("  [dim]✓ Database preserved (VMs config retained)[/dim]")
+            # Clear actual_state JSON to reflect that infrastructure is down
+            from cli.sync import clear_actual_state
+
+            clear_actual_state(self.project_name)
+
+            if logger:
+                logger.log("✓ Database preserved (VMs config retained)")
+            self.console.print(
+                "  [dim]✓ Database preserved (VMs config retained)[/dim]"
+            )
 
 
 @click.command()
@@ -575,8 +785,13 @@ class DownCommand(ProjectCommand):
     is_flag=True,
     help="Keep shared infrastructure (only stop project services)",
 )
+@click.option(
+    "--destroy",
+    is_flag=True,
+    help="Completely destroy project from database (secrets, apps, config)",
+)
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
-def down(project, yes, verbose, keep_infra, json_output):
+def down(project, yes, verbose, keep_infra, destroy, json_output):
     """
     Stop and destroy project resources (like 'heroku apps:destroy')
 
@@ -584,6 +799,7 @@ def down(project, yes, verbose, keep_infra, json_output):
     - Delete all VMs (core, scrape, proxy)
     - Optionally delete VPC network and firewall rules
     - Clean up local state
+    - Optionally destroy project from database (--destroy)
 
     Warning: All data on VMs will be lost.
 
@@ -596,7 +812,10 @@ def down(project, yes, verbose, keep_infra, json_output):
 
         # Keep shared infrastructure
         superdeploy cheapa:down --keep-infra
+
+        # Completely destroy project from database
+        superdeploy receet:down --destroy --yes
     """
-    options = DownOptions(yes=yes, keep_infra=keep_infra)
+    options = DownOptions(yes=yes, keep_infra=keep_infra, destroy=destroy)
     cmd = DownCommand(project, options, verbose=verbose, json_output=json_output)
     cmd.run()

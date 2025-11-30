@@ -1,10 +1,14 @@
-"""Secret management routes - Database-backed."""
+"""Secret management routes - Database-backed with FK relationships."""
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from pathlib import Path
 from database import get_db
-from models import Secret, SecretAlias
+from models import Secret, SecretAlias, Project, App
+
+# Get superdeploy root directory
+SUPERDEPLOY_ROOT = Path(__file__).parent.parent.parent.resolve()
 
 router = APIRouter(tags=["secrets"])
 
@@ -20,6 +24,26 @@ class AliasUpdateRequest(BaseModel):
     target_key: str
 
 
+def get_project_id(db: Session, project_name: str) -> int:
+    """Get project ID from name, raise 404 if not found."""
+    project = db.query(Project).filter(Project.name == project_name).first()
+    if not project:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_name}' not found"
+        )
+    return project.id
+
+
+def get_app_id(db: Session, project_id: int, app_name: str) -> int:
+    """Get app ID from name and project, raise 404 if not found."""
+    app = (
+        db.query(App).filter(App.project_id == project_id, App.name == app_name).first()
+    )
+    if not app:
+        raise HTTPException(status_code=404, detail=f"App '{app_name}' not found")
+    return app.id
+
+
 @router.get("/secrets/{project_name}/{app_name}")
 async def get_app_secrets(
     project_name: str,
@@ -33,14 +57,17 @@ async def get_app_secrets(
     Returns merged secrets: shared + addon + app-specific + resolved aliases.
     """
     try:
+        project_id = get_project_id(db, project_name)
+        app_id = get_app_id(db, project_id, app_name)
+
         secrets_list = []
 
-        # 1. Get shared secrets (app_name=NULL)
+        # 1. Get shared secrets (app_id=NULL)
         shared_secrets = (
             db.query(Secret)
             .filter(
-                Secret.project_name == project_name,
-                Secret.app_name.is_(None),
+                Secret.project_id == project_id,
+                Secret.app_id.is_(None),
                 Secret.environment == environment,
             )
             .all()
@@ -60,8 +87,8 @@ async def get_app_secrets(
         app_secrets = (
             db.query(Secret)
             .filter(
-                Secret.project_name == project_name,
-                Secret.app_name == app_name,
+                Secret.project_id == project_id,
+                Secret.app_id == app_id,
                 Secret.environment == environment,
             )
             .all()
@@ -81,8 +108,8 @@ async def get_app_secrets(
         aliases = (
             db.query(SecretAlias)
             .filter(
-                SecretAlias.project_name == project_name,
-                SecretAlias.app_name == app_name,
+                SecretAlias.project_id == project_id,
+                SecretAlias.app_id == app_id,
             )
             .all()
         )
@@ -92,7 +119,7 @@ async def get_app_secrets(
             target_secret = (
                 db.query(Secret)
                 .filter(
-                    Secret.project_name == project_name,
+                    Secret.project_id == project_id,
                     Secret.key == alias.target_key,
                     Secret.environment == environment,
                 )
@@ -112,6 +139,8 @@ async def get_app_secrets(
 
         return {"app_name": app_name, "secrets": secrets_list}
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -128,12 +157,15 @@ async def set_app_secret(
     Set or update a secret for an app in database.
     """
     try:
+        project_id = get_project_id(db, project_name)
+        app_id = get_app_id(db, project_id, app_name)
+
         # Upsert (update or insert)
         secret = (
             db.query(Secret)
             .filter(
-                Secret.project_name == project_name,
-                Secret.app_name == app_name,
+                Secret.project_id == project_id,
+                Secret.app_id == app_id,
                 Secret.key == secret_data.key,
                 Secret.environment == environment,
             )
@@ -144,8 +176,8 @@ async def set_app_secret(
             secret.value = secret_data.value
         else:
             secret = Secret(
-                project_name=project_name,
-                app_name=app_name,
+                project_id=project_id,
+                app_id=app_id,
                 key=secret_data.key,
                 value=secret_data.value,
                 environment=environment,
@@ -162,6 +194,8 @@ async def set_app_secret(
             "key": secret_data.key,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -179,11 +213,14 @@ async def delete_app_secret(
     Delete a secret for an app from database.
     """
     try:
+        project_id = get_project_id(db, project_name)
+        app_id = get_app_id(db, project_id, app_name)
+
         secret = (
             db.query(Secret)
             .filter(
-                Secret.project_name == project_name,
-                Secret.app_name == app_name,
+                Secret.project_id == project_id,
+                Secret.app_id == app_id,
                 Secret.key == key,
                 Secret.environment == environment,
             )
@@ -227,11 +264,14 @@ async def get_app_aliases(
 ):
     """Get all aliases for an app."""
     try:
+        project_id = get_project_id(db, project_name)
+        app_id = get_app_id(db, project_id, app_name)
+
         aliases = (
             db.query(SecretAlias)
             .filter(
-                SecretAlias.project_name == project_name,
-                SecretAlias.app_name == app_name,
+                SecretAlias.project_id == project_id,
+                SecretAlias.app_id == app_id,
             )
             .all()
         )
@@ -248,6 +288,8 @@ async def get_app_aliases(
                 for alias in aliases
             ]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -261,12 +303,15 @@ async def create_alias(
 ):
     """Create or update an alias."""
     try:
+        project_id = get_project_id(db, project_name)
+        app_id = get_app_id(db, project_id, app_name)
+
         # Upsert
         alias = (
             db.query(SecretAlias)
             .filter(
-                SecretAlias.project_name == project_name,
-                SecretAlias.app_name == app_name,
+                SecretAlias.project_id == project_id,
+                SecretAlias.app_id == app_id,
                 SecretAlias.alias_key == alias_data.alias_key,
             )
             .first()
@@ -276,8 +321,8 @@ async def create_alias(
             alias.target_key = alias_data.target_key
         else:
             alias = SecretAlias(
-                project_name=project_name,
-                app_name=app_name,
+                project_id=project_id,
+                app_id=app_id,
                 alias_key=alias_data.alias_key,
                 target_key=alias_data.target_key,
             )
@@ -291,6 +336,8 @@ async def create_alias(
             "alias_key": alias_data.alias_key,
             "target_key": alias_data.target_key,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -305,11 +352,14 @@ async def delete_alias(
 ):
     """Delete an alias."""
     try:
+        project_id = get_project_id(db, project_name)
+        app_id = get_app_id(db, project_id, app_name)
+
         alias = (
             db.query(SecretAlias)
             .filter(
-                SecretAlias.project_name == project_name,
-                SecretAlias.app_name == app_name,
+                SecretAlias.project_id == project_id,
+                SecretAlias.app_id == app_id,
                 SecretAlias.alias_key == alias_key,
             )
             .first()
@@ -365,7 +415,7 @@ async def sync_secrets(
                 environment,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                cwd="/Users/cfkarakulak/Desktop/cheapa.io/hero/superdeploy",
+                cwd=str(SUPERDEPLOY_ROOT),
             )
 
             # Stream output
@@ -380,5 +430,69 @@ async def sync_secrets(
 
         except Exception as e:
             yield f"\nError: {str(e)}\n".encode()
+
+    return StreamingResponse(stream_logs(), media_type="text/plain")
+
+
+@router.post("/reload/{project_name}/{app_name}")
+async def reload_containers(
+    project_name: str,
+    app_name: str,
+):
+    """
+    Reload (restart) containers for a specific app to apply new environment variables.
+
+    This will perform a zero-downtime restart of all processes for the app.
+    """
+    from fastapi.responses import StreamingResponse
+    import asyncio
+
+    async def stream_logs():
+        try:
+            yield b"Reloading containers for " + app_name.encode() + b"...\n\n"
+
+            # Execute docker compose restart for all app services
+            compose_dir = f"/opt/superdeploy/projects/{project_name}/compose"
+
+            # Find all services for this app
+            find_services = await asyncio.create_subprocess_shell(
+                f'cd {compose_dir} && grep "^  {app_name}-" docker-compose.yml | cut -d: -f1 | xargs',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            services_output, _ = await find_services.communicate()
+            services = services_output.decode().strip()
+
+            if not services:
+                yield f"❌ No services found for {app_name}\n".encode()
+                return
+
+            yield f"🔄 Restarting services: {services}\n\n".encode()
+
+            # Restart all services
+            process = await asyncio.create_subprocess_shell(
+                f"cd {compose_dir} && docker compose restart {services}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+
+            # Stream output
+            if process.stdout:
+                while True:
+                    line = await process.stdout.readline()
+                    if not line:
+                        break
+                    yield line
+
+            await process.wait()
+
+            if process.returncode == 0:
+                yield "\n✅ Containers reloaded successfully!\n".encode()
+            else:
+                yield "\n❌ Reload failed!\n".encode()
+
+        except Exception as e:
+            yield f"\n❌ Error: {str(e)}\n".encode()
 
     return StreamingResponse(stream_logs(), media_type="text/plain")

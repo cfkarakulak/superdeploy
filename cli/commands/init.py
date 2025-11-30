@@ -7,6 +7,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, List
 from rich.prompt import Prompt
+import inquirer
 
 from cli.base import BaseCommand
 
@@ -31,26 +32,9 @@ class ProjectInitializer:
         self.console = console
 
     def create_config_in_database(self, setup_config: ProjectSetupConfig) -> bool:
-        """Save project configuration to database (replaces config.yml)."""
-        from cli.database import get_db_session
-        from sqlalchemy import Table, Column, Integer, String, JSON, DateTime, MetaData
+        """Save project configuration to database (normalized)."""
+        from cli.database import get_db_session, Project, App, Addon, VM
         from datetime import datetime
-
-        # Build VMs configuration (default setup)
-        vms_config = {
-            "core": {
-                "count": 1,
-                "machine_type": "e2-medium",
-                "disk_size": 20,
-                "services": [],
-            },
-            "app": {
-                "count": 1,
-                "machine_type": "e2-medium",
-                "disk_size": 30,
-                "services": [],
-            },
-        }
 
         # Determine GCP zone from region
         gcp_zone = (
@@ -59,106 +43,104 @@ class ProjectInitializer:
             else "us-central1-a"
         )
 
-        # Build apps configuration
-        apps_config = {}
-        for app_name, app_data in setup_config.apps.items():
-            apps_config[app_name] = {
-                "path": app_data.get("path"),
-                "vm": app_data.get("vm", "app"),
-                "port": app_data.get("port"),
-            }
-
-        # Build addons configuration
-        addons_config = {}
-        for category, instances in setup_config.addons.items():
-            addons_config[category] = {}
-            for instance_name, instance_config in instances.items():
-                addons_config[category][instance_name] = instance_config
-
         db = get_db_session()
         try:
-            # Use raw SQL to insert project (avoid importing full ORM model)
-            metadata = MetaData()
-            projects_table = Table(
-                "projects",
-                metadata,
-                Column("id", Integer, primary_key=True),
-                Column("name", String(100)),
-                Column("description", String(500)),
-                Column("domain", String(200)),
-                Column("ssl_email", String(200)),
-                Column("github_org", String(100)),
-                Column("gcp_project", String(100)),
-                Column("gcp_region", String(50)),
-                Column("gcp_zone", String(50)),
-                Column("ssh_key_path", String(255)),
-                Column("ssh_public_key_path", String(255)),
-                Column("ssh_user", String(50)),
-                Column("docker_registry", String(200)),
-                Column("docker_organization", String(100)),
-                Column("vpc_subnet", String(50)),
-                Column("docker_subnet", String(50)),
-                Column("vms", JSON),
-                Column("apps_config", JSON),
-                Column("addons_config", JSON),
-                Column("created_at", DateTime),
-                Column("updated_at", DateTime),
-            )
-
             # Check if project already exists
-            result = db.execute(
-                projects_table.select().where(
-                    projects_table.c.name == setup_config.project_name
-                )
+            existing = (
+                db.query(Project)
+                .filter(Project.name == setup_config.project_name)
+                .first()
             )
-            existing = result.fetchone()
 
             if existing:
                 # Update existing project
-                db.execute(
-                    projects_table.update()
-                    .where(projects_table.c.name == setup_config.project_name)
-                    .values(
-                        description=f"{setup_config.project_name} project",
-                        github_org=setup_config.github_org,
-                        gcp_project=setup_config.gcp_project,
-                        gcp_region=setup_config.gcp_region,
-                        gcp_zone=gcp_zone,
-                        ssh_key_path="~/.ssh/superdeploy_deploy",
-                        ssh_public_key_path="~/.ssh/superdeploy_deploy.pub",
-                        ssh_user="superdeploy",
-                        docker_registry="docker.io",
-                        vpc_subnet="10.1.0.0/16",
-                        docker_subnet="172.30.0.0/24",
-                        vms=vms_config,
-                        apps_config=apps_config,
-                        addons_config=addons_config,
-                        updated_at=datetime.utcnow(),
-                    )
-                )
+                db_project = existing
+                db_project.description = f"{setup_config.project_name} project"
+                db_project.github_org = setup_config.github_org
+                db_project.gcp_project = setup_config.gcp_project
+                db_project.gcp_region = setup_config.gcp_region
+                db_project.gcp_zone = gcp_zone
+                db_project.ssh_key_path = "~/.ssh/superdeploy_deploy"
+                db_project.ssh_public_key_path = "~/.ssh/superdeploy_deploy.pub"
+                db_project.ssh_user = "superdeploy"
+                db_project.docker_registry = "docker.io"
+                db_project.vpc_subnet = "10.1.0.0/16"
+                db_project.docker_subnet = "172.30.0.0/24"
+                db_project.updated_at = datetime.utcnow()
+
+                # Delete old VMs, Apps, Addons
+                db.query(VM).filter(VM.project_id == db_project.id).delete()
+                db.query(App).filter(App.project_id == db_project.id).delete()
+                db.query(Addon).filter(Addon.project_id == db_project.id).delete()
             else:
                 # Insert new project
-                db.execute(
-                    projects_table.insert().values(
-                        name=setup_config.project_name,
-                        description=f"{setup_config.project_name} project",
-                        github_org=setup_config.github_org,
-                        gcp_project=setup_config.gcp_project,
-                        gcp_region=setup_config.gcp_region,
-                        gcp_zone=gcp_zone,
-                        ssh_key_path="~/.ssh/superdeploy_deploy",
-                        ssh_public_key_path="~/.ssh/superdeploy_deploy.pub",
-                        ssh_user="superdeploy",
-                        docker_registry="docker.io",
-                        vpc_subnet="10.1.0.0/16",
-                        docker_subnet="172.30.0.0/24",
-                        vms=vms_config,
-                        apps_config=apps_config,
-                        addons_config=addons_config,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow(),
-                    )
+                db_project = Project(
+                    name=setup_config.project_name,
+                    description=f"{setup_config.project_name} project",
+                    github_org=setup_config.github_org,
+                    gcp_project=setup_config.gcp_project,
+                    gcp_region=setup_config.gcp_region,
+                    gcp_zone=gcp_zone,
+                    ssh_key_path="~/.ssh/superdeploy_deploy",
+                    ssh_public_key_path="~/.ssh/superdeploy_deploy.pub",
+                    ssh_user="superdeploy",
+                    docker_registry="docker.io",
+                    vpc_subnet="10.1.0.0/16",
+                    docker_subnet="172.30.0.0/24",
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
                 )
+                db.add(db_project)
+                db.flush()  # Get project ID
+
+            # Create VMs
+            vms_data = [
+                {
+                    "role": "core",
+                    "count": 1,
+                    "machine_type": "e2-medium",
+                    "disk_size": 20,
+                },
+                {
+                    "role": "app",
+                    "count": 1,
+                    "machine_type": "e2-medium",
+                    "disk_size": 30,
+                },
+            ]
+            for vm_data in vms_data:
+                vm = VM(project_id=db_project.id, **vm_data)
+                db.add(vm)
+
+            # Create Apps
+            for app_name, app_data in setup_config.apps.items():
+                app = App(
+                    project_id=db_project.id,
+                    name=app_name,
+                    type=app_data.get("type"),
+                    repo=app_data.get("repo"),
+                    owner=app_data.get("owner"),
+                    path=app_data.get("path"),
+                    vm=app_data.get("vm", "app"),
+                    port=app_data.get("port"),
+                    external_port=app_data.get("external_port"),
+                    services=app_data.get("services", ["web"]),
+                )
+                db.add(app)
+
+            # Create Addons
+            for category, instances in setup_config.addons.items():
+                for instance_name, instance_config in instances.items():
+                    addon = Addon(
+                        project_id=db_project.id,
+                        instance_name=instance_name,
+                        category=category,
+                        type=instance_config.get("type"),
+                        version=instance_config.get("version", "latest"),
+                        vm=instance_config.get("vm", "core"),
+                        plan=instance_config.get("plan"),
+                    )
+                    db.add(addon)
 
             db.commit()
             return True
@@ -178,8 +160,11 @@ class ProjectInitializer:
         import string
 
         def generate_password(length=32):
-            """Generate a secure random password."""
-            alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+            """Generate a secure random password.
+
+            Note: Excludes $ character because docker-compose interprets it as variable.
+            """
+            alphabet = string.ascii_letters + string.digits + "!@#%^&*"
             return "".join(python_secrets.choice(alphabet) for _ in range(length))
 
         db = get_db_session()
@@ -300,8 +285,12 @@ class ProjectInitializer:
                         )
                         db.add(secret)
 
-            # 3. App-specific secrets are empty by default
-            # User can add them via: superdeploy project:config:set KEY=VALUE --app=appname
+            # 3. App-specific secrets and aliases are NOT created here
+            # Aliases are app-specific (each framework uses different ENV names)
+            # User should define aliases via:
+            #   - Dashboard UI
+            #   - CLI: superdeploy project:alias:set DB_PASSWORD=postgres.primary.PASSWORD --app=api
+            #   - Marker file: aliases section in superdeploy marker
 
             db.commit()
             return True
@@ -332,8 +321,8 @@ class InitCommand(BaseCommand):
 
         project_dir = self.project_root / "projects" / self.project_name
 
-        # Check if project exists
-        if not self._confirm_overwrite(project_dir):
+        # Check if project exists in database
+        if not self._confirm_overwrite():
             return
 
         project_dir.mkdir(parents=True, exist_ok=True)
@@ -347,106 +336,235 @@ class InitCommand(BaseCommand):
         initializer = ProjectInitializer(self.project_root, self.console)
 
         # Create configuration in database
-        self.console.print("\n[dim]Saving configuration to database...[/dim]")
+        self.console.print()
         initializer.create_config_in_database(setup_config)
-        self.console.print("[dim]✓ Project configuration saved to database[/dim]")
+        self.console.print("✓ Configuration saved")
 
         # Create secrets in database
-        self.console.print("\n[dim]Generating secrets...[/dim]")
         initializer.create_secrets_in_database(self.project_name, app_names, addons)
-        self.console.print("[dim]✓ Secrets saved to database[/dim]")
         addon_count = (
             sum(len(instances) for instances in addons.values()) if addons else 0
         )
-        if addon_count > 0:
-            self.console.print(
-                f"[dim]  Generated secure credentials for {addon_count} addon instance(s)[/dim]"
-            )
-        else:
-            self.console.print(
-                "[dim]  No addons configured - add them in config.yml if needed[/dim]"
-            )
-        self.console.print(
-            "[yellow]  ⚠ Fill in Docker, GitHub, and SMTP credentials before deploying![/yellow]"
-        )
+        self.console.print(f"✓ Generated {addon_count} addon credentials")
+        self.console.print("⚠ Set Docker/GitHub credentials before deploying")
 
         # Display next steps
         self._display_next_steps()
 
-    def _confirm_overwrite(self, project_dir: Path) -> bool:
-        """Confirm project overwrite if it exists."""
-        if project_dir.exists():
-            self.console.print(
-                f"[yellow]Project exists: {self.project_name}. Overwrite? [y/n][/yellow] [dim](n)[/dim]: ",
-                end="",
+    def _confirm_overwrite(self) -> bool:
+        """Confirm project overwrite if it exists in database."""
+        from cli.database import get_db_session, Project
+        from rich.prompt import Confirm
+
+        db = get_db_session()
+        try:
+            existing = (
+                db.query(Project).filter(Project.name == self.project_name).first()
             )
-            answer = input().strip().lower()
-            if answer not in ["y", "yes"]:
-                self.console.print("[dim]Cancelled[/dim]")
-                return False
-        return True
+
+            if existing:
+                overwrite = Confirm.ask(
+                    f"Project exists in database: [cyan]{self.project_name}[/cyan]. Overwrite?",
+                    default=False,
+                )
+
+                if not overwrite:
+                    self.console.print("[dim]Cancelled[/dim]")
+                    return False
+
+            return True
+        finally:
+            db.close()
 
     def _collect_project_config(self) -> ProjectSetupConfig:
         """Collect project configuration via interactive prompts."""
+        from cli.commands.gcp import select_gcp_project, get_gcp_regions
+
         # Cloud Provider
-        self.console.print("\n[white]Cloud Provider[/white]")
-        gcp_project = Prompt.ask("GCP Project ID", default="my-gcp-project")
-        gcp_region = Prompt.ask("GCP Region", default="us-central1")
+        try:
+            gcp_project = select_gcp_project(self.console)
+        except RuntimeError as e:
+            self.console.print(f"\n[red]✗ {str(e)}[/red]")
+            raise click.Abort()
+
+        # Region selection (interactive)
+        regions = get_gcp_regions()
+        common_regions = regions[:8]
+
+        self.console.print()
+        questions = [
+            inquirer.List(
+                "region",
+                message="GCP Region",
+                choices=common_regions,
+                default="us-central1",
+                carousel=True,
+            )
+        ]
+        answers = inquirer.prompt(questions, raise_keyboard_interrupt=True)
+        gcp_region = answers["region"] if answers else "us-central1"
 
         # GitHub
-        self.console.print("\n[white]GitHub[/white]")
-        github_org = Prompt.ask("GitHub Organization", default=f"{self.project_name}io")
+        github_org = Prompt.ask(
+            "[?] GitHub Organization", default=f"{self.project_name}io"
+        )
 
-        # Apps
-        self.console.print("\n[white]Applications[/white]")
-        self.console.print("[dim]Enter app names (comma-separated)[/dim]")
-        apps_input = Prompt.ask("Apps")
-        app_names = [a.strip() for a in apps_input.split(",")]
+        # Number of Apps (interactive)
+        self.console.print()
+        questions = [
+            inquirer.List(
+                "num_apps",
+                message="Number of Apps",
+                choices=["1", "2", "3", "4", "5"],
+                default="1",
+                carousel=True,
+            )
+        ]
+        answers = inquirer.prompt(questions, raise_keyboard_interrupt=True)
+        num_apps = int(answers["num_apps"]) if answers else 1
 
-        # Collect app details
         apps = {}
-        for app_name in app_names:
-            default_path = f"/path/to/{app_name}"
-            app_path = Prompt.ask(f"  Path for {app_name}", default=default_path)
-            default_port = "8000"
-            app_port = Prompt.ask(f"  Port for {app_name}", default=default_port)
+        for i in range(num_apps):
+            self.console.print()
+            if num_apps > 1:
+                self.console.print(f"[bold]App {i + 1}/{num_apps}[/bold]")
 
-            # Note: 'type' field is optional and auto-detected during generate
-            # User can manually add: type: python or type: nextjs
+            app_name = Prompt.ask(
+                "[?] Name", default="api" if i == 0 else f"app{i + 1}"
+            )
+
+            app_repo = Prompt.ask("[?] Repo", default=app_name)
+            app_path = Prompt.ask("[?] Path", default=f"/{app_name}")
+
+            # Port is optional (for background workers, leave empty)
+            port_input = Prompt.ask(
+                "[?] Port [dim](empty for bg worker)[/dim]",
+                default="8000",
+            )
+            app_port = int(port_input) if port_input and port_input != "none" else None
+
+            # Apps always go to "app" VM (not core)
+            app_vm = "app"
+
+            # External port only if internal port exists
+            if app_port:
+                app_external_port = 80 if i == 0 else (8080 + i)
+            else:
+                app_external_port = None
+
+            # Services default to "web" if port exists, else empty
+            services = ["web"] if app_port else []
+
             apps[app_name] = {
+                "repo": app_repo,
+                "owner": github_org,
                 "path": app_path,
-                "vm": "app",
-                "port": int(app_port),
+                "port": app_port,
+                "external_port": app_external_port,
+                "services": services,
+                "vm": app_vm,
             }
 
-        # Default addons (postgres + rabbitmq + caddy on every VM)
-        addons = {
-            "databases": {
+        # Addons (interactive selection with arrow keys)
+        self.console.print()
+        self.console.print("[bold]Addons[/bold]")
+        addons = {}
+
+        # Database
+        questions = [
+            inquirer.List(
+                "database",
+                message="Database",
+                choices=["None", "PostgreSQL", "MySQL", "MongoDB"],
+                default="PostgreSQL",
+                carousel=True,
+            )
+        ]
+        answers = inquirer.prompt(questions, raise_keyboard_interrupt=True)
+        db_choice = answers["database"] if answers else "PostgreSQL"
+
+        db_map = {
+            "PostgreSQL": "postgres",
+            "MySQL": "mysql",
+            "MongoDB": "mongodb",
+            "None": "none",
+        }
+        db_type = db_map.get(db_choice, "postgres")
+
+        if db_type != "none":
+            addons["databases"] = {
                 "primary": {
-                    "type": "postgres",
-                    "version": "15-alpine",
+                    "type": db_type,
+                    "version": "15-alpine"
+                    if db_type == "postgres"
+                    else "8-alpine"
+                    if db_type == "mysql"
+                    else "7",
                     "plan": "standard",
                     "vm": "core",
                 }
-            },
-            "queues": {
+            }
+
+        # Cache
+        questions = [
+            inquirer.List(
+                "cache",
+                message="Cache",
+                choices=["None", "Redis", "Memcached"],
+                default="Redis",
+                carousel=True,
+            )
+        ]
+        answers = inquirer.prompt(questions, raise_keyboard_interrupt=True)
+        cache_choice = answers["cache"] if answers else "Redis"
+
+        cache_map = {"Redis": "redis", "Memcached": "memcached", "None": "none"}
+        cache_type = cache_map.get(cache_choice, "redis")
+
+        if cache_type != "none":
+            addons["caches"] = {
                 "primary": {
-                    "type": "rabbitmq",
+                    "type": cache_type,
+                    "version": "7-alpine" if cache_type == "redis" else "1.6-alpine",
+                    "plan": "standard",
+                    "vm": "core",
+                }
+            }
+
+        # Queue
+        questions = [
+            inquirer.List(
+                "queue",
+                message="Queue",
+                choices=["None", "RabbitMQ"],
+                default="RabbitMQ",
+                carousel=True,
+            )
+        ]
+        answers = inquirer.prompt(questions, raise_keyboard_interrupt=True)
+        queue_choice = answers["queue"] if answers else "RabbitMQ"
+
+        queue_map = {"RabbitMQ": "rabbitmq", "None": "none"}
+        queue_type = queue_map.get(queue_choice, "rabbitmq")
+
+        if queue_type != "none":
+            addons["queues"] = {
+                "primary": {
+                    "type": queue_type,
                     "version": "3.12-management-alpine",
                     "plan": "standard",
                     "vm": "core",
                 }
-            },
-            "proxy": {},  # Caddy will be added as primary instance
-        }
+            }
 
-        # CRITICAL: Add Caddy as "primary" instance (required for app routing)
-        # Caddy should be added as a single primary instance, not per-VM
-        addons["proxy"]["primary"] = {
-            "type": "caddy",
-            "version": "2-alpine",
-            "plan": "standard",
-            "vm": "core",  # Default to core VM
+        # Proxy (always Caddy)
+        addons["proxy"] = {
+            "primary": {
+                "type": "caddy",
+                "version": "2-alpine",
+                "plan": "standard",
+                "vm": "core",
+            }
         }
 
         return ProjectSetupConfig(
@@ -460,25 +578,9 @@ class InitCommand(BaseCommand):
 
     def _display_next_steps(self) -> None:
         """Display next steps after initialization."""
-        self.console.print("\n[white]Next steps:[/white]")
-        self.console.print(
-            f"  [dim]1. Edit secrets: superdeploy {self.project_name}:config:set KEY=VALUE[/dim]"
-        )
-        self.console.print(
-            "     [yellow]→ Add DOCKER_ORG, DOCKER_USERNAME, DOCKER_TOKEN (required)[/yellow]"
-        )
-        self.console.print(
-            "     [yellow]→ Add REPOSITORY_TOKEN (required - with admin:org scope)[/yellow]"
-        )
-        self.console.print(
-            "     [yellow]→ Add SMTP credentials (optional, for email notifications)[/yellow]"
-        )
-        self.console.print(
-            f"  [dim]2. Generate deployment files: superdeploy {self.project_name}:generate[/dim]"
-        )
-        self.console.print(
-            f"  [dim]3. Deploy infrastructure: superdeploy {self.project_name}:up[/dim]\n"
-        )
+        self.console.print("\n[dim]Next steps:[/dim]")
+        self.console.print(f"  [dim]superdeploy {self.project_name}:generate[/dim]")
+        self.console.print(f"  [dim]superdeploy {self.project_name}:up[/dim]\n")
 
 
 @click.command(name="init")

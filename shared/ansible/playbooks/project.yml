@@ -50,6 +50,18 @@
     - docker
     - foundation
 
+- name: Install Promtail Log Agent
+  hosts: all:!orchestrator
+  become: yes
+  roles:
+    - role: system/promtail
+  tags:
+    - system
+    - promtail
+    - foundation
+  vars:
+    orchestrator_ip: "{{ hostvars[groups['orchestrator'][0]]['ansible_host'] }}"
+
 - name: Install System Monitoring Agent
   hosts: all:!orchestrator
   become: yes

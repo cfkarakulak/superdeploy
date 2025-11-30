@@ -202,7 +202,10 @@ class BaseCommand(ABC):
         try:
             self.execute(**kwargs)
         except KeyboardInterrupt:
-            self.console.print("\n[yellow]⚠️  Operation cancelled by user[/yellow]")
+            self.console.print("\n")
+            self.console.print("=" * 80)
+            self.console.print("[yellow]⚠️  Operation Cancelled[/yellow]")
+            self.console.print("=" * 80)
             if self.logger:
                 self.console.print(
                     f"\n[dim]Logs saved to:[/dim] {self.logger.log_path}\n"

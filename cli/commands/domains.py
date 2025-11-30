@@ -138,44 +138,39 @@ class DomainsAddCommand(BaseCommand):
 
     def _add_project_domain(self) -> None:
         """Add domain to project app."""
-        from cli.database import get_db_session
-        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
+        from cli.database import get_db_session, App, Project
 
-        # Load project config from database
+        # Load project from database
         db = get_db_session()
         try:
-            metadata = MetaData()
-            projects_table = Table(
-                "projects",
-                metadata,
-                Column("id", Integer, primary_key=True),
-                Column("name", String(100)),
-                Column("apps_config", JSON),
-            )
-
-            result = db.execute(
-                projects_table.select().where(projects_table.c.name == self.project)
-            )
-            row = result.fetchone()
-
-            if not row:
+            # Get project
+            project = db.query(Project).filter(Project.name == self.project).first()
+            if not project:
                 self.console.print(
                     f"[red]✗ Project '{self.project}' not found in database[/red]"
                 )
                 raise click.Abort()
 
-            apps = row.apps_config or {}
-
             # Find app
-            if self.app_name not in apps:
+            app = (
+                db.query(App)
+                .filter(App.project_id == project.id, App.name == self.app_name)
+                .first()
+            )
+
+            if not app:
+                # Get available apps
+                available_apps = [
+                    a.name
+                    for a in db.query(App).filter(App.project_id == project.id).all()
+                ]
                 self.console.print(
                     f"[red]✗ App '{self.app_name}' not found in project '{self.project}'[/red]"
                 )
-                self.console.print(f"Available apps: {', '.join(apps.keys())}")
+                self.console.print(f"Available apps: {', '.join(available_apps)}")
                 raise click.Abort()
 
-            app = apps[self.app_name]
-            vm_role = app.get("vm")
+            vm_role = app.vm or "app"
 
             # Get VM IP
             vm_ip = self._get_project_vm_ip(vm_role)
@@ -189,18 +184,12 @@ class DomainsAddCommand(BaseCommand):
                 self.console.print("Aborted. Add the DNS record and try again.")
                 raise click.Abort()
 
-            # Update database
-            self.console.print("Updating project configuration in database...")
-            apps[self.app_name]["domain"] = self.domain
-
-            db.execute(
-                projects_table.update()
-                .where(projects_table.c.name == self.project)
-                .values(apps_config=apps)
-            )
+            # Update app domain
+            self.console.print("Updating app domain in database...")
+            app.domain = self.domain
             db.commit()
 
-            self.console.print("[green]✓ Updated project configuration[/green]")
+            self.console.print("[green]✓ Updated app domain[/green]")
 
         finally:
             db.close()
@@ -700,40 +689,31 @@ class DomainsRemoveCommand(BaseCommand):
 
     def _remove_project_domain(self) -> None:
         """Remove domain from project app."""
-        from cli.database import get_db_session
-        from sqlalchemy import Table, Column, Integer, String, JSON, MetaData
+        from cli.database import get_db_session, App, Project
 
-        # Load project config from database
+        # Load project from database
         db = get_db_session()
         try:
-            metadata = MetaData()
-            projects_table = Table(
-                "projects",
-                metadata,
-                Column("id", Integer, primary_key=True),
-                Column("name", String(100)),
-                Column("apps_config", JSON),
-            )
-
-            result = db.execute(
-                projects_table.select().where(projects_table.c.name == self.project)
-            )
-            row = result.fetchone()
-
-            if not row:
+            # Get project
+            project = db.query(Project).filter(Project.name == self.project).first()
+            if not project:
                 self.console.print(
                     f"[red]✗ Project '{self.project}' not found in database[/red]"
                 )
                 raise click.Abort()
 
-            apps = row.apps_config or {}
+            # Get app
+            app = (
+                db.query(App)
+                .filter(App.project_id == project.id, App.name == self.app_name)
+                .first()
+            )
 
-            if self.app_name not in apps:
+            if not app:
                 self.console.print(f"[red]✗ App '{self.app_name}' not found[/red]")
                 raise click.Abort()
 
-            app = apps[self.app_name]
-            old_domain = app.get("domain")
+            old_domain = app.domain
 
             if not old_domain:
                 self.console.print(
@@ -749,19 +729,10 @@ class DomainsRemoveCommand(BaseCommand):
                 raise click.Abort()
 
             # Remove domain
-            if "domain" in apps[self.app_name]:
-                del apps[self.app_name]["domain"]
-
-            db.execute(
-                projects_table.update()
-                .where(projects_table.c.name == self.project)
-                .values(apps_config=apps)
-            )
+            app.domain = None
             db.commit()
 
-            self.console.print(
-                "[green]✓ Removed domain from project configuration[/green]"
-            )
+            self.console.print("[green]✓ Removed domain from app[/green]")
 
         finally:
             db.close()

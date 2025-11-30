@@ -65,37 +65,49 @@ class ConfigService:
             Secrets dictionary in legacy format
         """
         from database import SessionLocal
-        from models import Secret
+        from models import Secret, Project, App
 
         db = SessionLocal()
         try:
-            secrets = (
+            # Get project ID first
+            project = db.query(Project).filter(Project.name == project_name).first()
+            if not project:
+                raise FileNotFoundError(f"Project '{project_name}' not found")
+
+            # Get all secrets for this project
+            db_secrets = (
                 db.query(Secret)
                 .filter(
-                    Secret.project_name == project_name,
+                    Secret.project_id == project.id,
                     Secret.environment == "production",
                 )
                 .all()
             )
 
-            if not secrets:
+            if not db_secrets:
                 raise FileNotFoundError(f"No secrets found for project {project_name}")
+
+            # Build app_id to name mapping
+            apps = db.query(App).filter(App.project_id == project.id).all()
+            app_id_to_name = {app.id: app.name for app in apps}
 
             # Build legacy format
             result = {"secrets": {"shared": {}, "apps": {}, "addons": {}}}
 
-            for secret in secrets:
-                if secret.app_name is None:
+            for secret in db_secrets:
+                if secret.app_id is None:
+                    # Shared or addon secret
                     if secret.source == "addon":
                         result["secrets"]["addons"][secret.key] = secret.value
                     else:
                         result["secrets"]["shared"][secret.key] = secret.value
                 else:
-                    if secret.app_name not in result["secrets"]["apps"]:
-                        result["secrets"]["apps"][secret.app_name] = {}
-                    result["secrets"]["apps"][secret.app_name][secret.key] = (
-                        secret.value
-                    )
+                    # App-specific secret
+                    app_name = app_id_to_name.get(secret.app_id)
+                    if app_name:
+                        if app_name not in result["secrets"]["apps"]:
+                            result["secrets"]["apps"][app_name] = {}
+                        result["secrets"]["apps"][app_name][secret.key] = secret.value
 
             return result
         finally:
@@ -138,7 +150,7 @@ class ConfigService:
         all_secrets = secrets_data.get("secrets", {}).get("shared", {}).copy()
 
         # Override with app-specific secrets
-        app_secrets = secrets_data.get("secrets", {}).get(app_name, {})
+        app_secrets = secrets_data.get("secrets", {}).get("apps", {}).get(app_name, {})
         all_secrets.update(app_secrets)
 
         return all_secrets

@@ -130,3 +130,32 @@
     groups: docker
     append: yes
   loop: "{{ docker_users }}"
+
+# VPC-to-Docker NAT fix: Allow containers to reach other VMs via internal IP
+# Docker by default MASQUERADE all outbound traffic to external IP
+# This rule SNAT container traffic (172.x) going to VPC (10.x) to host's VPC IP
+# Without this, GCP firewall blocks traffic with 172.x source (not in VPC)
+- name: Get host VPC internal IP
+  shell: ip addr show ens4 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1
+  register: host_vpc_ip
+  changed_when: false
+
+- name: Configure Docker-to-VPC SNAT rule for cross-VM container communication
+  iptables:
+    table: nat
+    chain: POSTROUTING
+    source: 172.16.0.0/12
+    destination: 10.0.0.0/8
+    jump: SNAT
+    to_source: "{{ host_vpc_ip.stdout }}"
+    state: present
+    action: insert
+    rule_num: 1
+  when: host_vpc_ip.stdout != ""
+
+- name: Persist iptables rules
+  shell: |
+    if command -v iptables-save &> /dev/null; then
+      iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+    fi
+  changed_when: false

@@ -15,16 +15,21 @@ def get_github_token(project_name: str) -> str | None:
     """
     try:
         from database import SessionLocal
-        from models import Secret
+        from models import Secret, Project
 
         db = SessionLocal()
         try:
+            # Get project ID first
+            project = db.query(Project).filter(Project.name == project_name).first()
+            if not project:
+                return None
+
             # Try GITHUB_TOKEN first
             token_secret = (
                 db.query(Secret)
                 .filter(
-                    Secret.project_name == project_name,
-                    Secret.app_name.is_(None),  # Shared secret
+                    Secret.project_id == project.id,
+                    Secret.app_id.is_(None),  # Shared secret
                     Secret.key == "GITHUB_TOKEN",
                     Secret.environment == "production",
                 )
@@ -38,8 +43,8 @@ def get_github_token(project_name: str) -> str | None:
             token_secret = (
                 db.query(Secret)
                 .filter(
-                    Secret.project_name == project_name,
-                    Secret.app_name.is_(None),  # Shared secret
+                    Secret.project_id == project.id,
+                    Secret.app_id.is_(None),  # Shared secret
                     Secret.key == "REPOSITORY_TOKEN",
                     Secret.environment == "production",
                 )

@@ -23,7 +23,6 @@ class DeploymentOptions:
     skip: Tuple[str, ...] = ()
     addon: Optional[str] = None
     tags: Optional[str] = None
-    preserve_ip: bool = False
     force: bool = False
     dry_run: bool = False
 
@@ -45,7 +44,6 @@ class UpCommand(ProjectCommand):
         skip: tuple = (),
         addon: str = None,
         tags: str = None,
-        preserve_ip: bool = False,
         verbose: bool = False,
         force: bool = False,
         dry_run: bool = False,
@@ -57,7 +55,6 @@ class UpCommand(ProjectCommand):
         self.skip = skip
         self.addon = addon
         self.tags = tags
-        self.preserve_ip = preserve_ip
         self.force = force
         self.dry_run = dry_run
 
@@ -77,8 +74,11 @@ class UpCommand(ProjectCommand):
         import string
 
         def generate_password(length=32):
-            """Generate a secure random password."""
-            alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+            """Generate a secure random password.
+
+            Note: Excludes $ character because docker-compose interprets it as variable.
+            """
+            alphabet = string.ascii_letters + string.digits + "!@#%^&*"
             return "".join(python_secrets.choice(alphabet) for _ in range(length))
 
         # Load project config from database to see which addons are configured
@@ -91,7 +91,21 @@ class UpCommand(ProjectCommand):
                 logger.warning(f"Project '{self.project_name}' not found in database")
                 return
 
-            addons = project.addons_config or {}
+            # Load addons from normalized table
+            from cli.database import Addon
+
+            addon_records = db.query(Addon).filter(Addon.project_id == project.id).all()
+
+            # Convert to old format for compatibility
+            addons = {}
+            for addon in addon_records:
+                if addon.category not in addons:
+                    addons[addon.category] = {}
+                addons[addon.category][addon.instance_name] = {
+                    "type": addon.type,
+                    "version": addon.version,
+                    "vm": addon.vm,
+                }
         finally:
             db.close()
 
@@ -101,11 +115,19 @@ class UpCommand(ProjectCommand):
         # Re-open DB connection for secret operations
         db = get_db_session()
         try:
+            # Get project_id
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
+            )
+            if not project:
+                return
+            project_id = project.id
+
             # Check which addon secrets already exist
             existing_secrets = (
                 db.query(Secret)
                 .filter(
-                    Secret.project_name == self.project_name,
+                    Secret.project_id == project_id,
                     Secret.source == "addon",
                 )
                 .all()
@@ -200,8 +222,8 @@ class UpCommand(ProjectCommand):
 
                 for key, value, addon_type, instance_name in secrets_to_create:
                     secret = Secret(
-                        project_name=self.project_name,
-                        app_name=None,
+                        project_id=project_id,
+                        app_id=None,
                         key=key,
                         value=value,
                         environment="production",
@@ -505,7 +527,6 @@ class UpCommand(ProjectCommand):
             self.skip,
             self.addon,
             self.tags,
-            self.preserve_ip,
             self.verbose,
             self.force,
             changes,
@@ -538,7 +559,6 @@ def _deploy_project_internal(
     skip,
     addon,
     tags,
-    preserve_ip,
     verbose,
     force,
     changes=None,  # For smart skip logic
@@ -606,12 +626,23 @@ def _deploy_project_internal(
     secret_mgr = SecretManager(project_root, project, "production")
     secrets_data = secret_mgr.load_secrets()
 
+    # Ensure ORCHESTRATOR_IP is in shared secrets (required for monitoring integration)
+    current_orch_ip = secrets_data.get("shared", {}).get("ORCHESTRATOR_IP", "")
+    if current_orch_ip != orchestrator_ip:
+        secret_mgr.set_shared_secret(
+            "ORCHESTRATOR_IP", orchestrator_ip, source="shared"
+        )
+        if logger:
+            logger.log(f"✓ ORCHESTRATOR_IP updated in database: {orchestrator_ip}")
+        # Reload secrets after update
+        secrets_data = secret_mgr.load_secrets()
+
     # Build env dict from config.yml + database secrets
     env = {
-        "GCP_PROJECT_ID": project_config_obj.raw_config["cloud"]["gcp"]["project_id"],
-        "GCP_REGION": project_config_obj.raw_config["cloud"]["gcp"]["region"],
-        "SSH_KEY_PATH": project_config_obj.raw_config["cloud"]["ssh"]["key_path"],
-        "SSH_USER": project_config_obj.raw_config["cloud"]["ssh"]["user"],
+        "GCP_PROJECT_ID": project_config_obj.raw_config["gcp"]["project_id"],
+        "GCP_REGION": project_config_obj.raw_config["gcp"]["region"],
+        "SSH_KEY_PATH": project_config_obj.raw_config["ssh"]["key_path"],
+        "SSH_USER": project_config_obj.raw_config["ssh"]["user"],
     }
 
     # Add secrets to env
@@ -677,7 +708,7 @@ def _deploy_project_internal(
             console.print("  [dim]✓ Terraform initialized[/dim]")
 
             # Generate tfvars
-            tfvars_file = generate_tfvars(project_config_obj, preserve_ip=preserve_ip)
+            tfvars_file = generate_tfvars(project_config_obj)
 
             # Select or create workspace using terraform_utils
             from cli.terraform_utils import select_workspace
@@ -697,9 +728,6 @@ def _deploy_project_internal(
 
             # Apply
             apply_cmd = f"cd shared/terraform && terraform apply -auto-approve -no-color -compact-warnings -var-file={tfvars_file.name}"
-
-            if preserve_ip:
-                pass  # Preserve IP mode (implicit in tfvars)
 
             returncode, stdout, stderr = run_with_progress(
                 logger,
@@ -751,33 +779,39 @@ def _deploy_project_internal(
                         # Insert/Update VMs
                         for role, vms in vms_by_role.items():
                             for vm in vms:
-                                # Check if VM exists
+                                # Check if VM exists by project_id + role (unique constraint)
                                 check = db.execute(
-                                    text("SELECT id FROM vms WHERE name = :name"),
-                                    {"name": vm["name"]},
+                                    text(
+                                        "SELECT id FROM vms WHERE project_id = :project_id AND role = :role"
+                                    ),
+                                    {"project_id": project_id, "role": role},
                                 )
                                 existing = check.fetchone()
 
                                 if existing:
-                                    # Update
+                                    # Update existing VM
                                     db.execute(
                                         text("""
                                             UPDATE vms 
-                                            SET external_ip = :external_ip, 
+                                            SET name = :name,
+                                                external_ip = :external_ip, 
                                                 internal_ip = :internal_ip,
-                                                role = :role,
-                                                status = 'running'
-                                            WHERE name = :name
+                                                machine_type = :machine_type,
+                                                status = :status
+                                            WHERE project_id = :project_id AND role = :role
                                         """),
                                         {
+                                            "project_id": project_id,
                                             "name": vm["name"],
                                             "external_ip": vm["external_ip"],
                                             "internal_ip": vm["internal_ip"],
                                             "role": role,
+                                            "machine_type": "e2-medium",  # TODO: Get from config
+                                            "status": "running",
                                         },
                                     )
                                 else:
-                                    # Insert
+                                    # Insert new VM
                                     db.execute(
                                         text("""
                                             INSERT INTO vms (project_id, name, role, external_ip, internal_ip, machine_type, status)
@@ -803,10 +837,14 @@ def _deploy_project_internal(
 
                         vm_list = []
                         for role, vms in vms_by_role.items():
-                            for vm in vms:
+                            for i, vm in enumerate(vms):
+                                # Extract role-index key from full name
+                                # "receet-app-0" -> "app-0"
+                                # Generic format without project prefix
+                                vm_key = f"{role}-{i}"
                                 vm_list.append(
                                     {
-                                        "name": vm["name"],
+                                        "name": vm_key,  # Generic: "app-0", "core-0"
                                         "external_ip": vm["external_ip"],
                                         "internal_ip": vm["internal_ip"],
                                     }
@@ -909,24 +947,56 @@ def _deploy_project_internal(
         vms = state.get("vms", {})
 
         if vms:
-            vm_count = len(vms)
             # Build VM list with IPs from state
+            # Only process VMs that have IPs (skip plan config entries like "app", "core")
             vm_list_parts = []
-            for vm_name, vm_data in sorted(vms.items()):
-                external_ip = vm_data.get("external_ip", "no-ip")
-                internal_ip = vm_data.get("internal_ip", "no-ip")
-                vm_list_parts.append(f"{vm_name}-0: {external_ip}")
+            vm_count = 0
+            for vm_key, vm_data in sorted(vms.items()):
+                # Skip plan config entries (no IP)
+                if "external_ip" not in vm_data:
+                    continue
 
-                # CRITICAL: Add IPs to env dict for inventory generation
-                env[f"{vm_name.upper()}_0_EXTERNAL_IP"] = external_ip
-                env[f"{vm_name.upper()}_0_INTERNAL_IP"] = internal_ip
+                vm_count += 1
+                external_ip = vm_data.get("external_ip")
+                internal_ip = vm_data.get("internal_ip", "")
+                vm_list_parts.append(f"{vm_key}: {external_ip}")
 
-            vm_list_with_ips = ", ".join(vm_list_parts)
-            console.print(
-                f"  [dim]✓ Configuration • Environment • {vm_count} VMs ({vm_list_with_ips})[/dim]"
-            )
-        else:
-            console.print("  [dim]✓ Configuration • Environment loaded[/dim]")
+                # vm_key is like "app-0" or "core-0"
+                # Parse to generate correct env var: "app-0" -> "APP_0"
+                parts = vm_key.rsplit("-", 1)
+                role = parts[0]  # "app" or "core"
+                index = parts[1] if len(parts) > 1 else "0"
+
+                # Add IPs to env dict for inventory generation
+                env[f"{role.upper()}_{index}_EXTERNAL_IP"] = external_ip
+                if internal_ip:
+                    env[f"{role.upper()}_{index}_INTERNAL_IP"] = internal_ip
+
+            if vm_count > 0:
+                vm_list_with_ips = ", ".join(vm_list_parts)
+                console.print(
+                    f"  [dim]✓ Configuration • Environment • {vm_count} VMs ({vm_list_with_ips})[/dim]"
+                )
+
+                # Sync VM state to database (ensures dashboard has current data)
+                from cli.sync import sync_vms
+
+                vm_list_for_sync = []
+                for vm_key, vm_data in sorted(vms.items()):
+                    if "external_ip" not in vm_data:
+                        continue
+                    vm_list_for_sync.append(
+                        {
+                            "name": vm_key,
+                            "external_ip": vm_data.get("external_ip"),
+                            "internal_ip": vm_data.get("internal_ip"),
+                        }
+                    )
+
+                if vm_list_for_sync:
+                    sync_vms(project, vm_list_for_sync)
+            else:
+                console.print("  [dim]✓ Configuration • Environment loaded[/dim]")
 
     # Auto-update database secrets with VM internal IPs (for multi-VM architecture)
     ip_updater = SecretIPUpdater(project_root, project)
@@ -943,30 +1013,7 @@ def _deploy_project_internal(
             if logger:
                 logger.step("[2/4] Base System")
 
-            # Load VM IPs from state if terraform was skipped
-            if skip_terraform:
-                from cli.state_manager import StateManager
-
-                state_mgr = StateManager(project_root, project)
-                state = state_mgr.load_state()
-
-                # Extract VM IPs from state and add to env
-                if "vms" in state:
-                    for vm_role, vm_data in state["vms"].items():
-                        # Add VM IPs in Terraform output format for inventory generation
-                        # Format: {ROLE}_{INDEX}_EXTERNAL_IP and {ROLE}_{INDEX}_INTERNAL_IP
-                        if "external_ip" in vm_data:
-                            env[f"{vm_role.upper()}_0_EXTERNAL_IP"] = vm_data[
-                                "external_ip"
-                            ]
-                        if "internal_ip" in vm_data:
-                            env[f"{vm_role.upper()}_0_INTERNAL_IP"] = vm_data[
-                                "internal_ip"
-                            ]
-
-                if logger:
-                    logger.log("✓ VM IPs loaded from state")
-            # else: env already has IPs from terraform outputs above
+            # Note: VM IPs are already loaded from state/terraform above
 
             # Generate inventory
             ansible_dir = project_root / "shared" / "ansible"
@@ -998,16 +1045,24 @@ def _deploy_project_internal(
             ansible_vars["project_secrets"] = secrets_dict
 
             # Get aliases from database
-            from cli.database import get_db_session, SecretAlias
+            from cli.database import get_db_session, SecretAlias, Project
 
             alias_db = get_db_session()
             try:
-                aliases = (
-                    alias_db.query(SecretAlias)
-                    .filter(SecretAlias.project_name == project)
-                    .all()
+                db_project = (
+                    alias_db.query(Project).filter(Project.name == project).first()
                 )
-                env_aliases = {alias.alias_key: alias.target_key for alias in aliases}
+                if db_project:
+                    aliases = (
+                        alias_db.query(SecretAlias)
+                        .filter(SecretAlias.project_id == db_project.id)
+                        .all()
+                    )
+                    env_aliases = {
+                        alias.alias_key: alias.target_key for alias in aliases
+                    }
+                else:
+                    env_aliases = {}
             finally:
                 alias_db.close()
 
@@ -1528,7 +1583,6 @@ def _deploy_project_internal(
 @click.option("--skip", multiple=True, help="Skip specific addon(s) during deployment")
 @click.option("--addon", help="Deploy only specific addon(s), comma-separated")
 @click.option("--tags", help="Run only specific Ansible tags")
-@click.option("--preserve-ip", is_flag=True, help="Preserve existing static IPs")
 @click.option("--verbose", "-v", is_flag=True, help="Show all command output")
 @click.option("--force", is_flag=True, help="Force update (ignore state)")
 @click.option("--dry-run", is_flag=True, help="Show what would be done (like plan)")
@@ -1540,7 +1594,6 @@ def up(
     skip,
     addon,
     tags,
-    preserve_ip,
     verbose,
     force,
     dry_run,
@@ -1554,7 +1607,6 @@ def up(
         skip=skip,
         addon=addon,
         tags=tags,
-        preserve_ip=preserve_ip,
         verbose=verbose,
         force=force,
         dry_run=dry_run,

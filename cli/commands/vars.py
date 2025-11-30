@@ -42,12 +42,40 @@ def read_env_file(env_path):
     return env_dict
 
 
-def set_github_repo_secrets(repo, secrets_dict, console):
-    """Set GitHub repository secrets using gh CLI"""
+def set_github_repo_secrets(repo, secrets_dict, project_id, db_session, console):
+    """Set GitHub repository secrets using database-based change detection"""
+    from cli.database import Secret
+    from datetime import datetime
+
     success_count = 0
     fail_count = 0
+    skipped_count = 0
 
     for key, value in secrets_dict.items():
+        # Get secret from database to check timestamps
+        secret = (
+            db_session.query(Secret)
+            .filter(
+                Secret.project_id == project_id,
+                Secret.app_id.is_(None),  # Repo secrets are shared (no app)
+                Secret.key == key,
+                Secret.environment == "production",
+            )
+            .first()
+        )
+
+        # Check if secret needs sync
+        needs_sync = True
+        if secret and secret.last_synced_at and secret.updated_at:
+            # Skip if not modified since last sync
+            if secret.last_synced_at >= secret.updated_at:
+                console.print(f"  [dim]○[/dim] {key} [dim](unchanged)[/dim]")
+                skipped_count += 1
+                needs_sync = False
+
+        if not needs_sync:
+            continue
+
         try:
             subprocess.run(
                 ["gh", "secret", "set", key, "-b", str(value), "-R", repo],
@@ -58,6 +86,20 @@ def set_github_repo_secrets(repo, secrets_dict, console):
             )
             console.print(f"  [green]✓[/green] {key}")
             success_count += 1
+
+            # Update last_synced_at WITHOUT triggering updated_at
+            # Use direct SQL to avoid SQLAlchemy's onupdate trigger
+            if secret:
+                from sqlalchemy import text
+
+                db_session.execute(
+                    text(
+                        "UPDATE secrets SET last_synced_at = :sync_time WHERE id = :id"
+                    ),
+                    {"sync_time": datetime.utcnow(), "id": secret.id},
+                )
+                db_session.commit()
+
         except subprocess.TimeoutExpired:
             console.print(f"  [red]✗[/red] {key}: timeout (30s)")
             fail_count += 1
@@ -73,15 +115,90 @@ def set_github_repo_secrets(repo, secrets_dict, console):
             console.print(f"  [red]✗[/red] {key}: {error_msg}")
             fail_count += 1
 
+    if skipped_count > 0:
+        console.print(
+            f"  [dim]→ {success_count} updated, {skipped_count} unchanged, {fail_count} failed[/dim]"
+        )
+
     return success_count, fail_count
 
 
-def set_github_environment_secrets(repo, environment, secrets_dict, console):
-    """Set GitHub environment secrets using gh CLI"""
+def set_github_environment_secrets(
+    repo, environment, secrets_dict, app_id, project_id, db_session, console
+):
+    """Set GitHub environment secrets using database-based change detection"""
+    from cli.database import Secret
+    from datetime import datetime
+
     success_count = 0
     fail_count = 0
+    skipped_count = 0
 
     for key, value in secrets_dict.items():
+        # Get secret from database to check timestamps
+        # Try: 1) app-specific 2) shared 3) alias target
+        secret = (
+            db_session.query(Secret)
+            .filter(
+                Secret.project_id == project_id,
+                Secret.app_id == app_id,
+                Secret.key == key,
+                Secret.environment == environment,
+            )
+            .first()
+        )
+
+        # If not found, try shared secrets (app_id=NULL)
+        if not secret:
+            secret = (
+                db_session.query(Secret)
+                .filter(
+                    Secret.project_id == project_id,
+                    Secret.app_id.is_(None),
+                    Secret.key == key,
+                    Secret.environment == environment,
+                )
+                .first()
+            )
+
+        # If still not found, check if it's an alias
+        if not secret:
+            from cli.database import SecretAlias
+
+            alias = (
+                db_session.query(SecretAlias)
+                .filter(
+                    SecretAlias.project_id == project_id,
+                    SecretAlias.app_id == app_id,
+                    SecretAlias.alias_key == key,
+                )
+                .first()
+            )
+
+            if alias:
+                # Get target secret for timestamp
+                secret = (
+                    db_session.query(Secret)
+                    .filter(
+                        Secret.project_id == project_id,
+                        Secret.key == alias.target_key,
+                        Secret.environment == environment,
+                    )
+                    .first()
+                )
+
+        # Check if secret needs sync
+        needs_sync = True
+        if secret and secret.last_synced_at and secret.updated_at:
+            # Skip if not modified since last sync
+            if secret.last_synced_at >= secret.updated_at:
+                console.print(f"  [dim]○[/dim] {key} [dim](unchanged)[/dim]")
+                skipped_count += 1
+                needs_sync = False
+
+        if not needs_sync:
+            continue
+
         try:
             subprocess.run(
                 [
@@ -103,6 +220,20 @@ def set_github_environment_secrets(repo, environment, secrets_dict, console):
             )
             console.print(f"  [green]✓[/green] {key}")
             success_count += 1
+
+            # Update last_synced_at WITHOUT triggering updated_at
+            # Use direct SQL to avoid SQLAlchemy's onupdate trigger
+            if secret:
+                from sqlalchemy import text
+
+                db_session.execute(
+                    text(
+                        "UPDATE secrets SET last_synced_at = :sync_time WHERE id = :id"
+                    ),
+                    {"sync_time": datetime.utcnow(), "id": secret.id},
+                )
+                db_session.commit()
+
         except subprocess.TimeoutExpired:
             console.print(f"  [red]✗[/red] {key}: timeout (30s)")
             fail_count += 1
@@ -117,6 +248,11 @@ def set_github_environment_secrets(repo, environment, secrets_dict, console):
             error_msg = str(e).strip().replace("\n", " ")[:60]
             console.print(f"  [red]✗[/red] {key}: {error_msg}")
             fail_count += 1
+
+    if skipped_count > 0:
+        console.print(
+            f"  [dim]→ {success_count} updated, {skipped_count} unchanged, {fail_count} failed[/dim]"
+        )
 
     return success_count, fail_count
 
@@ -165,9 +301,13 @@ def list_github_env_secrets(repo, environment, console):
         return []
 
 
-def set_github_env_secrets(repo, environment, secrets_dict, console):
-    """Set GitHub environment secrets using gh CLI"""
-    return set_github_environment_secrets(repo, environment, secrets_dict, console)
+def set_github_env_secrets(
+    repo, environment, secrets_dict, app_id, project_id, db_session, console
+):
+    """Wrapper for set_github_environment_secrets"""
+    return set_github_environment_secrets(
+        repo, environment, secrets_dict, app_id, project_id, db_session, console
+    )
 
 
 def remove_github_repo_secrets(repo, secret_names, console):
@@ -405,13 +545,15 @@ class VarsSyncCommand(ProjectCommand):
         self.show_header(
             title=f"Sync Secrets to GitHub ({self.environment})",
             project=self.project_name,
-            subtitle="Automated secret management",
+            subtitle="Automated secret management with template resolution",
         )
 
         # Initialize logger
         logger = self.init_logger(self.project_name, f"sync-{self.environment}")
 
         from cli.secret_manager import SecretManager
+        from cli.marker_manager import MarkerManager
+        from cli.database import get_db_session, Project, App
 
         if logger:
             logger.step("Loading project configuration")
@@ -437,6 +579,21 @@ class VarsSyncCommand(ProjectCommand):
             return
 
         config = project_config.raw_config
+
+        # Get project ID from database
+        db = get_db_session()
+        try:
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
+            )
+            if not project:
+                self.console.print(
+                    f"[red]❌ Project '{self.project_name}' not found in database![/red]"
+                )
+                return
+            project_id = project.id
+        finally:
+            db.close()
 
         # Load secrets from database
         secret_mgr = SecretManager(
@@ -481,44 +638,19 @@ class VarsSyncCommand(ProjectCommand):
             repo = f"{github_org}/{app_name}"
             self.console.print(f"[cyan]{repo}:[/cyan]")
 
-            # Note: Use vars:clear to remove all secrets before syncing
-            if False:  # Clearing is now a separate command
-                self.console.print(
-                    "  [yellow]🧹 Clearing ALL existing secrets...[/yellow]"
+            # Get app ID from database
+            db = get_db_session()
+            try:
+                app = (
+                    db.query(App)
+                    .filter(App.project_id == project_id, App.name == app_name)
+                    .first()
                 )
-
-                # Clear repository secrets
-                repo_secrets = list_github_repo_secrets(repo, self.console)
-                if repo_secrets:
-                    self.console.print(
-                        f"  [dim]Found {len(repo_secrets)} repository secrets[/dim]"
-                    )
-                    success, fail = remove_github_repo_secrets(
-                        repo, repo_secrets, self.console
-                    )
-                    self.console.print(
-                        f"  [dim]→ {success} repo secrets removed, {fail} failed[/dim]"
-                    )
-
-                # Clear environment secrets for both production and staging
-                for env in ["production", "staging"]:
-                    env_secrets = list_github_env_secrets(repo, env, self.console)
-                    if env_secrets:
-                        self.console.print(
-                            f"  [dim]Found {len(env_secrets)} {env} environment secrets[/dim]"
-                        )
-                        success, fail = remove_github_env_secrets(
-                            repo, env, env_secrets, self.console
-                        )
-                        self.console.print(
-                            f"  [dim]→ {success} {env} secrets removed, {fail} failed[/dim]"
-                        )
-
-                self.console.print()
+                app_id = app.id if app else None
+            finally:
+                db.close()
 
             # Repository-level secrets (Docker + GitHub access)
-            # Note: DOCKER_REGISTRY, DOCKER_ORG, and DOCKER_USERNAME are moved to workflow vars to avoid GitHub secret masking
-            # Note: REPOSITORY_TOKEN must have repo, workflow, packages, and read:org scopes for private repos
             shared_secrets = all_secrets.get("shared", {})
             repo_secrets = {
                 "DOCKER_TOKEN": shared_secrets.get("DOCKER_TOKEN"),
@@ -529,42 +661,26 @@ class VarsSyncCommand(ProjectCommand):
             repo_secrets = {k: v for k, v in repo_secrets.items() if v is not None}
 
             if repo_secrets:
-                success, fail = set_github_repo_secrets(
-                    repo, repo_secrets, self.console
-                )
-                self.console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
+                # Get database session for timestamp tracking
+                db = get_db_session()
+                try:
+                    success, fail = set_github_repo_secrets(
+                        repo, repo_secrets, project_id, db, self.console
+                    )
+                    self.console.print(
+                        f"  [dim]→ {success} success, {fail} failed[/dim]\n"
+                    )
+                finally:
+                    db.close()
             else:
                 self.console.print(
                     "  [dim]⚠️  No Docker secrets found in shared config[/dim]\n"
                 )
 
-            # App environment variables (merged .env + database secrets)
+            # App environment variables (merged .env + database secrets + env_templates)
             self.console.print(
                 f"[cyan]App Environment: {app_name} ({self.environment})[/cyan]"
             )
-
-            # Note: Use vars:clear to remove all secrets before syncing
-            if False:  # Clearing is now a separate command
-                self.console.print(
-                    f"  [yellow]🧹 Clearing environment secrets ({self.environment})...[/yellow]"
-                )
-                existing_env_secrets = list_github_env_secrets(
-                    repo, self.environment, self.console
-                )
-                if existing_env_secrets:
-                    self.console.print(
-                        f"  [dim]Found {len(existing_env_secrets)} environment secrets to remove[/dim]"
-                    )
-                    success, fail = remove_github_env_secrets(
-                        repo, self.environment, existing_env_secrets, self.console
-                    )
-                    self.console.print(
-                        f"  [dim]→ {success} removed, {fail} failed[/dim]\n"
-                    )
-                else:
-                    self.console.print(
-                        "  [dim]No existing environment secrets found[/dim]\n"
-                    )
 
             # Read app's local .env file
             app_path = Path(app_config["path"]).expanduser().resolve()
@@ -581,12 +697,28 @@ class VarsSyncCommand(ProjectCommand):
                     f"  [dim]⚠️  No .env file found at {env_file_path}[/dim]"
                 )
 
-            # Get app secrets from database (includes shared + app-specific + resolved aliases)
-            # Note: get_app_secrets() internally resolves aliases to their actual values
-            app_secrets_dict = secret_mgr.get_app_secrets(app_name)
-            self.console.print(
-                f"  [dim]🔐 Read {len(app_secrets_dict)} secrets from database (with aliases)[/dim]"
-            )
+            # Load marker file for env_templates
+            marker = MarkerManager.load_marker(app_path)
+            env_templates = {}
+            if marker and marker.has_env_templates():
+                env_templates = marker.env_templates
+                self.console.print(
+                    f"  [dim]📋 Found {len(env_templates)} env_templates in marker[/dim]"
+                )
+
+            # Get app secrets from database WITH template resolution
+            if env_templates:
+                app_secrets_dict = secret_mgr.get_app_secrets_with_templates(
+                    app_name, env_templates
+                )
+                self.console.print(
+                    f"  [dim]🔐 Read {len(app_secrets_dict)} secrets from database (with templates)[/dim]"
+                )
+            else:
+                app_secrets_dict = secret_mgr.get_app_secrets(app_name)
+                self.console.print(
+                    f"  [dim]🔐 Read {len(app_secrets_dict)} secrets from database (with aliases)[/dim]"
+                )
 
             # MERGE: local .env as base, database addon secrets override (correct priority)
             merged_env = {**local_env, **app_secrets_dict}
@@ -594,7 +726,7 @@ class VarsSyncCommand(ProjectCommand):
                 f"  [dim]🔀 Merged total: {len(merged_env)} variables[/dim]"
             )
 
-            # Remove Docker secrets from environment secrets
+            # Remove Docker secrets and addon internal secrets from environment secrets
             docker_keys = [
                 "DOCKER_ORG",
                 "DOCKER_USERNAME",
@@ -602,17 +734,32 @@ class VarsSyncCommand(ProjectCommand):
                 "DOCKER_REGISTRY",
             ]
             env_secret_dict = {
-                k: v for k, v in merged_env.items() if k not in docker_keys
+                k: v
+                for k, v in merged_env.items()
+                if k not in docker_keys
+                and "." not in k  # Filter out addon internal secrets
             }
 
             # Set each secret individually (for easy management in GitHub UI)
             self.console.print(
                 f"  [dim]Setting {len(env_secret_dict)} individual secrets...[/dim]"
             )
-            success, fail = set_github_env_secrets(
-                repo, self.environment, env_secret_dict, self.console
-            )
-            self.console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
+
+            # Get database session for timestamp tracking
+            db = get_db_session()
+            try:
+                success, fail = set_github_env_secrets(
+                    repo,
+                    self.environment,
+                    env_secret_dict,
+                    app_id,
+                    project_id,
+                    db,
+                    self.console,
+                )
+                self.console.print(f"  [dim]→ {success} success, {fail} failed[/dim]\n")
+            finally:
+                db.close()
 
             self.console.print()
 
@@ -711,11 +858,17 @@ def vars_sync(project, environment, app, verbose, json_output):
 
     - Repository secrets (Docker credentials, shared build secrets)
     - Environment secrets (per-app secrets for production/staging)
+    - Resolves env_templates from marker files ({{ APP_0_EXTERNAL_IP }} etc.)
 
     Requirements:
     - gh CLI installed and authenticated
     - Secrets configured in database (via dashboard or config:set)
     - GitHub Environments created (production/staging)
+
+    env_templates in marker file:
+        env_templates:
+          NEXT_PUBLIC_API_URL: "http://{{ APP_0_EXTERNAL_IP }}:8000"
+          NEXT_PUBLIC_WS_URL: "ws://{{ APP_0_EXTERNAL_IP }}:8000/ws"
 
     Note: Use vars:clear first if you want to remove old secrets
 

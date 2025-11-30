@@ -37,24 +37,7 @@ class ProcessStatusCommand(ProjectCommand):
                     }
                     return processes
 
-                # Try alternative paths (common code locations)
-                alt_paths = [
-                    Path.home() / "Desktop" / "cheapa.io" / "code" / app_name,
-                    Path.home() / "code" / app_name,
-                    Path("/Users") / os.getenv("USER", "") / "code" / app_name,
-                ]
-
-                for alt_path in alt_paths:
-                    if alt_path.exists():
-                        marker = MarkerManager.load_marker(alt_path)
-                        if marker and marker.processes:
-                            processes = {
-                                name: proc.to_dict()
-                                for name, proc in marker.processes.items()
-                            }
-                            return processes
-
-            # Try VM
+            # Try VM (marker not found locally, check deployed container)
             vm_service = self.ensure_vm_service()
             ssh_service = vm_service.get_ssh_service()
 

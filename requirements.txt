@@ -10,6 +10,9 @@ requests>=2.31.0
 python-terraform>=0.10.1
 paramiko>=3.0.0
 
+# Google Cloud
+google-cloud-resource-manager>=1.12.0
+
 # PERFORMANCE: Ansible + Mitogen in venv (no system dependency!)
 # Note: Ansible 9.x+ required for community.docker 5.0.0 compatibility (Python 3.10+)
 ansible>=9.0.0,<13.0.0
@@ -25,3 +28,4 @@ fastapi>=0.104.0
 uvicorn>=0.24.0
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
+alembic>=1.13.0

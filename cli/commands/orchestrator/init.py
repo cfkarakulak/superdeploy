@@ -1,10 +1,9 @@
 """Orchestrator initialization command."""
 
 import click
-import importlib.util
-from pathlib import Path
 from dataclasses import dataclass
 from rich.prompt import Prompt
+import inquirer
 
 from cli.base import BaseCommand
 
@@ -38,37 +37,27 @@ class OrchestratorInitCommand(BaseCommand):
         # Initialize logger
         logger = self.init_logger("orchestrator", "init")
 
-        project_root = Path.cwd()
-        orchestrator_dir = project_root / "shared" / "orchestrator"
-        orchestrator_dir.mkdir(parents=True, exist_ok=True)
-
-        config_path = orchestrator_dir / "config.yml"
-
+        # Check if orchestrator exists in database
         if logger:
-
             logger.step("Checking existing configuration")
 
-        # Check if config exists
-        if not self._confirm_overwrite(config_path, logger):
+        if not self._confirm_overwrite_db(logger):
             return
 
         if logger:
-
             logger.step("Collecting configuration")
 
         # Collect configuration
         config = self._collect_configuration()
 
         if logger:
+            logger.step("Saving configuration to database")
 
-            logger.step("Generating configuration file")
-
-        # Generate and save config
-        self._generate_config(config, config_path, project_root, logger)
+        # Save orchestrator to database
+        self._create_orchestrator_in_db(config, logger)
 
         if logger:
-
-            logger.success("Orchestrator configuration created")
+            logger.success("Orchestrator configuration saved to database")
 
         # Display next steps
         self._display_next_steps()
@@ -76,38 +65,82 @@ class OrchestratorInitCommand(BaseCommand):
         if not self.verbose:
             self.console.print(f"\n[dim]Logs saved to:[/dim] {logger.log_path}\n")
 
-    def _confirm_overwrite(self, config_path: Path, logger) -> bool:
-        """Confirm overwrite if config exists."""
-        if config_path.exists():
-            if logger:
-                logger.warning("Configuration file already exists")
-            self.console.print(
-                "[yellow]Config exists. Overwrite? [y/n][/yellow] [dim](n)[/dim]: ",
-                end="",
+    def _confirm_overwrite_db(self, logger) -> bool:
+        """Confirm overwrite if orchestrator exists in database."""
+        from cli.database import get_db_session, Project
+
+        db = get_db_session()
+        try:
+            existing_project = (
+                db.query(Project).filter(Project.name == "orchestrator").first()
             )
-            answer = input().strip().lower()
-            self.console.print()
-            if answer not in ["y", "yes"]:
+            if existing_project:
                 if logger:
-                    logger.log("User cancelled initialization")
-                self.console.print("[dim]Cancelled[/dim]")
-                return False
-        else:
-            if logger:
-                logger.log("No existing configuration found")
-        return True
+                    logger.warning("Orchestrator already exists in database")
+                self.console.print(
+                    "[yellow]Orchestrator exists in database. Overwrite? [y/n][/yellow] [dim](n)[/dim]: ",
+                    end="",
+                )
+                answer = input().strip().lower()
+                self.console.print()
+                if answer not in ["y", "yes"]:
+                    if logger:
+                        logger.log("User cancelled initialization")
+                    self.console.print("[dim]Cancelled[/dim]")
+                    return False
+            else:
+                if logger:
+                    logger.log("No existing orchestrator found in database")
+            return True
+        finally:
+            db.close()
 
     def _collect_configuration(self) -> OrchestratorConfig:
         """Collect orchestrator configuration from user."""
-        # Cloud Configuration
-        self.console.print("\n[white]Cloud Configuration[/white]")
-        gcp_project = Prompt.ask("GCP Project ID", default="")
-        region = Prompt.ask("GCP Region", default="us-central1")
-        zone = Prompt.ask("GCP Zone", default=f"{region}-a")
+        from cli.commands.gcp import select_gcp_project, get_gcp_regions
 
-        # SSL Configuration
-        self.console.print("\n[white]SSL Configuration[/white]")
-        ssl_email = Prompt.ask("Email for Let's Encrypt", default="")
+        # GCP Project
+        try:
+            gcp_project = select_gcp_project(self.console)
+        except RuntimeError as e:
+            self.console.print(f"\n[red]✗ {str(e)}[/red]")
+            raise click.Abort()
+
+        # Region selection with inquirer
+        self.console.print()
+        regions = get_gcp_regions()[:8]  # Top 8 regions
+        region_choices = [
+            ("None", None),
+        ] + [(r, r) for r in regions]
+
+        questions = [
+            inquirer.List(
+                "region",
+                message="GCP Region",
+                choices=[r[0] for r in region_choices if r[0] != "None"] or regions,
+                default=regions[0] if regions else "us-central1",
+            )
+        ]
+        answers = inquirer.prompt(questions, raise_keyboard_interrupt=True)
+        region = answers["region"] if answers else "us-central1"
+
+        # Zone selection with inquirer
+        self.console.print()
+        zones = [f"{region}-a", f"{region}-b", f"{region}-c", f"{region}-f"]
+        questions = [
+            inquirer.List(
+                "zone",
+                message="GCP Zone",
+                choices=zones,
+                default=zones[0],
+            )
+        ]
+        answers = inquirer.prompt(questions, raise_keyboard_interrupt=True)
+        zone = answers["zone"] if answers else f"{region}-a"
+
+        # SSL Email
+        self.console.print()
+        ssl_email = Prompt.ask("SSL Email", default="cradexco@gmail.com")
 
         # Allocate Docker subnet
         docker_subnet = self._allocate_docker_subnet()
@@ -122,7 +155,8 @@ class OrchestratorInitCommand(BaseCommand):
 
     def _allocate_docker_subnet(self) -> str:
         """Allocate Docker subnet for orchestrator."""
-        self.console.print("\n[dim]Allocating network subnet...[/dim]")
+        self.console.print()
+        self.console.print("[dim]Allocating network subnet...[/dim]")
 
         from cli.subnet_allocator import SubnetAllocator
 
@@ -139,46 +173,125 @@ class OrchestratorInitCommand(BaseCommand):
         self.console.print(f"[dim]✓ Subnet allocated: {docker_subnet}[/dim]")
         return docker_subnet
 
-    def _generate_config(
-        self, config: OrchestratorConfig, config_path: Path, project_root: Path, logger
-    ) -> None:
-        """Generate and save orchestrator config."""
-        if logger:
-            logger.log("Generating config.yml...")
+    def _create_orchestrator_in_db(self, config: OrchestratorConfig, logger) -> None:
+        """Create orchestrator project and addons in database."""
+        from cli.database import get_db_session, Project, Addon, VM, Secret
+        from datetime import datetime
 
-        cli_root = Path(__file__).resolve().parents[2]
-        stub_file = cli_root / "stubs" / "configs" / "orchestrator_config_generator.py"
-        spec = importlib.util.spec_from_file_location(
-            "orchestrator_config_generator", stub_file
-        )
-        module = importlib.util.module_from_spec(spec)  # type: ignore
-        spec.loader.exec_module(module)  # type: ignore
+        db = get_db_session()
+        try:
+            # Check if orchestrator exists
+            db_project = (
+                db.query(Project).filter(Project.name == "orchestrator").first()
+            )
 
-        config_content = module.generate_orchestrator_config(
-            gcp_project=config.gcp_project,
-            region=config.region,
-            zone=config.zone,
-            ssl_email=config.ssl_email,
-            docker_subnet=config.docker_subnet,
-        )
+            if db_project:
+                # Update existing orchestrator
+                if logger:
+                    logger.log("Updating existing orchestrator in database...")
 
-        with open(config_path, "w") as f:
-            f.write(config_content)
+                db_project.gcp_project = config.gcp_project
+                db_project.gcp_region = config.region
+                db_project.gcp_zone = config.zone
+                db_project.ssl_email = config.ssl_email
+                db_project.docker_subnet = config.docker_subnet
+                db_project.updated_at = datetime.utcnow()
 
-        if logger:
+                # Delete old VMs, addons, and secrets
+                db.query(VM).filter(VM.project_id == db_project.id).delete()
+                db.query(Addon).filter(Addon.project_id == db_project.id).delete()
+                db.query(Secret).filter(Secret.project_id == db_project.id).delete()
+            else:
+                # Create new orchestrator project
+                if logger:
+                    logger.log("Creating orchestrator in database...")
 
-            logger.log(f"Config saved: {config_path.relative_to(project_root)}")
+                db_project = Project(
+                    name="orchestrator",
+                    description="Global monitoring infrastructure (Prometheus + Grafana)",
+                    project_type="orchestrator",  # Special type for infrastructure
+                    gcp_project=config.gcp_project,
+                    gcp_region=config.region,
+                    gcp_zone=config.zone,
+                    ssl_email=config.ssl_email,
+                    ssh_key_path="~/.ssh/superdeploy_deploy",
+                    ssh_public_key_path="~/.ssh/superdeploy_deploy.pub",
+                    ssh_user="superdeploy",
+                    docker_subnet=config.docker_subnet,
+                    vpc_subnet="10.200.0.0/16",  # Orchestrator VPC
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                )
+                db.add(db_project)
+                db.flush()  # Get project ID
 
-        # Generate secrets.yml
-        if logger:
-            logger.log("Generating secrets.yml...")
-        secrets_path = config_path.parent / "secrets.yml"
-        self._generate_secrets(secrets_path, project_root, logger)
+            # Create VM record (orchestrator main VM)
+            vm = VM(
+                project_id=db_project.id,
+                role="main",
+                count=1,
+                machine_type="e2-medium",
+                disk_size=50,
+                created_at=datetime.utcnow(),
+            )
+            db.add(vm)
 
-    def _generate_secrets(self, secrets_path: Path, project_root: Path, logger) -> None:
-        """Generate orchestrator secrets.yml."""
+            # Create monitoring addon
+            # Note: type must match the addon folder name (addons/monitoring/)
+            addon = Addon(
+                project_id=db_project.id,
+                instance_name="main",
+                category="monitoring",
+                type="monitoring",  # Must match folder name in addons/
+                version="latest",
+                vm="main",
+                plan="standard",
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            db.add(addon)
+
+            db.commit()
+
+            # Generate and save secrets to database
+            self._generate_secrets_to_db(db, db_project.id, logger)
+
+            # Log activity
+            from cli.database import ActivityLog
+
+            activity = ActivityLog(
+                project_name="orchestrator",
+                action="orchestrator:init",
+                actor="cli",
+                details={
+                    "gcp_project": config.gcp_project,
+                    "region": config.region,
+                    "zone": config.zone,
+                },
+                created_at=datetime.utcnow(),
+            )
+            db.add(activity)
+            db.commit()
+
+            if logger:
+                logger.log(
+                    f"✓ Orchestrator saved to database (project_id: {db_project.id})"
+                )
+
+        except Exception as e:
+            db.rollback()
+            if logger:
+                logger.log_error(f"Failed to create orchestrator in database: {e}")
+            raise
+        finally:
+            db.close()
+
+    def _generate_secrets_to_db(self, db, project_id: int, logger) -> None:
+        """Generate orchestrator secrets and save to database only (no files)."""
         import secrets as py_secrets
         import string
+        from cli.database import Secret
+        from datetime import datetime
 
         def generate_password(length=48):
             alphabet = string.ascii_letters + string.digits + "-_"
@@ -186,39 +299,52 @@ class OrchestratorInitCommand(BaseCommand):
 
         grafana_password = generate_password()
 
-        secrets_content = f"""# =============================================================================
-# Orchestrator - Secrets Configuration
-# =============================================================================
-# WARNING: This file contains sensitive information
-# Keep this file secure and never commit to version control
-# =============================================================================
-#
-# Required Secrets:
-#   - GRAFANA_ADMIN_PASSWORD: Auto-generated on first deployment
-#
-# Optional Secrets (for email alerts):
-#   - SMTP_PASSWORD: Add if you want Grafana to send email alerts
-#
-# Note: GRAFANA_ADMIN_USER is configured in config.yml (default: 'admin')
-# =============================================================================
+        # Add new secrets
+        secrets_data = [
+            {
+                "key": "GRAFANA_ADMIN_PASSWORD",
+                "value": grafana_password,
+                "editable": False,
+            },
+            {
+                "key": "GRAFANA_ADMIN_USER",
+                "value": "admin",
+                "editable": True,
+            },
+            {
+                "key": "SMTP_PASSWORD",
+                "value": "",
+                "editable": True,
+            },
+        ]
 
-secrets:
-  GRAFANA_ADMIN_PASSWORD: {grafana_password}
-  SMTP_PASSWORD: ''  # Optional: For email alerts
-"""
+        for secret_data in secrets_data:
+            secret = Secret(
+                project_id=project_id,
+                app_id=None,  # Orchestrator-level secret
+                key=secret_data["key"],
+                value=secret_data["value"],
+                environment="production",
+                source="generated",
+                editable=secret_data["editable"],
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            db.add(secret)
 
-        with open(secrets_path, "w") as f:
-            f.write(secrets_content)
+        db.commit()
 
         if logger:
-
-            logger.log(f"Secrets saved: {secrets_path.relative_to(project_root)}")
+            logger.log(
+                f"✓ Secrets generated and saved to database ({len(secrets_data)} secrets)"
+            )
 
     def _display_next_steps(self) -> None:
         """Display next steps after initialization."""
-        self.console.print("\n[white]Next steps:[/white]")
-        self.console.print("  [dim]1. Review: shared/orchestrator/config.yml[/dim]")
-        self.console.print("  [dim]2. Deploy: superdeploy orchestrator:up[/dim]\n")
+        self.console.print()
+        self.console.print("[dim]Next step:[/dim]")
+        self.console.print("  superdeploy orchestrator:up")
+        self.console.print()
 
 
 @click.command(name="orchestrator:init")

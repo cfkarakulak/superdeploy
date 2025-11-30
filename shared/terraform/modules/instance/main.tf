@@ -6,12 +6,10 @@ resource "google_compute_address" "external_ip" {
   project = var.project_id
   region  = var.region
   
-  # Use existing IP if preserve_ip_address is provided
-  address = var.preserve_ip_address
-  
-  # Prevent accidental deletion of static IP
+  # Prevent accidental deletion of static IP and avoid recreation
   lifecycle {
     prevent_destroy = false  # Set to true in production to protect IP
+    create_before_destroy = true  # Create new before destroying old (for updates)
   }
 }
 
