@@ -131,3 +131,4 @@ shared/config/.env
 shared/orchestrator/secrets.yml
 shared/orchestrator/state.yml
 shared/terraform/envs/dev/
+cheapa_snapshot_*.json

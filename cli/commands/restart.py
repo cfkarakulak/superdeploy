@@ -8,7 +8,6 @@ import click
 from dataclasses import dataclass
 
 from cli.base import ProjectCommand
-from cli.constants import CONTAINER_NAME_FORMAT
 from cli.exceptions import DeploymentError
 
 
@@ -60,14 +59,15 @@ class RestartCommand(ProjectCommand):
         logger = self.init_logger(self.project_name, f"restart-{self.options.app_name}")
 
         if logger:
-
             logger.step("Finding Application")
 
         # Get VM and IP for app
         try:
             vm_name, vm_ip = self.get_vm_for_app(self.options.app_name)
             if logger:
-                logger.log(f"App '{self.options.app_name}' running on {vm_name} ({vm_ip})")
+                logger.log(
+                    f"App '{self.options.app_name}' running on {vm_name} ({vm_ip})"
+                )
         except Exception as e:
             self.handle_error(e, f"Could not find VM for app '{self.options.app_name}'")
             raise SystemExit(1)
@@ -77,33 +77,31 @@ class RestartCommand(ProjectCommand):
         ssh_service = vm_service.get_ssh_service()
 
         if logger:
-
             logger.step("Restarting Container")
 
-        container_name = CONTAINER_NAME_FORMAT.format(
-            project=self.project_name, app=self.options.app_name
-        )
+        # Service name for docker compose (e.g., "api-web")
+        service_name = f"{self.options.app_name}-web"
+        compose_dir = f"/opt/superdeploy/projects/{self.project_name}/compose"
 
         try:
-            # Restart container
+            # Restart using docker compose
             result = ssh_service.execute_command(
-                vm_ip, f"docker restart {container_name}"
+                vm_ip, f"cd {compose_dir} && docker compose restart {service_name}"
             )
 
             if result.is_failure:
                 raise DeploymentError(
-                    f"Failed to restart container: {container_name}",
+                    f"Failed to restart service: {service_name}",
                     context=result.stderr,
                 )
 
             if logger:
+                logger.log(f"✓ Service restarted: {service_name}")
 
-                logger.log(f"✓ Container restarted: {container_name}")
-
-            # Check container status
+            # Check container status using docker compose
             status_result = ssh_service.execute_command(
                 vm_ip,
-                f"docker ps --filter name={container_name} --format '{{{{.Status}}}}'",
+                f"cd {compose_dir} && docker compose ps {service_name} --format '{{{{.Status}}}}'",
             )
 
             if status_result.is_success and status_result.stdout.strip():
@@ -115,7 +113,6 @@ class RestartCommand(ProjectCommand):
                     logger.warning("Could not verify container status")
 
             if logger:
-
                 logger.success("Application restarted successfully")
 
             self._print_summary(logger)

@@ -238,25 +238,12 @@ class NamespacedGroup(click.RichGroup):
             # Dynamic namespace resolution for project commands
             namespace, sub_cmd = cmd_name.split(":", 1)
 
-            # Check if sub_cmd has another colon (e.g., "config:set", "domains:add", "sync:export")
-            # This handles: cheapa:config:set, cheapa:domains:add, cheapa:sync:export
+            # Check if sub_cmd has another colon (e.g., "config:set", "domains:add")
+            # This handles: cheapa:config:set, cheapa:domains:add
             if ":" in sub_cmd:
-                # Second-level namespace (e.g., config:set, domains:add, sync:export)
+                # Second-level namespace (e.g., config:set, domains:add)
                 # First try registered commands
                 base_command = super().get_command(ctx, sub_cmd)
-
-                # If not registered, check project_commands and command_map
-                if base_command is None and sub_cmd in [
-                    "sync:export",
-                    "sync:import",
-                ]:
-                    from cli.commands import sync
-
-                    nested_command_map = {
-                        "sync:export": sync.sync_export,
-                        "sync:import": sync.sync_import,
-                    }
-                    base_command = nested_command_map.get(sub_cmd)
 
                 if base_command:
                     import functools
@@ -289,8 +276,6 @@ class NamespacedGroup(click.RichGroup):
                 "ps",
                 "logs",
                 "sync",
-                "sync:export",
-                "sync:import",
             ]
 
             if base_command is None and sub_cmd in project_commands:
@@ -319,8 +304,6 @@ class NamespacedGroup(click.RichGroup):
                     "ps": ps,
                     "logs": logs.logs,
                     "sync": sync.sync,
-                    "sync:export": sync.sync_export,
-                    "sync:import": sync.sync_import,
                 }
                 base_command = command_map.get(sub_cmd)
 
@@ -459,6 +442,11 @@ cli.add_command(dashboard_start)
 # Register database commands
 cli.add_command(click.command("db:migrate")(migrate))
 cli.add_command(click.command("db:reset")(db_reset))
+# Register sync commands (global, not namespaced)
+from cli.commands.sync import sync_export, sync_import
+
+cli.add_command(sync_export)
+cli.add_command(sync_import)
 # Register GCP commands
 cli.add_command(gcp_group)
 

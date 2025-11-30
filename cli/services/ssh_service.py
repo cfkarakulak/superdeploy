@@ -245,6 +245,76 @@ class SSHService:
 
         return self.execute_command(host, docker_cmd, timeout=30)
 
+    def docker_compose_exec(
+        self,
+        host: str,
+        project_name: str,
+        service_name: str,
+        command: str,
+        options: Optional[DockerExecOptions] = None,
+    ) -> SSHResult:
+        """
+        Execute command in Docker Compose service over SSH.
+
+        Args:
+            host: Host IP or hostname
+            project_name: Project name (for compose directory)
+            service_name: Docker Compose service name (e.g., "api-web")
+            command: Command to execute
+            options: Docker exec options
+
+        Returns:
+            SSHResult with execution details
+        """
+        if options is None:
+            options = DockerExecOptions()
+
+        # Build docker compose exec command
+        compose_dir = f"/opt/superdeploy/projects/{project_name}/compose"
+        docker_cmd_parts = [f"cd {compose_dir} && docker compose exec"]
+
+        if not options.tty:
+            docker_cmd_parts.append("-T")  # Disable TTY for non-interactive
+
+        if options.user:
+            docker_cmd_parts.extend(["-u", options.user])
+
+        if options.workdir:
+            docker_cmd_parts.extend(["-w", options.workdir])
+
+        docker_cmd_parts.append(service_name)
+        docker_cmd_parts.append(f"sh -c '{command}'")
+        docker_cmd = " ".join(docker_cmd_parts)
+
+        # For interactive/tty mode, use subprocess.run directly
+        if options.interactive or options.tty:
+            ssh_cmd = [
+                "ssh",
+                "-i",
+                str(self.config.key_path_expanded),
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-t",
+                f"{self.config.user}@{host}",
+                docker_cmd,
+            ]
+
+            start_time = time.time()
+            result = subprocess.run(ssh_cmd)
+            duration = time.time() - start_time
+
+            return SSHResult(
+                returncode=result.returncode,
+                stdout="",
+                stderr="",
+                host=host,
+                command=docker_cmd,
+                duration_seconds=duration,
+            )
+        else:
+            # Use standard execute_command for non-interactive
+            return self.execute_command(host, docker_cmd)
+
     def test_connection(self, host: str, timeout: int = 10) -> bool:
         """
         Test SSH connection to host.

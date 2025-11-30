@@ -50,7 +50,9 @@ class StateService:
             ProjectNotDeployedError: If state not found or invalid
         """
         if self._state_cache is None or force_reload:
-            self._state_cache = self.state_manager.load_state()
+            raw_state = self.state_manager.load_state()
+            # Convert dict to DeploymentState model
+            self._state_cache = DeploymentState.from_dict(self.project_name, raw_state)
 
             if not self._state_cache.has_vms:
                 raise ProjectNotDeployedError(self.project_name)

@@ -8,7 +8,6 @@ import click
 from dataclasses import dataclass
 
 from cli.base import ProjectCommand
-from cli.constants import CONTAINER_NAME_FORMAT
 from cli.services.ssh_service import DockerExecOptions
 
 
@@ -90,18 +89,16 @@ class RunCommand(ProjectCommand):
         vm_service = self.ensure_vm_service()
         ssh_service = vm_service.get_ssh_service()
 
-        # Build container name
-        container_name = CONTAINER_NAME_FORMAT.format(
-            project=self.project_name, app=self.options.app_name
-        )
+        # Service name for docker compose (e.g., "api-web")
+        service_name = f"{self.options.app_name}-web"
 
         if self.options.interactive:
-            self._execute_interactive(ssh_service, vm_ip, container_name)
+            self._execute_interactive(ssh_service, vm_ip, service_name)
         else:
-            self._execute_non_interactive(ssh_service, vm_ip, container_name)
+            self._execute_non_interactive(ssh_service, vm_ip, service_name)
 
     def _execute_interactive(
-        self, ssh_service, vm_ip: str, container_name: str
+        self, ssh_service, vm_ip: str, service_name: str
     ) -> None:
         """
         Execute command in interactive mode.
@@ -109,12 +106,12 @@ class RunCommand(ProjectCommand):
         Args:
             ssh_service: SSH service instance
             vm_ip: VM IP address
-            container_name: Docker container name
+            service_name: Docker Compose service name
         """
         try:
             exec_options = DockerExecOptions(interactive=True, tty=True)
-            result = ssh_service.docker_exec(
-                vm_ip, container_name, self.options.command, options=exec_options
+            result = ssh_service.docker_compose_exec(
+                vm_ip, self.project_name, service_name, self.options.command, options=exec_options
             )
 
             if result.returncode != 0:
@@ -125,7 +122,7 @@ class RunCommand(ProjectCommand):
             raise SystemExit(1)
 
     def _execute_non_interactive(
-        self, ssh_service, vm_ip: str, container_name: str
+        self, ssh_service, vm_ip: str, service_name: str
     ) -> None:
         """
         Execute command in non-interactive mode.
@@ -133,18 +130,18 @@ class RunCommand(ProjectCommand):
         Args:
             ssh_service: SSH service instance
             vm_ip: VM IP address
-            container_name: Docker container name
+            service_name: Docker Compose service name
         """
         if not self.logger:
             return
 
         self.logger.step("Executing Command")
-        self.logger.log(f"Container: {container_name}")
+        self.logger.log(f"Service: {service_name}")
         self.logger.log(f"Command: {self.options.command}")
 
         try:
-            result = ssh_service.docker_exec(
-                vm_ip, container_name, self.options.command
+            result = ssh_service.docker_compose_exec(
+                vm_ip, self.project_name, service_name, self.options.command
             )
 
             # Display output

@@ -480,20 +480,28 @@ class SyncExportCommand(ProjectCommand):
             )
 
 
-class SyncImportCommand(ProjectCommand):
+class SyncImportCommand:
     """Import project snapshot from JSON file."""
 
     def __init__(
         self,
-        project_name: str,
         input_path: str,
         verbose: bool = False,
         json_output: bool = False,
         force: bool = False,
     ):
-        super().__init__(project_name, verbose=verbose, json_output=json_output)
+        from rich.console import Console
+
         self.input_path = input_path
         self.force = force
+        self.verbose = verbose
+        self.json_output = json_output
+        self.console = Console()
+        self.project_name = None  # Will be read from JSON
+
+    def run(self) -> None:
+        """Run the import command."""
+        self.execute()
 
     def execute(self) -> None:
         """Execute import command."""
@@ -507,15 +515,9 @@ class SyncImportCommand(ProjectCommand):
             SecretAlias,
         )
 
-        if not self.json_output:
-            self.show_header(
-                title="Import Project Snapshot",
-                project=self.project_name,
-            )
-
         input_file = Path(self.input_path)
         if not input_file.exists():
-            self.print_error(f"File not found: {input_file}")
+            self.console.print(f"[red]✗ File not found: {input_file}[/red]")
             raise SystemExit(1)
 
         # Load JSON
@@ -526,8 +528,26 @@ class SyncImportCommand(ProjectCommand):
 
         # Validate version
         if data.get("version") != "1.0":
-            self.print_error(f"Unsupported snapshot version: {data.get('version')}")
+            self.console.print(
+                f"[red]✗ Unsupported snapshot version: {data.get('version')}[/red]"
+            )
             raise SystemExit(1)
+
+        # Get project name from JSON
+        project_data = data.get("project", {})
+        self.project_name = project_data.get("name")
+
+        if not self.project_name:
+            self.console.print("[red]✗ No project name found in snapshot[/red]")
+            raise SystemExit(1)
+
+        if not self.json_output:
+            self.console.print(
+                "[bold cyan] superdeploy [/bold cyan]› Import Project Snapshot"
+            )
+            self.console.print(
+                f"[bold cyan] superdeploy [/bold cyan]› Project: {self.project_name}\n"
+            )
 
         db = get_db_session()
         try:
@@ -537,8 +557,8 @@ class SyncImportCommand(ProjectCommand):
             )
 
             if existing_project and not self.force:
-                self.print_error(
-                    f"Project '{self.project_name}' already exists. Use --force to overwrite."
+                self.console.print(
+                    f"[red]✗ Project '{self.project_name}' already exists. Use --force to overwrite.[/red]"
                 )
                 raise SystemExit(1)
 
@@ -746,18 +766,23 @@ class SyncImportCommand(ProjectCommand):
 
         except Exception as e:
             db.rollback()
-            self.print_error(f"Import failed: {e}")
+            self.console.print(f"[red]✗ Import failed: {e}[/red]")
             raise SystemExit(1)
         finally:
             db.close()
 
         if self.json_output:
-            self.output_json(
-                {
-                    "status": "success",
-                    "project": self.project_name,
-                    "imported_from": str(input_file),
-                }
+            import json as json_module
+
+            self.console.print(
+                json_module.dumps(
+                    {
+                        "status": "success",
+                        "project": self.project_name,
+                        "imported_from": str(input_file),
+                    },
+                    indent=2,
+                )
             )
 
 
@@ -787,7 +812,8 @@ def sync(project, verbose, json_output):
     cmd.run()
 
 
-@click.command("export")
+@click.command("sync:export")
+@click.argument("project_name")
 @click.option(
     "-o",
     "--output",
@@ -796,7 +822,7 @@ def sync(project, verbose, json_output):
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show verbose output")
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
-def sync_export(project, output_path, verbose, json_output):
+def sync_export(project_name, output_path, verbose, json_output):
     """
     Export full project snapshot to JSON file
 
@@ -808,23 +834,25 @@ def sync_export(project, output_path, verbose, json_output):
     - Orchestrator info
 
     Examples:
-        superdeploy cheapa:sync:export
-        superdeploy cheapa:sync:export -o backup.json
+        superdeploy sync:export cheapa
+        superdeploy sync:export cheapa -o backup.json
     """
     cmd = SyncExportCommand(
-        project, output_path=output_path, verbose=verbose, json_output=json_output
+        project_name, output_path=output_path, verbose=verbose, json_output=json_output
     )
     cmd.run()
 
 
-@click.command("import")
+@click.command("sync:import")
 @click.argument("input_path")
 @click.option("--force", is_flag=True, help="Overwrite existing project data")
 @click.option("--verbose", "-v", is_flag=True, help="Show verbose output")
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
-def sync_import(project, input_path, force, verbose, json_output):
+def sync_import(input_path, force, verbose, json_output):
     """
     Import project snapshot from JSON file
+
+    Project name is read from the JSON file automatically.
 
     Imports everything into correct tables:
     - projects, apps, vms, addons
@@ -832,11 +860,10 @@ def sync_import(project, input_path, force, verbose, json_output):
     - secret_aliases
 
     Examples:
-        superdeploy cheapa:sync:import backup.json
-        superdeploy cheapa:sync:import backup.json --force
+        superdeploy sync:import backup.json
+        superdeploy sync:import backup.json --force
     """
     cmd = SyncImportCommand(
-        project,
         input_path=input_path,
         force=force,
         verbose=verbose,

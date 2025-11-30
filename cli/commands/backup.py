@@ -31,13 +31,17 @@ class BackupService:
         addon_name: str, addon_config: Dict, project_name: str
     ) -> Optional[str]:
         """Build database backup command based on addon type."""
+        # Addon container naming: {project}_{addon}_{instance}
+        instance = addon_config.get("instance", "primary")
+        container_name = f"{project_name}_{addon_name}_{instance}"
+
         if addon_name == "postgres":
             db_user = addon_config.get("user", f"{project_name}_user")
             db_name = addon_config.get("database", f"{project_name}_db")
-            return f"docker exec {project_name}-{addon_name} pg_dump -U {db_user} {db_name}"
+            return f"docker exec {container_name} pg_dump -U {db_user} {db_name}"
         elif addon_name == "mongodb":
             db_name = addon_config.get("database", f"{project_name}_db")
-            return f"docker exec {project_name}-{addon_name} mongodump --db {db_name} --archive"
+            return f"docker exec {container_name} mongodump --db {db_name} --archive"
         else:
             return None
 
@@ -45,7 +49,13 @@ class BackupService:
 class BackupsCreateCommand(ProjectCommand):
     """Backup project database and configurations."""
 
-    def __init__(self, project_name: str, output: str = None, verbose: bool = False, json_output: bool = False):
+    def __init__(
+        self,
+        project_name: str,
+        output: str = None,
+        verbose: bool = False,
+        json_output: bool = False,
+    ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.output = output or f"./backups/{project_name}"
         self.backup_service = BackupService()
@@ -70,7 +80,6 @@ class BackupsCreateCommand(ProjectCommand):
         logger = self.init_logger(self.project_name, f"backup-{timestamp}")
 
         if logger:
-
             logger.step("Starting backup process")
 
         # Get VM and SSH service
@@ -122,7 +131,6 @@ class BackupsCreateCommand(ProjectCommand):
             self.console.print("[green]✓[/green] Manifest created")
 
         if logger:
-
             logger.success(f"Backup completed: {backup_path}")
         self._display_completion_message(backup_path)
 
@@ -175,9 +183,11 @@ class BackupsCreateCommand(ProjectCommand):
             from cli.secret_manager import SecretManager
             import json
 
-            secret_mgr = SecretManager(self.project_root, self.project_name, "production")
+            secret_mgr = SecretManager(
+                self.project_root, self.project_name, "production"
+            )
             secrets_data = secret_mgr.load_secrets()
-            
+
             secrets_file = backup_path / "secrets.json"
             secrets_file.write_text(json.dumps(secrets_data, indent=2))
 
@@ -233,5 +243,7 @@ def backups_create(project, output, verbose, json_output):
     - Environment variables (encrypted)
     - Docker compose files
     """
-    cmd = BackupsCreateCommand(project, output=output, verbose=verbose, json_output=json_output)
+    cmd = BackupsCreateCommand(
+        project, output=output, verbose=verbose, json_output=json_output
+    )
     cmd.run()

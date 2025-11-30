@@ -75,11 +75,48 @@ class VMService:
             available_apps = self.config_service.list_apps(self.project_name)
             raise AppNotFoundError(app_name, self.project_name, available_apps)
 
-        # Resolve VM name and IP
-        vm_name = self._resolve_vm_name(vm_role)
-        vm_ip = self.state_service.get_vm_ip(vm_name, "external")
-
+        # Get VM IP directly from database (most reliable source)
+        vm_name, vm_ip = self._get_vm_from_db(vm_role)
         return vm_name, vm_ip
+
+    def _get_vm_from_db(self, vm_role: str) -> Tuple[str, str]:
+        """
+        Get VM name and IP from database by role.
+
+        Args:
+            vm_role: VM role (e.g., "app", "core")
+
+        Returns:
+            Tuple of (vm_name, vm_ip)
+
+        Raises:
+            VMNotFoundError: If VM not found
+        """
+        from cli.database import get_db_session, VM, Project
+
+        db = get_db_session()
+        try:
+            project = (
+                db.query(Project).filter(Project.name == self.project_name).first()
+            )
+            if not project:
+                raise VMNotFoundError(vm_role, [])
+
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == project.id, VM.role == vm_role)
+                .first()
+            )
+
+            if not vm or not vm.external_ip:
+                # Get available VMs for error message
+                all_vms = db.query(VM).filter(VM.project_id == project.id).all()
+                available = [v.role for v in all_vms]
+                raise VMNotFoundError(vm_role, available)
+
+            return vm.name, vm.external_ip
+        finally:
+            db.close()
 
     def _resolve_vm_name(self, vm_role: str) -> str:
         """
@@ -96,14 +133,22 @@ class VMService:
         """
         state = self.state_service.load_state()
 
-        # Try exact role match first
-        if vm_role in state.vms:
+        # Try with -0 suffix first (Terraform naming, has IPs)
+        vm_with_suffix = f"{vm_role}-0"
+        if vm_with_suffix in state.vms and state.vms[vm_with_suffix].external_ip:
+            return vm_with_suffix
+
+        # Try exact role match (only if it has an IP)
+        if vm_role in state.vms and state.vms[vm_role].external_ip:
             return vm_role
 
-        # Try with -0 suffix
-        vm_with_suffix = f"{vm_role}-0"
+        # Fallback: try with -0 suffix without IP check
         if vm_with_suffix in state.vms:
             return vm_with_suffix
+
+        # Fallback: try exact role match without IP check
+        if vm_role in state.vms:
+            return vm_role
 
         # Not found - raise with available VMs
         available_vms = list(state.vms.keys())

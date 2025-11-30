@@ -6,7 +6,6 @@ Heroku-style domain registration and management.
 
 import click
 import yaml
-import json
 import subprocess
 from pathlib import Path
 from rich.table import Table
@@ -201,86 +200,64 @@ class DomainsAddCommand(BaseCommand):
         self._show_success_panel(vm_ip, vm_role)
 
     def _get_orchestrator_ip(self) -> str:
-        """Get orchestrator VM IP from Terraform."""
-        terraform_dir = Path.cwd() / "shared" / "terraform"
+        """Get orchestrator VM IP from database."""
+        from cli.database import get_db_session, Project
+
+        db = get_db_session()
         try:
-            subprocess.run(
-                ["terraform", "workspace", "select", "orchestrator"],
-                cwd=terraform_dir,
-                capture_output=True,
-                text=True,
-                check=True,
+            orchestrator = (
+                db.query(Project).filter(Project.name == "orchestrator").first()
             )
 
-            result = subprocess.run(
-                ["terraform", "output", "-json"],
-                cwd=terraform_dir,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            outputs = json.loads(result.stdout)
-            vm_ip = outputs.get("orchestrator_ip", {}).get("value")
+            if orchestrator and orchestrator.actual_state:
+                state = orchestrator.actual_state
+                # Try direct orchestrator_ip key
+                if isinstance(state, dict):
+                    vm_ip = state.get("orchestrator_ip")
+                    if vm_ip:
+                        return vm_ip
+                    # Fallback to vm key
+                    if "vm" in state and isinstance(state["vm"], dict):
+                        vm_ip = state["vm"].get("external_ip")
+                        if vm_ip:
+                            return vm_ip
 
-            if not vm_ip:
-                self.console.print("[red]✗ Could not find orchestrator IP[/red]")
-                raise click.Abort()
-
-            return vm_ip
-        except Exception as e:
-            self.console.print(
-                "[red]✗ Failed to get orchestrator IP from Terraform[/red]"
-            )
-            self.console.print(f"[dim]Error: {e}[/dim]")
+            self.console.print("[red]✗ Could not find orchestrator IP[/red]")
             raise click.Abort()
+        finally:
+            db.close()
 
     def _get_project_vm_ip(self, vm_role: str) -> str:
-        """Get project VM IP from Terraform."""
-        terraform_dir = Path.cwd() / "shared" / "terraform"
+        """Get project VM IP from database."""
+        from cli.database import get_db_session, Project, VM
+
+        db = get_db_session()
         try:
-            # Select workspace
-            subprocess.run(
-                ["terraform", "workspace", "select", self.project],
-                cwd=terraform_dir,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-
-            # Get outputs
-            result = subprocess.run(
-                ["terraform", "output", "-json"],
-                cwd=terraform_dir,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            outputs = json.loads(result.stdout)
-            vms_by_role = outputs.get("vms_by_role", {}).get("value", {})
-
-            # Find VM IP
-            vm_ip = None
-            role_vms = vms_by_role.get(vm_role, [])
-            if role_vms:
-                vm_ip = role_vms[0].get("external_ip")
-
-            if not vm_ip:
-                self.console.print(
-                    f"[red]✗ Could not find IP for VM role '{vm_role}'[/red]"
-                )
-                self.console.print(
-                    f"[dim]Available roles: {list(vms_by_role.keys())}[/dim]"
-                )
+            project = db.query(Project).filter(Project.name == self.project).first()
+            if not project:
+                self.console.print(f"[red]✗ Project '{self.project}' not found[/red]")
                 raise click.Abort()
 
-            return vm_ip
-        except subprocess.CalledProcessError as e:
-            self.console.print("[red]✗ Failed to get VM IP from Terraform[/red]")
-            self.console.print(f"[dim]Error: {e.stderr}[/dim]")
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == project.id, VM.role == vm_role)
+                .first()
+            )
+
+            if vm and vm.external_ip:
+                return vm.external_ip
+
+            # Get available roles for error message
+            all_vms = db.query(VM).filter(VM.project_id == project.id).all()
+            available_roles = [v.role for v in all_vms]
+
+            self.console.print(
+                f"[red]✗ Could not find IP for VM role '{vm_role}'[/red]"
+            )
+            self.console.print(f"[dim]Available roles: {available_roles}[/dim]")
             raise click.Abort()
-        except Exception as e:
-            self.console.print(f"[red]✗ Failed to get VM IP: {e}[/red]")
-            raise click.Abort()
+        finally:
+            db.close()
 
     def _show_dns_panel(self, vm_ip: str) -> None:
         """Show DNS configuration panel."""
@@ -513,53 +490,50 @@ class DomainsListCommand(BaseCommand):
                 table.add_row("  App", f"  {app_name}", domain, vm_role, vm_ip)
 
     def _get_orchestrator_ip(self) -> str:
-        """Get orchestrator IP from Terraform."""
-        terraform_dir = Path.cwd() / "shared" / "terraform"
-        try:
-            subprocess.run(
-                ["terraform", "workspace", "select", "orchestrator"],
-                cwd=terraform_dir,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
+        """Get orchestrator IP from database."""
+        from cli.database import get_db_session, Project
 
-            result = subprocess.run(
-                ["terraform", "output", "-json"],
-                cwd=terraform_dir,
-                capture_output=True,
-                text=True,
-                check=True,
+        db = get_db_session()
+        try:
+            orchestrator = (
+                db.query(Project).filter(Project.name == "orchestrator").first()
             )
-            outputs = json.loads(result.stdout)
-            return outputs.get("orchestrator_ip", {}).get("value", "-")
+            if orchestrator and orchestrator.actual_state:
+                state = orchestrator.actual_state
+                if isinstance(state, dict):
+                    vm_ip = state.get("orchestrator_ip")
+                    if vm_ip:
+                        return vm_ip
+                    if "vm" in state and isinstance(state["vm"], dict):
+                        return state["vm"].get("external_ip", "-")
+            return "-"
         except:
             return "-"
+        finally:
+            db.close()
 
     def _get_project_vms(self, project_name: str, terraform_dir: Path) -> dict:
-        """Get VMs by role for a project."""
-        try:
-            # Select workspace
-            subprocess.run(
-                ["terraform", "workspace", "select", project_name],
-                cwd=terraform_dir,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
+        """Get VMs by role for a project from database."""
+        from cli.database import get_db_session, Project, VM
 
-            # Get outputs
-            result = subprocess.run(
-                ["terraform", "output", "-json"],
-                cwd=terraform_dir,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            outputs = json.loads(result.stdout)
-            return outputs.get("vms_by_role", {}).get("value", {})
+        db = get_db_session()
+        try:
+            project = db.query(Project).filter(Project.name == project_name).first()
+            if not project:
+                return {}
+
+            vms = db.query(VM).filter(VM.project_id == project.id).all()
+            result = {}
+            for vm in vms:
+                if vm.role and vm.external_ip:
+                    if vm.role not in result:
+                        result[vm.role] = []
+                    result[vm.role].append({"external_ip": vm.external_ip})
+            return result
         except:
             return {}
+        finally:
+            db.close()
 
 
 class DomainsRemoveCommand(BaseCommand):
