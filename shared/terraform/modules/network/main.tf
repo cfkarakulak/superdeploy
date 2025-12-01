@@ -246,15 +246,31 @@ resource "google_compute_firewall" "allow_node_exporter" {
     ports    = ["9100"]  # node_exporter
   }
 
-  # Allow from both orchestrator subnet (internal) AND orchestrator IP (external)
-  # This ensures Prometheus can scrape metrics regardless of network topology
-  source_ranges = compact(concat(
-    var.orchestrator_subnet != "" ? [var.orchestrator_subnet] : [],
-    var.orchestrator_ip != "" ? ["${var.orchestrator_ip}/32"] : []
-  ))
+  # Allow from all private subnets (10.0.0.0/8) for VPC peering
+  # Orchestrator is in 10.0.0.0/16, projects are in 10.x.0.0/16
+  source_ranges = ["10.0.0.0/8"]
   target_tags   = var.vm_roles
 
-  description = "Allow node_exporter metrics (9100) for Prometheus monitoring from orchestrator"
+  description = "Allow node_exporter metrics (9100) for Prometheus monitoring via VPC peering"
+}
+
+# Firewall: Allow cAdvisor metrics (port 8080) from orchestrator
+# Allows Prometheus to scrape container metrics via VPC peering
+resource "google_compute_firewall" "allow_cadvisor" {
+  name    = "${var.network_name}-allow-cadvisor"
+  network = google_compute_network.vpc.name
+  project = var.project_id
+
+  allow {
+    protocol = "tcp"
+    ports    = ["8080"]  # cAdvisor
+  }
+
+  # Allow from all private subnets (10.0.0.0/8) for VPC peering
+  source_ranges = ["10.0.0.0/8"]
+  target_tags   = var.vm_roles
+
+  description = "Allow cAdvisor metrics (8080) for Prometheus monitoring via VPC peering"
 }
 
 # Firewall: Allow Loki log ingestion (port 3100)

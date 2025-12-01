@@ -60,12 +60,13 @@
 
 - name: Build VM list with IPs for monitoring
   set_fact:
-    # Use external_ip for cross-VPC monitoring (orchestrator → project VMs)
-    # Internal IPs only work within same VPC, but orchestrator is separate deployment  
-    vm_monitoring_list: "{{ vm_monitoring_list | default([]) + [{'name': item, 'external_ip': hostvars[item].ansible_host, 'internal_ip': hostvars[item].internal_ip | default('')}] }}"
+    # Use internal_ip for VPC peering (orchestrator → project VMs via 10.x.x.x)
+    # VPC peering allows cross-VPC internal communication
+    vm_monitoring_list: "{{ vm_monitoring_list | default([]) + [{'name': item, 'external_ip': hostvars[item].ansible_host, 'internal_ip': hostvars[item].internal_ip}] }}"
   loop: "{{ groups['all'] | reject('match', '.*orchestrator.*') | list }}"
   when: 
     - hostvars[item].ansible_host is defined
+    - hostvars[item].internal_ip is defined
 
 - name: Create monitoring targets directory
   file:
@@ -86,7 +87,7 @@
         {
           "targets": [
       {% for vm in vm_monitoring_list %}
-            "{{ vm.external_ip }}:9100"{{ "," if not loop.last else "" }}
+            "{{ vm.internal_ip }}:9100"{{ "," if not loop.last else "" }}
       {% endfor %}
           ],
           "labels": {
@@ -109,12 +110,13 @@
 
 - name: Build app monitoring targets with app names
   set_fact:
-    app_monitoring_targets: "{{ app_monitoring_targets | default([]) + [{'target': hostvars[groups[item.value.vm][0]].ansible_host + ':' + ((item.value.internal_port | default(item.value.port)) | string), 'app': item.key}] }}"
+    app_monitoring_targets: "{{ app_monitoring_targets | default([]) + [{'target': hostvars[groups[item.value.vm][0]].internal_ip + ':' + ((item.value.internal_port | default(item.value.port)) | string), 'app': item.key}] }}"
   loop: "{{ apps | dict2items }}"
   when: 
     - item.value.vm is defined
     - groups[item.value.vm] is defined
     - groups[item.value.vm] | length > 0
+    - hostvars[groups[item.value.vm][0]].internal_ip is defined
     - (item.value.port is defined and item.value.port != None) or (item.value.internal_port is defined and item.value.internal_port != None)
     - (item.value.internal_port | default(item.value.port) | default(None)) != None
 
@@ -149,7 +151,7 @@
         {
           "targets": [
       {% for vm in vm_monitoring_list %}
-            "{{ vm.external_ip }}:8080"{{ "," if not loop.last else "" }}
+            "{{ vm.internal_ip }}:8080"{{ "," if not loop.last else "" }}
       {% endfor %}
           ],
           "labels": {
