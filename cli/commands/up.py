@@ -606,6 +606,32 @@ def _deploy_project_internal(
                 logger.log_error("Orchestrator IP not found")
             raise SystemExit(1)
 
+        # Get orchestrator internal IP from DB for VPC peering (Promtail -> Loki)
+        orchestrator_internal_ip = None
+        try:
+            from cli.database import get_db_session
+            from sqlalchemy import text
+
+            db = get_db_session()
+            try:
+                result = db.execute(
+                    text("""
+                        SELECT v.internal_ip
+                        FROM vms v
+                        JOIN projects p ON v.project_id = p.id
+                        WHERE p.name = 'orchestrator' AND v.role = 'main'
+                        LIMIT 1
+                    """)
+                )
+                row = result.fetchone()
+                if row and row[0]:
+                    orchestrator_internal_ip = row[0]
+            finally:
+                db.close()
+        except Exception:
+            # If DB query fails, fallback to default VPC IP
+            orchestrator_internal_ip = "10.0.0.2"
+
         console.print(f"  [dim]✓ Orchestrator @ {orchestrator_ip}[/dim]")
 
     except FileNotFoundError as e:
@@ -1021,7 +1047,11 @@ def _deploy_project_internal(
             ansible_dir = project_root / "shared" / "ansible"
             inventory_generator = AnsibleInventoryGenerator(ansible_dir)
             inventory_generator.generate_inventory(
-                env, project, orchestrator_ip, project_config_obj
+                env,
+                project,
+                orchestrator_ip,
+                orchestrator_internal_ip,
+                project_config_obj,
             )
 
             # Build ansible command

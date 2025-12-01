@@ -22,6 +22,7 @@ class AnsibleInventoryGenerator:
         env: Dict[str, str],
         project_name: str,
         orchestrator_ip: Optional[str] = None,
+        orchestrator_internal_ip: Optional[str] = None,
         project_config: Optional[Any] = None,
     ) -> Path:
         """
@@ -31,6 +32,7 @@ class AnsibleInventoryGenerator:
             env: Environment variables dict
             project_name: Project name
             orchestrator_ip: Orchestrator VM IP (from global config)
+            orchestrator_internal_ip: Orchestrator internal IP for VPC peering (optional)
             project_config: Project configuration object (to get VM services)
 
         Returns:
@@ -44,7 +46,11 @@ class AnsibleInventoryGenerator:
 
         # Build inventory content
         inventory_content = self._build_inventory_content(
-            vm_groups, vm_services_map, vm_apps_map, orchestrator_ip
+            vm_groups,
+            vm_services_map,
+            vm_apps_map,
+            orchestrator_ip,
+            orchestrator_internal_ip,
         )
 
         # Write inventory file
@@ -140,6 +146,7 @@ class AnsibleInventoryGenerator:
         vm_services_map: Dict[str, List[str]],
         vm_apps_map: Dict[str, List[str]],
         orchestrator_ip: Optional[str],
+        orchestrator_internal_ip: Optional[str] = None,
     ) -> str:
         """
         Build inventory file content.
@@ -149,6 +156,7 @@ class AnsibleInventoryGenerator:
             vm_services_map: Services per VM role
             vm_apps_map: Apps per VM role
             orchestrator_ip: Orchestrator IP (optional)
+            orchestrator_internal_ip: Orchestrator internal IP for VPC peering (optional)
 
         Returns:
             Inventory file content
@@ -158,9 +166,15 @@ class AnsibleInventoryGenerator:
         # Add orchestrator group if available (for runner token generation)
         if orchestrator_ip:
             inventory_lines.append("[orchestrator]")
+            # Include internal_ip for Promtail/Loki communication via VPC peering
+            internal_ip_str = (
+                f" internal_ip={orchestrator_internal_ip}"
+                if orchestrator_internal_ip
+                else ""
+            )
             inventory_lines.append(
                 f"orchestrator-main-0 ansible_host={orchestrator_ip} "
-                f"ansible_user=superdeploy vm_role=orchestrator"
+                f"ansible_user=superdeploy vm_role=orchestrator{internal_ip_str}"
             )
             inventory_lines.append("")
 
@@ -182,5 +196,14 @@ class AnsibleInventoryGenerator:
                     f'vm_services="{services_json}" vm_apps="{apps_json}"'
                 )
             inventory_lines.append("")  # Empty line between groups
+
+        # Add [all:vars] section with orchestrator_internal_ip for Promtail
+        if orchestrator_internal_ip:
+            inventory_lines.append("[all:vars]")
+            inventory_lines.append("ansible_python_interpreter=/usr/bin/python3")
+            inventory_lines.append(
+                f"orchestrator_internal_ip={orchestrator_internal_ip}"
+            )
+            inventory_lines.append("")
 
         return "\n".join(inventory_lines)

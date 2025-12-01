@@ -27,8 +27,8 @@
                   'category': category,
                   'name': instance_name,
                   'type': instance_config.type,
-                  'version': instance_config.version | default('latest'),
-                  'plan': instance_config.plan | default('standard'),
+                  'version': instance_config.version | default('latest', true),
+                  'plan': instance_config.plan | default('standard', true),
                   'options': instance_config.options | default({}),
                   'full_name': category + '.' + instance_name
                 } -%}

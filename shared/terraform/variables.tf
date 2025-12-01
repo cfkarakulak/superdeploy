@@ -99,3 +99,9 @@ variable "orchestrator_network_name" {
   default     = "superdeploy-network"
 }
 
+variable "allowed_client_subnets" {
+  description = "List of client subnet CIDRs allowed to send logs/metrics (for orchestrator network only)"
+  type        = list(string)
+  default     = []
+}
+

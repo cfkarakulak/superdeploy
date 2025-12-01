@@ -154,7 +154,7 @@ class ProjectInitializer:
                         type=addon_type,
                         version=version,
                         vm=instance_config.get("vm", "core"),
-                        plan=instance_config.get("plan"),
+                        plan=instance_config.get("plan") or "standard",
                     )
                     db.add(addon)
 

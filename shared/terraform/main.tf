@@ -18,6 +18,7 @@ module "network" {
   orchestrator_ip            = var.orchestrator_ip  # Pass orchestrator IP for metrics (deprecated)
   orchestrator_subnet        = var.orchestrator_subnet  # Pass orchestrator subnet for VPC peering
   orchestrator_network_name  = var.orchestrator_network_name  # Pass orchestrator network for VPC peering
+  allowed_client_subnets     = var.allowed_client_subnets  # For orchestrator: allow all project subnets
 }
 
 # Dynamic VM creation based on project configuration

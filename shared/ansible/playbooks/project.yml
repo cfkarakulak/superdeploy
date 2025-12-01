@@ -60,14 +60,28 @@
     - promtail
     - foundation
   vars:
-    # Use orchestrator internal IP for VPC peering (more secure & reliable)
-    orchestrator_ip: "{{ hostvars[groups['orchestrator'][0]]['internal_ip'] | default(hostvars[groups['orchestrator'][0]]['ansible_host']) }}"
+    # Use orchestrator internal IP for VPC peering (Promtail -> Loki via internal network)
+    # MUST be set in inventory - no fallback, fail if missing
+    orchestrator_internal_ip: "{{ hostvars[groups['orchestrator'][0]]['internal_ip'] }}"
+    orchestrator_ip: "{{ hostvars[groups['orchestrator'][0]]['ansible_host'] }}"
+  pre_tasks:
+    - name: Validate orchestrator internal_ip is set
+      assert:
+        that:
+          - hostvars[groups['orchestrator'][0]]['internal_ip'] is defined
+          - hostvars[groups['orchestrator'][0]]['internal_ip'] != ''
+        fail_msg: |
+          FATAL: Orchestrator internal_ip not set in inventory!
+          Fix: Ensure orchestrator inventory has internal_ip variable.
+          Example: orchestrator-main-0 ansible_host=X.X.X.X internal_ip=10.0.0.2
 
 - name: Install System Monitoring Agent
   hosts: all:!orchestrator
   become: yes
   vars:
     orchestrator_ip: "{{ hostvars[groups['orchestrator'][0]]['ansible_host'] }}"
+    orchestrator_subnet: "10.0.0.0/16"
+    prometheus_endpoint: "http://{{ hostvars[groups['orchestrator'][0]]['ansible_host'] }}:9090"
   roles:
     - role: system/monitoring-agent
   tags:

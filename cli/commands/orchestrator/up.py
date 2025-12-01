@@ -414,6 +414,20 @@ def _deploy_orchestrator(
                 logger.log(f"Available outputs: {outputs}")
             raise SystemExit(1)
 
+        # Get internal IP from Terraform outputs (for VPC peering, Loki, Prometheus)
+        orchestrator_internal_ip = (
+            outputs.get("vm_internal_ips", {}).get("value", {}).get("main-0")
+        )
+
+        # Fallback: try vms_by_role output
+        if not orchestrator_internal_ip:
+            vms_by_role = outputs.get("vms_by_role", {}).get("value", {})
+            main_vms = vms_by_role.get("main", []) or vms_by_role.get(
+                "orchestrator", []
+            )
+            if main_vms and len(main_vms) > 0:
+                orchestrator_internal_ip = main_vms[0].get("internal_ip")
+
         # Save only IP to database state (VM provisioned, but not yet configured)
         # Full deployment will be marked after Ansible completes successfully
         from cli.database import get_db_session, Project
@@ -453,6 +467,9 @@ def _deploy_orchestrator(
                 )
                 db.add(vm)
             vm.external_ip = orchestrator_ip
+            vm.internal_ip = (
+                orchestrator_internal_ip  # Save internal IP for VPC peering
+            )
             vm.status = "provisioned"
 
             # Save orchestrator IP to secrets
@@ -570,10 +587,11 @@ def _deploy_orchestrator(
     ssh_key = ssh_config.get("key_path", "~/.ssh/superdeploy_deploy")
 
     inventory_content = f"""[orchestrator]
-orchestrator-main-0 ansible_host={orchestrator_ip} ansible_user={ssh_user} ansible_ssh_private_key_file={ssh_key} ansible_become=yes ansible_become_method=sudo
+orchestrator-main-0 ansible_host={orchestrator_ip} internal_ip={orchestrator_internal_ip or "10.0.0.2"} ansible_user={ssh_user} ansible_ssh_private_key_file={ssh_key} ansible_become=yes ansible_become_method=sudo
 
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3
+orchestrator_internal_ip={orchestrator_internal_ip or "10.0.0.2"}
 """
 
     with open(inventory_file, "w") as f:

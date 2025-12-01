@@ -156,10 +156,64 @@ class OrchestratorDownCommand(BaseCommand):
         self._cleanup_database(logger)
 
     def _cleanup_gcp_resources(self, logger, zone: str, region: str) -> None:
-        """Clean up GCP resources - HARD RESET."""
+        """Clean up GCP resources using Terraform destroy, then hard cleanup."""
         if logger:
             logger.step("[1/4] GCP Resource Cleanup")
         self.console.print("  [dim]✓ Configuration loaded[/dim]")
+
+        # Use Terraform destroy - this properly removes all resources including network
+        from cli.terraform_utils import select_workspace
+
+        project_root = Path.cwd()
+        terraform_dir = project_root / "shared" / "terraform"
+        terraform_success = False
+
+        try:
+            # Select orchestrator workspace (create=True to avoid failure if doesn't exist)
+            select_workspace("orchestrator", create=True)
+
+            if logger:
+                logger.log("Running Terraform destroy...")
+
+            # Run Terraform destroy with longer timeout for network resources
+            result = subprocess.run(
+                "terraform destroy -auto-approve -no-color -compact-warnings",
+                shell=True,
+                cwd=terraform_dir,
+                capture_output=True,
+                text=True,
+                timeout=600,  # 10 minutes for network cleanup
+            )
+
+            if result.returncode == 0:
+                if logger:
+                    logger.log("✓ All GCP resources destroyed via Terraform")
+                self.console.print(
+                    "  [dim]✓ Infrastructure destroyed (Terraform)[/dim]"
+                )
+                terraform_success = True
+            else:
+                if logger:
+                    logger.warning(
+                        f"Terraform destroy returned non-zero: {result.returncode}"
+                    )
+                if self.verbose:
+                    self.console.print(f"[yellow]{result.stderr}[/yellow]")
+        except subprocess.TimeoutExpired:
+            if logger:
+                logger.warning("Terraform destroy timed out")
+        except Exception as e:
+            if logger:
+                logger.warning(f"Terraform destroy failed: {e}")
+
+        # ALWAYS run hard cleanup to ensure nothing is left behind
+        # Even if Terraform succeeded, verify with gcloud
+        if logger:
+            logger.log("Running hard cleanup verification...")
+
+        # Fallback: Manual cleanup (legacy)
+        if logger:
+            logger.log("Using manual GCP resource cleanup...")
 
         vms_deleted = 0
         ips_deleted = 0
@@ -257,6 +311,30 @@ class OrchestratorDownCommand(BaseCommand):
 
         time.sleep(2)
 
+        # Delete VPC Peerings first (they block network deletion)
+        peerings_deleted = 0
+        result = subprocess.run(
+            "gcloud compute networks peerings list --network=superdeploy-network --format='value(name)' 2>/dev/null",
+            shell=True,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            peerings = result.stdout.strip().split("\n")
+            for peering in peerings:
+                peering = peering.strip()
+                if peering:
+                    subprocess.run(
+                        f"gcloud compute networks peerings delete {peering} --network=superdeploy-network --quiet 2>&1",
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    peerings_deleted += 1
+
+        if peerings_deleted > 0:
+            time.sleep(2)
+
         # Delete Subnet - HARD RESET
         result = subprocess.run(
             f"gcloud compute networks subnets delete superdeploy-network-subnet --region={region} --quiet 2>&1",
@@ -294,6 +372,8 @@ class OrchestratorDownCommand(BaseCommand):
             resources.append(f"{vms_deleted} VM(s)")
         if firewalls_deleted > 0:
             resources.append(f"{firewalls_deleted} firewall rule(s)")
+        if peerings_deleted > 0:
+            resources.append(f"{peerings_deleted} VPC peering(s)")
         if subnets_deleted > 0:
             resources.append(f"{subnets_deleted} subnet(s)")
         if networks_deleted > 0:

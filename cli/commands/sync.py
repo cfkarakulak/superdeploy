@@ -272,9 +272,24 @@ class SyncExportCommand(ProjectCommand):
                 "aliases": [],
             }
 
-            # Get apps
+            # Get apps with their processes
+            from cli.database import Process
+
             apps = db.query(App).filter(App.project_id == project.id).all()
             for app in apps:
+                # Get processes for this app
+                processes = db.query(Process).filter(Process.app_id == app.id).all()
+                processes_data = []
+                for proc in processes:
+                    processes_data.append(
+                        {
+                            "name": proc.name,
+                            "command": proc.command,
+                            "replicas": proc.replicas,
+                            "port": proc.port,
+                        }
+                    )
+
                 export_data["apps"].append(
                     {
                         "name": app.name,
@@ -288,6 +303,7 @@ class SyncExportCommand(ProjectCommand):
                         "replicas": app.replicas,
                         "type": app.type,
                         "services": app.services,
+                        "processes": processes_data if processes_data else None,
                     }
                 )
 
@@ -614,30 +630,57 @@ class SyncImportCommand:
 
             self.console.print(f"[green]✓[/green] Created project: {project.name}")
 
-            # Create apps
+            # Create apps - validate required fields
+            from cli.database import Process
+
             app_name_to_id = {}
+            process_count = 0
             for app_data in data.get("apps", []):
+                # Validate required fields
+                required_app_fields = ["name", "repo", "owner", "vm", "type"]
+                missing = [f for f in required_app_fields if not app_data.get(f)]
+                if missing:
+                    raise ValueError(
+                        f"App missing required fields: {missing}. App: {app_data.get('name', 'unknown')}"
+                    )
+
                 app = App(
                     project_id=project.id,
                     name=app_data["name"],
-                    repo=app_data.get("repo"),
-                    owner=app_data.get("owner"),
-                    path=app_data.get("path"),
-                    vm=app_data.get("vm"),
-                    port=app_data.get("port"),
-                    external_port=app_data.get("external_port"),
-                    domain=app_data.get("domain"),
-                    replicas=app_data.get("replicas", 1),
-                    type=app_data.get("type"),
-                    services=app_data.get("services"),
+                    repo=app_data["repo"],  # Required
+                    owner=app_data["owner"],  # Required
+                    path=app_data.get("path"),  # Optional - local dev path
+                    vm=app_data["vm"],  # Required
+                    port=app_data.get("port"),  # Optional for workers
+                    external_port=app_data.get("external_port"),  # Optional
+                    domain=app_data.get("domain"),  # Optional
+                    replicas=app_data.get("replicas") or 1,  # Default 1 if not set
+                    type=app_data["type"],  # Required: web/worker/backend/frontend
+                    services=app_data.get("services"),  # Optional
                 )
                 db.add(app)
                 db.flush()
                 app_name_to_id[app.name] = app.id
 
+                # Create processes for this app
+                for proc_data in app_data.get("processes") or []:
+                    process = Process(
+                        app_id=app.id,
+                        name=proc_data["name"],
+                        command=proc_data["command"],
+                        replicas=proc_data.get("replicas") or 1,
+                        port=proc_data.get("port"),
+                    )
+                    db.add(process)
+                    process_count += 1
+
             self.console.print(
                 f"[green]✓[/green] Created {len(data.get('apps', []))} apps"
             )
+            if process_count > 0:
+                self.console.print(
+                    f"[green]✓[/green] Created {process_count} processes"
+                )
 
             # Create VMs
             for vm_data in data.get("vms", []):
@@ -658,16 +701,31 @@ class SyncImportCommand:
                 f"[green]✓[/green] Created {len(data.get('vms', []))} VMs"
             )
 
-            # Create addons
+            # Create addons - all fields required, no fallbacks
             for addon_data in data.get("addons", []):
+                # Validate required fields
+                required_addon_fields = [
+                    "instance_name",
+                    "category",
+                    "type",
+                    "version",
+                    "vm",
+                    "plan",
+                ]
+                missing = [f for f in required_addon_fields if not addon_data.get(f)]
+                if missing:
+                    raise ValueError(
+                        f"Addon missing required fields: {missing}. Addon: {addon_data}"
+                    )
+
                 addon = Addon(
                     project_id=project.id,
                     instance_name=addon_data["instance_name"],
                     category=addon_data["category"],
                     type=addon_data["type"],
-                    version=addon_data.get("version", "latest"),
-                    vm=addon_data.get("vm", "core"),
-                    plan=addon_data.get("plan"),
+                    version=addon_data["version"],  # No fallback - must be explicit
+                    vm=addon_data["vm"],  # No fallback - must be explicit
+                    plan=addon_data["plan"],  # No fallback - must be explicit
                 )
                 db.add(addon)
 
@@ -856,7 +914,7 @@ class SyncImportCommand:
                             type=addon_data.get("type"),
                             version=addon_data.get("version", "latest"),
                             vm=addon_data.get("vm", "main"),
-                            plan=addon_data.get("plan"),
+                            plan=addon_data.get("plan") or "standard",
                         )
                         db.add(addon)
                     self.console.print(

@@ -2,7 +2,7 @@
 # Deploy a single addon instance (e.g., databases.primary)
 # This handles named instances with unique ports, containers, and credentials
 
-- name: "▶ {{ addon_instance.full_name }} ({{ addon_instance.type }}:{{ addon_instance.version }} • {{ addon_instance.plan | default('standard') }})"
+- name: "▶ {{ addon_instance.full_name }} ({{ addon_instance.type }}:{{ addon_instance.version }} • {{ addon_instance.plan | default('standard', true) }})"
   set_fact:
     _addon_header: "{{ addon_instance.full_name }}"
   changed_when: false

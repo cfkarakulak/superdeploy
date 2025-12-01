@@ -537,7 +537,7 @@ class AddonsAddCommand(ProjectCommand):
                 type=self.addon_type,
                 version=version,
                 vm="core",  # Default VM
-                plan=self.plan,
+                plan=self.plan or "standard",
             )
             db.add(new_addon)
             db.commit()
