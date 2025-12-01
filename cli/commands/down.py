@@ -373,14 +373,25 @@ class TerraformCleaner:
                 # Destroy all Terraform-managed resources from state
                 # Need tfvars file for terraform to know what to destroy
                 try:
-                    # Generate tfvars if we have project config
+                    # Build destroy command with tfvars
                     destroy_cmd = ["terraform", "destroy", "-auto-approve", "-no-color"]
 
-                    if self.project_config:
+                    # Try to use existing tfvars file first
+                    tfvars_path = self.terraform_dir / f"{self.project_name}.tfvars.json"
+                    if tfvars_path.exists():
+                        destroy_cmd.extend([f"-var-file={tfvars_path}"])
+                    elif self.project_config:
+                        # Generate tfvars from project config
                         from cli.terraform_utils import generate_tfvars
-
                         tfvars_file = generate_tfvars(self.project_config)
                         destroy_cmd.extend([f"-var-file={tfvars_file}"])
+                    else:
+                        # No tfvars available - Terraform will fail on required vars
+                        # Skip terraform destroy and go straight to manual cleanup
+                        self.console.print(
+                            "  [dim]⚠ No tfvars found, skipping Terraform (using manual cleanup)[/dim]"
+                        )
+                        raise Exception("No tfvars available")
 
                     result = subprocess.run(
                         destroy_cmd,
@@ -395,6 +406,9 @@ class TerraformCleaner:
                             "  [dim]✓ Terraform resources destroyed from state[/dim]"
                         )
                     else:
+                        # Log the actual error for debugging
+                        if logger:
+                            logger.log(f"Terraform destroy stderr: {result.stderr}")
                         # Show error but continue cleanup - HARD RESET doesn't stop
                         self.console.print(
                             "  [yellow]⚠ Terraform destroy failed - continuing with manual cleanup[/yellow]"
