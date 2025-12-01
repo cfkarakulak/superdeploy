@@ -72,13 +72,13 @@ scrape_configs:
         target_label: project
 
   # Project application metrics (file-based service discovery)
-  # Apps with /metrics endpoint
+  # Apps with /api/metrics endpoint (Cara Python, Next.js API routes)
   - job_name: 'project-apps'
     file_sd_configs:
       - files:
           - '/opt/superdeploy/shared/monitoring/targets.d/*-apps.json'
         refresh_interval: 30s
-    metrics_path: '/metrics'
+    metrics_path: '/api/metrics'
     relabel_configs:
       - source_labels: [__meta_filepath]
         regex: '.*/([^/]+)-apps\.json'
