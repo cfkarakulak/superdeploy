@@ -409,13 +409,12 @@ class TerraformCleaner:
                             "  [dim]✓ Terraform resources destroyed from state[/dim]"
                         )
                     else:
-                        # Log the actual error for debugging
-                        if logger:
-                            logger.log(f"Terraform destroy stderr: {result.stderr}")
                         # Show error but continue cleanup - HARD RESET doesn't stop
                         self.console.print(
                             "  [yellow]⚠ Terraform destroy failed - continuing with manual cleanup[/yellow]"
                         )
+                        if result.stderr:
+                            self.console.print(f"  [dim]{result.stderr[:200]}[/dim]")
                 except subprocess.TimeoutExpired:
                     self.console.print(
                         "  [yellow]⚠ Terraform destroy timed out - continuing with manual cleanup[/yellow]"

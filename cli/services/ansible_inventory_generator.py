@@ -89,9 +89,14 @@ class AnsibleInventoryGenerator:
                 if role not in vm_groups:
                     vm_groups[role] = []
 
+                # Get internal IP from env (e.g., "CORE_0_INTERNAL_IP")
+                internal_ip_key = key.replace("_EXTERNAL_IP", "_INTERNAL_IP")
+                internal_ip = env.get(internal_ip_key, "")
+
                 vm_info = {
                     "name": f"{project_name}-{vm_key}",
                     "host": value,
+                    "internal_ip": internal_ip,
                     "user": env.get("SSH_USER", "superdeploy"),
                     "role": role,
                 }
@@ -190,8 +195,14 @@ class AnsibleInventoryGenerator:
                 services_json = json.dumps(services).replace('"', '\\"')
                 apps_json = json.dumps(apps).replace('"', '\\"')
 
+                # Include internal_ip for VPC peering (monitoring targets)
+                internal_ip_str = (
+                    f" internal_ip={vm['internal_ip']}" if vm.get("internal_ip") else ""
+                )
+
                 inventory_lines.append(
-                    f"{vm['name']} ansible_host={vm['host']} "
+                    f"{vm['name']} ansible_host={vm['host']}"
+                    f"{internal_ip_str} "
                     f"ansible_user={vm['user']} vm_role={role} "
                     f'vm_services="{services_json}" vm_apps="{apps_json}"'
                 )
