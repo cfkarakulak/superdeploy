@@ -7,8 +7,8 @@ from pathlib import Path
 from database import get_db
 from models import Secret, SecretAlias, Project, App
 
-# Get superdeploy root directory
-SUPERDEPLOY_ROOT = Path(__file__).parent.parent.parent.resolve()
+# Get superdeploy root directory (dashboard/backend/routes -> superdeploy root)
+SUPERDEPLOY_ROOT = Path(__file__).parent.parent.parent.parent.resolve()
 
 router = APIRouter(tags=["secrets"])
 
