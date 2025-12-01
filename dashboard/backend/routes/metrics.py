@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException
 import httpx
 import asyncio
+import math
 
 router = APIRouter(tags=["metrics"])
 
@@ -651,13 +652,30 @@ async def get_app_application_metrics(project_name: str, app_name: str):
             return_exceptions=True,
         )
 
-        # Map results
+        # Map results - sanitize NaN and Infinity values
+        def sanitize_value(value):
+            """Convert NaN/Infinity to 0.0 for JSON serialization"""
+            if isinstance(value, (int, float)) and (
+                math.isnan(value) or math.isinf(value)
+            ):
+                return 0.0
+            return value
+
         metrics = {}
         for (key, _), result in zip(queries.items(), results):
             if isinstance(result, Exception):
                 metrics[key] = 0.0
             else:
-                metrics[key] = result
+                metrics[key] = sanitize_value(result)
+
+        # Calculate error percentage safely
+        request_rate = metrics.get("request_rate", 0.0)
+        error_rate = metrics.get("error_rate", 0.0)
+
+        if request_rate > 0:
+            error_percentage = (error_rate / request_rate) * 100
+        else:
+            error_percentage = 0.0
 
         return {
             "app": app_name,
@@ -665,22 +683,21 @@ async def get_app_application_metrics(project_name: str, app_name: str):
             "vm_ip": vm_ip,
             "prometheus_url": prometheus_url,
             "metrics": {
-                "request_rate_per_sec": round(metrics.get("request_rate", 0.0), 2),
-                "error_rate_per_sec": round(metrics.get("error_rate", 0.0), 2),
-                "error_percentage": round(
-                    (
-                        metrics.get("error_rate", 0.0)
-                        / metrics.get("request_rate", 1.0)
-                        * 100
-                    )
-                    if metrics.get("request_rate", 0.0) > 0
-                    else 0.0,
-                    2,
+                "request_rate_per_sec": round(sanitize_value(request_rate), 2),
+                "error_rate_per_sec": round(sanitize_value(error_rate), 2),
+                "error_percentage": round(sanitize_value(error_percentage), 2),
+                "latency_p50_ms": round(
+                    sanitize_value(metrics.get("latency_p50", 0.0)) * 1000, 1
                 ),
-                "latency_p50_ms": round(metrics.get("latency_p50", 0.0) * 1000, 1),
-                "latency_p95_ms": round(metrics.get("latency_p95", 0.0) * 1000, 1),
-                "latency_p99_ms": round(metrics.get("latency_p99", 0.0) * 1000, 1),
-                "active_requests": int(metrics.get("active_requests", 0)),
+                "latency_p95_ms": round(
+                    sanitize_value(metrics.get("latency_p95", 0.0)) * 1000, 1
+                ),
+                "latency_p99_ms": round(
+                    sanitize_value(metrics.get("latency_p99", 0.0)) * 1000, 1
+                ),
+                "active_requests": int(
+                    sanitize_value(metrics.get("active_requests", 0))
+                ),
             },
         }
 

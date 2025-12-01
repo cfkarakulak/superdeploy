@@ -178,9 +178,13 @@ class ProjectInitializer:
         def generate_password(length=32):
             """Generate a secure random password.
 
-            Note: Excludes $ character because docker-compose interprets it as variable.
+            Note: Excludes problematic shell characters:
+            - $ : docker-compose interprets as variable
+            - & : shell interprets as background operator
+            - ! : bash history expansion
+            - # : shell comment character
             """
-            alphabet = string.ascii_letters + string.digits + "!@#%^&*"
+            alphabet = string.ascii_letters + string.digits + "@%^*_-+="
             return "".join(python_secrets.choice(alphabet) for _ in range(length))
 
         db = get_db_session()

@@ -6,6 +6,7 @@ Execute commands in application containers.
 
 import click
 from dataclasses import dataclass
+from rich.text import Text
 
 from cli.base import ProjectCommand
 from cli.services.ssh_service import DockerExecOptions
@@ -97,9 +98,7 @@ class RunCommand(ProjectCommand):
         else:
             self._execute_non_interactive(ssh_service, vm_ip, service_name)
 
-    def _execute_interactive(
-        self, ssh_service, vm_ip: str, service_name: str
-    ) -> None:
+    def _execute_interactive(self, ssh_service, vm_ip: str, service_name: str) -> None:
         """
         Execute command in interactive mode.
 
@@ -111,7 +110,11 @@ class RunCommand(ProjectCommand):
         try:
             exec_options = DockerExecOptions(interactive=True, tty=True)
             result = ssh_service.docker_compose_exec(
-                vm_ip, self.project_name, service_name, self.options.command, options=exec_options
+                vm_ip,
+                self.project_name,
+                service_name,
+                self.options.command,
+                options=exec_options,
             )
 
             if result.returncode != 0:
@@ -144,14 +147,15 @@ class RunCommand(ProjectCommand):
                 vm_ip, self.project_name, service_name, self.options.command
             )
 
-            # Display output
+            # Display output with ANSI color support
             if result.stdout:
                 self.console.print("\n[bold cyan]Output:[/bold cyan]")
-                self.console.print(result.stdout)
+                # Use Text.from_ansi() to properly render ANSI color codes
+                self.console.print(Text.from_ansi(result.stdout))
 
             if result.stderr:
                 self.console.print("\n[bold yellow]Errors:[/bold yellow]")
-                self.console.print(result.stderr)
+                self.console.print(Text.from_ansi(result.stderr))
 
             if result.is_success:
                 self.logger.success("Command executed successfully")
