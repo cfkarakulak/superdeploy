@@ -207,6 +207,8 @@ class OrchestratorConfig:
             "subnet_cidr": orchestrator_subnet,  # Use reserved subnet
             "network_name": network_config.get("vpc_name", "superdeploy-network"),
             "ssh_pub_key_path": ssh_pub_key_path,
+            # Allow all 10.x.x.x subnets for Loki ingestion from project VMs
+            "allowed_client_subnets": ["10.0.0.0/8"],
         }
 
     def get_secrets(self) -> Dict[str, str]:

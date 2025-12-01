@@ -377,12 +377,15 @@ class TerraformCleaner:
                     destroy_cmd = ["terraform", "destroy", "-auto-approve", "-no-color"]
 
                     # Try to use existing tfvars file first
-                    tfvars_path = self.terraform_dir / f"{self.project_name}.tfvars.json"
+                    tfvars_path = (
+                        self.terraform_dir / f"{self.project_name}.tfvars.json"
+                    )
                     if tfvars_path.exists():
                         destroy_cmd.extend([f"-var-file={tfvars_path}"])
                     elif self.project_config:
                         # Generate tfvars from project config
                         from cli.terraform_utils import generate_tfvars
+
                         tfvars_file = generate_tfvars(self.project_config)
                         destroy_cmd.extend([f"-var-file={tfvars_file}"])
                     else:
