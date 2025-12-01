@@ -1,18 +1,35 @@
 "use client";
 
 import { useDeploymentLog } from "@/contexts/DeploymentLogContext";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { X, Minimize2, Maximize2 } from "lucide-react";
 
 export default function GlobalDeploymentLog() {
   const { logs, isVisible, isDeploying, title, hide } = useDeploymentLog();
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isMinimized, setIsMinimized] = useState(false);
+  const isAtBottomRef = useRef(true);
 
-  // Auto-scroll to bottom when new logs arrive
+  // Check if user is at bottom of scroll container
+  const checkIfAtBottom = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return true;
+    const threshold = 50;
+    return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+  }, []);
+
+  // Handle scroll events to track user position
+  const handleScroll = useCallback(() => {
+    isAtBottomRef.current = checkIfAtBottom();
+  }, [checkIfAtBottom]);
+
+  // Auto-scroll to bottom only if user was at bottom
   useEffect(() => {
-    if (logEndRef.current && !isMinimized) {
-      logEndRef.current.scrollIntoView({ behavior: "smooth" });
+    if (!isMinimized && isAtBottomRef.current) {
+      const container = containerRef.current;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
     }
   }, [logs, isMinimized]);
 
@@ -57,7 +74,11 @@ export default function GlobalDeploymentLog() {
 
       {/* Logs */}
       {!isMinimized && (
-        <div className="overflow-y-auto h-[calc(100%-52px)] p-3 font-mono text-[11px] leading-relaxed scrollbar-dark terminal-selection">
+        <div 
+          ref={containerRef}
+          onScroll={handleScroll}
+          className="overflow-y-auto h-[calc(100%-52px)] p-3 font-mono text-[11px] leading-relaxed scrollbar-dark terminal-selection"
+        >
           {logs.length === 0 ? (
             <div className="text-[#666] text-center py-8">No logs yet...</div>
           ) : (
@@ -91,7 +112,6 @@ export default function GlobalDeploymentLog() {
               );
             })
           )}
-          <div ref={logEndRef} />
         </div>
       )}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { AppHeader, PageHeader, Button } from "@/components";
 import { Pause, Play, Trash2 } from "lucide-react";
@@ -15,9 +15,10 @@ export default function LogsPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [appDomain, setAppDomain] = useState<string>("");
-  const logsEndRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const pausedLogsRef = useRef<string[]>([]);
+  const isAtBottomRef = useRef(true);
 
   // Fetch app domain
   useEffect(() => {
@@ -35,15 +36,27 @@ export default function LogsPage() {
     if (projectName && appName) fetchAppInfo();
   }, [projectName, appName]);
 
-  // Auto-scroll to bottom
-  const scrollToBottom = () => {
-    if (!isPaused) {
-      logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  };
+  // Check if user is at bottom of scroll container
+  const checkIfAtBottom = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return true;
+    const threshold = 50; // px tolerance
+    return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+  }, []);
 
+  // Handle scroll events to track user position
+  const handleScroll = useCallback(() => {
+    isAtBottomRef.current = checkIfAtBottom();
+  }, [checkIfAtBottom]);
+
+  // Auto-scroll to bottom only if user was at bottom
   useEffect(() => {
-    scrollToBottom();
+    if (!isPaused && isAtBottomRef.current) {
+      const container = containerRef.current;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
   }, [logs, isPaused]);
 
   // Start streaming logs
@@ -89,11 +102,18 @@ export default function LogsPage() {
   // Toggle pause
   const togglePause = () => {
     if (isPaused) {
-      // Resume: add paused logs
+      // Resume: add paused logs and scroll to bottom
       if (pausedLogsRef.current.length > 0) {
         setLogs((prev) => [...prev, ...pausedLogsRef.current]);
         pausedLogsRef.current = [];
       }
+      isAtBottomRef.current = true;
+      setTimeout(() => {
+        const container = containerRef.current;
+        if (container) {
+          container.scrollTop = container.scrollHeight;
+        }
+      }, 0);
     }
     setIsPaused(!isPaused);
   };
@@ -102,6 +122,7 @@ export default function LogsPage() {
   const clearLogs = () => {
     setLogs([]);
     pausedLogsRef.current = [];
+    isAtBottomRef.current = true;
   };
 
   // Start streaming on mount
@@ -170,7 +191,11 @@ export default function LogsPage() {
         </div>
 
         {/* Logs Terminal */}
-        <div className="terminal-container scrollbar-custom rounded-lg p-4 text-[13px] leading-relaxed overflow-y-auto h-[600px] max-h-[600px]">
+        <div 
+          ref={containerRef}
+          onScroll={handleScroll}
+          className="terminal-container scrollbar-custom rounded-lg p-4 text-[13px] leading-relaxed overflow-y-auto h-[600px] max-h-[600px]"
+        >
           {logs.length === 0 ? (
             <div className="flex items-center justify-center h-full text-[#8b8b8b]">
               <div className="text-center">
@@ -199,7 +224,6 @@ export default function LogsPage() {
                   {pausedLogsRef.current.length} new logs (paused)
                 </div>
               )}
-              <div ref={logsEndRef} />
             </div>
           )}
         </div>
