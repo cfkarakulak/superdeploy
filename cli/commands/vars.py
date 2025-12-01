@@ -43,39 +43,16 @@ def read_env_file(env_path):
 
 
 def set_github_repo_secrets(repo, secrets_dict, project_id, db_session, console):
-    """Set GitHub repository secrets using database-based change detection"""
-    from cli.database import Secret
-    from datetime import datetime
-
+    """Set GitHub repository secrets - ALWAYS writes to each repo.
+    
+    Note: Repo secrets (DOCKER_TOKEN, REPOSITORY_TOKEN) must be set on EACH 
+    GitHub repository separately. No timestamp checking here - we always write
+    because the same secret needs to exist in multiple repos.
+    """
     success_count = 0
     fail_count = 0
-    skipped_count = 0
 
     for key, value in secrets_dict.items():
-        # Get secret from database to check timestamps
-        secret = (
-            db_session.query(Secret)
-            .filter(
-                Secret.project_id == project_id,
-                Secret.app_id.is_(None),  # Repo secrets are shared (no app)
-                Secret.key == key,
-                Secret.environment == "production",
-            )
-            .first()
-        )
-
-        # Check if secret needs sync
-        needs_sync = True
-        if secret and secret.last_synced_at and secret.updated_at:
-            # Skip if not modified since last sync
-            if secret.last_synced_at >= secret.updated_at:
-                console.print(f"  [dim]○[/dim] {key} [dim](unchanged)[/dim]")
-                skipped_count += 1
-                needs_sync = False
-
-        if not needs_sync:
-            continue
-
         try:
             subprocess.run(
                 ["gh", "secret", "set", key, "-b", str(value), "-R", repo],
@@ -86,19 +63,6 @@ def set_github_repo_secrets(repo, secrets_dict, project_id, db_session, console)
             )
             console.print(f"  [green]✓[/green] {key}")
             success_count += 1
-
-            # Update last_synced_at WITHOUT triggering updated_at
-            # Use direct SQL to avoid SQLAlchemy's onupdate trigger
-            if secret:
-                from sqlalchemy import text
-
-                db_session.execute(
-                    text(
-                        "UPDATE secrets SET last_synced_at = :sync_time WHERE id = :id"
-                    ),
-                    {"sync_time": datetime.utcnow(), "id": secret.id},
-                )
-                db_session.commit()
 
         except subprocess.TimeoutExpired:
             console.print(f"  [red]✗[/red] {key}: timeout (30s)")
@@ -114,11 +78,6 @@ def set_github_repo_secrets(repo, secrets_dict, project_id, db_session, console)
             error_msg = str(e).strip().replace("\n", " ")[:60]
             console.print(f"  [red]✗[/red] {key}: {error_msg}")
             fail_count += 1
-
-    if skipped_count > 0:
-        console.print(
-            f"  [dim]→ {success_count} updated, {skipped_count} unchanged, {fail_count} failed[/dim]"
-        )
 
     return success_count, fail_count
 
