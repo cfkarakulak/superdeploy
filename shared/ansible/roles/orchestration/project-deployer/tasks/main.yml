@@ -28,6 +28,14 @@
   set_fact:
     vm_apps_list: "{{ vm_apps | from_json if vm_apps is defined and vm_apps is string else (vm_apps if vm_apps is defined else []) }}"
 
+- name: Debug vm_apps parsing
+  debug:
+    msg:
+      - "vm_apps (raw): {{ vm_apps | default('undefined') }}"
+      - "vm_apps_list (parsed): {{ vm_apps_list }}"
+      - "vm_apps_list length: {{ vm_apps_list | length }}"
+    verbosity: 0
+
 - name: Filter apps for this VM only
   set_fact:
     apps_for_this_vm: "{{ apps | dict2items | selectattr('key', 'in', vm_apps_list) | items2dict }}"
@@ -88,6 +96,12 @@
   when: apps_for_this_vm | length > 0
 
 # Generate docker-compose.yml for apps
+- name: Debug apps_for_this_vm content
+  debug:
+    msg: "Apps for this VM: {{ apps_for_this_vm | to_nice_json }}"
+    verbosity: 0
+  when: apps_for_this_vm | length > 0
+
 - name: Generate docker-compose.yml for applications
   template:
     src: "docker-compose.apps.yml.j2"

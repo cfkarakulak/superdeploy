@@ -118,6 +118,8 @@ class ConfigService:
         }
 
         # Apps
+        from cli.database import Process
+
         apps = {}
         db_apps = db.query(App).filter(App.project_id == db_project.id).all()
         for app in db_apps:
@@ -126,6 +128,19 @@ class ConfigService:
                 "vm": app.vm or "app",
                 "port": app.port,
             }
+
+            # Load processes from database
+            processes = db.query(Process).filter(Process.app_id == app.id).all()
+            if processes:
+                apps[app.name]["processes"] = {}
+                for proc in processes:
+                    apps[app.name]["processes"][proc.name] = {
+                        "command": proc.command,
+                        "replicas": proc.replicas or 1,
+                    }
+                    if proc.port:
+                        apps[app.name]["processes"][proc.name]["port"] = proc.port
+
         config["apps"] = apps
 
         # VMs

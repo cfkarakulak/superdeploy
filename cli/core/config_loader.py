@@ -500,22 +500,21 @@ class ConfigLoader:
                 if app.owner:
                     config_dict["apps"][app.name]["owner"] = app.owner
 
-                # Load processes from marker file (superdeploy file in app directory)
-                if app.path:
-                    marker_path = Path(app.path) / "superdeploy"
-                    if marker_path.exists():
-                        import yaml
+                # Load processes from database (Process table)
+                from cli.database import Process
 
-                        try:
-                            with open(marker_path, "r") as f:
-                                marker_data = yaml.safe_load(f)
-                                if marker_data and "processes" in marker_data:
-                                    config_dict["apps"][app.name]["processes"] = (
-                                        marker_data["processes"]
-                                    )
-                        except Exception:
-                            # If marker read fails, continue without processes
-                            pass
+                processes = db.query(Process).filter(Process.app_id == app.id).all()
+                if processes:
+                    config_dict["apps"][app.name]["processes"] = {}
+                    for proc in processes:
+                        config_dict["apps"][app.name]["processes"][proc.name] = {
+                            "command": proc.command,
+                            "replicas": proc.replicas or 1,
+                        }
+                        if proc.port:
+                            config_dict["apps"][app.name]["processes"][proc.name][
+                                "port"
+                            ] = proc.port
 
             # Load VMs from database (normalized)
             vms = db.query(VM).filter(VM.project_id == row.id).all()
