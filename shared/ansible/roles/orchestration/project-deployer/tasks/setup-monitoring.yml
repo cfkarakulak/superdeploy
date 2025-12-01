@@ -8,77 +8,38 @@
     that:
       - apps is defined
       - apps is mapping
-      - apps | length > 0
     fail_msg: |
       [PROJECT-DEPLOYER] ERROR: Cannot setup monitoring without apps configuration
-        - Expected: apps to be defined as a dictionary with at least one app
+        - Expected: apps to be defined as a dictionary
         - Found: apps={{ apps | default('undefined') }}
         - Fix: Ensure database contains apps configuration
     quiet: true
 
-- name: Build monitoring targets list with external IPs
-  set_fact:
-    monitoring_targets: "{{ monitoring_targets | default([]) + [hostvars[groups[item.value.vm][0]].ansible_host + ':' + ((item.value.internal_port | default(item.value.port)) | string)] }}"
-  loop: "{{ apps | dict2items }}"
-  when: 
-    - item.value.vm is defined
-    - groups[item.value.vm] is defined
-    - groups[item.value.vm] | length > 0
-    - (item.value.port is defined and item.value.port != None) or (item.value.internal_port is defined and item.value.internal_port != None)
-    - (item.value.internal_port | default(item.value.port) | default(None)) != None
-
-- name: Set app port fact for monitoring
-  set_fact:
-    app_port: "{{ (apps.values() | map(attribute='internal_port') | list | first) | default((apps.values() | map(attribute='port') | list | first) | default('8000')) }}"
-
-- name: Display monitoring targets
-  debug:
-    msg: "Monitoring targets for {{ project_name }}: {{ monitoring_targets | default([]) | join(', ') }}"
-    verbosity: 1
-
-- name: Create monitoring configuration directory
-  file:
-    path: "{{ project_base_path }}/monitoring"
-    state: directory
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group }}"
-    mode: '0755'
-  when: 
-    - monitoring_targets is defined
-    - monitoring_targets | length > 0
-
-- name: Generate project monitoring configuration
-  template:
-    src: "monitoring-targets.yml.j2"
-    dest: "{{ project_base_path }}/monitoring/targets.yml"
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group }}"
-    mode: '0644'
-  when: 
-    - monitoring_targets is defined
-    - monitoring_targets | length > 0
-
 - name: Build VM list with IPs for monitoring
   set_fact:
     # Use internal_ip for VPC peering (orchestrator → project VMs via 10.x.x.x)
-    # VPC peering allows cross-VPC internal communication
     vm_monitoring_list: "{{ vm_monitoring_list | default([]) + [{'name': item, 'external_ip': hostvars[item].ansible_host, 'internal_ip': hostvars[item].internal_ip}] }}"
   loop: "{{ groups['all'] | reject('match', '.*orchestrator.*') | list }}"
   when: 
     - hostvars[item].ansible_host is defined
     - hostvars[item].internal_ip is defined
 
-- name: Create monitoring targets directory
+- name: Debug VM monitoring list
+  debug:
+    msg: "VM monitoring list: {{ vm_monitoring_list | default([]) }}"
+    verbosity: 1
+
+- name: Create monitoring targets directory on orchestrator
   file:
     path: "/opt/superdeploy/shared/monitoring/targets.d"
     state: directory
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
     mode: '0755'
-  delegate_to: "{{ orchestrator_host }}"
+  delegate_to: "{{ groups['orchestrator'][0] }}"
   when: 
-    - monitoring_targets is defined
-    - monitoring_targets | length > 0
+    - vm_monitoring_list is defined
+    - vm_monitoring_list | length > 0
 
 - name: Generate node exporter targets for file-based service discovery
   copy:
@@ -101,13 +62,38 @@
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
     mode: '0644'
-  delegate_to: "{{ orchestrator_host }}"
+  delegate_to: "{{ groups['orchestrator'][0] }}"
   when: 
-    - monitoring_targets is defined
-    - monitoring_targets | length > 0
     - vm_monitoring_list is defined
     - vm_monitoring_list | length > 0
 
+- name: Generate cAdvisor targets for file-based service discovery
+  copy:
+    content: |
+      [
+        {
+          "targets": [
+      {% for vm in vm_monitoring_list %}
+            "{{ vm.internal_ip }}:8080"{{ "," if not loop.last else "" }}
+      {% endfor %}
+          ],
+          "labels": {
+            "project": "{{ project_name }}",
+            "environment": "{{ project_config.environment | default('production') }}",
+            "service": "cadvisor"
+          }
+        }
+      ]
+    dest: "/opt/superdeploy/shared/monitoring/targets.d/{{ project_name }}-cadvisor.json"
+    owner: "{{ superdeploy_user }}"
+    group: "{{ superdeploy_group }}"
+    mode: '0644'
+  delegate_to: "{{ groups['orchestrator'][0] }}"
+  when: 
+    - vm_monitoring_list is defined
+    - vm_monitoring_list | length > 0
+
+# App metrics targets - only if apps have ports defined
 - name: Build app monitoring targets with app names
   set_fact:
     app_monitoring_targets: "{{ app_monitoring_targets | default([]) + [{'target': hostvars[groups[item.value.vm][0]].internal_ip + ':' + ((item.value.internal_port | default(item.value.port)) | string), 'app': item.key}] }}"
@@ -139,52 +125,11 @@
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
     mode: '0644'
-  delegate_to: "{{ orchestrator_host }}"
+  delegate_to: "{{ groups['orchestrator'][0] }}"
   when: 
     - app_monitoring_targets is defined
     - app_monitoring_targets | length > 0
 
-- name: Generate cAdvisor targets for file-based service discovery
-  copy:
-    content: |
-      [
-        {
-          "targets": [
-      {% for vm in vm_monitoring_list %}
-            "{{ vm.internal_ip }}:8080"{{ "," if not loop.last else "" }}
-      {% endfor %}
-          ],
-          "labels": {
-            "project": "{{ project_name }}",
-            "environment": "{{ project_config.environment | default('production') }}",
-            "service": "cadvisor"
-          }
-        }
-      ]
-    dest: "/opt/superdeploy/shared/monitoring/targets.d/{{ project_name }}-cadvisor.json"
-    owner: "{{ superdeploy_user }}"
-    group: "{{ superdeploy_group }}"
-    mode: '0644'
-  delegate_to: "{{ orchestrator_host }}"
-  when: 
-    - vm_monitoring_list is defined
-    - vm_monitoring_list | length > 0
-
-- name: Note - Prometheus will auto-discover targets from projects.d
-  debug:
-    msg: "✅ Project monitoring config created. Prometheus will auto-discover targets from /opt/superdeploy/shared/monitoring/projects.d/"
-  when: 
-    - monitoring_targets is defined
-    - monitoring_targets | length > 0
-
 - name: Display monitoring integration status
   debug:
-    msg: "✅ Monitoring integration completed for {{ project_name }} with {{ monitoring_targets | default([]) | length }} target(s)"
-  when: 
-    - monitoring_targets is defined
-
-- name: Skip monitoring integration
-  debug:
-    msg: "⚠️  No monitoring targets to configure for {{ project_name }}"
-  when: 
-    - (monitoring_targets is not defined or monitoring_targets | length == 0)
+    msg: "✅ Monitoring targets created: {{ vm_monitoring_list | default([]) | length }} VMs, {{ app_monitoring_targets | default([]) | length }} apps"

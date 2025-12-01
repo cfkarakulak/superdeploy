@@ -7,7 +7,7 @@
     method: POST
     status_code: 200
     timeout: 5
-  delegate_to: "{{ orchestrator_host | default(hostvars[inventory_hostname].orchestrator_host) | default('localhost') }}"
+  delegate_to: "{{ groups['orchestrator'][0] | default('localhost') }}"
   failed_when: false
   listen: reload prometheus
 

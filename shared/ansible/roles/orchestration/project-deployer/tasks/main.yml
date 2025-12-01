@@ -117,13 +117,10 @@
 - name: Setup monitoring integration (runs once)
   include_tasks: setup-monitoring.yml
   vars:
-    orchestrator_host: "{{ project_secrets.secrets.shared.ORCHESTRATOR_IP }}"
     apps: "{{ project_config.apps }}"  # FULL project apps, not filtered
   run_once: true
   when:
-    - project_secrets is defined
-    - project_secrets.secrets is defined
-    - project_secrets.secrets.shared is defined
-    - project_secrets.secrets.shared.ORCHESTRATOR_IP is defined
+    - groups['orchestrator'] is defined
+    - groups['orchestrator'] | length > 0
     - project_config is defined
     - project_config.apps is defined
