@@ -207,18 +207,19 @@ jobs:
                           service['deploy'] = {}
                       service['deploy']['replicas'] = replicas
 
-                      if port:
-                          service['healthcheck'] = {
-                              'test': ['CMD', 'curl', f'http://localhost:{port}/health'],
-                              'interval': '30s',
-                              'timeout': '10s',
-                              'retries': 3,
-                              'start_period': '40s'
-                          }
-                          service.pop('expose', None)
-                          service['ports'] = [f"{port}:{port}"]
-                      else:
-                          service['healthcheck'] = {'disable': True}
+                  if port:
+                      # Simple healthcheck: if app responds to root URL, it's healthy
+                      service['healthcheck'] = {
+                          'test': ['CMD', 'curl', '-f', f'http://localhost:{port}/'],
+                          'interval': '30s',
+                          'timeout': '10s',
+                          'retries': 3,
+                          'start_period': '40s'
+                      }
+                      service.pop('expose', None)
+                      service['ports'] = [f"{port}:{port}"]
+                  else:
+                      service['healthcheck'] = {'disable': True}
 
                       print(f"✅ Updated {service_name}")
                   else:
