@@ -33,6 +33,7 @@ class RestartCommand(ProjectCommand):
         project_name: str,
         options: RestartOptions,
         verbose: bool = False,
+        json_output: bool = False,
     ):
         """
         Initialize restart command.
@@ -41,6 +42,7 @@ class RestartCommand(ProjectCommand):
             project_name: Name of the project
             options: RestartOptions with configuration
             verbose: Whether to show verbose output
+            json_output: Whether to output in JSON format
         """
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.options = options
