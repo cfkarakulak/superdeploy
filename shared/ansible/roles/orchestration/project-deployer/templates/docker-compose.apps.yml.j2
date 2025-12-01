@@ -32,6 +32,7 @@ services:
     volumes:
       - {{ project_base_path }}/data/{{ app_name }}:/app/data
       - {{ project_base_path }}/logs/{{ app_name }}:/app/logs
+      - {{ project_base_path }}/storage/{{ app_name }}:/app/storage
     networks:
       {{ project_name }}-network:
         aliases:

@@ -70,6 +70,7 @@
     - "{{ project_base_path }}/compose"
     - "{{ project_base_path }}/data"
     - "{{ project_base_path }}/logs"
+    - "{{ project_base_path }}/storage"
     - "{{ project_base_path }}/backups"
 
 - name: Create application-specific directories
@@ -79,7 +80,7 @@
     owner: "{{ superdeploy_user }}"
     group: "{{ superdeploy_group }}"
     mode: '0755'
-  loop: "{{ [project_base_path + '/data', project_base_path + '/logs'] | product(apps_for_this_vm | dict2items) | list }}"
+  loop: "{{ [project_base_path + '/data', project_base_path + '/logs', project_base_path + '/storage'] | product(apps_for_this_vm | dict2items) | list }}"
   when: apps_for_this_vm | length > 0
 
 - name: Display directory structure created

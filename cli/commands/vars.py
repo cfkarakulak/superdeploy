@@ -86,7 +86,7 @@ def set_github_environment_secrets(
     repo, environment, secrets_dict, app_id, project_id, db_session, console
 ):
     """Set GitHub environment secrets - ALWAYS writes all secrets.
-    
+
     Note: We always write secrets because:
     1. GitHub doesn't expose secret values, so we can't compare
     2. After project reset/import, GitHub secrets may be stale or missing
