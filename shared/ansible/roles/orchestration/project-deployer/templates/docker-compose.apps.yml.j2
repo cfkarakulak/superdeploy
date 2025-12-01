@@ -11,15 +11,9 @@ services:
     image: {{ docker.registry | default('docker.io') }}/{{ docker.organization }}/{{ app_name }}:latest
     command: {{ process_config.command }}
 {% if process_config.port is defined and process_config.port %}
-{% if app_config.external_port is defined and app_config.external_port %}
-    # Publish port externally for direct access (no Caddy on this VM)
+    # Bind port to host for external access (Prometheus, Caddy, etc.)
     ports:
       - "{{ process_config.port }}:{{ process_config.port }}"
-{% else %}
-    # Internal expose only - Caddy on same VM handles routing
-    expose:
-      - "{{ process_config.port }}"
-{% endif %}
 {% endif %}
     environment:
       - PROJECT_NAME={{ project_name }}
