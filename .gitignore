@@ -132,3 +132,7 @@ shared/orchestrator/secrets.yml
 shared/orchestrator/state.yml
 shared/terraform/envs/dev/
 cheapa_snapshot_*.json
+
+# Snapshot files (contain secrets)
+snapshots/
+*.snapshot.json

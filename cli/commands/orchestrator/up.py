@@ -177,10 +177,14 @@ def _deploy_orchestrator(
                     .first()
                 )
                 is_deployed = secret is not None and secret.value is not None
+                orchestrator_ip = secret.value if secret else None
 
                 # Check VM status
                 vm = db.query(VM).filter(VM.project_id == db_project.id).first()
                 vm_status = vm.status if vm else ""
+
+                # Load config hash from project metadata (stored as JSON in extra field if exists)
+                stored_config_hash = getattr(db_project, "config_hash", None) or ""
 
                 # If VM is only provisioned (not fully configured), continue with Ansible
                 if vm_status == "provisioned":
@@ -195,13 +199,12 @@ def _deploy_orchestrator(
                     # Don't skip, continue to Ansible
                 elif is_deployed:
                     # Compare config hash
-                    last_hash = state.get("config_hash", "")
                     current_config_str = str(orch_config.config)
                     current_hash = hashlib.sha256(
                         current_config_str.encode()
                     ).hexdigest()
 
-                    if current_hash == last_hash:
+                    if current_hash == stored_config_hash:
                         if logger:
                             logger.success(
                                 "No changes detected. Infrastructure is up to date."
@@ -213,7 +216,7 @@ def _deploy_orchestrator(
                         if logger:
                             logger.log(f"  • VM deployed: {is_deployed}")
                         if logger:
-                            logger.log(f"  • IP: {state.get('orchestrator_ip', 'N/A')}")
+                            logger.log(f"  • IP: {orchestrator_ip or 'N/A'}")
                         if logger:
                             logger.log("")
                         if logger:
@@ -227,8 +230,8 @@ def _deploy_orchestrator(
                         if logger:
                             logger.log("Detected changes in configuration")
 
-                        # Try to determine what changed
-                        last_config = state.get("last_config", {})
+                        # Config comparison (no stored config after migration, assume changes)
+                        last_config = {}
 
                         # Check VM config changes
                         if orch_config.config.get("vm") != last_config.get("vm"):
@@ -620,6 +623,63 @@ ansible_python_interpreter=/usr/bin/python3
 
     if logger:
         logger.log(f"Running ansible with tags: {ansible_tags}")
+
+    # Get addon metadata from database for proper display
+    from cli.database import get_db_session, Project as DBProject
+    from sqlalchemy import text
+
+    addon_instances = []
+    db = get_db_session()
+    try:
+        # Get orchestrator project ID
+        orch_project = (
+            db.query(DBProject).filter(DBProject.name == "orchestrator").first()
+        )
+        if orch_project:
+            # Get addon details from DB
+            for addon_name in enabled_addons_list:
+                result = db.execute(
+                    text("""
+                        SELECT type, instance_name, version, plan
+                        FROM addons
+                        WHERE project_id = :project_id AND type = :addon_name
+                        LIMIT 1
+                    """),
+                    {"project_id": orch_project.id, "addon_name": addon_name},
+                )
+                addon_row = result.fetchone()
+
+                if addon_row:
+                    addon_instances.append(
+                        {
+                            "full_name": f"{addon_name}.{addon_row[1]}",
+                            "type": addon_row[0],
+                            "version": addon_row[2] or "latest",
+                            "plan": addon_row[3] or "standard",
+                            "category": "monitoring",
+                            "name": addon_row[1],
+                            "options": {},
+                        }
+                    )
+                else:
+                    # Fallback for addons not in DB yet
+                    addon_instances.append(
+                        {
+                            "full_name": f"{addon_name}.primary",
+                            "type": addon_name,
+                            "version": "latest",
+                            "plan": "standard",
+                            "category": "monitoring",
+                            "name": "primary",
+                            "options": {},
+                        }
+                    )
+    finally:
+        db.close()
+
+    # Add addon instances to ansible vars if we have them
+    if addon_instances:
+        ansible_vars["addon_instances"] = addon_instances
 
     ansible_cmd = build_ansible_command(
         ansible_dir=ansible_dir,

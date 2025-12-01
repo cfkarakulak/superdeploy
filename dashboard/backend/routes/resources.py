@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from database import get_db
-from models import App, Secret, Project, VM, Addon
+from models import App, Secret, Project, VM, Addon, Process
 
 router = APIRouter(tags=["resources"])
 
@@ -92,36 +92,74 @@ async def get_app_resources(
         )
 
         # ================================================================
-        # FORMATION - Get from app config (processes stored in app.processes JSON)
+        # FORMATION - Get from processes table (DB-based)
         # ================================================================
         formation = []
-        # App processes are stored in the app's config, not a separate table
-        # For now, show default web process
-        formation.append(
-            {
-                "name": "web",
-                "command": "",
-                "replicas": 1,
-                "port": app.port or 8000,
-                "run_on": app.vm or "app",
-            }
-        )
+        processes = db.query(Process).filter(Process.app_id == app.id).all()
+
+        if processes:
+            for proc in processes:
+                formation.append(
+                    {
+                        "name": proc.name,
+                        "command": proc.command or "",
+                        "replicas": proc.replicas or 1,
+                        "port": proc.port,
+                        "run_on": app.vm or "app",
+                    }
+                )
+        else:
+            # Fallback: show default web process if no processes in DB
+            formation.append(
+                {
+                    "name": "web",
+                    "command": "",
+                    "replicas": 1,
+                    "port": app.port or 8000,
+                    "run_on": app.vm or "app",
+                }
+            )
 
         # ================================================================
-        # ADD-ONS - Get from addons table
+        # ADD-ONS - Get from addons table with real-time status
         # ================================================================
         addons_response = []
         addons = db.query(Addon).filter(Addon.project_id == project.id).all()
+
+        # Get real-time container status from CLI
+        addon_statuses = {}
+        try:
+            from utils.cli import get_cli
+
+            cli = get_cli()
+            status_data = await cli.execute_json(
+                f"{project_name}:status", args=["-a", app_name]
+            )
+            app_status = status_data.get("app_status", {})
+            cli_addons = app_status.get("addons", [])
+
+            # Build status map
+            for cli_addon in cli_addons:
+                addon_ref = cli_addon.get("reference", "")
+                addon_statuses[addon_ref] = cli_addon.get("status", "attached")
+        except Exception:
+            # If CLI fails, all addons default to "attached" status
+            pass
+
         for addon in addons:
+            addon_ref = f"{addon.category}.{addon.instance_name}"
+            status = addon_statuses.get(addon_ref, "attached")
+
             addons_response.append(
                 {
                     "name": addon.instance_name,
                     "type": addon.type,
                     "category": addon.category,
-                    "full_name": f"{addon.category}.{addon.instance_name}",
+                    "full_name": addon_ref,
+                    "reference": addon_ref,  # Add reference field for frontend compatibility
                     "version": addon.version or "latest",
                     "plan": addon.plan or "standard",
-                    "status": "attached",
+                    "status": status,
                 }
             )
 
@@ -197,70 +235,81 @@ async def get_addon_detail(
             raise HTTPException(status_code=404, detail=f"App '{app_name}' not found")
 
         # ================================================================
-        # Get real-time app status from CLI (includes runtime-detected addons)
+        # Get addon from database (primary source)
         # ================================================================
-        cli = get_cli()
+        # Get addon from addons table
+        addon_record = (
+            db.query(Addon)
+            .filter(
+                Addon.project_id == project.id,
+                Addon.category == category,
+                Addon.instance_name == name,
+            )
+            .first()
+        )
+
+        if not addon_record:
+            raise HTTPException(
+                status_code=404, detail=f"Addon '{addon_ref}' not found in database"
+            )
+
+        # Build addon detail from DB
+        addon_type = addon_record.type
+        addon_name = addon_record.instance_name
+
+        addon_detail = {
+            "reference": addon_ref,
+            "name": addon_name,
+            "type": addon_type,
+            "category": category,
+            "version": addon_record.version or "latest",
+            "plan": addon_record.plan or "standard",
+            "as_prefix": addon_type.upper(),
+            "access": "attached",
+            "status": "up",  # Default, will be updated from CLI if available
+            "container_name": f"{project_name}_{addon_type}_{addon_name}",
+        }
+
+        # Get real-time status from CLI if available
         try:
+            from utils.cli import get_cli
+
+            cli = get_cli()
             status_data = await cli.execute_json(
                 f"{project_name}:status", args=["-a", app_name]
             )
             app_status = status_data.get("app_status", {})
             cli_addons = app_status.get("addons", [])
+
+            # Find this addon in CLI response
+            for cli_addon in cli_addons:
+                if cli_addon.get("reference") == addon_ref:
+                    addon_detail["status"] = cli_addon.get("status", "up")
+                    break
         except Exception as e:
+            # If CLI fails, keep default status
             print(f"Warning: Failed to get CLI status: {e}")
-            cli_addons = []
 
-        # Try to find addon in CLI response first (includes auto-detected addons)
-        addon_data = None
-        for addon_item in cli_addons:
-            if addon_item.get("reference") == addon_ref:
-                addon_data = addon_item
-                break
+        # Get credentials from database
+        credentials_dict = _get_addon_credentials_from_db(
+            project.id, addon_type, addon_name, db
+        )
 
-        # If found in CLI
-        if addon_data:
-            # Build base response from CLI data
-            addon_detail = {
-                "reference": addon_data.get("reference"),
-                "name": addon_data.get("name"),
-                "type": addon_data.get("type"),
-                "category": addon_data.get("category"),
-                "version": addon_data.get("version", ""),
-                "plan": addon_data.get("plan", "standard"),
-                "as_prefix": addon_data.get("as", addon_data.get("type", "").upper()),
-                "access": addon_data.get("access", "auto-detected"),
-                "status": addon_data.get("status", ""),
-                "container_name": f"{project_name}_{addon_data.get('type')}_{addon_data.get('name')}",
-            }
+        if credentials_dict:
+            credentials_list = []
+            as_prefix = addon_detail["as_prefix"]
 
-            # Get credentials from database
-            addon_type = addon_data.get("type")
-            addon_name = addon_data.get("name")
-            credentials_dict = _get_addon_credentials_from_db(
-                project.id, addon_type, addon_name, db
-            )
+            for key, value in credentials_dict.items():
+                env_key = f"{as_prefix}_{key}"
+                credentials_list.append({"key": env_key, "value": str(value)})
 
-            if credentials_dict:
-                credentials_list = []
-                as_prefix = addon_detail["as_prefix"]
-
-                for key, value in credentials_dict.items():
-                    env_key = f"{as_prefix}_{key}"
-                    credentials_list.append({"key": env_key, "value": str(value)})
-
-                addon_detail["credentials"] = credentials_list
-                addon_detail["host"] = credentials_dict.get("HOST", "")
-                addon_detail["port"] = str(credentials_dict.get("PORT", ""))
-            else:
-                addon_detail["credentials"] = []
-                addon_detail["host"] = ""
-                addon_detail["port"] = ""
-
+            addon_detail["credentials"] = credentials_list
+            addon_detail["host"] = credentials_dict.get("HOST", "")
+            addon_detail["port"] = str(credentials_dict.get("PORT", ""))
         else:
-            # Addon not found anywhere
-            raise HTTPException(
-                status_code=404, detail=f"Addon '{addon_ref}' not found"
-            )
+            addon_detail["credentials"] = []
+            addon_detail["host"] = ""
+            addon_detail["port"] = ""
 
         return {"addon": addon_detail}
 

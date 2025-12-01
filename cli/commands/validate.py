@@ -174,53 +174,55 @@ class ValidateProjectCommand(ProjectCommand):
             warnings.append("Network configuration not found")
 
     def _validate_secrets(self, warnings: List[str]) -> List[str]:
-        """Validate secrets configuration."""
+        """Validate secrets configuration (DB-based system)."""
         errors = []
 
         secret_mgr = SecretManager(self.project_root, self.project_name)
         secrets_data = secret_mgr.load_secrets()
 
-        if secrets_data:
-            shared_secrets = secrets_data.shared.values
-
-            # Check Docker credentials (required for deployment)
-            docker_username = shared_secrets.get("DOCKER_USERNAME", "")
-            docker_token = shared_secrets.get("DOCKER_TOKEN", "")
-
-            if not docker_username or not docker_token:
-                errors.append(
-                    "Missing Docker credentials in database (DOCKER_USERNAME and DOCKER_TOKEN required for deployment)"
-                )
-                self.console.print("[red]✗[/red] Docker credentials: Missing")
-            else:
-                self.console.print("[green]✓[/green] Docker credentials: Configured")
-
-            # Check ORCHESTRATOR_IP (should be filled after orchestrator:up)
-            orchestrator_ip = shared_secrets.get("ORCHESTRATOR_IP", "")
-            if not orchestrator_ip:
-                warnings.append(
-                    "ORCHESTRATOR_IP not set (run 'superdeploy orchestrator:up' first)"
-                )
-            else:
-                self.console.print(
-                    f"[green]✓[/green] Orchestrator IP: {orchestrator_ip}"
-                )
-
-            # Check SMTP credentials (optional, but warn if missing)
-            smtp_host = shared_secrets.get("SMTP_HOST", "")
-            smtp_password = shared_secrets.get("SMTP_PASSWORD", "")
-
-            if not smtp_host or not smtp_password:
-                warnings.append(
-                    "SMTP credentials not configured (email notifications will not work)"
-                )
-                self.console.print(
-                    "[yellow]⚠[/yellow] SMTP credentials: Not configured"
-                )
-            else:
-                self.console.print("[green]✓[/green] SMTP credentials: Configured")
-        else:
+        if not secrets_data or not isinstance(secrets_data, dict):
             errors.append("Database secrets not found or invalid")
+            return errors
+
+        # Get shared secrets from DB
+        shared_secrets = secrets_data.get("shared", {})
+
+        if not shared_secrets:
+            errors.append("No shared secrets found in database")
+            return errors
+
+        # Check Docker credentials (required for deployment)
+        docker_username = shared_secrets.get("DOCKER_USERNAME", "")
+        docker_token = shared_secrets.get("DOCKER_TOKEN", "")
+
+        if not docker_username or not docker_token:
+            errors.append(
+                "Missing Docker credentials in database (DOCKER_USERNAME and DOCKER_TOKEN required for deployment)"
+            )
+            self.console.print("[red]✗[/red] Docker credentials: Missing")
+        else:
+            self.console.print("[green]✓[/green] Docker credentials: Configured")
+
+        # Check ORCHESTRATOR_IP (should be filled after orchestrator:up)
+        orchestrator_ip = shared_secrets.get("ORCHESTRATOR_IP", "")
+        if not orchestrator_ip:
+            warnings.append(
+                "ORCHESTRATOR_IP not set (run 'superdeploy orchestrator:up' first)"
+            )
+        else:
+            self.console.print(f"[green]✓[/green] Orchestrator IP: {orchestrator_ip}")
+
+        # Check SMTP credentials (optional, but warn if missing)
+        smtp_host = shared_secrets.get("SMTP_HOST", "")
+        smtp_password = shared_secrets.get("SMTP_PASSWORD", "")
+
+        if not smtp_host or not smtp_password:
+            warnings.append(
+                "SMTP credentials not configured (email notifications will not work)"
+            )
+            self.console.print("[yellow]⚠[/yellow] SMTP credentials: Not configured")
+        else:
+            self.console.print("[green]✓[/green] SMTP credentials: Configured")
 
         return errors
 

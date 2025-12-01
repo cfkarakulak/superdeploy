@@ -278,101 +278,61 @@ class StatusCommand(ProjectCommand):
             vm_row = result.fetchone()
             app_vm = vm_row[0] if vm_row else "app"
 
-            # Get attached addons from aliases (these are explicitly attached)
-            result = db.execute(
-                text("""
-                SELECT DISTINCT target_key
-                FROM aliases
-                WHERE project_name = :project
-                AND app_name = :app
-                AND target_source = 'addon'
-                ORDER BY target_key
-            """),
-                {"project": self.project_name, "app": self.app_filter},
-            )
-
+            # Get attached addons from addons table (new DB-based system)
             attached_addons = {}
-            for row in result.fetchall():
-                # Extract addon from target_key (e.g., "postgres.primary.HOST" -> "postgres.primary")
-                parts = row[0].split(".")
-                if len(parts) >= 2:
-                    addon_ref = f"{parts[0]}.{parts[1]}"
-                    if addon_ref not in attached_addons:
-                        attached_addons[addon_ref] = parts[0]  # Store addon_type
-
-            # Get addon details and add to app_status
-            for addon_ref, addon_type in attached_addons.items():
-                addon_instance = addon_ref.split(".")[1]
-
-                # Get addon version from addon_secrets
+            try:
                 result = db.execute(
                     text("""
-                    SELECT key, value
-                    FROM addon_secrets
-                    WHERE project_name = :project
-                    AND addon_type = :type
-                    AND addon_instance = :instance
-                    LIMIT 1
+                    SELECT DISTINCT a.type, a.instance_name, a.id, a.category, a.version, a.plan
+                    FROM addons a
+                    WHERE a.project_id = (SELECT id FROM projects WHERE name = :project)
+                    ORDER BY a.type, a.instance_name
                 """),
-                    {
-                        "project": self.project_name,
-                        "type": addon_type,
-                        "instance": addon_instance,
-                    },
+                    {"project": self.project_name},
                 )
 
-                if result.fetchone():
-                    app_status["addons"].append(
-                        {
-                            "reference": addon_ref,
-                            "name": addon_instance,
+                for row in result.fetchall():
+                    addon_type = row[0]
+                    addon_instance = row[1]
+                    addon_id = row[2]
+                    addon_category = row[3]
+                    addon_version = row[4]
+                    addon_plan = row[5]
+                    addon_ref = f"{addon_category}.{addon_instance}"
+                    if addon_ref not in attached_addons:
+                        attached_addons[addon_ref] = {
                             "type": addon_type,
-                            "category": addon_type,  # Use type as category
-                            "version": "latest",
-                            "plan": "standard",
-                            "as": addon_type.upper(),
-                            "access": "default",
-                            "status": "unknown",
-                            "source": "database",
+                            "id": addon_id,
+                            "category": addon_category,
+                            "version": addon_version,
+                            "plan": addon_plan,
                         }
-                    )
-                    seen_addon_refs.add(addon_ref)
+            except Exception as e:
+                # If query fails, continue without addons
+                if self.verbose:
+                    print(f"Warning: Could not load addons: {e}")
 
-            # Always add Caddy for the app's VM (required for reverse proxy)
-            # Get Caddy instance for this app's VM
-            result = db.execute(
-                text("""
-                SELECT addon_instance
-                FROM addon_secrets
-                WHERE project_name = :project
-                AND addon_type = 'caddy'
-                LIMIT 1
-            """),
-                {"project": self.project_name},
-            )
+            # Add all addons to app_status
+            for addon_ref, addon_info in attached_addons.items():
+                addon_type = addon_info["type"]
+                addon_category = addon_info["category"]
+                addon_instance = addon_ref.split(".")[1]
 
-            caddy_row = result.fetchone()
-            if caddy_row:
-                caddy_instance = caddy_row[0]
-                caddy_ref = f"proxy.{caddy_instance}"
-
-                # Add Caddy if not already in the list
-                if caddy_ref not in seen_addon_refs:
-                    app_status["addons"].append(
-                        {
-                            "reference": caddy_ref,
-                            "name": caddy_instance,
-                            "type": "caddy",
-                            "category": "proxy",
-                            "version": "2-alpine",
-                            "plan": "standard",
-                            "as": "CADDY",
-                            "access": "default",
-                            "status": "unknown",
-                            "source": "auto",  # Auto-attached to all apps
-                        }
-                    )
-                    seen_addon_refs.add(caddy_ref)
+                app_status["addons"].append(
+                    {
+                        "reference": addon_ref,
+                        "name": addon_instance,
+                        "type": addon_type,
+                        "category": addon_category,
+                        "version": addon_info.get("version") or "latest",
+                        "plan": addon_info.get("plan") or "standard",
+                        "as": addon_type.upper(),
+                        "access": "default",
+                        "status": "Up (database)",
+                        "source": "database",
+                    }
+                )
+                seen_addon_refs.add(addon_ref)
 
         finally:
             db.close()

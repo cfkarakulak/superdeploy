@@ -223,8 +223,8 @@ class VM(Base):
         index=True,
     )
     name = Column(
-        String(100), unique=True, nullable=True, index=True
-    )  # VM name like "cheapa-app-0"
+        String(100), nullable=True, index=True
+    )  # VM name like "cheapa-app-0" (not unique, projects can have same role names)
     role = Column(String(50), nullable=False)
     external_ip = Column(String(50), nullable=True)  # Public IP
     internal_ip = Column(String(50), nullable=True)  # Private IP

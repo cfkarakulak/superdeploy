@@ -257,6 +257,7 @@ class ConfigGetCommand(ProjectCommand):
         key: str,
         app: str = None,
         verbose: bool = False,
+        json_output: bool = False,
     ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.key = key
@@ -333,20 +334,15 @@ class ConfigListCommand(ProjectCommand):
             self.project_root, self.project_name, self.environment
         )
 
-        # Get appropriate secrets
+        # Get appropriate secrets (DB-based system)
         if self.app:
             # Get merged secrets for app
             env_vars = secret_mgr.get_app_secrets(self.app)
             scope = f"{self.app} (shared + app-specific)"
         else:
-            # Get only shared secrets
-            secrets_config = secret_mgr.load_secrets()
-            # Convert SharedSecrets object to dict
-            env_vars = {}
-            if hasattr(secrets_config.shared, "__dict__"):
-                for key, value in secrets_config.shared.__dict__.items():
-                    if value is not None:
-                        env_vars[key] = value
+            # Get only shared secrets from DB
+            secrets_data = secret_mgr.load_secrets()
+            env_vars = secrets_data.get("shared", {})
             scope = "shared"
 
         # Filter if specified
@@ -645,6 +641,7 @@ class ConfigShowCommand(ProjectCommand):
         project_name: str,
         mask: bool = False,
         verbose: bool = False,
+        json_output: bool = False,
     ):
         super().__init__(project_name, verbose=verbose, json_output=json_output)
         self.mask = mask

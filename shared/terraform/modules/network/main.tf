@@ -269,8 +269,11 @@ resource "google_compute_firewall" "allow_loki_ingestion" {
     ports    = ["3100"]  # Loki
   }
 
-  # Allow from orchestrator subnet (bidirectional - both projects can send logs)
-  source_ranges = var.orchestrator_subnet != "" ? [var.orchestrator_subnet, var.subnet_cidr] : ["0.0.0.0/0"]
+  # For orchestrator network: allow from all project subnets
+  # For project networks: allow bidirectional (orchestrator + own subnet)
+  source_ranges = length(var.allowed_client_subnets) > 0 ? var.allowed_client_subnets : (
+    var.orchestrator_subnet != "" ? [var.orchestrator_subnet, var.subnet_cidr] : ["0.0.0.0/0"]
+  )
   target_tags   = concat(var.vm_roles, ["orchestrator"])
 
   description = "Allow Loki log ingestion (3100) from Promtail agents via VPC peering"

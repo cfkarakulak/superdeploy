@@ -129,7 +129,8 @@ jobs:
               with open(compose_file, 'r') as f:
                   compose = yaml.safe_load(f)
           
-              if compose.get('services') is None:
+              if not compose or compose.get('services') is None:
+                  compose = compose or {}
                   compose['services'] = {}
           
               processes = marker.get('processes', {})
@@ -169,8 +170,9 @@ jobs:
                       }
                       
                       if port:
+                          # Simple healthcheck: if app responds to root URL, it's healthy
                           compose['services'][service_name]['healthcheck'] = {
-                              'test': ['CMD', 'curl', f'http://localhost:{port}/health'],
+                              'test': ['CMD', 'curl', '-f', f'http://localhost:{port}/'],
                               'interval': '30s',
                               'timeout': '10s',
                               'retries': 3,

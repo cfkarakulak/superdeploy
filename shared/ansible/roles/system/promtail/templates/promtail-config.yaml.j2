@@ -24,8 +24,8 @@ scrape_configs:
       - source_labels: ['__meta_docker_container_id']
         target_label: 'container_id'
       
-      # Project label
-      - source_labels: ['__meta_docker_container_label_project']
+      # Project label (static - each VM belongs to one project)
+      - replacement: '{{ project_name }}'
         target_label: 'project'
       
       # Compose service

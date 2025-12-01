@@ -454,7 +454,7 @@ class AddonsAddCommand(ProjectCommand):
         default_versions = {
             "postgres": "15-alpine",
             "redis": "7-alpine",
-            "rabbitmq": "3.12-management-alpine",
+            "rabbitmq": "3.13-management-alpine",
             "caddy": "2-alpine",
             "elasticsearch": "8.11.0",
             "mongodb": "7.0",

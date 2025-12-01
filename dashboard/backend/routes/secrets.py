@@ -449,32 +449,15 @@ async def reload_containers(
 
     async def stream_logs():
         try:
-            yield b"Reloading containers for " + app_name.encode() + b"...\n\n"
-
-            # Execute docker compose restart for all app services
-            compose_dir = f"/opt/superdeploy/projects/{project_name}/compose"
-
-            # Find all services for this app
-            find_services = await asyncio.create_subprocess_shell(
-                f'cd {compose_dir} && grep "^  {app_name}-" docker-compose.yml | cut -d: -f1 | xargs',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-
-            services_output, _ = await find_services.communicate()
-            services = services_output.decode().strip()
-
-            if not services:
-                yield f"❌ No services found for {app_name}\n".encode()
-                return
-
-            yield f"🔄 Restarting services: {services}\n\n".encode()
-
-            # Restart all services
-            process = await asyncio.create_subprocess_shell(
-                f"cd {compose_dir} && docker compose restart {services}",
+            # Execute restart command using existing CLI
+            process = await asyncio.create_subprocess_exec(
+                "./superdeploy.sh",
+                f"{project_name}:restart",
+                "-a",
+                app_name,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                cwd=str(SUPERDEPLOY_ROOT),
             )
 
             # Stream output
@@ -487,12 +470,7 @@ async def reload_containers(
 
             await process.wait()
 
-            if process.returncode == 0:
-                yield "\n✅ Containers reloaded successfully!\n".encode()
-            else:
-                yield "\n❌ Reload failed!\n".encode()
-
         except Exception as e:
-            yield f"\n❌ Error: {str(e)}\n".encode()
+            yield f"\nError: {str(e)}\n".encode()
 
     return StreamingResponse(stream_logs(), media_type="text/plain")

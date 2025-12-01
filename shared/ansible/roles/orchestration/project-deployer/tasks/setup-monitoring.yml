@@ -107,22 +107,31 @@
     - vm_monitoring_list is defined
     - vm_monitoring_list | length > 0
 
+- name: Build app monitoring targets with app names
+  set_fact:
+    app_monitoring_targets: "{{ app_monitoring_targets | default([]) + [{'target': hostvars[groups[item.value.vm][0]].ansible_host + ':' + ((item.value.internal_port | default(item.value.port)) | string), 'app': item.key}] }}"
+  loop: "{{ apps | dict2items }}"
+  when: 
+    - item.value.vm is defined
+    - groups[item.value.vm] is defined
+    - groups[item.value.vm] | length > 0
+    - (item.value.port is defined and item.value.port != None) or (item.value.internal_port is defined and item.value.internal_port != None)
+    - (item.value.internal_port | default(item.value.port) | default(None)) != None
+
 - name: Generate application metrics targets for file-based service discovery
   copy:
     content: |
       [
+      {% for app_target in app_monitoring_targets %}
         {
-          "targets": [
-      {% for target in monitoring_targets %}
-            "{{ target }}"{{ "," if not loop.last else "" }}
-      {% endfor %}
-          ],
+          "targets": ["{{ app_target.target }}"],
           "labels": {
             "project": "{{ project_name }}",
             "environment": "{{ project_config.environment | default('production') }}",
-            "service": "application-metrics"
+            "service": "{{ app_target.app }}"
           }
-        }
+        }{{ "," if not loop.last else "" }}
+      {% endfor %}
       ]
     dest: "/opt/superdeploy/shared/monitoring/targets.d/{{ project_name }}-apps.json"
     owner: "{{ superdeploy_user }}"
@@ -130,8 +139,8 @@
     mode: '0644'
   delegate_to: "{{ orchestrator_host }}"
   when: 
-    - monitoring_targets is defined
-    - monitoring_targets | length > 0
+    - app_monitoring_targets is defined
+    - app_monitoring_targets | length > 0
 
 - name: Generate cAdvisor targets for file-based service discovery
   copy:

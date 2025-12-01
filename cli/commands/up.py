@@ -777,8 +777,12 @@ def _deploy_project_internal(
                         project_id = project_row[0]
 
                         # Insert/Update VMs
-                        for role, vms in vms_by_role.items():
-                            for vm in vms:
+                        for role, vm_list in vms_by_role.items():
+                            # vms_by_role is {role: [{name, external_ip, internal_ip}, ...]}
+                            for i, vm_data in enumerate(vm_list):
+                                # Normalize VM name: use "role-i" format, not full terraform name
+                                vm_name = f"{role}-{i}"  # Generic: "app-0", "core-0"
+
                                 # Check if VM exists by project_id + role (unique constraint)
                                 check = db.execute(
                                     text(
@@ -802,11 +806,11 @@ def _deploy_project_internal(
                                         """),
                                         {
                                             "project_id": project_id,
-                                            "name": vm["name"],
-                                            "external_ip": vm["external_ip"],
-                                            "internal_ip": vm["internal_ip"],
+                                            "name": vm_name,
+                                            "external_ip": vm_data["external_ip"],
+                                            "internal_ip": vm_data["internal_ip"],
                                             "role": role,
-                                            "machine_type": "e2-medium",  # TODO: Get from config
+                                            "machine_type": "e2-medium",
                                             "status": "running",
                                         },
                                     )
@@ -819,11 +823,11 @@ def _deploy_project_internal(
                                         """),
                                         {
                                             "project_id": project_id,
-                                            "name": vm["name"],
+                                            "name": vm_name,
                                             "role": role,
-                                            "external_ip": vm["external_ip"],
-                                            "internal_ip": vm["internal_ip"],
-                                            "machine_type": "e2-medium",  # TODO: Get from config
+                                            "external_ip": vm_data["external_ip"],
+                                            "internal_ip": vm_data["internal_ip"],
+                                            "machine_type": "e2-medium",
                                             "status": "running",
                                         },
                                     )
@@ -837,16 +841,14 @@ def _deploy_project_internal(
 
                         vm_list = []
                         for role, vms in vms_by_role.items():
-                            for i, vm in enumerate(vms):
-                                # Extract role-index key from full name
-                                # "receet-app-0" -> "app-0"
-                                # Generic format without project prefix
-                                vm_key = f"{role}-{i}"
+                            # vms_by_role is {role: [{name, external_ip, internal_ip}, ...]}
+                            for i, vm_data in enumerate(vms):
+                                vm_key = f"{role}-{i}"  # Generic: "app-0", "core-0"
                                 vm_list.append(
                                     {
-                                        "name": vm_key,  # Generic: "app-0", "core-0"
-                                        "external_ip": vm["external_ip"],
-                                        "internal_ip": vm["internal_ip"],
+                                        "name": vm_key,
+                                        "external_ip": vm_data["external_ip"],
+                                        "internal_ip": vm_data["internal_ip"],
                                     }
                                 )
 

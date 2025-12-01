@@ -49,7 +49,7 @@ def upgrade():
     )
     op.create_index(op.f("ix_vms_id"), "vms", ["id"], unique=False)
     op.create_index(op.f("ix_vms_project_id"), "vms", ["project_id"], unique=False)
-    op.create_index(op.f("ix_vms_name"), "vms", ["name"], unique=True)
+    op.create_index(op.f("ix_vms_name"), "vms", ["name"], unique=False)
 
 
 def downgrade():

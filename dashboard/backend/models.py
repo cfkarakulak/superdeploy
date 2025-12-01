@@ -122,6 +122,33 @@ class App(Base):
     secret_aliases = relationship(
         "SecretAlias", back_populates="app", cascade="all, delete-orphan"
     )
+    processes = relationship(
+        "Process", back_populates="app", cascade="all, delete-orphan"
+    )
+
+
+class Process(Base):
+    """Process definition for apps (Procfile-like)."""
+
+    __tablename__ = "processes"
+    __table_args__ = (
+        UniqueConstraint("app_id", "name", name="uix_process_app"),
+        {"extend_existing": True},
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    app_id = Column(
+        Integer, ForeignKey("apps.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name = Column(String(255), nullable=False)  # "web", "worker", "beat", etc.
+    command = Column(Text, nullable=False)  # Command to run
+    replicas = Column(Integer, nullable=False, default=1)
+    port = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    app = relationship("App", back_populates="processes")
 
 
 class DeploymentHistory(Base):

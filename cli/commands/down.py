@@ -371,11 +371,19 @@ class TerraformCleaner:
                 manager.select_workspace(self.project_name, create=False)
 
                 # Destroy all Terraform-managed resources from state
-                # No need for project config - Terraform knows what it created
+                # Need tfvars file for terraform to know what to destroy
                 try:
-                    # Run terraform destroy directly (uses workspace state only)
+                    # Generate tfvars if we have project config
+                    destroy_cmd = ["terraform", "destroy", "-auto-approve", "-no-color"]
+
+                    if self.project_config:
+                        from cli.terraform_utils import generate_tfvars
+
+                        tfvars_file = generate_tfvars(self.project_config)
+                        destroy_cmd.extend([f"-var-file={tfvars_file}"])
+
                     result = subprocess.run(
-                        ["terraform", "destroy", "-auto-approve"],
+                        destroy_cmd,
                         cwd=self.terraform_dir,
                         capture_output=True,
                         text=True,

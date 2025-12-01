@@ -294,9 +294,17 @@ class SyncExportCommand(ProjectCommand):
             # Get VMs
             vms = db.query(VM).filter(VM.project_id == project.id).all()
             for vm in vms:
+                # Normalize VM name: remove project prefix if present
+                # Terraform will add it back: ${project_name}-${role}-${index}
+                vm_name = vm.name or ""
+                if vm_name.startswith(f"{project.name}-"):
+                    vm_name = vm_name[
+                        len(project.name) + 1 :
+                    ]  # Remove "project-" prefix
+
                 export_data["vms"].append(
                     {
-                        "name": vm.name,
+                        "name": vm_name,  # Normalized: "app-0" instead of "cheapa-app-0"
                         "role": vm.role,
                         "external_ip": vm.external_ip,
                         "internal_ip": vm.internal_ip,
@@ -395,6 +403,23 @@ class SyncExportCommand(ProjectCommand):
                         }
                     )
 
+                # Get orchestrator addons
+                orch_addons = (
+                    db.query(Addon).filter(Addon.project_id == orchestrator.id).all()
+                )
+                orch_addons_data = []
+                for addon in orch_addons:
+                    orch_addons_data.append(
+                        {
+                            "instance_name": addon.instance_name,
+                            "category": addon.category,
+                            "type": addon.type,
+                            "version": addon.version,
+                            "vm": addon.vm,
+                            "plan": addon.plan,
+                        }
+                    )
+
                 export_data["orchestrator"] = {
                     "project": {
                         "name": orchestrator.name,
@@ -412,6 +437,7 @@ class SyncExportCommand(ProjectCommand):
                     },
                     "vms": orch_vms_data,
                     "secrets": orch_secrets_data,
+                    "addons": orch_addons_data,
                 }
 
         finally:
@@ -715,7 +741,8 @@ class SyncImportCommand:
             )
 
             # Import orchestrator if present (full import with VMs and secrets)
-            if "orchestrator" in data:
+            # Skip if we're importing orchestrator project itself (already imported above)
+            if "orchestrator" in data and self.project_name != "orchestrator":
                 orch_data = data["orchestrator"]
 
                 # Support both old format (flat) and new format (nested with project/vms/secrets)
@@ -769,11 +796,14 @@ class SyncImportCommand:
                     existing_orch.ssh_user = orch_project_data.get("ssh_user")
                     existing_orch.vpc_subnet = orch_project_data.get("vpc_subnet")
 
-                    # Delete existing VMs and secrets for orchestrator
+                    # Delete existing VMs, secrets, and addons for orchestrator
                     db.query(Secret).filter(
                         Secret.project_id == existing_orch.id
                     ).delete()
                     db.query(VM).filter(VM.project_id == existing_orch.id).delete()
+                    db.query(Addon).filter(
+                        Addon.project_id == existing_orch.id
+                    ).delete()
 
                     orchestrator = existing_orch
                     self.console.print("[green]✓[/green] Updated orchestrator project")
@@ -815,6 +845,24 @@ class SyncImportCommand:
                         f"[green]✓[/green] Created {len(orch_secrets_data)} orchestrator secrets"
                     )
 
+                # Import orchestrator addons
+                orch_addons_data = orch_data.get("addons", [])
+                if orch_addons_data and (not existing_orch or self.force):
+                    for addon_data in orch_addons_data:
+                        addon = Addon(
+                            project_id=orchestrator.id,
+                            instance_name=addon_data.get("instance_name", "primary"),
+                            category=addon_data.get("category"),
+                            type=addon_data.get("type"),
+                            version=addon_data.get("version", "latest"),
+                            vm=addon_data.get("vm", "main"),
+                            plan=addon_data.get("plan"),
+                        )
+                        db.add(addon)
+                    self.console.print(
+                        f"[green]✓[/green] Created {len(orch_addons_data)} orchestrator addons"
+                    )
+
             db.commit()
 
             self.console.print()
@@ -822,12 +870,62 @@ class SyncImportCommand:
             self.console.print(f"[dim]Imported from: {input_file}[/dim]")
             self.console.print()
 
+            # Post-import: Fix addon HOST secrets to point to core VM internal IP
+            self._fix_addon_host_secrets(project.id, db)
+
         except Exception as e:
             db.rollback()
             self.console.print(f"[red]✗ Import failed: {e}[/red]")
             raise SystemExit(1)
         finally:
             db.close()
+
+    def _fix_addon_host_secrets(self, project_id: int, db) -> None:
+        """
+        Fix addon HOST secrets to point to the correct core VM internal IP.
+
+        This ensures that after import, all addon HOST values (postgres.primary.HOST,
+        redis.primary.HOST, rabbitmq.primary.HOST) point to the core VM where
+        the addons are actually running.
+        """
+        from cli.database import VM, Secret
+
+        # Find the core VM's internal IP
+        core_vm = (
+            db.query(VM).filter(VM.project_id == project_id, VM.role == "core").first()
+        )
+
+        if not core_vm or not core_vm.internal_ip:
+            return  # No core VM or no internal IP, skip
+
+        core_internal_ip = core_vm.internal_ip
+
+        # Find all addon HOST secrets and update them
+        host_secrets = (
+            db.query(Secret)
+            .filter(
+                Secret.project_id == project_id,
+                Secret.key.like("%.HOST"),
+                Secret.source == "addon",
+            )
+            .all()
+        )
+
+        updated_count = 0
+        for secret in host_secrets:
+            if secret.value != core_internal_ip:
+                old_value = secret.value
+                secret.value = core_internal_ip
+                updated_count += 1
+                self.console.print(
+                    f"[dim]  ↳ Fixed {secret.key}: {old_value} → {core_internal_ip}[/dim]"
+                )
+
+        if updated_count > 0:
+            db.commit()
+            self.console.print(
+                f"[green]✓[/green] Fixed {updated_count} addon HOST secrets to use core VM IP"
+            )
 
         if self.json_output:
             import json as json_module

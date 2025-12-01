@@ -58,3 +58,9 @@ variable "orchestrator_network_name" {
   default     = ""
 }
 
+variable "allowed_client_subnets" {
+  description = "List of client subnet CIDRs allowed to send logs/metrics (for orchestrator network)"
+  type        = list(string)
+  default     = []
+}
+

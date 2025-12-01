@@ -129,14 +129,30 @@ class ProjectInitializer:
                 db.add(app)
 
             # Create Addons
+            # Default versions for addons
+            default_versions = {
+                "postgres": "15-alpine",
+                "redis": "7-alpine",
+                "rabbitmq": "3.13-management-alpine",
+                "caddy": "2-alpine",
+                "elasticsearch": "8.11.0",
+                "mongodb": "7.0",
+            }
+
             for category, instances in setup_config.addons.items():
                 for instance_name, instance_config in instances.items():
+                    addon_type = instance_config.get("type")
+                    # Use version from config, or default for type, or "latest"
+                    version = instance_config.get("version") or default_versions.get(
+                        addon_type, "latest"
+                    )
+
                     addon = Addon(
                         project_id=db_project.id,
                         instance_name=instance_name,
                         category=category,
-                        type=instance_config.get("type"),
-                        version=instance_config.get("version", "latest"),
+                        type=addon_type,
+                        version=version,
                         vm=instance_config.get("vm", "core"),
                         plan=instance_config.get("plan"),
                     )
