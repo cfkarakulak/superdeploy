@@ -428,6 +428,10 @@ def _deploy_orchestrator(
             if main_vms and len(main_vms) > 0:
                 orchestrator_internal_ip = main_vms[0].get("internal_ip")
 
+        # Final fallback: use reserved orchestrator subnet IP (10.0.0.2)
+        if not orchestrator_internal_ip:
+            orchestrator_internal_ip = "10.0.0.2"
+
         # Save only IP to database state (VM provisioned, but not yet configured)
         # Full deployment will be marked after Ansible completes successfully
         from cli.database import get_db_session, Project

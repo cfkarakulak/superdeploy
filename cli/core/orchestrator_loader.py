@@ -156,6 +156,31 @@ class OrchestratorConfig:
         finally:
             db.close()
 
+    def get_internal_ip(self) -> Optional[str]:
+        """Get orchestrator internal IP from database (for VPC peering)"""
+        from cli.database import get_db_session, Project, VM
+
+        db = get_db_session()
+        try:
+            db_project = (
+                db.query(Project).filter(Project.name == "orchestrator").first()
+            )
+            if not db_project:
+                return None
+
+            # Get from VMs table
+            vm = (
+                db.query(VM)
+                .filter(VM.project_id == db_project.id, VM.internal_ip.isnot(None))
+                .first()
+            )
+            if vm:
+                return vm.internal_ip
+
+            return None
+        finally:
+            db.close()
+
     def get_vm_config(self) -> Dict[str, Any]:
         """Get VM configuration for orchestrator"""
         return self.config.get("vm", {})

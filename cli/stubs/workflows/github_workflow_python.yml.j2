@@ -44,7 +44,7 @@ jobs:
       DOCKER_TOKEN: {% raw %}${{ secrets.DOCKER_TOKEN }}{% endraw %}
 
   # 🚀 DEPLOY: Self-hosted runner deployment
-  # Project label is hardcoded from template (GitHub masks dynamic outputs as secrets)
+  # Project and VM labels are hardcoded from template (GitHub masks dynamic outputs as secrets)
   deploy:
     needs: build
     environment: {% raw %}${{ github.ref_name }}{% endraw %}
@@ -52,7 +52,7 @@ jobs:
       - self-hosted
       - superdeploy
       - {{ project }}
-      - {% raw %}${{ needs.build.outputs.vm_role }}{% endraw %}
+      - {{ vm_role }}
 
     steps:
       - name: Download workspace artifact

@@ -97,7 +97,7 @@ jobs:
             -f ./Dockerfile .
 
   # 🚀 DEPLOY: Self-hosted runner deployment
-  # Project label is hardcoded from template (GitHub masks dynamic outputs as secrets)
+  # Project and VM labels are hardcoded from template (GitHub masks dynamic outputs as secrets)
   deploy:
     needs: build
     environment: {% raw %}${{ github.ref_name }}{% endraw %}
@@ -105,7 +105,7 @@ jobs:
       - self-hosted
       - superdeploy
       - {{ project }}
-      - {% raw %}${{ needs.build.outputs.vm_role }}{% endraw %}
+      - {{ vm_role }}
 
     steps:
       - name: Download workspace artifact
@@ -207,19 +207,19 @@ jobs:
                           service['deploy'] = {}
                       service['deploy']['replicas'] = replicas
 
-                  if port:
-                      # Simple healthcheck: if app responds to root URL, it's healthy
-                      service['healthcheck'] = {
-                          'test': ['CMD', 'curl', '-f', f'http://localhost:{port}/'],
-                          'interval': '30s',
-                          'timeout': '10s',
-                          'retries': 3,
-                          'start_period': '40s'
-                      }
-                      service.pop('expose', None)
-                      service['ports'] = [f"{port}:{port}"]
-                  else:
-                      service['healthcheck'] = {'disable': True}
+                      if port:
+                          # Simple healthcheck: if app responds to root URL, it's healthy
+                          service['healthcheck'] = {
+                              'test': ['CMD', 'curl', '-f', f'http://localhost:{port}/'],
+                              'interval': '30s',
+                              'timeout': '10s',
+                              'retries': 3,
+                              'start_period': '40s'
+                          }
+                          service.pop('expose', None)
+                          service['ports'] = [f"{port}:{port}"]
+                      else:
+                          service['healthcheck'] = {'disable': True}
 
                       print(f"✅ Updated {service_name}")
                   else:
